@@ -1,0 +1,47 @@
+{
+  "name": "diagram-app",
+  "version": "0.1.0",
+  "description": "Electron desktop app with Next.js",
+  "author": "Diagram App",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n next,electron -c blue,green \"bun run dev:next\" \"bun run dev:electron\"",
+    "dev:next": "next dev -p 3000",
+    "dev:electron": "wait-on http://127.0.0.1:3000 && cross-env NODE_ENV=development bun run build:electron && cross-env NODE_ENV=development electron .",
+    "build": "next build && bun run copy:standalone && bun run build:electron",
+    "build:electron": "bun run scripts/build-electron.ts",
+    "copy:standalone": "bun run scripts/copy-standalone-assets.ts",
+    "start": "cross-env NODE_ENV=production electron .",
+    "package": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "package:dir": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1",
+    "esbuild": "^0.28.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wait-on": "^9.0.10"
+  },
+  "trustedDependencies": [
+    "electron",
+    "esbuild",
+    "sharp",
+    "unrs-resolver"
+  ]
+}
