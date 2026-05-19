@@ -12,10 +12,33 @@ export type PanZoomState = {
     scale: number
 }
 
-type BaseSize = { w: number; h: number }
+export function getSvgDimensions(svg: string): { width: number; height: number } | null {
+    const viewBoxMatch = svg.match(/viewBox=["']([^"']+)["']/i)
+    if (viewBoxMatch) {
+        const parts = viewBoxMatch[1]
+            .trim()
+            .split(/[\s,]+/)
+            .map(Number)
+        if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+            return { width: parts[2], height: parts[3] }
+        }
+    }
 
-function toTranslate({ x, y }: { x: number; y: number }) {
-    return `translate(${x}px, ${y}px)`
+    const widthMatch = svg.match(/\bwidth=["']([^"']+)["']/i)
+    const heightMatch = svg.match(/\bheight=["']([^"']+)["']/i)
+    if (widthMatch && heightMatch) {
+        const width = parseFloat(widthMatch[1])
+        const height = parseFloat(heightMatch[1])
+        if (width > 0 && height > 0) {
+            return { width, height }
+        }
+    }
+
+    return null
+}
+
+function toTransform({ x, y, scale }: PanZoomState) {
+    return `translate(${x}px, ${y}px) scale(${scale})`
 }
 
 export function usePanZoom(
@@ -24,41 +47,19 @@ export function usePanZoom(
     initial: PanZoomState = { x: 0, y: 0, scale: 1 }
 ) {
     const stateRef = useRef(initial)
-    const baseSizeRef = useRef<BaseSize | null>(null)
     const isPanningRef = useRef(false)
     const panStart = useRef({ x: 0, y: 0, stateX: 0, stateY: 0 })
-
-    const applySvgScale = useCallback(
-        (scale: number) => {
-            const base = baseSizeRef.current
-            const svg = transformRef.current?.querySelector('svg')
-            if (!base || !svg) return
-            svg.setAttribute('width', String(base.w * scale))
-            svg.setAttribute('height', String(base.h * scale))
-        },
-        [transformRef]
-    )
 
     const applyTransform = useCallback(
         (next: PanZoomState) => {
             stateRef.current = next
             const el = transformRef.current
             if (el) {
-                el.style.transform = toTranslate(next)
+                el.style.transform = toTransform(next)
             }
-            applySvgScale(next.scale)
         },
-        [transformRef, applySvgScale]
+        [transformRef]
     )
-
-    const refreshBaseSize = useCallback(() => {
-        const svg = transformRef.current?.querySelector('svg')
-        if (!svg) return
-        const { width, height } = svg.viewBox.baseVal
-        if (width <= 0 || height <= 0) return
-        baseSizeRef.current = { w: width, h: height }
-        applyTransform(stateRef.current)
-    }, [transformRef, applyTransform])
 
     useEffect(() => {
         applyTransform(stateRef.current)
@@ -134,8 +135,6 @@ export function usePanZoom(
             const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prev.scale * (1 + delta)))
             const scaleRatio = nextScale / prev.scale
 
-            // Diagram is flex-centered; pan offsets the center from viewport center.
-            // Keep the point under the cursor fixed while scaling SVG width/height.
             const centerX = rect.width / 2
             const centerY = rect.height / 2
 
@@ -150,7 +149,6 @@ export function usePanZoom(
 
     return {
         reset,
-        refreshBaseSize,
         handlers: {
             onPointerDown,
             onPointerMove,
