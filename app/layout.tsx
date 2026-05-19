@@ -11,8 +11,8 @@ const interHeading = Inter({ subsets: ['latin'], variable: '--font-heading' })
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' })
 
 export const metadata: Metadata = {
-    title: 'diagram-app',
-    description: 'Diagram app built with Tauri and Next.js',
+    title: 'Mermaid Studio',
+    description: 'Edit Mermaid diagrams with a live preview canvas',
 }
 
 export default function RootLayout({
@@ -22,7 +22,7 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en" className={cn('font-sans', 'font-mono', inter.variable, interHeading.variable, geistMono.variable)} suppressHydrationWarning>
-            <body className="min-h-screen min-w-screen bg-background">
+            <body className="h-screen w-screen overflow-hidden bg-background">
                 <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" disableTransitionOnChange>
                     {children}
                 </ThemeProvider>
