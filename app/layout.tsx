@@ -1,14 +1,14 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { Geist, Inter, Geist_Mono } from 'next/font/google'
+import { Inter, Geist_Mono } from 'next/font/google'
 import { cn } from '@/lib/utils'
 import { ThemeProvider } from '@/components/theme-provider'
 
-const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' })
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono', preload: true })
 
-const interHeading = Inter({ subsets: ['latin'], variable: '--font-heading' })
+const interHeading = Inter({ subsets: ['latin'], variable: '--font-heading', preload: true })
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans' })
+const inter = Inter({ subsets: ['latin'], variable: '--font-sans', preload: true })
 
 export const metadata: Metadata = {
     title: 'Mermaid Studio',
@@ -21,8 +21,8 @@ export default function RootLayout({
     children: React.ReactNode
 }>) {
     return (
-        <html lang="en" className={cn('font-sans', 'font-mono', inter.variable, interHeading.variable, geistMono.variable)} suppressHydrationWarning>
-            <body className="h-screen w-screen overflow-hidden bg-background">
+        <html lang="en" className={cn('h-full overflow-hidden', inter.variable, interHeading.variable, geistMono.variable)} suppressHydrationWarning>
+            <body className="h-full w-full overflow-hidden bg-background font-sans">
                 <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" disableTransitionOnChange>
                     {children}
                 </ThemeProvider>

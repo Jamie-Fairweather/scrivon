@@ -1,12 +1,14 @@
 'use client'
 
 import { memo, useEffect, useMemo, useRef } from 'react'
-import { renderMermaidSVG } from 'beautiful-mermaid'
+import { renderMermaidSVG, THEMES, type RenderOptions } from 'beautiful-mermaid'
 import { Card, CardPanel } from '@/components/ui/card'
 import { usePanZoom } from '@/components/studio/use-pan-zoom'
+import { cn } from '@/lib/utils'
 
 type MermaidCanvasProps = {
     source: string
+    className?: string
 }
 
 const DiagramSvg = memo(function DiagramSvg({ svg }: { svg: string }) {
@@ -24,19 +26,20 @@ const DiagramError = memo(function DiagramError({ message }: { message: string }
     )
 })
 
-export function MermaidCanvas({ source }: MermaidCanvasProps) {
+export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
     const { reset, refreshBaseSize, handlers } = usePanZoom(containerRef, transformRef)
 
+    let options: RenderOptions = {
+        ...THEMES['zinc-dark'],
+        transparent: true,
+    }
+
     const { svg, error } = useMemo(() => {
         try {
             return {
-                svg: renderMermaidSVG(source, {
-                    bg: 'var(--background)',
-                    fg: 'var(--foreground)',
-                    transparent: true,
-                }),
+                svg: renderMermaidSVG(source, options),
                 error: null as string | null,
             }
         } catch (err) {
@@ -53,7 +56,12 @@ export function MermaidCanvas({ source }: MermaidCanvasProps) {
     }, [svg, refreshBaseSize])
 
     return (
-        <div ref={containerRef} className="fixed inset-0 z-0 cursor-grab touch-none bg-background select-none" onDoubleClick={reset} {...handlers}>
+        <div
+            ref={containerRef}
+            className={cn('relative isolate min-h-0 flex-1 cursor-grab touch-none overflow-hidden bg-background select-none', className)}
+            onDoubleClick={reset}
+            {...handlers}
+        >
             <div
                 className="pointer-events-none absolute inset-0 opacity-30"
                 style={{

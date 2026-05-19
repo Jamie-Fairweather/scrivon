@@ -5,7 +5,6 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
     font-size: 16px;
     line-height: 24px;
     font-weight: 400;
@@ -248,11 +247,12 @@
     * {
         @apply border-border outline-ring/50;
     }
+    html,
     body {
-        @apply bg-background text-foreground;
+        @apply h-full w-full overflow-hidden bg-background text-foreground;
     }
     html {
-        @apply font-mono;
+        @apply font-sans;
     }
     code,
     kbd,

@@ -1,20 +1,46 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { PanelLeft, PanelLeftClose } from 'lucide-react'
+import type { editor } from 'monaco-editor'
+import { useWorkspace } from '@/components/studio/workspace-provider'
 import { Button } from '@/components/ui/button'
+import { isMermaidFile } from '@/lib/tauri/fs'
+import type { DocumentTab } from '@/lib/workspace/types'
+
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
 
 const MIN_WIDTH = 280
 const MAX_WIDTH_RATIO = 0.6
 
+/** Stable reference — @monaco-editor/react calls updateOptions whenever this object identity changes. */
+const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+    minimap: { enabled: false },
+    overviewRulerLanes: 0,
+    overviewRulerBorder: false,
+    hideCursorInOverviewRuler: true,
+    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    wordWrap: 'on',
+    automaticLayout: true,
+    padding: { top: 12 },
+    scrollBeyondLastLine: false,
+    fontSize: 13,
+    lineNumbers: 'on',
+    renderLineHighlight: 'all',
+    tabSize: 2,
+    scrollbar: {
+        vertical: 'auto',
+        horizontal: 'hidden',
+        useShadows: false,
+        verticalScrollbarSize: 10,
+    },
+}
+
 type CodeEditorPanelProps = {
-    source: string
-    onSourceChange: (value: string) => void
     width: number
-    onWidthChange: (width: number) => void
     collapsed: boolean
+    onWidthChange: (width: number) => void
     onCollapsedChange: (collapsed: boolean) => void
 }
 
@@ -23,8 +49,15 @@ function clampWidth(width: number) {
     return Math.min(maxWidth, Math.max(MIN_WIDTH, width))
 }
 
-export function CodeEditorPanel({ source, onSourceChange, width, onWidthChange, collapsed, onCollapsedChange }: CodeEditorPanelProps) {
+function languageForTab(tab: DocumentTab) {
+    return isMermaidFile(tab.name) ? 'markdown' : 'plaintext'
+}
+
+export function CodeEditorPanel({ width, collapsed, onWidthChange, onCollapsedChange }: CodeEditorPanelProps) {
+    const { activeTab, updateTabContent } = useWorkspace()
     const resizeStart = useRef({ x: 0, width: 0 })
+    const activeTabIdRef = useRef<string | null>(null)
+    activeTabIdRef.current = activeTab?.id ?? null
 
     const onResizePointerDown = useCallback(
         (e: React.PointerEvent) => {
@@ -48,59 +81,62 @@ export function CodeEditorPanel({ source, onSourceChange, width, onWidthChange, 
         [width, onWidthChange]
     )
 
+    const onEditorChange = useCallback(
+        (value: string | undefined) => {
+            const id = activeTabIdRef.current
+            if (!id) return
+            updateTabContent(id, value ?? '')
+        },
+        [updateTabContent]
+    )
+
+    const editorPath = activeTab?.path
+    const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab?.name])
+    const editorDefaultValue = activeTab?.content
+
     if (collapsed) {
         return (
-            <Button
-                variant="outline"
-                size="icon"
-                className="fixed top-3 left-3 z-20 shadow-md"
-                onClick={() => onCollapsedChange(false)}
-                aria-label="Expand editor"
-            >
-                <PanelLeft className="size-4" />
-            </Button>
+            <div className="flex h-full w-10 shrink-0 flex-col items-center border-r border-border bg-code py-2">
+                <Button variant="ghost" size="icon-sm" onClick={() => onCollapsedChange(false)} aria-label="Expand editor">
+                    <PanelLeft className="size-4" />
+                </Button>
+            </div>
         )
     }
 
     return (
-        <>
-            <div className="fixed top-0 left-0 z-10 flex h-full flex-col border-r border-border bg-code shadow-lg" style={{ width }}>
-                <div className="flex h-10 shrink-0 items-center justify-end border-b border-border px-2">
-                    <Button variant="ghost" size="icon-sm" onClick={() => onCollapsedChange(true)} aria-label="Collapse editor">
-                        <PanelLeftClose className="size-4" />
-                    </Button>
-                </div>
-
-                <div className="min-h-0 flex-1">
-                    <MonacoEditor
-                        height="100%"
-                        language="plaintext"
-                        theme="vs-dark"
-                        value={source}
-                        onChange={(value) => onSourceChange(value ?? '')}
-                        options={{
-                            minimap: { enabled: false },
-                            fontFamily: 'var(--font-mono), monospace',
-                            wordWrap: 'on',
-                            automaticLayout: true,
-                            padding: { top: 12 },
-                            scrollBeyondLastLine: false,
-                            fontSize: 13,
-                            lineNumbers: 'on',
-                            renderLineHighlight: 'all',
-                            tabSize: 2,
-                        }}
-                    />
-                </div>
-
-                <div
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="Resize editor"
-                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-ring/30 active:bg-ring/50"
-                    onPointerDown={onResizePointerDown}
-                />
+        <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-code" style={{ width }}>
+            <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
+                <Button variant="ghost" size="icon-sm" onClick={() => onCollapsedChange(true)} aria-label="Collapse editor">
+                    <PanelLeftClose className="size-4" />
+                </Button>
             </div>
-        </>
+
+            <div className="min-h-0 flex-1 overflow-hidden bg-code">
+                {editorPath ? (
+                    <MonacoEditor
+                        path={editorPath}
+                        defaultValue={editorDefaultValue}
+                        language={editorLanguage}
+                        theme="vs-dark"
+                        options={EDITOR_OPTIONS}
+                        saveViewState
+                        onChange={onEditorChange}
+                    />
+                ) : (
+                    <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                        Select a file from the explorer or create a new file.
+                    </div>
+                )}
+            </div>
+
+            <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize editor"
+                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-ring/30 active:bg-ring/50"
+                onPointerDown={onResizePointerDown}
+            />
+        </div>
     )
 }
