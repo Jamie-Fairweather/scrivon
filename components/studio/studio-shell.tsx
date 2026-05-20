@@ -1,6 +1,9 @@
 'use client'
 
+import { DeleteConfirmProvider } from '@/components/studio/delete-confirm-provider'
+import { NamePromptProvider } from '@/components/studio/name-prompt-provider'
 import { StudioLayout } from '@/components/studio/studio-layout'
+import { StudioMenuBar } from '@/components/studio/studio-menu-bar'
 import { WelcomeScreen } from '@/components/studio/welcome-screen'
 import { WorkspaceProvider, useWorkspace } from '@/components/studio/workspace-provider'
 
@@ -14,18 +17,28 @@ function StudioRouter() {
     if (!workspaceRoot) {
         return (
             <div className="fixed inset-0 flex flex-col bg-background">
+                <StudioMenuBar />
                 <WelcomeScreen />
             </div>
         )
     }
 
-    return <StudioLayout />
+    return (
+        <div className="fixed inset-0 flex flex-col bg-background">
+            <StudioMenuBar />
+            <StudioLayout />
+        </div>
+    )
 }
 
 export function StudioShell() {
     return (
         <WorkspaceProvider>
-            <StudioRouter />
+            <NamePromptProvider>
+                <DeleteConfirmProvider>
+                    <StudioRouter />
+                </DeleteConfirmProvider>
+            </NamePromptProvider>
         </WorkspaceProvider>
     )
 }

@@ -1,7 +1,10 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import { Loader2, X } from 'lucide-react'
+import { Focus, Loader2, X } from 'lucide-react'
+import { useCanvasControls } from '@/components/studio/canvas-controls-provider'
+import { LayoutToggleButtons } from '@/components/studio/layout-toggle-buttons'
+import { Button } from '@/components/ui/button'
 import { useWorkspace } from '@/components/studio/workspace-provider'
 import { cn } from '@/lib/utils'
 
@@ -12,14 +15,15 @@ type EditorTabBarProps = {
 
 export function EditorTabBar({ className, style }: EditorTabBarProps) {
     const { tabs, activeTabId, setActiveTab, closeTab } = useWorkspace()
-
-    if (tabs.length === 0) return null
+    const { canFitToView, fitToView } = useCanvasControls()
 
     return (
         <div
-            className={cn('flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-background/95 backdrop-blur-sm', className)}
+            className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)}
             style={style}
         >
+            <LayoutToggleButtons />
+            <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId
                 return (
@@ -59,6 +63,19 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                     </div>
                 )
             })}
+            </div>
+            <div className="flex shrink-0 items-center border-l border-border px-1">
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Fit diagram to screen"
+                    title="Fit diagram to screen"
+                    disabled={!canFitToView}
+                    onClick={fitToView}
+                >
+                    <Focus className="size-4" />
+                </Button>
+            </div>
         </div>
     )
 }

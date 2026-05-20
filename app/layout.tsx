@@ -21,7 +21,12 @@ export default function RootLayout({
     children: React.ReactNode
 }>) {
     return (
-        <html lang="en" className={cn('h-full overflow-hidden', inter.variable, interHeading.variable, geistMono.variable)} suppressHydrationWarning>
+        <html
+            lang="en"
+            className={cn('dark h-full overflow-hidden', inter.variable, interHeading.variable, geistMono.variable)}
+            style={{ backgroundColor: '#161616' }}
+            suppressHydrationWarning
+        >
             <body className="h-full w-full overflow-hidden bg-background font-sans">
                 <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" disableTransitionOnChange>
                     {children}

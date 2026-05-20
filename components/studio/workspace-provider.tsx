@@ -39,6 +39,8 @@ type WorkspaceContextValue = {
     tabs: DocumentTab[]
     activeTabId: string | null
     activeTab: DocumentTab | null
+    canvasFitRequestId: number
+    requestCanvasFit: () => void
     layout: StudioLayoutState
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
@@ -88,6 +90,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([])
     const [tabs, setTabs] = useState<DocumentTab[]>([])
     const [activeTabId, setActiveTabId] = useState<string | null>(null)
+    const [canvasFitRequestId, setCanvasFitRequestId] = useState(0)
     const [layout, setLayout] = useState<StudioLayoutState>({
         explorerOpen: true,
         editorOpen: true,
@@ -99,6 +102,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
     const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId])
+
+    const requestCanvasFit = useCallback(() => {
+        setCanvasFitRequestId((id) => id + 1)
+    }, [])
 
     useEffect(() => {
         const explorer = localStorage.getItem(STORAGE_LAYOUT_EXPLORER)
@@ -206,12 +213,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 const tab = tabFromPath(path, content)
                 setTabs((prev) => [...prev, tab])
                 setActiveTabId(path)
+                requestCanvasFit()
                 if (workspaceRoot) await setLastOpenedFile(workspaceRoot, path)
             } catch (err) {
                 await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
             }
         },
-        [activeTabId, flushSave, workspaceRoot]
+        [activeTabId, flushSave, requestCanvasFit, workspaceRoot]
     )
 
     const openWorkspace = useCallback(
@@ -237,12 +245,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                     const tab = tabFromPath(lastFile, content)
                     setTabs([tab])
                     setActiveTabId(lastFile)
+                    requestCanvasFit()
                 } catch {
                     // ignore missing last file
                 }
             }
         },
-        [isDesktop, workspaceRoot, flushAllSaves]
+        [isDesktop, requestCanvasFit, workspaceRoot, flushAllSaves]
     )
 
     const pickAndOpenWorkspace = useCallback(async () => {
@@ -410,6 +419,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             tabs,
             activeTabId,
             activeTab,
+            canvasFitRequestId,
+            requestCanvasFit,
             layout,
             setExplorerOpen,
             setEditorOpen,
@@ -441,6 +452,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             tabs,
             activeTabId,
             activeTab,
+            canvasFitRequestId,
+            requestCanvasFit,
             layout,
             setExplorerOpen,
             setEditorOpen,

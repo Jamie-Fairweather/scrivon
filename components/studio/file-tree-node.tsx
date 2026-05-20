@@ -2,15 +2,18 @@
 
 import { ChevronRight, Copy, FileCode2, FileText, Folder, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
+import { useDeleteConfirm } from '@/components/studio/delete-confirm-provider'
+import { useNamePrompt } from '@/components/studio/name-prompt-provider'
 import { useWorkspace } from '@/components/studio/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
-import { confirmDelete, promptName } from '@/lib/tauri/dialog'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
 function TreeContextMenu({ node }: { node: FileNode }) {
+    const { confirmDelete } = useDeleteConfirm()
+    const { promptName } = useNamePrompt()
     const { openFile, createFile, createFolder, renameEntry, deleteEntry, duplicateFile } = useWorkspace()
 
     const handleNewFile = async () => {
@@ -31,20 +34,23 @@ function TreeContextMenu({ node }: { node: FileNode }) {
     }
 
     const handleDelete = async () => {
-        const ok = await confirmDelete(node.name)
+        const ok = await confirmDelete(node.name, node.kind === 'directory')
         if (ok) await deleteEntry(node.path, node.kind === 'directory')
     }
 
     return (
         <Menu>
             <MenuTrigger
+                nativeButton={false}
                 render={
                     <Button
+                        render={<span />}
                         variant="ghost"
                         size="icon-xs"
                         className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
                         aria-label="File actions"
                         onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
                     >
                         <MoreHorizontal className="size-3.5" />
                     </Button>
@@ -129,9 +135,11 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                     ) : (
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
                     )}
-                    <span className="truncate">{node.name}</span>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
+                        <span className="truncate">{node.name}</span>
+                        <TreeContextMenu node={node} />
+                    </div>
                 </button>
-                <TreeContextMenu node={node} />
             </div>
             {node.kind === 'directory' && expanded && (
                 <div>
@@ -145,6 +153,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
 }
 
 export function FileTreeRootActions() {
+    const { promptName } = useNamePrompt()
     const { workspaceRoot, createFile, createFolder } = useWorkspace()
 
     const onNewFile = async () => {

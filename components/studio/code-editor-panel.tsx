@@ -2,10 +2,8 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useMemo, useRef } from 'react'
-import { PanelLeft, PanelLeftClose } from 'lucide-react'
 import type { editor } from 'monaco-editor'
 import { useWorkspace } from '@/components/studio/workspace-provider'
-import { Button } from '@/components/ui/button'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -39,9 +37,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 
 type CodeEditorPanelProps = {
     width: number
-    collapsed: boolean
     onWidthChange: (width: number) => void
-    onCollapsedChange: (collapsed: boolean) => void
 }
 
 function clampWidth(width: number) {
@@ -53,7 +49,7 @@ function languageForTab(tab: DocumentTab) {
     return isMermaidFile(tab.name) ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ width, collapsed, onWidthChange, onCollapsedChange }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
     const { activeTab, updateTabContent } = useWorkspace()
     const resizeStart = useRef({ x: 0, width: 0 })
     const activeTabIdRef = useRef<string | null>(null)
@@ -94,24 +90,8 @@ export function CodeEditorPanel({ width, collapsed, onWidthChange, onCollapsedCh
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab?.name])
     const editorDefaultValue = activeTab?.content
 
-    if (collapsed) {
-        return (
-            <div className="flex h-full w-10 shrink-0 flex-col items-center border-r border-border bg-code py-2">
-                <Button variant="ghost" size="icon-sm" onClick={() => onCollapsedChange(false)} aria-label="Expand editor">
-                    <PanelLeft className="size-4" />
-                </Button>
-            </div>
-        )
-    }
-
     return (
         <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-code" style={{ width }}>
-            <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
-                <Button variant="ghost" size="icon-sm" onClick={() => onCollapsedChange(true)} aria-label="Collapse editor">
-                    <PanelLeftClose className="size-4" />
-                </Button>
-            </div>
-
             <div className="min-h-0 flex-1 overflow-hidden bg-code">
                 {editorPath ? (
                     <MonacoEditor

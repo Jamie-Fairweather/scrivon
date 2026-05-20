@@ -1,8 +1,10 @@
 'use client'
 
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { renderMermaidSVG, THEMES, type RenderOptions } from 'beautiful-mermaid'
 import { Card, CardPanel } from '@/components/ui/card'
+import { useCanvasControls } from '@/components/studio/canvas-controls-provider'
+import { useWorkspace } from '@/components/studio/workspace-provider'
 import { getSvgDimensions, usePanZoom } from '@/components/studio/use-pan-zoom'
 import { cn } from '@/lib/utils'
 
@@ -60,17 +62,31 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
     const svgCacheRef = useRef(new Map<string, string>())
-    const { reset, handlers } = usePanZoom(containerRef, transformRef)
+    const dimensionsRef = useRef<{ width: number; height: number } | null>(null)
+    const renderedSourceRef = useRef(source)
+    const lastHandledFitRequestRef = useRef(0)
+    const { activeTabId, tabs, canvasFitRequestId } = useWorkspace()
+    const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
+    const { reset, fitToView, handlers } = usePanZoom(containerRef, transformRef, activeTabId, openTabIds)
+    const { registerFitToView, setCanFitToView } = useCanvasControls()
 
     const [displaySvg, setDisplaySvg] = useState<string | null>(() => svgCacheRef.current.get(source) ?? null)
     const [error, setError] = useState<string | null>(null)
+
+    const svgForDisplay =
+        svgCacheRef.current.get(source) ??
+        (displaySvg && renderedSourceRef.current === source ? displaySvg : null)
 
     useEffect(() => {
         setError(null)
 
         const cached = svgCacheRef.current.get(source)
         if (cached) {
+            renderedSourceRef.current = source
             setDisplaySvg(cached)
+        } else {
+            renderedSourceRef.current = source
+            setDisplaySvg(null)
         }
 
         let cancelled = false
@@ -80,6 +96,7 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
                 const svg = renderMermaidSVG(source, RENDER_OPTIONS)
                 if (cancelled) return
                 svgCacheRef.current.set(source, svg)
+                renderedSourceRef.current = source
                 setDisplaySvg(svg)
                 setError(null)
             } catch (err) {
@@ -94,7 +111,53 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
         }
     }, [source])
 
-    const dimensions = displaySvg ? getSvgDimensions(displaySvg) : null
+    const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
+    dimensionsRef.current = dimensions
+
+    useEffect(() => {
+        setCanFitToView(Boolean(dimensions))
+    }, [dimensions, setCanFitToView])
+
+    useEffect(() => {
+        return registerFitToView(() => {
+            const d = dimensionsRef.current
+            if (d) fitToView(d.width, d.height)
+        })
+    }, [registerFitToView, fitToView])
+
+    useLayoutEffect(() => {
+        if (canvasFitRequestId === 0 || canvasFitRequestId === lastHandledFitRequestRef.current) return
+        if (!dimensions) return
+
+        lastHandledFitRequestRef.current = canvasFitRequestId
+        const fitRequest = { requestId: canvasFitRequestId, tabId: activeTabId, source }
+
+        const attemptFit = () => {
+            if (fitRequest.requestId !== canvasFitRequestId) return false
+            if (fitRequest.tabId !== activeTabId || fitRequest.source !== source) return false
+            const container = containerRef.current
+            if (!container) return false
+            const { width, height } = container.getBoundingClientRect()
+            if (width <= 0 || height <= 0) return false
+            fitToView(dimensions.width, dimensions.height)
+            return true
+        }
+
+        if (attemptFit()) return
+
+        let innerId = 0
+        const outerId = requestAnimationFrame(() => {
+            if (attemptFit()) return
+            innerId = requestAnimationFrame(() => {
+                attemptFit()
+            })
+        })
+
+        return () => {
+            cancelAnimationFrame(outerId)
+            if (innerId) cancelAnimationFrame(innerId)
+        }
+    }, [canvasFitRequestId, activeTabId, source, dimensions, fitToView])
 
     return (
         <div
@@ -114,8 +177,8 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
             <div ref={transformRef} className="absolute inset-0 flex items-center justify-center">
                 {error ? (
                     <DiagramError message={error} />
-                ) : displaySvg && dimensions ? (
-                    <DiagramIframe svg={displaySvg} width={dimensions.width} height={dimensions.height} />
+                ) : svgForDisplay && dimensions ? (
+                    <DiagramIframe svg={svgForDisplay} width={dimensions.width} height={dimensions.height} />
                 ) : null}
             </div>
         </div>

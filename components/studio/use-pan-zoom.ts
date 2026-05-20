@@ -1,10 +1,27 @@
 'use client'
 
-import { useCallback, useEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 const MIN_SCALE = 0.1
 const MAX_SCALE = 5
 const ZOOM_SENSITIVITY = 0.001
+const FIT_PADDING = 48
+
+export function computeFitTransform(
+    containerWidth: number,
+    containerHeight: number,
+    contentWidth: number,
+    contentHeight: number,
+    padding = FIT_PADDING
+): PanZoomState {
+    const availableW = Math.max(0, containerWidth - padding * 2)
+    const availableH = Math.max(0, containerHeight - padding * 2)
+    const scale = Math.min(
+        MAX_SCALE,
+        Math.max(MIN_SCALE, Math.min(availableW / contentWidth, availableH / contentHeight))
+    )
+    return { x: 0, y: 0, scale }
+}
 
 export type PanZoomState = {
     x: number
@@ -41,12 +58,17 @@ function toTransform({ x, y, scale }: PanZoomState) {
     return `translate(${x}px, ${y}px) scale(${scale})`
 }
 
+const DEFAULT_STATE: PanZoomState = { x: 0, y: 0, scale: 1 }
+
 export function usePanZoom(
     containerRef: RefObject<HTMLElement | null>,
     transformRef: RefObject<HTMLElement | null>,
-    initial: PanZoomState = { x: 0, y: 0, scale: 1 }
+    tabId: string | null,
+    openTabIds: string[] = []
 ) {
-    const stateRef = useRef(initial)
+    const stateRef = useRef<PanZoomState>(DEFAULT_STATE)
+    const statesByTabRef = useRef(new Map<string, PanZoomState>())
+    const tabIdRef = useRef(tabId)
     const isPanningRef = useRef(false)
     const panStart = useRef({ x: 0, y: 0, stateX: 0, stateY: 0 })
 
@@ -57,17 +79,40 @@ export function usePanZoom(
             if (el) {
                 el.style.transform = toTransform(next)
             }
+            const id = tabIdRef.current
+            if (id) statesByTabRef.current.set(id, next)
         },
         [transformRef]
     )
 
+    useLayoutEffect(() => {
+        tabIdRef.current = tabId
+        const next = tabId ? (statesByTabRef.current.get(tabId) ?? DEFAULT_STATE) : DEFAULT_STATE
+        stateRef.current = next
+        const el = transformRef.current
+        if (el) el.style.transform = toTransform(next)
+    }, [tabId, transformRef])
+
     useEffect(() => {
-        applyTransform(stateRef.current)
-    }, [applyTransform])
+        const open = new Set(openTabIds)
+        for (const key of statesByTabRef.current.keys()) {
+            if (!open.has(key)) statesByTabRef.current.delete(key)
+        }
+    }, [openTabIds])
 
     const reset = useCallback(() => {
-        applyTransform(initial)
-    }, [applyTransform, initial.x, initial.y, initial.scale])
+        applyTransform(DEFAULT_STATE)
+    }, [applyTransform])
+
+    const fitToView = useCallback(
+        (contentWidth: number, contentHeight: number) => {
+            const container = containerRef.current
+            if (!container || contentWidth <= 0 || contentHeight <= 0) return
+            const { width, height } = container.getBoundingClientRect()
+            applyTransform(computeFitTransform(width, height, contentWidth, contentHeight))
+        },
+        [applyTransform, containerRef]
+    )
 
     const setGrabbingCursor = useCallback(
         (grabbing: boolean) => {
@@ -149,6 +194,7 @@ export function usePanZoom(
 
     return {
         reset,
+        fitToView,
         handlers: {
             onPointerDown,
             onPointerMove,

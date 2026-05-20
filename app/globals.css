@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+    --titlebar-height: 2rem;
     font-size: 16px;
     line-height: 24px;
     font-weight: 400;
