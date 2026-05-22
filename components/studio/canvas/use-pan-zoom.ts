@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 
 const MIN_SCALE = 0.1
 const MAX_SCALE = 5
 const ZOOM_SENSITIVITY = 0.001
-const FIT_PADDING = 48
+const FIT_PADDING = 24
 
 export function computeFitTransform(
     containerWidth: number,
@@ -17,9 +17,13 @@ export function computeFitTransform(
     const availableW = Math.max(0, containerWidth - padding * 2)
     const availableH = Math.max(0, containerHeight - padding * 2)
     const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(availableW / contentWidth, availableH / contentHeight)))
-    const x = (containerWidth - contentWidth * scale) / 2
-    const y = (containerHeight - contentHeight * scale) / 2
-    return { x, y, scale }
+    // Content is flex-centered; pan offset (0,0) with scale fits the viewport.
+    return { x: 0, y: 0, scale }
+}
+
+/** Reset view: centered at 100% scale (content wrapper is flex-centered). */
+export function computeCenterTransform(): PanZoomState {
+    return { x: 0, y: 0, scale: 1 }
 }
 
 export type PanZoomState = {
@@ -51,7 +55,7 @@ export function usePanZoom(
             stateRef.current = next
             const el = transformRef.current
             if (el) {
-                el.style.transformOrigin = '0 0'
+                el.style.transformOrigin = 'center center'
                 el.style.transform = toTransform(next)
             }
             const id = tabIdRef.current
@@ -66,7 +70,7 @@ export function usePanZoom(
         stateRef.current = next
         const el = transformRef.current
         if (el) {
-            el.style.transformOrigin = '0 0'
+            el.style.transformOrigin = 'center center'
             el.style.transform = toTransform(next)
         }
     }, [tabId, transformRef])
@@ -79,7 +83,7 @@ export function usePanZoom(
     }, [openTabIds])
 
     const reset = useCallback(() => {
-        applyTransform(DEFAULT_STATE)
+        applyTransform(computeCenterTransform())
     }, [applyTransform])
 
     const fitToView = useCallback(
@@ -156,16 +160,18 @@ export function usePanZoom(
             const rect = e.currentTarget.getBoundingClientRect()
             const cursorX = e.clientX - rect.left
             const cursorY = e.clientY - rect.top
+            const centerX = rect.width / 2
+            const centerY = rect.height / 2
             const prev = stateRef.current
 
             const delta = -e.deltaY * ZOOM_SENSITIVITY
             const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prev.scale * (1 + delta)))
-            const contentX = (cursorX - prev.x) / prev.scale
-            const contentY = (cursorY - prev.y) / prev.scale
+            const contentX = (cursorX - centerX - prev.x) / prev.scale
+            const contentY = (cursorY - centerY - prev.y) / prev.scale
 
             applyTransform({
-                x: cursorX - contentX * nextScale,
-                y: cursorY - contentY * nextScale,
+                x: cursorX - centerX - contentX * nextScale,
+                y: cursorY - centerY - contentY * nextScale,
                 scale: nextScale,
             })
         },
