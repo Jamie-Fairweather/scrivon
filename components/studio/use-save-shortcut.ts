@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useDocumentSave, useDocumentTabs } from '@/components/studio/workspace-provider'
 
 function isNativeTextField(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false
@@ -10,7 +10,8 @@ function isNativeTextField(target: EventTarget | null): boolean {
 }
 
 export function useSaveShortcut() {
-    const { activeTabId, flushSave } = useWorkspace()
+    const { activeTabId } = useDocumentTabs()
+    const { flushSave } = useDocumentSave()
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {

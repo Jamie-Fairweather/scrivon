@@ -1,11 +1,11 @@
 'use client'
 
 import { Code2, PanelLeft } from 'lucide-react'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useStudioLayout } from '@/components/studio/workspace-provider'
 import { Button } from '@/components/ui/button'
 
 export function LayoutToggleButtons() {
-    const { layout, setExplorerOpen, setEditorOpen } = useWorkspace()
+    const { layout, setExplorerOpen, setEditorOpen } = useStudioLayout()
 
     return (
         <div className="flex shrink-0 items-center gap-0.5 border-r border-border px-1">

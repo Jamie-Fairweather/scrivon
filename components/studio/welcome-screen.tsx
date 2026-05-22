@@ -1,7 +1,7 @@
 'use client'
 
 import { FolderOpen, FolderX, Monitor } from 'lucide-react'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useWorkspaceSession } from '@/components/studio/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -13,7 +13,7 @@ function truncatePath(path: string, max = 56): string {
 }
 
 export function WelcomeScreen() {
-    const { isDesktop, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, removeRecent } = useWorkspace()
+    const { isDesktop, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, removeRecent } = useWorkspaceSession()
 
     return (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-6">

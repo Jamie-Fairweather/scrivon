@@ -5,7 +5,7 @@ import { Focus, Loader2, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas-controls-provider'
 import { LayoutToggleButtons } from '@/components/studio/layout-toggle-buttons'
 import { Button } from '@/components/ui/button'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useDocumentTabs } from '@/components/studio/workspace-provider'
 import { cn } from '@/lib/utils'
 
 type EditorTabBarProps = {
@@ -50,7 +50,7 @@ function TabCloseButton({
 }
 
 export function EditorTabBar({ className, style }: EditorTabBarProps) {
-    const { tabs, activeTabId, setActiveTab, closeTab } = useWorkspace()
+    const { tabs, activeTabId, setActiveTab, closeTab } = useDocumentTabs()
     const { canFitToView, fitToView } = useCanvasControls()
 
     return (

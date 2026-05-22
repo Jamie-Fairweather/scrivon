@@ -4,7 +4,7 @@ import type { MouseEvent, ReactNode } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
 import { WindowTitlebarControls } from '@/components/studio/window-titlebar-controls'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace-provider'
 import { Button } from '@/components/ui/button'
 import {
     Menu,
@@ -38,21 +38,11 @@ function MenuBarEntry({ label, children }: { label: string; children: ReactNode 
 }
 
 export function StudioMenuBar() {
-    const {
-        isDesktop,
-        workspaceRoot,
-        recentWorkspaces,
-        layout,
-        autosaveEnabled,
-        setAutosaveEnabled,
-        setExplorerOpen,
-        setEditorOpen,
-        setPreviewOnly,
-        requestCanvasFit,
-        pickAndOpenWorkspace,
-        openWorkspace,
-        closeWorkspace,
-    } = useWorkspace()
+    const { isDesktop, workspaceRoot, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } =
+        useWorkspaceSession()
+    const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
+    const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
+    const { requestCanvasFit } = useCanvasFit()
 
     const hasWorkspace = Boolean(workspaceRoot)
 

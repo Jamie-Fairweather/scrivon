@@ -8,11 +8,12 @@ import { useEditorPanelLayout } from '@/components/studio/use-editor-panel-layou
 import { MermaidCanvas } from '@/components/studio/mermaid-canvas'
 import { useSaveShortcut } from '@/components/studio/use-save-shortcut'
 import { useWindowCloseHandler } from '@/components/studio/use-window-close'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace-provider'
 import { useMediaQuery } from '@/hooks/use-media-query'
 
 export function StudioLayout() {
-    const { activeTab, layout } = useWorkspace()
+    const { activeTab } = useDocumentTabs()
+    const { layout } = useStudioLayout()
     const isMobile = useMediaQuery('(max-width: 768px)')
     const editorLayout = useEditorPanelLayout()
 

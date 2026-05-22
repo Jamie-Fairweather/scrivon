@@ -1,11 +1,12 @@
 'use client'
 
-import { useWorkspace } from '@/components/studio/workspace-provider'
-import { FileTreeNode, FileTreeRootActions } from '@/components/studio/file-tree-node'
+import { useWorkspaceSession } from '@/components/studio/workspace-provider'
+import { FileTreeNode } from '@/components/studio/file-tree-node'
+import { FileTreeRootActions } from '@/components/studio/file-tree-root-actions'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export function FileExplorer() {
-    const { workspaceName, tree } = useWorkspace()
+    const { workspaceName, tree } = useWorkspaceSession()
 
     return (
         <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">

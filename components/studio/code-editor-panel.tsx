@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useCallback, useMemo, useRef } from 'react'
 import type { editor } from 'monaco-editor'
-import { useWorkspace } from '@/components/studio/workspace-provider'
+import { useDocumentTabs } from '@/components/studio/workspace-provider'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -12,7 +12,6 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false 
 const MIN_WIDTH = 280
 const MAX_WIDTH_RATIO = 0.6
 
-/** Stable reference — @monaco-editor/react calls updateOptions whenever this object identity changes. */
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
     overviewRulerLanes: 0,
@@ -50,7 +49,7 @@ function languageForTab(tab: DocumentTab) {
 }
 
 export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
-    const { activeTab, updateTabContent } = useWorkspace()
+    const { activeTab, updateTabContent } = useDocumentTabs()
     const resizeStart = useRef({ x: 0, width: 0 })
     const activeTabIdRef = useRef<string | null>(null)
     activeTabIdRef.current = activeTab?.id ?? null

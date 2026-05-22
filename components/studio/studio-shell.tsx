@@ -5,10 +5,10 @@ import { NamePromptProvider } from '@/components/studio/name-prompt-provider'
 import { StudioLayout } from '@/components/studio/studio-layout'
 import { StudioMenuBar } from '@/components/studio/studio-menu-bar'
 import { WelcomeScreen } from '@/components/studio/welcome-screen'
-import { WorkspaceProvider, useWorkspace } from '@/components/studio/workspace-provider'
+import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace-provider'
 
 function StudioRouter() {
-    const { hydrated, workspaceRoot } = useWorkspace()
+    const { hydrated, workspaceRoot } = useWorkspaceSession()
 
     if (!hydrated) {
         return <div className="fixed inset-0 bg-background" />
