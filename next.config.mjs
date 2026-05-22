@@ -4,6 +4,7 @@ const internalHost = process.env.TAURI_DEV_HOST || 'localhost'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: 'export',
+    productionBrowserSourceMaps: process.env.GENERATE_LICENSES === '1',
     images: {
         unoptimized: true,
     },

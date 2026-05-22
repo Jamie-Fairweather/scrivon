@@ -5,10 +5,14 @@
     "type": "module",
     "scripts": {
         "dev": "next dev",
-        "build": "next build",
+        "prebuild": "node scripts/generate-examples.mjs",
+        "build": "node scripts/next-build.mjs",
+        "postbuild": "node scripts/generate-licenses.mjs",
         "start": "next start",
         "tauri": "tauri",
-        "format": "prettier --write \"**/*.{ts,tsx,md,mjs,json,css}\""
+        "format": "prettier --write \"**/*.{ts,tsx,md,mjs,json,css}\"",
+        "generate:examples": "node scripts/generate-examples.mjs",
+        "generate:licenses": "node scripts/generate-licenses.mjs"
     },
     "dependencies": {
         "@base-ui/react": "^1.5.0",

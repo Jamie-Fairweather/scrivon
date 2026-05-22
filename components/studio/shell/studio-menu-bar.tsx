@@ -1,10 +1,20 @@
 'use client'
 
-import type { MouseEvent, ReactNode } from 'react'
+import { useState, type MouseEvent, type ReactNode } from 'react'
+import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
+import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
 import { WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
-import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import {
+    useCanvasFit,
+    useDocumentSave,
+    useDocumentTabs,
+    useStudioLayout,
+    useWorkspaceSession,
+} from '@/components/studio/workspace/workspace-provider'
+import { CRAFT_EXAMPLES, EXAMPLE_CATEGORIES } from '@/lib/examples/craft-samples'
+import { EXAMPLE_CATEGORY_LABELS } from '@/lib/examples/category-labels'
 import { Button } from '@/components/ui/button'
 import {
     Menu,
@@ -37,11 +47,45 @@ function MenuBarEntry({ label, children }: { label: string; children: ReactNode 
     )
 }
 
+function ExamplesMenu() {
+    const { openExample } = useDocumentTabs()
+    const byCategory = EXAMPLE_CATEGORIES.map((category) => ({
+        category,
+        examples: CRAFT_EXAMPLES.filter((e) => e.category === category),
+    }))
+
+    return (
+        <MenuSub>
+            <MenuSubTrigger>Examples</MenuSubTrigger>
+            <MenuSubPopup className="min-w-48">
+                <MenuGroup>
+                    {byCategory.map(({ category, examples }) => (
+                        <MenuSub key={category}>
+                            <MenuSubTrigger>{EXAMPLE_CATEGORY_LABELS[category]}</MenuSubTrigger>
+                            <MenuSubPopup className="max-h-80 min-w-56 overflow-y-auto">
+                                <MenuGroup>
+                                    {examples.map((example) => (
+                                        <MenuItem key={example.id} onClick={() => openExample(example.id)} title={example.description}>
+                                            <span className="truncate">{example.title}</span>
+                                        </MenuItem>
+                                    ))}
+                                </MenuGroup>
+                            </MenuSubPopup>
+                        </MenuSub>
+                    ))}
+                </MenuGroup>
+            </MenuSubPopup>
+        </MenuSub>
+    )
+}
+
 export function StudioMenuBar() {
     const { isDesktop, workspaceRoot, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } = useWorkspaceSession()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
     const { requestCanvasFit } = useCanvasFit()
+    const [aboutOpen, setAboutOpen] = useState(false)
+    const [licensesOpen, setLicensesOpen] = useState(false)
 
     const hasWorkspace = Boolean(workspaceRoot)
 
@@ -90,6 +134,12 @@ export function StudioMenuBar() {
                                 </MenuSub>
                             </>
                         )}
+                        {hasWorkspace && (
+                            <>
+                                <MenuSeparator />
+                                <ExamplesMenu />
+                            </>
+                        )}
                     </MenuBarEntry>
 
                     <MenuBarEntry label="Options">
@@ -120,8 +170,23 @@ export function StudioMenuBar() {
                             <MenuItem onClick={requestCanvasFit}>Fit Diagram to Screen</MenuItem>
                         </MenuBarEntry>
                     )}
+
+                    <MenuBarEntry label="Help">
+                        <MenuSub>
+                            <MenuSubTrigger>About</MenuSubTrigger>
+                            <MenuSubPopup className="min-w-48">
+                                <MenuGroup>
+                                    <MenuItem onClick={() => setAboutOpen(true)}>About Scrivon…</MenuItem>
+                                    <MenuItem onClick={() => setLicensesOpen(true)}>Licences…</MenuItem>
+                                </MenuGroup>
+                            </MenuSubPopup>
+                        </MenuSub>
+                    </MenuBarEntry>
                 </div>
             </nav>
+
+            <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} onOpenLicenses={() => setLicensesOpen(true)} />
+            <OpenSourceLicensesDialog open={licensesOpen} onOpenChange={setLicensesOpen} />
 
             {isDesktop ? (
                 <div className="min-h-0 min-w-0 flex-1 self-stretch" data-tauri-drag-region onMouseDown={onDragRegionMouseDown} />

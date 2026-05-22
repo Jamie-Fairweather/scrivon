@@ -5,7 +5,7 @@ import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
 import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
-import { FileExplorer } from '@/components/studio/explorer/file-explorer'
+import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
 import { useSaveShortcut } from '@/components/studio/hooks/use-save-shortcut'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
@@ -24,7 +24,7 @@ export function StudioLayout() {
         <CanvasControlsProvider>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="flex min-h-0 flex-1">
-                    {layout.explorerOpen && !isMobile && <FileExplorer />}
+                    {layout.explorerOpen && !isMobile && <WorkspaceExplorer />}
 
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                         <EditorTabBar />

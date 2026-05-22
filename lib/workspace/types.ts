@@ -19,6 +19,7 @@ export type DocumentTab = {
     isDirty: boolean
     isSaving: boolean
     saveError?: string
+    readOnly?: boolean
 }
 
 export type StudioLayoutState = {

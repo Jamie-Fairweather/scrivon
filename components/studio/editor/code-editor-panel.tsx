@@ -45,6 +45,7 @@ function clampWidth(width: number) {
 }
 
 function languageForTab(tab: DocumentTab) {
+    if (tab.readOnly) return 'markdown'
     return isMermaidFile(tab.name) ? 'markdown' : 'plaintext'
 }
 
@@ -86,8 +87,10 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     )
 
     const editorPath = activeTab?.path
-    const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab?.name])
+    const isReadOnly = activeTab?.readOnly ?? false
+    const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
+    const editorOptions = useMemo(() => (isReadOnly ? { ...EDITOR_OPTIONS, readOnly: true, domReadOnly: true } : EDITOR_OPTIONS), [isReadOnly])
 
     return (
         <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-code" style={{ width }}>
@@ -98,9 +101,9 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
                         defaultValue={editorDefaultValue}
                         language={editorLanguage}
                         theme="vs-dark"
-                        options={EDITOR_OPTIONS}
+                        options={editorOptions}
                         saveViewState
-                        onChange={onEditorChange}
+                        onChange={isReadOnly ? undefined : onEditorChange}
                     />
                 ) : (
                     <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">

@@ -1,7 +1,7 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import { Focus, Loader2, X } from 'lucide-react'
+import { Focus, Loader2, Lock, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
@@ -18,11 +18,11 @@ function TabCloseButton({
     isActive,
     onClose,
 }: {
-    tab: { name: string; isDirty: boolean; isSaving: boolean }
+    tab: { name: string; isDirty: boolean; isSaving: boolean; readOnly?: boolean }
     isActive: boolean
     onClose: () => void
 }) {
-    const showCloseSlot = isActive || tab.isDirty || tab.isSaving
+    const showCloseSlot = isActive || (!tab.readOnly && tab.isDirty) || tab.isSaving
 
     return (
         <button
@@ -41,8 +41,8 @@ function TabCloseButton({
                 <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-hidden />
             ) : (
                 <>
-                    {tab.isDirty && <span className="size-2 rounded-full bg-foreground group-hover/tab:hidden" aria-hidden />}
-                    <X className={cn('size-3.5', tab.isDirty && 'hidden group-hover/tab:block')} aria-hidden />
+                    {!tab.readOnly && tab.isDirty && <span className="size-2 rounded-full bg-foreground group-hover/tab:hidden" aria-hidden />}
+                    <X className={cn('size-3.5', !tab.readOnly && tab.isDirty && 'hidden group-hover/tab:block')} aria-hidden />
                 </>
             )}
         </button>
@@ -69,11 +69,12 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                         >
                             <button
                                 type="button"
-                                className="min-w-0 flex-1 truncate py-2 pr-1 pl-3 text-left text-xs"
+                                className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
                                 onClick={() => void setActiveTab(tab.id)}
                                 title={tab.saveError ?? tab.path}
                             >
-                                {tab.name}
+                                {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
+                                <span className="truncate">{tab.name}</span>
                             </button>
                             <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
                         </div>

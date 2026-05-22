@@ -13,6 +13,8 @@ import {
     type ReactNode,
     type SetStateAction,
 } from 'react'
+import { CRAFT_EXAMPLE_BY_ID } from '@/lib/examples/craft-samples'
+import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { showError } from '@/lib/tauri/dialog'
 import { readWorkspaceFile } from '@/lib/tauri/fs'
 import { setLastOpenedFile } from '@/lib/tauri/store'
@@ -26,6 +28,7 @@ type DocumentTabsContextValue = {
     activeTabId: string | null
     activeTab: DocumentTab | null
     openFile: (path: string) => Promise<void>
+    openExample: (exampleId: string) => void
     setActiveTab: (id: string) => Promise<void>
     updateTabContent: (id: string, content: string) => void
     closeTab: (id: string) => Promise<void>
@@ -118,12 +121,40 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [coordinator, workspaceRoot, setTabs, setActiveTabId, tabsRef]
     )
 
+    const openExample = useCallback(
+        (exampleId: string) => {
+            const example = CRAFT_EXAMPLE_BY_ID[exampleId]
+            if (!example) {
+                void showError('Example not found', `No example with id "${exampleId}"`)
+                return
+            }
+
+            const tabId = exampleTabId(exampleId)
+            const previousId = activeTabIdRef.current
+
+            const existing = tabsRef.current.find((t) => t.id === tabId)
+            if (existing) {
+                setActiveTabId(tabId)
+                if (previousId && previousId !== tabId) coordinator.flushSaveOnTabLeave.current(previousId)
+                return
+            }
+
+            if (previousId && previousId !== tabId) coordinator.flushSaveOnTabLeave.current(previousId)
+
+            const tab = tabFromExample(example)
+            setTabs((prev) => [...prev, tab])
+            setActiveTabId(tabId)
+            coordinator.requestCanvasFit.current()
+        },
+        [coordinator, setTabs, setActiveTabId, tabsRef]
+    )
+
     const setActiveTab = useCallback(
         async (id: string) => {
             if (activeTabIdRef.current === id) return
             const previousId = activeTabIdRef.current
             setActiveTabId(id)
-            if (workspaceRoot) void setLastOpenedFile(workspaceRoot, id)
+            if (workspaceRoot && !isExampleTabId(id)) void setLastOpenedFile(workspaceRoot, id)
             if (previousId) coordinator.flushSaveOnTabLeave.current(previousId)
         },
         [coordinator, workspaceRoot, setActiveTabId]
@@ -131,10 +162,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const updateTabContent = useCallback(
         (id: string, content: string) => {
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (tab?.readOnly) return
             setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content, isDirty: true, saveError: undefined } : t)))
             coordinator.scheduleSave.current(id)
         },
-        [coordinator, setTabs]
+        [coordinator, setTabs, tabsRef]
     )
 
     const closeTab = useCallback(
@@ -167,11 +200,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             activeTabId,
             activeTab,
             openFile,
+            openExample,
             setActiveTab,
             updateTabContent,
             closeTab,
         }),
-        [tabs, activeTabId, activeTab, openFile, setActiveTab, updateTabContent, closeTab]
+        [tabs, activeTabId, activeTab, openFile, openExample, setActiveTab, updateTabContent, closeTab]
     )
 
     return <DocumentTabsContext.Provider value={value}>{children}</DocumentTabsContext.Provider>

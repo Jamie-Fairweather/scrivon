@@ -2,6 +2,7 @@
 
 import { FolderOpen, FolderX, Monitor } from 'lucide-react'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { APP_NAME, APP_TAGLINE } from '@/lib/app-branding'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -18,8 +19,9 @@ export function WelcomeScreen() {
     return (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-6">
             <div className="flex flex-col items-center gap-2 text-center">
-                <h1 className="text-2xl font-semibold tracking-tight">Mermaid Studio</h1>
-                <p className="max-w-md text-sm text-muted-foreground">
+                <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
+                <p className="max-w-md text-sm text-muted-foreground">{APP_TAGLINE}</p>
+                <p className="max-w-md text-sm text-muted-foreground/80">
                     Open a folder to browse diagram files, edit in the editor, and preview on the canvas.
                 </p>
             </div>

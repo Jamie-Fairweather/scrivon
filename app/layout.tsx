@@ -3,6 +3,7 @@ import './globals.css'
 import { Inter, Geist_Mono } from 'next/font/google'
 import { cn } from '@/lib/utils'
 import { ThemeProvider } from '@/components/theme-provider'
+import { APP_TAGLINE } from '@/lib/app-branding'
 
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono', preload: true })
 
@@ -11,8 +12,8 @@ const interHeading = Inter({ subsets: ['latin'], variable: '--font-heading', pre
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans', preload: true })
 
 export const metadata: Metadata = {
-    title: 'Mermaid Studio',
-    description: 'Edit Mermaid diagrams with a live preview canvas',
+    title: 'Scrivon',
+    description: APP_TAGLINE,
 }
 
 export default function RootLayout({

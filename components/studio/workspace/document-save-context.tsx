@@ -49,7 +49,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             }
 
             const tab = tabsRef.current.find((t) => t.id === id)
-            if (!tab || !tab.isDirty) return true
+            if (!tab || tab.readOnly || !tab.isDirty) return true
 
             if (!silent) {
                 setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: true, saveError: undefined } : t)))
@@ -77,6 +77,8 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
     const scheduleSave = useCallback(
         (id: string) => {
             if (!autosaveEnabledRef.current) return
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (tab?.readOnly) return
 
             const existing = saveTimers.current.get(id)
             if (existing) clearTimeout(existing)
@@ -88,7 +90,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
 
             saveTimers.current.set(id, timer)
         },
-        [flushSave]
+        [flushSave, tabsRef]
     )
 
     const cancelScheduledSave = useCallback((id: string) => {
