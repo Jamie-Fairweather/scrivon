@@ -13,8 +13,8 @@
         "windows": [
             {
                 "title": "Mermaid Studio",
-                "width": 800,
-                "height": 600,
+                "width": 1440,
+                "height": 810,
                 "decorations": false,
                 "backgroundColor": "#161616"
             }
