@@ -20,26 +20,26 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Checkbox } from "@/components/ui/checkbox"
-import { CheckboxGroup } from "@/components/ui/checkbox-group"
+import { Checkbox } from '@/components/ui/checkbox'
+import { CheckboxGroup } from '@/components/ui/checkbox-group'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <CheckboxGroup>
-  <Label>
-    <Checkbox defaultChecked />
-    Next.js
-  </Label>
-  <Label>
-    <Checkbox />
-    Vite
-  </Label>
-  <Label>
-    <Checkbox />
-    Astro
-  </Label>
+    <Label>
+        <Checkbox defaultChecked />
+        Next.js
+    </Label>
+    <Label>
+        <Checkbox />
+        Vite
+    </Label>
+    <Label>
+        <Checkbox />
+        Astro
+    </Label>
 </CheckboxGroup>
 ```
 
@@ -52,15 +52,15 @@ For form-bound option groups, prefer `Field` + `Fieldset` composition so legend,
 Group with `aria-label` and `defaultValue`:
 
 ```tsx
-<CheckboxGroup aria-label="Select frameworks" defaultValue={["next"]}>
-  <Label>
-    <Checkbox value="next" />
-    Next.js
-  </Label>
-  <Label>
-    <Checkbox value="vite" />
-    Vite
-  </Label>
+<CheckboxGroup aria-label="Select frameworks" defaultValue={['next']}>
+    <Label>
+        <Checkbox value="next" />
+        Next.js
+    </Label>
+    <Label>
+        <Checkbox value="vite" />
+        Vite
+    </Label>
 </CheckboxGroup>
 ```
 

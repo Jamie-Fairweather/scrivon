@@ -20,14 +20,14 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
+import { Fieldset, FieldsetLegend } from '@/components/ui/fieldset'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <Fieldset>
-  <FieldsetLegend>Fieldset legend</FieldsetLegend>
+    <FieldsetLegend>Fieldset legend</FieldsetLegend>
 </Fieldset>
 ```
 
@@ -39,15 +39,15 @@ Fieldset grouping related fields:
 
 ```tsx
 <Fieldset>
-  <FieldsetLegend>Personal Information</FieldsetLegend>
-  <Field name="firstName">
-    <FieldLabel>First name</FieldLabel>
-    <Input type="text" />
-  </Field>
-  <Field name="lastName">
-    <FieldLabel>Last name</FieldLabel>
-    <Input type="text" />
-  </Field>
+    <FieldsetLegend>Personal Information</FieldsetLegend>
+    <Field name="firstName">
+        <FieldLabel>First name</FieldLabel>
+        <Input type="text" />
+    </Field>
+    <Field name="lastName">
+        <FieldLabel>Last name</FieldLabel>
+        <Input type="text" />
+    </Field>
 </Fieldset>
 ```
 

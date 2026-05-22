@@ -13,28 +13,20 @@ When a hook contains multiple independent tasks with different dependencies, spl
 
 ```tsx
 const sortedProducts = useMemo(() => {
-  const filtered = products.filter((p) => p.category === category)
-  const sorted = filtered.toSorted((a, b) =>
-    sortOrder === "asc" ? a.price - b.price : b.price - a.price
-  )
-  return sorted
+    const filtered = products.filter((p) => p.category === category)
+    const sorted = filtered.toSorted((a, b) => (sortOrder === 'asc' ? a.price - b.price : b.price - a.price))
+    return sorted
 }, [products, category, sortOrder])
 ```
 
 **Correct (filtering only recomputes when products or category change):**
 
 ```tsx
-const filteredProducts = useMemo(
-  () => products.filter((p) => p.category === category),
-  [products, category]
-)
+const filteredProducts = useMemo(() => products.filter((p) => p.category === category), [products, category])
 
 const sortedProducts = useMemo(
-  () =>
-    filteredProducts.toSorted((a, b) =>
-      sortOrder === "asc" ? a.price - b.price : b.price - a.price
-    ),
-  [filteredProducts, sortOrder]
+    () => filteredProducts.toSorted((a, b) => (sortOrder === 'asc' ? a.price - b.price : b.price - a.price)),
+    [filteredProducts, sortOrder]
 )
 ```
 
@@ -44,8 +36,8 @@ This pattern also applies to `useEffect` when combining unrelated side effects:
 
 ```tsx
 useEffect(() => {
-  analytics.trackPageView(pathname)
-  document.title = `${pageTitle} | My App`
+    analytics.trackPageView(pathname)
+    document.title = `${pageTitle} | My App`
 }, [pathname, pageTitle])
 ```
 
@@ -53,11 +45,11 @@ useEffect(() => {
 
 ```tsx
 useEffect(() => {
-  analytics.trackPageView(pathname)
+    analytics.trackPageView(pathname)
 }, [pathname])
 
 useEffect(() => {
-  document.title = `${pageTitle} | My App`
+    document.title = `${pageTitle} | My App`
 }, [pageTitle])
 ```
 

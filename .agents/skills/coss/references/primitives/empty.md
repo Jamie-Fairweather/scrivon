@@ -20,30 +20,23 @@ Manual deps from docs:
 ## Canonical imports
 
 ```tsx
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <Empty>
-  <EmptyHeader>
-    <EmptyMedia variant="icon">
-      <Icon />
-    </EmptyMedia>
-    <EmptyTitle>No data</EmptyTitle>
-    <EmptyDescription>No data found</EmptyDescription>
-  </EmptyHeader>
-  <EmptyContent>
-    <Button>Add data</Button>
-  </EmptyContent>
+    <EmptyHeader>
+        <EmptyMedia variant="icon">
+            <Icon />
+        </EmptyMedia>
+        <EmptyTitle>No data</EmptyTitle>
+        <EmptyDescription>No data found</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+        <Button>Add data</Button>
+    </EmptyContent>
 </Empty>
 ```
 
@@ -55,19 +48,19 @@ Empty state with icon and action:
 
 ```tsx
 <Empty>
-  <EmptyHeader>
-    <EmptyMedia variant="icon">
-      <FolderIcon aria-hidden="true" />
-    </EmptyMedia>
-    <EmptyTitle>No projects yet</EmptyTitle>
-    <EmptyDescription>Get started by creating your first project.</EmptyDescription>
-  </EmptyHeader>
-  <EmptyContent>
-    <Button>
-      <PlusIcon aria-hidden="true" />
-      New Project
-    </Button>
-  </EmptyContent>
+    <EmptyHeader>
+        <EmptyMedia variant="icon">
+            <FolderIcon aria-hidden="true" />
+        </EmptyMedia>
+        <EmptyTitle>No projects yet</EmptyTitle>
+        <EmptyDescription>Get started by creating your first project.</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+        <Button>
+            <PlusIcon aria-hidden="true" />
+            New Project
+        </Button>
+    </EmptyContent>
 </Empty>
 ```
 

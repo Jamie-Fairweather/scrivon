@@ -20,7 +20,7 @@ Manual deps from docs:
 ## Canonical imports
 
 ```tsx
-import { Label } from "@/components/ui/label"
+import { Label } from '@/components/ui/label'
 ```
 
 ## Minimal pattern
@@ -48,8 +48,8 @@ Label wrapping a checkbox:
 
 ```tsx
 <Label>
-  <Checkbox />
-  Accept terms and conditions
+    <Checkbox />
+    Accept terms and conditions
 </Label>
 ```
 

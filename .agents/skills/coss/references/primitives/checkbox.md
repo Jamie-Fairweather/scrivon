@@ -26,15 +26,15 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Checkbox } from "@/components/ui/checkbox"
+import { Checkbox } from '@/components/ui/checkbox'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <Label>
-  <Checkbox value="terms" />
-  Accept terms and conditions
+    <Checkbox value="terms" />
+    Accept terms and conditions
 </Label>
 ```
 
@@ -45,19 +45,19 @@ import { Checkbox } from "@/components/ui/checkbox"
 CheckboxGroup with label-wrapped options:
 
 ```tsx
-<CheckboxGroup aria-label="Select frameworks" defaultValue={["next"]}>
-  <Label>
-    <Checkbox value="next" />
-    Next.js
-  </Label>
-  <Label>
-    <Checkbox value="vite" />
-    Vite
-  </Label>
-  <Label>
-    <Checkbox value="astro" />
-    Astro
-  </Label>
+<CheckboxGroup aria-label="Select frameworks" defaultValue={['next']}>
+    <Label>
+        <Checkbox value="next" />
+        Next.js
+    </Label>
+    <Label>
+        <Checkbox value="vite" />
+        Vite
+    </Label>
+    <Label>
+        <Checkbox value="astro" />
+        Astro
+    </Label>
 </CheckboxGroup>
 ```
 

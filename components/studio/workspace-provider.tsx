@@ -22,6 +22,7 @@ import { addRecentWorkspace, getLastOpenedFile, getRecentWorkspaces, removeRecen
 import { collectFileNames, uniqueFileName, uniqueUntitledName, validateFileName } from '@/lib/workspace/paths'
 import {
     AUTO_SAVE_MS,
+    STORAGE_AUTOSAVE,
     STORAGE_LAYOUT_EDITOR,
     STORAGE_LAYOUT_EXPLORER,
     type DocumentTab,
@@ -42,6 +43,8 @@ type WorkspaceContextValue = {
     canvasFitRequestId: number
     requestCanvasFit: () => void
     layout: StudioLayoutState
+    autosaveEnabled: boolean
+    setAutosaveEnabled: (enabled: boolean) => void
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
     setPreviewOnly: () => void
@@ -95,8 +98,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         explorerOpen: true,
         editorOpen: true,
     })
+    const [autosaveEnabled, setAutosaveEnabledState] = useState(true)
 
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+    const autosaveEnabledRef = useRef(autosaveEnabled)
+    autosaveEnabledRef.current = autosaveEnabled
     const tabsRef = useRef(tabs)
     tabsRef.current = tabs
 
@@ -110,10 +116,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const explorer = localStorage.getItem(STORAGE_LAYOUT_EXPLORER)
         const editor = localStorage.getItem(STORAGE_LAYOUT_EDITOR)
+        const autosave = localStorage.getItem(STORAGE_AUTOSAVE)
         setLayout({
             explorerOpen: explorer !== 'false',
             editorOpen: editor !== 'false',
         })
+        setAutosaveEnabledState(autosave !== 'false')
         void getRecentWorkspaces().then(setRecentWorkspaces)
         setHydrated(true)
     }, [])
@@ -141,6 +149,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const setPreviewOnly = useCallback(() => persistLayout({ explorerOpen: false, editorOpen: false }), [persistLayout])
+
+    const setAutosaveEnabled = useCallback((enabled: boolean) => {
+        setAutosaveEnabledState(enabled)
+        localStorage.setItem(STORAGE_AUTOSAVE, String(enabled))
+        if (!enabled) {
+            for (const timer of saveTimers.current.values()) clearTimeout(timer)
+            saveTimers.current.clear()
+        }
+    }, [])
 
     const refreshTree = useCallback(async () => {
         if (!workspaceRoot) return
@@ -181,6 +198,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const scheduleSave = useCallback(
         (id: string) => {
+            if (!autosaveEnabledRef.current) return
+
             const existing = saveTimers.current.get(id)
             if (existing) clearTimeout(existing)
 
@@ -194,6 +213,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         [flushSave]
     )
 
+    const flushSaveOnTabLeave = useCallback(
+        (id: string) => {
+            if (!autosaveEnabledRef.current) return
+            void flushSave(id, { silent: true })
+        },
+        [flushSave]
+    )
+
     const openFile = useCallback(
         async (path: string) => {
             const previousId = activeTabId
@@ -202,11 +229,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             if (existing) {
                 setActiveTabId(path)
                 if (workspaceRoot) void setLastOpenedFile(workspaceRoot, path)
-                if (previousId && previousId !== path) void flushSave(previousId, { silent: true })
+                if (previousId && previousId !== path) flushSaveOnTabLeave(previousId)
                 return
             }
 
-            if (previousId && previousId !== path) void flushSave(previousId, { silent: true })
+            if (previousId && previousId !== path) flushSaveOnTabLeave(previousId)
 
             try {
                 const content = await readWorkspaceFile(path)
@@ -219,7 +246,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
             }
         },
-        [activeTabId, flushSave, requestCanvasFit, workspaceRoot]
+        [activeTabId, flushSaveOnTabLeave, requestCanvasFit, workspaceRoot]
     )
 
     const openWorkspace = useCallback(
@@ -280,9 +307,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             const previousId = activeTabId
             setActiveTabId(id)
             if (workspaceRoot) void setLastOpenedFile(workspaceRoot, id)
-            if (previousId) void flushSave(previousId, { silent: true })
+            if (previousId) flushSaveOnTabLeave(previousId)
         },
-        [activeTabId, flushSave, workspaceRoot]
+        [activeTabId, flushSaveOnTabLeave, workspaceRoot]
     )
 
     const updateTabContent = useCallback(
@@ -295,7 +322,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const closeTab = useCallback(
         async (id: string) => {
-            await flushSave(id)
+            if (autosaveEnabledRef.current) {
+                await flushSave(id)
+            } else {
+                const timer = saveTimers.current.get(id)
+                if (timer) {
+                    clearTimeout(timer)
+                    saveTimers.current.delete(id)
+                }
+            }
             setTabs((prev) => {
                 const next = prev.filter((t) => t.id !== id)
                 if (activeTabId === id) {
@@ -422,6 +457,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             canvasFitRequestId,
             requestCanvasFit,
             layout,
+            autosaveEnabled,
+            setAutosaveEnabled,
             setExplorerOpen,
             setEditorOpen,
             setPreviewOnly,
@@ -455,6 +492,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             canvasFitRequestId,
             requestCanvasFit,
             layout,
+            autosaveEnabled,
+            setAutosaveEnabled,
             setExplorerOpen,
             setEditorOpen,
             setPreviewOnly,

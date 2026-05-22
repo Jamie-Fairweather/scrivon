@@ -25,7 +25,7 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Toggle } from "@/components/ui/toggle"
+import { Toggle } from '@/components/ui/toggle'
 ```
 
 ## Minimal pattern
@@ -42,23 +42,23 @@ Icon toggle with `aria-label` (always required for icon-only):
 
 ```tsx
 <Toggle aria-label="Toggle bold" value="bold">
-  <BoldIcon />
+    <BoldIcon />
 </Toggle>
 ```
 
 ToggleGroup with icon toggles:
 
 ```tsx
-<ToggleGroup defaultValue={["bold"]}>
-  <Toggle aria-label="Toggle bold" value="bold">
-    <BoldIcon />
-  </Toggle>
-  <Toggle aria-label="Toggle italic" value="italic">
-    <ItalicIcon />
-  </Toggle>
-  <Toggle aria-label="Toggle underline" value="underline">
-    <UnderlineIcon />
-  </Toggle>
+<ToggleGroup defaultValue={['bold']}>
+    <Toggle aria-label="Toggle bold" value="bold">
+        <BoldIcon />
+    </Toggle>
+    <Toggle aria-label="Toggle italic" value="italic">
+        <ItalicIcon />
+    </Toggle>
+    <Toggle aria-label="Toggle underline" value="underline">
+        <UnderlineIcon />
+    </Toggle>
 </ToggleGroup>
 ```
 

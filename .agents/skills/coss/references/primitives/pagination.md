@@ -21,34 +21,34 @@ Manual deps from docs:
 
 ```tsx
 import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination"
+    Pagination,
+    PaginationContent,
+    PaginationEllipsis,
+    PaginationItem,
+    PaginationLink,
+    PaginationNext,
+    PaginationPrevious,
+} from '@/components/ui/pagination'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <Pagination>
-  <PaginationContent>
-    <PaginationItem>
-      <PaginationPrevious href="#" />
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationLink href="#">1</PaginationLink>
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationEllipsis />
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationNext href="#" />
-    </PaginationItem>
-  </PaginationContent>
+    <PaginationContent>
+        <PaginationItem>
+            <PaginationPrevious href="#" />
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationLink href="#">1</PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationEllipsis />
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationNext href="#" />
+        </PaginationItem>
+    </PaginationContent>
 </Pagination>
 ```
 
@@ -60,26 +60,28 @@ Full pagination with active page:
 
 ```tsx
 <Pagination>
-  <PaginationContent>
-    <PaginationItem>
-      <PaginationPrevious href="#" />
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationLink href="#">1</PaginationLink>
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationLink href="#" isActive>2</PaginationLink>
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationLink href="#">3</PaginationLink>
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationEllipsis />
-    </PaginationItem>
-    <PaginationItem>
-      <PaginationNext href="#" />
-    </PaginationItem>
-  </PaginationContent>
+    <PaginationContent>
+        <PaginationItem>
+            <PaginationPrevious href="#" />
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationLink href="#">1</PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationLink href="#" isActive>
+                2
+            </PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationLink href="#">3</PaginationLink>
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationEllipsis />
+        </PaginationItem>
+        <PaginationItem>
+            <PaginationNext href="#" />
+        </PaginationItem>
+    </PaginationContent>
 </Pagination>
 ```
 

@@ -25,15 +25,15 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Meter, MeterLabel, MeterValue } from "@/components/ui/meter"
+import { Meter, MeterLabel, MeterValue } from '@/components/ui/meter'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <Meter value={40}>
-  <MeterLabel>Progress</MeterLabel>
-  <MeterValue />
+    <MeterLabel>Progress</MeterLabel>
+    <MeterValue />
 </Meter>
 ```
 
@@ -45,10 +45,10 @@ Meter with formatted value and range:
 
 ```tsx
 <Meter value={75} min={0} max={100}>
-  <div className="flex justify-between text-sm">
-    <MeterLabel>Storage</MeterLabel>
-    <MeterValue>{({ formattedValue }) => `${formattedValue} used`}</MeterValue>
-  </div>
+    <div className="flex justify-between text-sm">
+        <MeterLabel>Storage</MeterLabel>
+        <MeterValue>{({ formattedValue }) => `${formattedValue} used`}</MeterValue>
+    </div>
 </Meter>
 ```
 

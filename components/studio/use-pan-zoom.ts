@@ -16,11 +16,10 @@ export function computeFitTransform(
 ): PanZoomState {
     const availableW = Math.max(0, containerWidth - padding * 2)
     const availableH = Math.max(0, containerHeight - padding * 2)
-    const scale = Math.min(
-        MAX_SCALE,
-        Math.max(MIN_SCALE, Math.min(availableW / contentWidth, availableH / contentHeight))
-    )
-    return { x: 0, y: 0, scale }
+    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(availableW / contentWidth, availableH / contentHeight)))
+    const x = (containerWidth - contentWidth * scale) / 2
+    const y = (containerHeight - contentHeight * scale) / 2
+    return { x, y, scale }
 }
 
 export type PanZoomState = {
@@ -77,6 +76,7 @@ export function usePanZoom(
             stateRef.current = next
             const el = transformRef.current
             if (el) {
+                el.style.transformOrigin = '0 0'
                 el.style.transform = toTransform(next)
             }
             const id = tabIdRef.current
@@ -90,7 +90,10 @@ export function usePanZoom(
         const next = tabId ? (statesByTabRef.current.get(tabId) ?? DEFAULT_STATE) : DEFAULT_STATE
         stateRef.current = next
         const el = transformRef.current
-        if (el) el.style.transform = toTransform(next)
+        if (el) {
+            el.style.transformOrigin = '0 0'
+            el.style.transform = toTransform(next)
+        }
     }, [tabId, transformRef])
 
     useEffect(() => {
@@ -105,14 +108,18 @@ export function usePanZoom(
     }, [applyTransform])
 
     const fitToView = useCallback(
-        (contentWidth: number, contentHeight: number) => {
+        (contentWidth: number, contentHeight: number): boolean => {
             const container = containerRef.current
-            if (!container || contentWidth <= 0 || contentHeight <= 0) return
+            if (!container || contentWidth <= 0 || contentHeight <= 0) return false
             const { width, height } = container.getBoundingClientRect()
+            if (width <= 0 || height <= 0) return false
             applyTransform(computeFitTransform(width, height, contentWidth, contentHeight))
+            return true
         },
         [applyTransform, containerRef]
     )
+
+    const hasViewStateForTab = useCallback((id: string) => statesByTabRef.current.has(id), [])
 
     const setGrabbingCursor = useCallback(
         (grabbing: boolean) => {
@@ -178,14 +185,12 @@ export function usePanZoom(
 
             const delta = -e.deltaY * ZOOM_SENSITIVITY
             const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prev.scale * (1 + delta)))
-            const scaleRatio = nextScale / prev.scale
-
-            const centerX = rect.width / 2
-            const centerY = rect.height / 2
+            const contentX = (cursorX - prev.x) / prev.scale
+            const contentY = (cursorY - prev.y) / prev.scale
 
             applyTransform({
-                x: cursorX - centerX - (cursorX - centerX - prev.x) * scaleRatio,
-                y: cursorY - centerY - (cursorY - centerY - prev.y) * scaleRatio,
+                x: cursorX - contentX * nextScale,
+                y: cursorY - contentY * nextScale,
                 scale: nextScale,
             })
         },
@@ -195,6 +200,7 @@ export function usePanZoom(
     return {
         reset,
         fitToView,
+        hasViewStateForTab,
         handlers: {
             onPointerDown,
             onPointerMove,

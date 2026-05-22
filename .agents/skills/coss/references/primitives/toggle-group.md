@@ -20,16 +20,16 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <ToggleGroup>
-  <ToggleGroupItem>Bold</ToggleGroupItem>
-  <ToggleGroupItem>Italic</ToggleGroupItem>
-  <ToggleGroupItem>Underline</ToggleGroupItem>
+    <ToggleGroupItem>Bold</ToggleGroupItem>
+    <ToggleGroupItem>Italic</ToggleGroupItem>
+    <ToggleGroupItem>Underline</ToggleGroupItem>
 </ToggleGroup>
 ```
 
@@ -40,16 +40,16 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 Toggle group with icon buttons:
 
 ```tsx
-<ToggleGroup defaultValue={["bold"]}>
-  <ToggleGroupItem aria-label="Toggle bold" value="bold">
-    <BoldIcon aria-hidden="true" />
-  </ToggleGroupItem>
-  <ToggleGroupItem aria-label="Toggle italic" value="italic">
-    <ItalicIcon aria-hidden="true" />
-  </ToggleGroupItem>
-  <ToggleGroupItem aria-label="Toggle underline" value="underline">
-    <UnderlineIcon aria-hidden="true" />
-  </ToggleGroupItem>
+<ToggleGroup defaultValue={['bold']}>
+    <ToggleGroupItem aria-label="Toggle bold" value="bold">
+        <BoldIcon aria-hidden="true" />
+    </ToggleGroupItem>
+    <ToggleGroupItem aria-label="Toggle italic" value="italic">
+        <ItalicIcon aria-hidden="true" />
+    </ToggleGroupItem>
+    <ToggleGroupItem aria-label="Toggle underline" value="underline">
+        <UnderlineIcon aria-hidden="true" />
+    </ToggleGroupItem>
 </ToggleGroup>
 ```
 

@@ -13,12 +13,9 @@ tags: javascript, arrays, immutability, react, state, mutation
 
 ```typescript
 function UserList({ users }: { users: User[] }) {
-  // Mutates the users prop array!
-  const sorted = useMemo(
-    () => users.sort((a, b) => a.name.localeCompare(b.name)),
-    [users]
-  )
-  return <div>{sorted.map(renderUser)}</div>
+    // Mutates the users prop array!
+    const sorted = useMemo(() => users.sort((a, b) => a.name.localeCompare(b.name)), [users])
+    return <div>{sorted.map(renderUser)}</div>
 }
 ```
 
@@ -26,12 +23,9 @@ function UserList({ users }: { users: User[] }) {
 
 ```typescript
 function UserList({ users }: { users: User[] }) {
-  // Creates new sorted array, original unchanged
-  const sorted = useMemo(
-    () => users.toSorted((a, b) => a.name.localeCompare(b.name)),
-    [users]
-  )
-  return <div>{sorted.map(renderUser)}</div>
+    // Creates new sorted array, original unchanged
+    const sorted = useMemo(() => users.toSorted((a, b) => a.name.localeCompare(b.name)), [users])
+    return <div>{sorted.map(renderUser)}</div>
 }
 ```
 

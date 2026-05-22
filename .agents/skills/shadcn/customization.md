@@ -52,10 +52,9 @@ Colors use OKLCH: `--primary: oklch(0.205 0 0)` where values are lightness (0–
 Class-based toggle via `.dark` on the root element. In Next.js, use `next-themes`:
 
 ```tsx
-import { ThemeProvider } from "next-themes"
-
-<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-  {children}
+import { ThemeProvider } from 'next-themes'
+;<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    {children}
 </ThemeProvider>
 ```
 
@@ -113,15 +112,14 @@ When `tailwindVersion` is `"v3"` (check via `npx shadcn@latest info`), register 
 ```js
 // 2b. Register with Tailwind v3 (tailwind.config.js).
 module.exports = {
-  theme: {
-    extend: {
-      colors: {
-        warning: "oklch(var(--warning) / <alpha-value>)",
-        "warning-foreground":
-          "oklch(var(--warning-foreground) / <alpha-value>)",
-      },
+    theme: {
+        extend: {
+            colors: {
+                warning: 'oklch(var(--warning) / <alpha-value>)',
+                'warning-foreground': 'oklch(var(--warning-foreground) / <alpha-value>)',
+            },
+        },
     },
-  },
 }
 ```
 
@@ -148,7 +146,7 @@ Prefer these approaches in order:
 
 ```tsx
 <Button variant="outline" size="sm">
-  Click
+    Click
 </Button>
 ```
 
@@ -173,21 +171,21 @@ Compose shadcn/ui primitives into higher-level components:
 
 ```tsx
 export function ConfirmDialog({ title, description, onConfirm, children }) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Confirm</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
+    return (
+        <AlertDialog>
+            <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>{title}</AlertDialogTitle>
+                    <AlertDialogDescription>{description}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={onConfirm}>Confirm</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    )
 }
 ```
 

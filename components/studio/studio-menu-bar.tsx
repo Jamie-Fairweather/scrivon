@@ -25,11 +25,7 @@ function MenuBarEntry({ label, children }: { label: string; children: ReactNode 
         <Menu>
             <MenuTrigger
                 render={
-                    <Button
-                        variant="ghost"
-                        size="xs"
-                        className="h-7 min-h-0 rounded-md px-2.5 font-normal text-foreground/90 hover:bg-accent/80"
-                    />
+                    <Button variant="ghost" size="xs" className="h-7 min-h-0 rounded-md px-2.5 font-normal text-foreground/90 hover:bg-accent/80" />
                 }
             >
                 {label}
@@ -47,6 +43,8 @@ export function StudioMenuBar() {
         workspaceRoot,
         recentWorkspaces,
         layout,
+        autosaveEnabled,
+        setAutosaveEnabled,
         setExplorerOpen,
         setEditorOpen,
         setPreviewOnly,
@@ -76,71 +74,68 @@ export function StudioMenuBar() {
             className="pointer-events-auto flex h-[var(--titlebar-height)] shrink-0 items-center border-b border-border bg-background select-none"
         >
             <nav aria-label="Application menu" className="flex shrink-0 items-center px-1">
-            <div className="flex items-center gap-0.5">
-                <MenuBarEntry label="File">
-                    <MenuGroup>
-                        <MenuItem disabled={!isDesktop} onClick={() => void pickAndOpenWorkspace()}>
-                            Open Folder…
-                        </MenuItem>
-                        <MenuItem disabled={!hasWorkspace} onClick={() => void closeWorkspace()}>
-                            Close Folder
-                        </MenuItem>
-                    </MenuGroup>
-                    {recentWorkspaces.length > 0 && (
-                        <>
-                            <MenuSeparator />
-                            <MenuSub>
-                                <MenuSubTrigger>Open Recent</MenuSubTrigger>
-                                <MenuSubPopup className="min-w-56">
-                                    <MenuGroup>
-                                        {recentWorkspaces.map((path) => (
-                                            <MenuItem
-                                                key={path}
-                                                disabled={!isDesktop}
-                                                onClick={() => void openWorkspace(path)}
-                                                title={path}
-                                            >
-                                                <span className="truncate">{getBaseName(path)}</span>
-                                            </MenuItem>
-                                        ))}
-                                    </MenuGroup>
-                                </MenuSubPopup>
-                            </MenuSub>
-                        </>
-                    )}
-                </MenuBarEntry>
+                <div className="flex items-center gap-0.5">
+                    <MenuBarEntry label="File">
+                        <MenuGroup>
+                            <MenuItem disabled={!isDesktop} onClick={() => void pickAndOpenWorkspace()}>
+                                Open Folder…
+                            </MenuItem>
+                            <MenuItem disabled={!hasWorkspace} onClick={() => void closeWorkspace()}>
+                                Close Folder
+                            </MenuItem>
+                        </MenuGroup>
+                        {recentWorkspaces.length > 0 && (
+                            <>
+                                <MenuSeparator />
+                                <MenuSub>
+                                    <MenuSubTrigger>Open Recent</MenuSubTrigger>
+                                    <MenuSubPopup className="min-w-56">
+                                        <MenuGroup>
+                                            {recentWorkspaces.map((path) => (
+                                                <MenuItem key={path} disabled={!isDesktop} onClick={() => void openWorkspace(path)} title={path}>
+                                                    <span className="truncate">{getBaseName(path)}</span>
+                                                </MenuItem>
+                                            ))}
+                                        </MenuGroup>
+                                    </MenuSubPopup>
+                                </MenuSub>
+                            </>
+                        )}
+                    </MenuBarEntry>
 
-                {hasWorkspace && (
-                    <MenuBarEntry label="View">
+                    <MenuBarEntry label="Options">
                         <MenuGroup>
                             <MenuCheckboxItem
-                                checked={layout.explorerOpen}
-                                onCheckedChange={(checked) => setExplorerOpen(checked === true)}
+                                variant="switch"
+                                checked={autosaveEnabled}
+                                onCheckedChange={(checked) => setAutosaveEnabled(checked === true)}
                             >
-                                Explorer
-                            </MenuCheckboxItem>
-                            <MenuCheckboxItem
-                                checked={layout.editorOpen}
-                                onCheckedChange={(checked) => setEditorOpen(checked === true)}
-                            >
-                                Editor
+                                Autosave
                             </MenuCheckboxItem>
                         </MenuGroup>
-                        <MenuSeparator />
-                        <MenuItem onClick={setPreviewOnly}>Preview Only</MenuItem>
-                        <MenuSeparator />
-                        <MenuItem onClick={requestCanvasFit}>Fit Diagram to Screen</MenuItem>
                     </MenuBarEntry>
-                )}
-            </div>
+
+                    {hasWorkspace && (
+                        <MenuBarEntry label="View">
+                            <MenuGroup>
+                                <MenuCheckboxItem checked={layout.explorerOpen} onCheckedChange={(checked) => setExplorerOpen(checked === true)}>
+                                    Explorer
+                                </MenuCheckboxItem>
+                                <MenuCheckboxItem checked={layout.editorOpen} onCheckedChange={(checked) => setEditorOpen(checked === true)}>
+                                    Editor
+                                </MenuCheckboxItem>
+                            </MenuGroup>
+                            <MenuSeparator />
+                            <MenuItem onClick={setPreviewOnly}>Preview Only</MenuItem>
+                            <MenuSeparator />
+                            <MenuItem onClick={requestCanvasFit}>Fit Diagram to Screen</MenuItem>
+                        </MenuBarEntry>
+                    )}
+                </div>
             </nav>
 
             {isDesktop ? (
-                <div
-                    className="min-h-0 min-w-0 flex-1 self-stretch"
-                    data-tauri-drag-region
-                    onMouseDown={onDragRegionMouseDown}
-                />
+                <div className="min-h-0 min-w-0 flex-1 self-stretch" data-tauri-drag-region onMouseDown={onDragRegionMouseDown} />
             ) : (
                 <div className="min-w-0 flex-1" />
             )}

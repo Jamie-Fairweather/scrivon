@@ -26,15 +26,15 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Switch } from "@/components/ui/switch"
+import { Switch } from '@/components/ui/switch'
 ```
 
 ## Minimal pattern
 
 ```tsx
 <Label>
-  <Switch />
-  Enable notifications
+    <Switch />
+    Enable notifications
 </Label>
 ```
 
@@ -62,8 +62,8 @@ Disabled switch:
 
 ```tsx
 <Label>
-  <Switch disabled />
-  Marketing emails
+    <Switch disabled />
+    Marketing emails
 </Label>
 ```
 

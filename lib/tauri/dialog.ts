@@ -25,4 +25,3 @@ export async function showError(title: string, body: string): Promise<void> {
 
     await message(body, { title, kind: 'error' })
 }
-

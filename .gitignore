@@ -24,3 +24,6 @@ out
 *.njsproj
 *.sln
 *.sw?
+
+# Next.js
+next-env.d.ts

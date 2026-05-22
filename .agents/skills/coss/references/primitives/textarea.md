@@ -20,7 +20,7 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Textarea } from "@/components/ui/textarea"
+import { Textarea } from '@/components/ui/textarea'
 ```
 
 ## Minimal pattern
@@ -40,10 +40,10 @@ Textarea in a field with label:
 
 ```tsx
 <Field name="bio">
-  <FieldLabel>Bio</FieldLabel>
-  <Textarea placeholder="Tell us about yourself..." />
-  <FieldDescription>Max 500 characters.</FieldDescription>
-  <FieldError />
+    <FieldLabel>Bio</FieldLabel>
+    <Textarea placeholder="Tell us about yourself..." />
+    <FieldDescription>Max 500 characters.</FieldDescription>
+    <FieldError />
 </Field>
 ```
 

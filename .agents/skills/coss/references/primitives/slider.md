@@ -20,7 +20,7 @@ npm install @base-ui/react
 ## Canonical imports
 
 ```tsx
-import { Slider, SliderValue } from "@/components/ui/slider"
+import { Slider, SliderValue } from '@/components/ui/slider'
 ```
 
 ## Minimal pattern
@@ -37,11 +37,11 @@ Slider with label and live value display:
 
 ```tsx
 <div className="flex flex-col gap-2">
-  <div className="flex justify-between text-sm">
-    <Label>Volume</Label>
-    <SliderValue />
-  </div>
-  <Slider aria-label="Volume" defaultValue={50} min={0} max={100} />
+    <div className="flex justify-between text-sm">
+        <Label>Volume</Label>
+        <SliderValue />
+    </div>
+    <Slider aria-label="Volume" defaultValue={50} min={0} max={100} />
 </div>
 ```
 

@@ -22,7 +22,7 @@ function svgIframeDocument(svg: string): string {
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 body{display:block;line-height:0}
-svg{display:block;max-width:none;overflow:hidden;vertical-align:top}
+svg{display:block;max-width:none;overflow:visible;vertical-align:top}
 </style></head><body>${svg}</body></html>`
 }
 
@@ -67,15 +67,13 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
     const lastHandledFitRequestRef = useRef(0)
     const { activeTabId, tabs, canvasFitRequestId } = useWorkspace()
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
-    const { reset, fitToView, handlers } = usePanZoom(containerRef, transformRef, activeTabId, openTabIds)
+    const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, activeTabId, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
 
     const [displaySvg, setDisplaySvg] = useState<string | null>(() => svgCacheRef.current.get(source) ?? null)
     const [error, setError] = useState<string | null>(null)
 
-    const svgForDisplay =
-        svgCacheRef.current.get(source) ??
-        (displaySvg && renderedSourceRef.current === source ? displaySvg : null)
+    const svgForDisplay = svgCacheRef.current.get(source) ?? (displaySvg && renderedSourceRef.current === source ? displaySvg : null)
 
     useEffect(() => {
         setError(null)
@@ -129,28 +127,24 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
         if (canvasFitRequestId === 0 || canvasFitRequestId === lastHandledFitRequestRef.current) return
         if (!dimensions) return
 
-        lastHandledFitRequestRef.current = canvasFitRequestId
         const fitRequest = { requestId: canvasFitRequestId, tabId: activeTabId, source }
 
         const attemptFit = () => {
             if (fitRequest.requestId !== canvasFitRequestId) return false
             if (fitRequest.tabId !== activeTabId || fitRequest.source !== source) return false
-            const container = containerRef.current
-            if (!container) return false
-            const { width, height } = container.getBoundingClientRect()
-            if (width <= 0 || height <= 0) return false
-            fitToView(dimensions.width, dimensions.height)
-            return true
+            return fitToView(dimensions.width, dimensions.height)
         }
 
-        if (attemptFit()) return
+        const markHandledIfFit = () => {
+            if (attemptFit()) lastHandledFitRequestRef.current = canvasFitRequestId
+        }
+
+        if (markHandledIfFit()) return
 
         let innerId = 0
         const outerId = requestAnimationFrame(() => {
-            if (attemptFit()) return
-            innerId = requestAnimationFrame(() => {
-                attemptFit()
-            })
+            if (markHandledIfFit()) return
+            innerId = requestAnimationFrame(markHandledIfFit)
         })
 
         return () => {
@@ -158,6 +152,25 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
             if (innerId) cancelAnimationFrame(innerId)
         }
     }, [canvasFitRequestId, activeTabId, source, dimensions, fitToView])
+
+    useLayoutEffect(() => {
+        if (!dimensions || !svgForDisplay || !activeTabId) return
+        if (hasViewStateForTab(activeTabId)) return
+
+        const attemptFit = () => fitToView(dimensions.width, dimensions.height)
+        if (attemptFit()) return
+
+        let innerId = 0
+        const outerId = requestAnimationFrame(() => {
+            if (attemptFit()) return
+            innerId = requestAnimationFrame(attemptFit)
+        })
+
+        return () => {
+            cancelAnimationFrame(outerId)
+            if (innerId) cancelAnimationFrame(innerId)
+        }
+    }, [dimensions, svgForDisplay, activeTabId, fitToView, hasViewStateForTab])
 
     return (
         <div
@@ -174,7 +187,7 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
                 }}
             />
 
-            <div ref={transformRef} className="absolute inset-0 flex items-center justify-center">
+            <div ref={transformRef} className="absolute top-0 left-0 origin-top-left">
                 {error ? (
                     <DiagramError message={error} />
                 ) : svgForDisplay && dimensions ? (
