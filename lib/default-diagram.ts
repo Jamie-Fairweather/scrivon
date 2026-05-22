@@ -1,26 +1,26 @@
-export const DEFAULT_DIAGRAM = `graph TD
+export const DEFAULT_DIAGRAM = `graph TB
 
-subgraph apis
-salesApi
-readApi
+subgraph apis[APIs]
+salesApi[Sales API]
+readApi[Read API]
 end
 
-subgraph frontend
+subgraph frontend[Front-end]
 Client
 DNS
 CDN
-lb
-web
+lb[Load Balancer]
+web[Web Server] 
 end
 
-subgraph storage
+subgraph storage[Storage]
 dbPrimary[SQL Write Primary] -.- dbReplica[SQL Read Replicas]
 store[Object Store]
 end
 
-Client --> DNS & CDN & lb[Load Balancer]
+Client --> DNS & CDN & lb
 CDN --> store
-lb --> web[Web Server] --> salesApi[Sales API] & readApi[Read API]
+lb --> web --> salesApi & readApi
 service[Sales Rank Service]
 
 service --> dbPrimary & store

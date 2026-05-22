@@ -1,6 +1,6 @@
 'use client'
 
-import { useLayoutEffect, type MutableRefObject } from 'react'
+import { useLayoutEffect, useRef, type MutableRefObject } from 'react'
 
 type FitAttempt = () => boolean
 
@@ -52,7 +52,7 @@ export function useCanvasFitOnRequest(
     }, [canvasFitRequestId, activeTabId, source, dimensions, fitToView, lastHandledFitRequestRef])
 }
 
-/** Fits the canvas the first time a tab shows a diagram without saved view state. */
+/** Fits the canvas once per tab when a diagram first appears without saved view state. */
 export function useCanvasFitOnFirstView(
     dimensions: { width: number; height: number } | null,
     svgForDisplay: string | null,
@@ -60,10 +60,19 @@ export function useCanvasFitOnFirstView(
     hasViewStateForTab: (tabId: string) => boolean,
     fitToView: (width: number, height: number) => boolean
 ) {
+    const fittedTabIdsRef = useRef(new Set<string>())
+
     useLayoutEffect(() => {
         if (!dimensions || !svgForDisplay || !activeTabId) return
         if (hasViewStateForTab(activeTabId)) return
+        if (fittedTabIdsRef.current.has(activeTabId)) return
 
-        return runFitWithRetry(() => fitToView(dimensions.width, dimensions.height))
+        return runFitWithRetry(() => {
+            if (fitToView(dimensions.width, dimensions.height)) {
+                fittedTabIdsRef.current.add(activeTabId)
+                return true
+            }
+            return false
+        })
     }, [dimensions, svgForDisplay, activeTabId, fitToView, hasViewStateForTab])
 }

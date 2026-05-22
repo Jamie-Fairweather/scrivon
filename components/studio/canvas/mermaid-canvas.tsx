@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/studio/canvas/use-canvas-fit-on-load'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
@@ -26,6 +26,16 @@ const DiagramError = memo(function DiagramError({ message }: { message: string }
     )
 })
 
+const DiagramEmpty = memo(function DiagramEmpty({ message }: { message: string }) {
+    return (
+        <Card className="pointer-events-none max-w-md select-none">
+            <CardPanel className="p-4">
+                <p className="text-center text-sm text-muted-foreground">{message}</p>
+            </CardPanel>
+        </Card>
+    )
+})
+
 export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
@@ -37,18 +47,27 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
     const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, activeTabId, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
-    const { svgForDisplay, dimensions, error } = useMermaidSvg(source)
+    const hasSource = source.trim().length > 0
+    const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, activeTabId)
     const [contentBounds, setContentBounds] = useState<SvgContentBounds | null>(null)
+    const [boundsForSvg, setBoundsForSvg] = useState<string | null>(null)
 
-    const fitDimensions = contentBounds ?? dimensions
+    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : null
+    const fitDimensions = effectiveBounds ?? dimensions
+
+    const handleBoundsMeasured = useCallback(
+        (bounds: SvgContentBounds, measuredForSvg: string) => {
+            if (measuredForSvg !== svgForDisplay) return
+            setContentBounds(bounds)
+            setBoundsForSvg(measuredForSvg)
+        },
+        [svgForDisplay]
+    )
 
     useEffect(() => {
         setContentBounds(null)
-    }, [svgForDisplay])
-
-    const handleBoundsMeasured = useCallback((bounds: SvgContentBounds) => {
-        setContentBounds(bounds)
-    }, [])
+        setBoundsForSvg(null)
+    }, [activeTabId, hasSource])
 
     dimensionsRef.current = fitDimensions
 
@@ -63,17 +82,12 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
         })
     }, [registerFitToView, fitToView])
 
-    // Refit when tight measured bounds arrive (viewBox often includes extra margin).
-    useLayoutEffect(() => {
-        if (!contentBounds || !dimensions) return
-        const viewBoxArea = dimensions.width * dimensions.height
-        const boundsArea = contentBounds.width * contentBounds.height
-        if (boundsArea >= viewBoxArea * 0.95) return
-        fitToView(contentBounds.width, contentBounds.height)
-    }, [contentBounds, dimensions, fitToView])
-
     useCanvasFitOnRequest(canvasFitRequestId, activeTabId, source, fitDimensions, fitToView, lastHandledFitRequestRef)
     useCanvasFitOnFirstView(fitDimensions, svgForDisplay, activeTabId, hasViewStateForTab, fitToView)
+
+    const emptyMessage = !activeTabId ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
+    const showDiagram = hasSource && Boolean(svgForDisplay) && !error
+    const showEmpty = !error && !showDiagram && !isPending
 
     return (
         <div
@@ -94,14 +108,15 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
                 <div ref={transformRef} className="origin-center">
                     {error ? (
                         <DiagramError message={error} />
-                    ) : svgForDisplay && dimensions ? (
+                    ) : showDiagram ? (
                         <DiagramIframe
-                            svg={svgForDisplay}
-                            width={dimensions.width}
-                            height={dimensions.height}
-                            bounds={contentBounds}
+                            key={activeTabId ?? 'none'}
+                            svg={svgForDisplay!}
+                            bounds={effectiveBounds}
                             onBoundsMeasured={handleBoundsMeasured}
                         />
+                    ) : showEmpty ? (
+                        <DiagramEmpty message={emptyMessage} />
                     ) : null}
                 </div>
             </div>
