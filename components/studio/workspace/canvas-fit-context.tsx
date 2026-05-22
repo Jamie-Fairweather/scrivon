@@ -16,13 +16,7 @@ export function useCanvasFit(): CanvasFitContextValue {
     return ctx
 }
 
-export function CanvasFitProvider({
-    children,
-    coordinator,
-}: {
-    children: ReactNode
-    coordinator?: WorkspaceCoordinatorRefs
-}) {
+export function CanvasFitProvider({ children, coordinator }: { children: ReactNode; coordinator?: WorkspaceCoordinatorRefs }) {
     const [canvasFitRequestId, setCanvasFitRequestId] = useState(0)
 
     const requestCanvasFit = useCallback(() => {

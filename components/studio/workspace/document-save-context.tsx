@@ -1,15 +1,6 @@
 'use client'
 
-import {
-    createContext,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type ReactNode,
-} from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { writeWorkspaceFile } from '@/lib/tauri/fs'
 import { AUTO_SAVE_MS, STORAGE_AUTOSAVE, type DocumentTab } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -66,9 +57,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
 
             try {
                 await writeWorkspaceFile(tab.path, tab.content)
-                setTabs((prev) =>
-                    prev.map((t) => (t.id === id ? { ...t, isDirty: false, isSaving: false, saveError: undefined } : t))
-                )
+                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isDirty: false, isSaving: false, saveError: undefined } : t)))
                 return true
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to save file'

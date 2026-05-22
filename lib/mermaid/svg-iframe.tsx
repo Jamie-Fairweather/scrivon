@@ -10,15 +10,7 @@ svg{display:block;max-width:none;overflow:visible;vertical-align:top}
 </style></head><body>${svg}</body></html>`
 }
 
-export const DiagramIframe = memo(function DiagramIframe({
-    svg,
-    width,
-    height,
-}: {
-    svg: string
-    width: number
-    height: number
-}) {
+export const DiagramIframe = memo(function DiagramIframe({ svg, width, height }: { svg: string; width: number; height: number }) {
     return (
         <iframe
             title="Diagram preview"

@@ -2,10 +2,10 @@
 
 import type { CSSProperties } from 'react'
 import { Focus, Loader2, X } from 'lucide-react'
-import { useCanvasControls } from '@/components/studio/canvas-controls-provider'
-import { LayoutToggleButtons } from '@/components/studio/layout-toggle-buttons'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
+import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
+import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
-import { useDocumentTabs } from '@/components/studio/workspace-provider'
 import { cn } from '@/lib/utils'
 
 type EditorTabBarProps = {

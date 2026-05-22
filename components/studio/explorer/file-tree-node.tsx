@@ -2,8 +2,8 @@
 
 import { ChevronRight, FileCode2, FileText, Folder } from 'lucide-react'
 import { useCallback, useState } from 'react'
-import { FileTreeContextMenu } from '@/components/studio/file-tree-context-menu'
-import { useDocumentTabs } from '@/components/studio/workspace-provider'
+import { FileTreeContextMenu } from '@/components/studio/explorer/file-tree-context-menu'
+import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'

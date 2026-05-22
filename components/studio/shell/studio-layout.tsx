@@ -1,14 +1,14 @@
 'use client'
 
-import { CanvasControlsProvider } from '@/components/studio/canvas-controls-provider'
-import { FileExplorer } from '@/components/studio/file-explorer'
-import { CodeEditorPanel } from '@/components/studio/code-editor-panel'
-import { EditorTabBar } from '@/components/studio/editor-tab-bar'
-import { useEditorPanelLayout } from '@/components/studio/use-editor-panel-layout'
-import { MermaidCanvas } from '@/components/studio/mermaid-canvas'
-import { useSaveShortcut } from '@/components/studio/use-save-shortcut'
-import { useWindowCloseHandler } from '@/components/studio/use-window-close'
-import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace-provider'
+import { CanvasControlsProvider } from '@/components/studio/canvas/canvas-controls-provider'
+import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
+import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
+import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
+import { FileExplorer } from '@/components/studio/explorer/file-explorer'
+import { useSaveShortcut } from '@/components/studio/hooks/use-save-shortcut'
+import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
+import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { useMediaQuery } from '@/hooks/use-media-query'
 
 export function StudioLayout() {

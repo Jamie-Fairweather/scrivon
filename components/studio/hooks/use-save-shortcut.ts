@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useDocumentSave, useDocumentTabs } from '@/components/studio/workspace-provider'
+import { useDocumentSave, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 
 function isNativeTextField(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false

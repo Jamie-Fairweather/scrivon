@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useCallback, useMemo, useRef } from 'react'
 import type { editor } from 'monaco-editor'
-import { useDocumentTabs } from '@/components/studio/workspace-provider'
+import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 

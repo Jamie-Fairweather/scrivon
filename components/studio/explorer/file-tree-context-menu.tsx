@@ -1,9 +1,10 @@
 'use client'
 
 import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useDeleteConfirm } from '@/components/studio/delete-confirm-provider'
-import { useNamePrompt } from '@/components/studio/name-prompt-provider'
-import { useWorkspaceSession } from '@/components/studio/workspace-provider'
+import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
+import { useFileTreeActions } from '@/components/studio/explorer/use-file-tree-actions'
+import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
+import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import type { FileNode } from '@/lib/workspace/types'
@@ -11,19 +12,9 @@ import type { FileNode } from '@/lib/workspace/types'
 export function FileTreeContextMenu({ node }: { node: FileNode }) {
     const { confirmDelete } = useDeleteConfirm()
     const { promptName } = useNamePrompt()
-    const { openFile, createFile, createFolder, renameEntry, deleteEntry, duplicateFile } = useWorkspaceSession()
-
-    const handleNewFile = async () => {
-        if (node.kind !== 'directory') return
-        const name = await promptName('New file name', 'diagram.mmd')
-        if (name) await createFile(node.path, name)
-    }
-
-    const handleNewFolder = async () => {
-        if (node.kind !== 'directory') return
-        const name = await promptName('New folder name', 'diagrams')
-        if (name) await createFolder(node.path, name)
-    }
+    const { openFile, renameEntry, deleteEntry, duplicateFile } = useWorkspaceSession()
+    const parentPath = node.kind === 'directory' ? node.path : null
+    const { createFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
 
     const handleRename = async () => {
         const name = await promptName('Rename', node.name)
@@ -72,11 +63,11 @@ export function FileTreeContextMenu({ node }: { node: FileNode }) {
                     </>
                 ) : (
                     <>
-                        <MenuItem onClick={() => void handleNewFile()}>
+                        <MenuItem onClick={() => void createFileInParent()}>
                             <Plus />
                             New File
                         </MenuItem>
-                        <MenuItem onClick={() => void handleNewFolder()}>
+                        <MenuItem onClick={() => void createFolderInParent()}>
                             <Plus />
                             New Folder
                         </MenuItem>

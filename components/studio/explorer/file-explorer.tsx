@@ -1,8 +1,8 @@
 'use client'
 
-import { useWorkspaceSession } from '@/components/studio/workspace-provider'
-import { FileTreeNode } from '@/components/studio/file-tree-node'
-import { FileTreeRootActions } from '@/components/studio/file-tree-root-actions'
+import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
+import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root-actions'
+import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export function FileExplorer() {

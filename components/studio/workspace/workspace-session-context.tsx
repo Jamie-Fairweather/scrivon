@@ -1,14 +1,6 @@
 'use client'
 
-import {
-    createContext,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useState,
-    type ReactNode,
-} from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { pickWorkspaceFolder, showError } from '@/lib/tauri/dialog'
 import {
@@ -25,12 +17,7 @@ import {
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
-import {
-    addRecentWorkspace,
-    getLastOpenedFile,
-    getRecentWorkspaces,
-    removeRecentWorkspace,
-} from '@/lib/tauri/store'
+import { addRecentWorkspace, getLastOpenedFile, getRecentWorkspaces, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { collectFileNames, uniqueFileName, validateFileName } from '@/lib/workspace/paths'
 import type { FileNode } from '@/lib/workspace/types'

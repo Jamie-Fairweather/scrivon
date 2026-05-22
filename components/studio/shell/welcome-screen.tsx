@@ -1,7 +1,7 @@
 'use client'
 
 import { FolderOpen, FolderX, Monitor } from 'lucide-react'
-import { useWorkspaceSession } from '@/components/studio/workspace-provider'
+import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 

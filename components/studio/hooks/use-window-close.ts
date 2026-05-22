@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
-import { useDocumentSave, useWorkspaceSession } from '@/components/studio/workspace-provider'
+import { useDocumentSave, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 export function useWindowCloseHandler() {
     const { workspaceRoot } = useWorkspaceSession()

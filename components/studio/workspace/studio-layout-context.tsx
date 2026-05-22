@@ -1,11 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import {
-    STORAGE_LAYOUT_EDITOR,
-    STORAGE_LAYOUT_EXPLORER,
-    type StudioLayoutState,
-} from '@/lib/workspace/types'
+import { STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, type StudioLayoutState } from '@/lib/workspace/types'
 
 type StudioLayoutContextValue = {
     layout: StudioLayoutState

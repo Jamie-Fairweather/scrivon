@@ -1,11 +1,11 @@
 'use client'
 
-import { DeleteConfirmProvider } from '@/components/studio/delete-confirm-provider'
-import { NamePromptProvider } from '@/components/studio/name-prompt-provider'
-import { StudioLayout } from '@/components/studio/studio-layout'
-import { StudioMenuBar } from '@/components/studio/studio-menu-bar'
-import { WelcomeScreen } from '@/components/studio/welcome-screen'
-import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace-provider'
+import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
+import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
+import { StudioLayout } from '@/components/studio/shell/studio-layout'
+import { StudioMenuBar } from '@/components/studio/shell/studio-menu-bar'
+import { WelcomeScreen } from '@/components/studio/shell/welcome-screen'
+import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 function StudioRouter() {
     const { hydrated, workspaceRoot } = useWorkspaceSession()

@@ -1,7 +1,7 @@
 'use client'
 
 import { Code2, PanelLeft } from 'lucide-react'
-import { useStudioLayout } from '@/components/studio/workspace-provider'
+import { useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 
 export function LayoutToggleButtons() {
