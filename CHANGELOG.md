@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/Jamie-Fairweather/scrivon/compare/v1.1.0...v1.1.1) (2026-05-24)
+
+### Bug Fixes
+
+* format update dialog release notes ([4b8c508](https://github.com/Jamie-Fairweather/scrivon/commit/4b8c508ba651978b16b6442d6ab8519ffb9cd836))
+
 ## [1.1.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.0.0...v1.1.0) (2026-05-24)
 
 ### Features

@@ -10,7 +10,7 @@ export type ThirdPartyPackage = {
 }
 
 export const APP_NAME = 'Scrivon' // keep in sync with lib/app-branding.ts
-export const APP_VERSION = "1.1.1-rc.1"
+export const APP_VERSION = "1.1.1"
 
 export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     {
