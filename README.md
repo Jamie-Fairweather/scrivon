@@ -79,16 +79,45 @@ The desktop app checks for updates shortly after launch and only offers installs
 
 Channel is chosen from the app version: builds with a semver pre-release segment (e.g. `-rc.1`) only check the RC manifest.
 
-### Updater signing (required for in-app updates)
+### Generate updater signing keys
 
-CI must sign update bundles. Add these GitHub repository secrets:
+In-app updates require a minisign keypair. Do this once per machine (or again if you rotate keys).
 
-| Secret                               | Value                                                                                                                                |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon` (generate locally with `bun tauri signer generate -w src-tauri/.updater/scrivon --ci`) |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Leave empty if the key has no password                                                                                               |
+1. **Generate the keypair** (no password — press Enter if prompted, or use `--ci` to skip prompts):
 
-The matching public key is already in `tauri.conf.json`. **Never commit the private key** (it is gitignored).
+    ```bash
+    bun tauri signer generate -w src-tauri/.updater/scrivon --ci -f
+    ```
+
+    Creates:
+    - `src-tauri/.updater/scrivon` — private key (**never commit**; gitignored)
+    - `src-tauri/.updater/scrivon.pub` — public key
+
+2. **Update the public key in config** — copy the full contents of `scrivon.pub` into `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` (one line, no line breaks). Commit only this change to the public key, not the private key.
+
+3. **Use the private key locally and in CI**
+    - **Local:** copy [`.env.example`](.env.example) to `.env` and set `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (see [Local builds with signing](#local-builds-with-signing) below).
+    - **CI:** add [repository secrets](#github-secrets-for-updater-signing) (not Environment secrets).
+
+If you regenerate keys, repeat all three steps. Existing installs signed with the old key will not trust updates signed with the new key.
+
+### GitHub secrets for updater signing
+
+Under **Settings → Secrets and variables → Actions → Repository secrets**:
+
+| Secret                               | Value                                         |
+| ------------------------------------ | --------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Leave empty if the key has no password        |
+
+### Local builds with signing
+
+The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tauri build` loads [`.env`](.env) first. Copy [`.env.example`](.env.example) to `.env` and set either:
+
+- `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (recommended), or
+- `TAURI_SIGNING_PRIVATE_KEY` with the full key contents.
+
+If neither is set but `src-tauri/.updater/scrivon` exists, that file is used automatically.
 
 ### Code signing (optional)
 
