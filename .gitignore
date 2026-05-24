@@ -7,23 +7,63 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Build output
 dist
 dist-ssr
 .next
 out
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Local overrides
 *.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Testing
+coverage/
+
+# Vercel
+.vercel
+
+# Turbopack
+.turbo
+
+# Package manager caches
+.npm/
+.yarn/
+.bun/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
 # Next.js
 next-env.d.ts
