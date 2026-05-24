@@ -41,23 +41,22 @@ function git(assets) {
     ]
 }
 
-const basePlugins = [analyzer, releaseNotes, npm, exec]
+// Plugins must be top-level — semantic-release ignores plugins nested under branches[].
+// Changelog is main-only; rc releases only bump version files.
+const branch = process.env.GITHUB_REF?.replace(/^refs\/heads\//, '') ?? ''
+const isRc = branch === 'rc'
+
+const changelog = ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md' }]
 
 export default {
-    branches: [
-        {
-            name: 'main',
-            plugins: [
-                ...basePlugins,
-                ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md' }],
-                git([...versionAssets, 'CHANGELOG.md']),
-                '@semantic-release/github',
-            ],
-        },
-        {
-            name: 'rc',
-            prerelease: 'rc',
-            plugins: [...basePlugins, git(versionAssets), '@semantic-release/github'],
-        },
+    branches: [{ name: 'main' }, { name: 'rc', prerelease: 'rc' }],
+    plugins: [
+        ...analyzer,
+        releaseNotes,
+        npm,
+        exec,
+        ...(isRc ? [] : [changelog]),
+        git(isRc ? versionAssets : [...versionAssets, 'CHANGELOG.md']),
+        '@semantic-release/github',
     ],
 }

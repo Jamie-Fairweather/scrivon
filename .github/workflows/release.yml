@@ -70,7 +70,7 @@ jobs:
                   echo "id=$id" >> "$GITHUB_OUTPUT"
                   echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
                   # WiX/MSI only supports numeric pre-release segments (e.g. 1.0.0-1), not 1.0.0-rc.1
-                  if [ "$prerelease" = "true" ]; then
+                  if [ "$prerelease" = "true" ] || echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-.+'; then
                     echo "bundles=nsis" >> "$GITHUB_OUTPUT"
                   else
                     echo "bundles=msi,nsis" >> "$GITHUB_OUTPUT"
