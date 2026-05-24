@@ -23,6 +23,7 @@ import {
     MenuSubTrigger,
     MenuTrigger,
 } from '@/components/ui/menu'
+import { MenuBarUpdateButton } from '@/components/studio/shell/menu-bar-update-button'
 import { ThemeMenu } from '@/components/studio/theme/theme-menu'
 import { getBaseName } from '@/lib/tauri/fs'
 
@@ -146,6 +147,8 @@ export function StudioMenuBar() {
                             </MenuSubPopup>
                         </MenuSub>
                     </MenuBarEntry>
+
+                    {isDesktop && <MenuBarUpdateButton />}
                 </div>
             </nav>
 
