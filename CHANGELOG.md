@@ -1,15 +1,3 @@
-## [1.1.0-rc.1](https://github.com/Jamie-Fairweather/scrivon/compare/v1.0.0...v1.1.0-rc.1) (2026-05-24)
-
-### Features
-
-* add application icon and branding ([5562579](https://github.com/Jamie-Fairweather/scrivon/commit/55625791a993bb9456d278db7026bc9df71113c5))
-* app update icon on menu bar ([83d64dd](https://github.com/Jamie-Fairweather/scrivon/commit/83d64ddb25615c40c75f6d8ff0902cb409d241c8))
-* integrate toast notifications for app updates ([d1cac9a](https://github.com/Jamie-Fairweather/scrivon/commit/d1cac9aa0bed31b5b177629d851584dc783b3e82))
-
-### Bug Fixes
-
-* show change log in app updater ([ff702c1](https://github.com/Jamie-Fairweather/scrivon/commit/ff702c113a1ee73c888e45b6e1d44fbea484bbc5))
-
 ## 1.0.0 (2026-05-24)
 
 ### Features
