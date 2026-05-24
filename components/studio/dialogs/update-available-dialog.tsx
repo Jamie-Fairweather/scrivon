@@ -1,7 +1,12 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+
+const ReleaseNotesContent = dynamic(() => import('@/components/studio/dialogs/release-notes-content').then((m) => m.ReleaseNotesContent), {
+    ssr: false,
+})
 
 export type AppUpdateInfo = {
     version: string
@@ -31,9 +36,9 @@ export function UpdateAvailableDialog({ update, notesLoading, installing, onLate
                         <h3 className="mb-2 text-sm font-medium">What&apos;s new</h3>
                         {notesLoading && !update.notes?.trim() ? (
                             <p className="text-sm text-muted-foreground">Loading release notes…</p>
-                        ) : (
-                            <p className="text-sm whitespace-pre-wrap text-muted-foreground">{update.notes}</p>
-                        )}
+                        ) : update.notes?.trim() ? (
+                            <ReleaseNotesContent notes={update.notes} />
+                        ) : null}
                     </DialogPanel>
                 ) : null}
                 <DialogFooter variant="bare">
