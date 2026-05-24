@@ -1,0 +1,31 @@
+name: Setup Bun and dependencies
+description: Install Bun with dependency and Next.js build caches
+
+runs:
+    using: composite
+    steps:
+        - name: Setup Bun
+          uses: oven-sh/setup-bun@v2
+
+        - name: Cache Bun dependencies
+          uses: actions/cache@v4
+          with:
+              path: |
+                  ~/.bun/install/cache
+                  node_modules
+              key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+              restore-keys: |
+                  bun-${{ runner.os }}-
+
+        - name: Cache Next.js build
+          uses: actions/cache@v4
+          with:
+              path: .next/cache
+              key: next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('next.config.mjs', 'postcss.config.mjs', 'tsconfig.json', 'app/**', 'components/**', 'hooks/**', 'lib/**', 'scripts/**') }}
+              restore-keys: |
+                  next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+                  next-${{ runner.os }}-
+
+        - name: Install dependencies
+          run: bun install --frozen-lockfile
+          shell: bash
