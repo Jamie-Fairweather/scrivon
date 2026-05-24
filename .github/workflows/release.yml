@@ -98,20 +98,27 @@ jobs:
             - name: Ensure RC updater channel release exists
               if: steps.gh_release.outputs.prerelease == 'true'
               shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  gh release view updater-rc --repo "${GITHUB_REPOSITORY}" 2>/dev/null || \
+                  if gh release view updater-rc --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+                    echo "updater-rc release already exists"
+                  else
+                    echo "Creating updater-rc channel release (first rc pre-release only)"
                     gh release create updater-rc --repo "${GITHUB_REPOSITORY}" \
+                      --target main \
                       --title "Updater channel (RC)" \
                       --notes "Rolling update manifest for pre-release builds. Install Scrivon from the latest rc GitHub Release instead." \
                       --prerelease
+                  fi
 
             - name: Publish RC updater manifest
               if: steps.gh_release.outputs.prerelease == 'true'
               shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: v${{ needs.release.outputs.version }}
               run: |
                   gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'latest.json' --dir ./updater-tmp
                   cp ./updater-tmp/latest.json ./updater-tmp/latest-rc.json
                   gh release upload updater-rc ./updater-tmp/latest-rc.json --repo "${GITHUB_REPOSITORY}" --clobber
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  TAG: v${{ needs.release.outputs.version }}

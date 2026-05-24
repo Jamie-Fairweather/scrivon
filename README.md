@@ -75,7 +75,7 @@ The desktop app checks for updates shortly after launch and only offers installs
 | Installed build                    | Update source                                                                                       | Will not see                |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------- |
 | Stable (`1.0.0` on `main`)         | [Latest stable release](https://github.com/Jamie-Fairweather/scrivon/releases/latest) `latest.json` | Pre-releases (`1.0.0-rc.x`) |
-| Pre-release (`1.0.0-rc.1` on `rc`) | Rolling `updater-rc` manifest                                                                       | Stable-only releases        |
+| Pre-release (`1.0.0-rc.1` on `rc`) | Rolling `updater-rc` manifest (created automatically on the first rc release)                       | Stable-only releases        |
 
 Channel is chosen from the app version: builds with a semver pre-release segment (e.g. `-rc.1`) only check the RC manifest.
 
