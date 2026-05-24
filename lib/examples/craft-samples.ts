@@ -3,7 +3,7 @@
 
 export type ExampleCategory = 'flowchart' | 'state' | 'sequence' | 'class' | 'er' | 'xy-chart'
 
-export const EXAMPLE_CATEGORIES: ExampleCategory[] = ['flowchart', 'state', 'sequence', 'class', 'er', 'xy-chart']
+export const EXAMPLE_CATEGORIES: ExampleCategory[] = ["flowchart","state","sequence","class","er","xy-chart"]
 
 export type CraftExample = {
     id: string
@@ -15,18 +15,18 @@ export type CraftExample = {
 
 export const CRAFT_EXAMPLES: CraftExample[] = [
     {
-        id: 'sample-1',
-        category: 'flowchart',
-        title: 'Simple Flow',
-        description: 'Basic linear flow with three nodes connected by solid arrows.',
+        id: "sample-1",
+        category: "flowchart",
+        title: "Simple Flow",
+        description: "Basic linear flow with three nodes connected by solid arrows.",
         source: `graph TD
   A[Start] --> B[Process] --> C[End]`,
     },
     {
-        id: 'sample-2',
-        category: 'flowchart',
-        title: 'Original Node Shapes',
-        description: 'Rectangle, rounded, diamond, stadium, and circle.',
+        id: "sample-2",
+        category: "flowchart",
+        title: "Original Node Shapes",
+        description: "Rectangle, rounded, diamond, stadium, and circle.",
         source: `graph LR
   A[Rectangle] --> B(Rounded)
   B --> C{Diamond}
@@ -34,29 +34,29 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   D --> E((Circle))`,
     },
     {
-        id: 'sample-3',
-        category: 'flowchart',
-        title: 'Batch 1 Shapes',
-        description: 'Subroutine `[[text]]`, double circle `(((text)))`, and hexagon `{{text}}`.',
+        id: "sample-3",
+        category: "flowchart",
+        title: "Batch 1 Shapes",
+        description: "Subroutine `[[text]]`, double circle `(((text)))`, and hexagon `{{text}}`.",
         source: `graph LR
   A[[Subroutine]] --> B(((Double Circle)))
   B --> C{{Hexagon}}`,
     },
     {
-        id: 'sample-4',
-        category: 'flowchart',
-        title: 'Batch 2 Shapes',
-        description: 'Cylinder `[(text)]`, asymmetric `>text]`, trapezoid `[/text\\]`, and inverse trapezoid `[\\text/]`.',
+        id: "sample-4",
+        category: "flowchart",
+        title: "Batch 2 Shapes",
+        description: "Cylinder `[(text)]`, asymmetric `>text]`, trapezoid `[/text\\]`, and inverse trapezoid `[\\text/]`.",
         source: `graph LR
   A[(Database)] --> B>Flag Shape]
   B --> C[/Wider Bottom\\]
   C --> D[\\Wider Top/]`,
     },
     {
-        id: 'sample-5',
-        category: 'flowchart',
-        title: 'All 12 Flowchart Shapes',
-        description: 'Every supported flowchart shape in a single diagram.',
+        id: "sample-5",
+        category: "flowchart",
+        title: "All 12 Flowchart Shapes",
+        description: "Every supported flowchart shape in a single diagram.",
         source: `graph LR
   A[Rectangle] --> B(Rounded)
   B --> C{Diamond}
@@ -71,30 +71,30 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   K --> L[\\Inverse Trap/]`,
     },
     {
-        id: 'sample-6',
-        category: 'flowchart',
-        title: 'All Edge Styles',
-        description: 'Solid, dotted, and thick arrows with labels.',
+        id: "sample-6",
+        category: "flowchart",
+        title: "All Edge Styles",
+        description: "Solid, dotted, and thick arrows with labels.",
         source: `graph TD
   A[Source] -->|solid| B[Target 1]
   A -.->|dotted| C[Target 2]
   A ==>|thick| D[Target 3]`,
     },
     {
-        id: 'sample-7',
-        category: 'flowchart',
-        title: 'No-Arrow Edges',
-        description: 'Lines without arrowheads: solid `---`, dotted `-.-`, thick `===`.',
+        id: "sample-7",
+        category: "flowchart",
+        title: "No-Arrow Edges",
+        description: "Lines without arrowheads: solid `---`, dotted `-.-`, thick `===`.",
         source: `graph TD
   A[Node 1] ---|related| B[Node 2]
   B -.- C[Node 3]
   C === D[Node 4]`,
     },
     {
-        id: 'sample-8',
-        category: 'flowchart',
-        title: 'Text-Embedded Labels',
-        description: 'Using `-- label -->` syntax instead of `-->|label|` for edge labels.',
+        id: "sample-8",
+        category: "flowchart",
+        title: "Text-Embedded Labels",
+        description: "Using `-- label -->` syntax instead of `-->|label|` for edge labels.",
         source: `flowchart TD
   A(Start) --> B{Is it sunny?}
   B -- Yes --> C[Go to the park]
@@ -103,37 +103,37 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   D --> E`,
     },
     {
-        id: 'sample-9',
-        category: 'flowchart',
-        title: 'Bidirectional Arrows',
-        description: 'Arrows in both directions: `<-->`, `<-.->`, `<==>`.',
+        id: "sample-9",
+        category: "flowchart",
+        title: "Bidirectional Arrows",
+        description: "Arrows in both directions: `<-->`, `<-.->`, `<==>`.",
         source: `graph LR
   A[Client] <-->|sync| B[Server]
   B <-.->|heartbeat| C[Monitor]
   C <==>|data| D[Storage]`,
     },
     {
-        id: 'sample-10',
-        category: 'flowchart',
-        title: 'Parallel Links (&)',
-        description: 'Using `&` to create multiple edges from/to groups of nodes.',
+        id: "sample-10",
+        category: "flowchart",
+        title: "Parallel Links (&)",
+        description: "Using `&` to create multiple edges from/to groups of nodes.",
         source: `graph TD
   A[Input] & B[Config] --> C[Processor]
   C --> D[Output] & E[Log]`,
     },
     {
-        id: 'sample-11',
-        category: 'flowchart',
-        title: 'Chained Edges',
-        description: 'A long chain of nodes demonstrating edge chaining syntax.',
+        id: "sample-11",
+        category: "flowchart",
+        title: "Chained Edges",
+        description: "A long chain of nodes demonstrating edge chaining syntax.",
         source: `graph LR
   A[Step 1] --> B[Step 2] --> C[Step 3] --> D[Step 4] --> E[Step 5]`,
     },
     {
-        id: 'sample-12',
-        category: 'flowchart',
-        title: 'linkStyle: Color-Coded Edges',
-        description: 'Using `linkStyle` to color specific edges by index (0-based).',
+        id: "sample-12",
+        category: "flowchart",
+        title: "linkStyle: Color-Coded Edges",
+        description: "Using `linkStyle` to color specific edges by index (0-based).",
         source: `graph TD
   A[Start] --> B{Decision}
   B -->|Yes| C[Accept]
@@ -146,10 +146,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   linkStyle default stroke:#565f89`,
     },
     {
-        id: 'sample-13',
-        category: 'flowchart',
-        title: 'linkStyle: Default + Override',
-        description: 'Default edge style with index-specific overrides for critical paths.',
+        id: "sample-13",
+        category: "flowchart",
+        title: "linkStyle: Default + Override",
+        description: "Default edge style with index-specific overrides for critical paths.",
         source: `graph LR
   A[Request] --> B[Auth]
   B --> C[Process]
@@ -160,26 +160,26 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   linkStyle 3 stroke:#ef4444,stroke-width:3px`,
     },
     {
-        id: 'sample-14',
-        category: 'flowchart',
-        title: 'Direction: Left-Right (LR)',
-        description: 'Horizontal layout flowing left to right.',
+        id: "sample-14",
+        category: "flowchart",
+        title: "Direction: Left-Right (LR)",
+        description: "Horizontal layout flowing left to right.",
         source: `graph LR
   A[Input] --> B[Transform] --> C[Output]`,
     },
     {
-        id: 'sample-15',
-        category: 'flowchart',
-        title: 'Direction: Bottom-Top (BT)',
-        description: 'Vertical layout flowing from bottom to top.',
+        id: "sample-15",
+        category: "flowchart",
+        title: "Direction: Bottom-Top (BT)",
+        description: "Vertical layout flowing from bottom to top.",
         source: `graph BT
   A[Foundation] --> B[Layer 2] --> C[Top]`,
     },
     {
-        id: 'sample-16',
-        category: 'flowchart',
-        title: 'Subgraphs',
-        description: 'Grouped nodes inside labeled subgraph containers.',
+        id: "sample-16",
+        category: "flowchart",
+        title: "Subgraphs",
+        description: "Grouped nodes inside labeled subgraph containers.",
         source: `graph TD
   subgraph Frontend
     A[React App] --> B[State Manager]
@@ -190,10 +190,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   B --> C`,
     },
     {
-        id: 'sample-17',
-        category: 'flowchart',
-        title: 'Nested Subgraphs',
-        description: 'Subgraphs inside subgraphs for hierarchical grouping.',
+        id: "sample-17",
+        category: "flowchart",
+        title: "Nested Subgraphs",
+        description: "Subgraphs inside subgraphs for hierarchical grouping.",
         source: `graph TD
   subgraph Cloud
     subgraph us-east [US East Region]
@@ -207,10 +207,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   E --> C`,
     },
     {
-        id: 'sample-18',
-        category: 'flowchart',
-        title: 'Subgraph Direction Override',
-        description: 'Using `direction LR` inside a subgraph while the outer graph flows TD.',
+        id: "sample-18",
+        category: "flowchart",
+        title: "Subgraph Direction Override",
+        description: "Using `direction LR` inside a subgraph while the outer graph flows TD.",
         source: `graph TD
   subgraph pipeline [Processing Pipeline]
     direction LR
@@ -220,10 +220,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   D --> F[Sink]`,
     },
     {
-        id: 'sample-19',
-        category: 'flowchart',
-        title: '::: Class Shorthand',
-        description: 'Assigning classes with `:::` syntax directly on node definitions.',
+        id: "sample-19",
+        category: "flowchart",
+        title: "::: Class Shorthand",
+        description: "Assigning classes with `:::` syntax directly on node definitions.",
         source: `graph TD
   A[Normal]:::default --> B[Highlighted]:::highlight --> C[Error]:::error
   classDef default fill:#f4f4f5,stroke:#a1a1aa
@@ -231,20 +231,20 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   classDef error fill:#ef4444,stroke:#dc2626`,
     },
     {
-        id: 'sample-20',
-        category: 'flowchart',
-        title: 'Inline Style Overrides',
-        description: 'Using `style` statements to override node fill and stroke colors.',
+        id: "sample-20",
+        category: "flowchart",
+        title: "Inline Style Overrides",
+        description: "Using `style` statements to override node fill and stroke colors.",
         source: `graph TD
   A[Default] --> B[Custom Colors] --> C[Another Custom]
   style B fill:#3b82f6,stroke:#1d4ed8,color:#ffffff
   style C fill:#10b981,stroke:#059669`,
     },
     {
-        id: 'sample-21',
-        category: 'flowchart',
-        title: 'CI/CD Pipeline',
-        description: 'A realistic CI/CD pipeline with decision points, feedback loops, and deployment stages.',
+        id: "sample-21",
+        category: "flowchart",
+        title: "CI/CD Pipeline",
+        description: "A realistic CI/CD pipeline with decision points, feedback loops, and deployment stages.",
         source: `graph TD
   subgraph ci [CI Pipeline]
     A[Push Code] --> B{Tests Pass?}
@@ -258,10 +258,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   F -->|No| D`,
     },
     {
-        id: 'sample-22',
-        category: 'flowchart',
-        title: 'System Architecture',
-        description: 'A microservices architecture with multiple services and data stores.',
+        id: "sample-22",
+        category: "flowchart",
+        title: "System Architecture",
+        description: "A microservices architecture with multiple services and data stores.",
         source: `graph LR
   subgraph clients [Client Layer]
     A([Web App]) --> B[API Gateway]
@@ -280,10 +280,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   end`,
     },
     {
-        id: 'sample-23',
-        category: 'flowchart',
-        title: 'Decision Tree',
-        description: 'A branching decision flowchart with multiple outcomes.',
+        id: "sample-23",
+        category: "flowchart",
+        title: "Decision Tree",
+        description: "A branching decision flowchart with multiple outcomes.",
         source: `graph TD
   A{Is it raining?} -->|Yes| B{Have umbrella?}
   A -->|No| C([Go outside])
@@ -293,10 +293,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   E -->|No| G([Run for it])`,
     },
     {
-        id: 'sample-24',
-        category: 'flowchart',
-        title: 'Git Branching Workflow',
-        description: 'A git flow showing feature branches, PRs, and release cycle.',
+        id: "sample-24",
+        category: "flowchart",
+        title: "Git Branching Workflow",
+        description: "A git flow showing feature branches, PRs, and release cycle.",
         source: `graph LR
   A[main] --> B[develop]
   B --> C[feature/auth]
@@ -310,10 +310,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   G -->|fail| F`,
     },
     {
-        id: 'sample-25',
-        category: 'state',
-        title: 'Basic State Diagram',
-        description: 'A simple `stateDiagram-v2` with start/end pseudostates and transitions.',
+        id: "sample-25",
+        category: "state",
+        title: "Basic State Diagram",
+        description: "A simple `stateDiagram-v2` with start/end pseudostates and transitions.",
         source: `stateDiagram-v2
   [*] --> Idle
   Idle --> Active : start
@@ -322,10 +322,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Done --> [*]`,
     },
     {
-        id: 'sample-26',
-        category: 'state',
-        title: 'Composite States',
-        description: 'Nested composite states with inner transitions.',
+        id: "sample-26",
+        category: "state",
+        title: "Composite States",
+        description: "Nested composite states with inner transitions.",
         source: `stateDiagram-v2
   [*] --> Idle
   Idle --> Processing : submit
@@ -339,10 +339,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Complete --> [*]`,
     },
     {
-        id: 'sample-27',
-        category: 'state',
-        title: 'Connection Lifecycle',
-        description: 'TCP-like connection state machine with multiple states.',
+        id: "sample-27",
+        category: "state",
+        title: "Connection Lifecycle",
+        description: "TCP-like connection state machine with multiple states.",
         source: `stateDiagram-v2
   [*] --> Closed
   Closed --> Connecting : connect
@@ -356,10 +356,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Closed --> [*]`,
     },
     {
-        id: 'sample-28',
-        category: 'state',
-        title: 'CJK State Names',
-        description: 'State diagram using Chinese characters for state names.',
+        id: "sample-28",
+        category: "state",
+        title: "CJK State Names",
+        description: "State diagram using Chinese characters for state names.",
         source: `stateDiagram-v2
   [*] --> 空闲
   空闲 --> 处理中 : 提交
@@ -369,19 +369,19 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   完成 --> [*]`,
     },
     {
-        id: 'sample-29',
-        category: 'sequence',
-        title: 'Basic Messages',
-        description: 'Simple request/response between two participants.',
+        id: "sample-29",
+        category: "sequence",
+        title: "Basic Messages",
+        description: "Simple request/response between two participants.",
         source: `sequenceDiagram
   Alice->>Bob: Hello Bob!
   Bob-->>Alice: Hi Alice!`,
     },
     {
-        id: 'sample-30',
-        category: 'sequence',
-        title: 'Participant Aliases',
-        description: 'Using `participant ... as ...` for compact diagram IDs with readable labels.',
+        id: "sample-30",
+        category: "sequence",
+        title: "Participant Aliases",
+        description: "Using `participant ... as ...` for compact diagram IDs with readable labels.",
         source: `sequenceDiagram
   participant A as Alice
   participant B as Bob
@@ -391,10 +391,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   C-->>A: Reply`,
     },
     {
-        id: 'sample-31',
-        category: 'sequence',
-        title: 'Actor Stick Figures',
-        description: 'Using `actor` instead of `participant` renders stick figures instead of boxes.',
+        id: "sample-31",
+        category: "sequence",
+        title: "Actor Stick Figures",
+        description: "Using `actor` instead of `participant` renders stick figures instead of boxes.",
         source: `sequenceDiagram
   actor U as User
   participant S as System
@@ -405,10 +405,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   S-->>U: Display`,
     },
     {
-        id: 'sample-32',
-        category: 'sequence',
-        title: 'Arrow Types',
-        description: 'All arrow types: solid `->>` and dashed `-->>` with filled arrowheads, open arrows `-)` .',
+        id: "sample-32",
+        category: "sequence",
+        title: "Arrow Types",
+        description: "All arrow types: solid `->>` and dashed `-->>` with filled arrowheads, open arrows `-)` .",
         source: `sequenceDiagram
   A->>B: Solid arrow (sync)
   B-->>A: Dashed arrow (return)
@@ -416,10 +416,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   B--)A: Open dashed arrow`,
     },
     {
-        id: 'sample-33',
-        category: 'sequence',
-        title: 'Activation Boxes',
-        description: 'Using `+` and `-` to show when participants are active.',
+        id: "sample-33",
+        category: "sequence",
+        title: "Activation Boxes",
+        description: "Using `+` and `-` to show when participants are active.",
         source: `sequenceDiagram
   participant C as Client
   participant S as Server
@@ -429,10 +429,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   S-->>-C: Response`,
     },
     {
-        id: 'sample-34',
-        category: 'sequence',
-        title: 'Self-Messages',
-        description: 'A participant sending a message to itself (displayed as a loop arrow).',
+        id: "sample-34",
+        category: "sequence",
+        title: "Self-Messages",
+        description: "A participant sending a message to itself (displayed as a loop arrow).",
         source: `sequenceDiagram
   participant S as Server
   S->>S: Internal process
@@ -440,10 +440,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   S-->>S: Log`,
     },
     {
-        id: 'sample-35',
-        category: 'sequence',
-        title: 'Loop Block',
-        description: 'A `loop` construct wrapping repeated message exchanges.',
+        id: "sample-35",
+        category: "sequence",
+        title: "Loop Block",
+        description: "A `loop` construct wrapping repeated message exchanges.",
         source: `sequenceDiagram
   participant C as Client
   participant S as Server
@@ -455,10 +455,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   C->>S: Disconnect`,
     },
     {
-        id: 'sample-36',
-        category: 'sequence',
-        title: 'Alt/Else Block',
-        description: 'Conditional branching with `alt` (if) and `else` blocks.',
+        id: "sample-36",
+        category: "sequence",
+        title: "Alt/Else Block",
+        description: "Conditional branching with `alt` (if) and `else` blocks.",
         source: `sequenceDiagram
   participant C as Client
   participant S as Server
@@ -472,10 +472,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   end`,
     },
     {
-        id: 'sample-37',
-        category: 'sequence',
-        title: 'Opt Block',
-        description: 'Optional block — executes only if condition is met.',
+        id: "sample-37",
+        category: "sequence",
+        title: "Opt Block",
+        description: "Optional block — executes only if condition is met.",
         source: `sequenceDiagram
   participant A as App
   participant C as Cache
@@ -489,10 +489,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   end`,
     },
     {
-        id: 'sample-38',
-        category: 'sequence',
-        title: 'Par Block',
-        description: 'Parallel execution with `par`/`and` constructs.',
+        id: "sample-38",
+        category: "sequence",
+        title: "Par Block",
+        description: "Parallel execution with `par`/`and` constructs.",
         source: `sequenceDiagram
   participant C as Client
   participant A as AuthService
@@ -507,10 +507,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   A-->>C: Combined response`,
     },
     {
-        id: 'sample-39',
-        category: 'sequence',
-        title: 'Critical Block',
-        description: 'Critical section that must complete atomically.',
+        id: "sample-39",
+        category: "sequence",
+        title: "Critical Block",
+        description: "Critical section that must complete atomically.",
         source: `sequenceDiagram
   participant A as App
   participant DB as Database
@@ -522,10 +522,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   A->>DB: COMMIT`,
     },
     {
-        id: 'sample-40',
-        category: 'sequence',
-        title: 'Notes (Right/Left/Over)',
-        description: 'Notes positioned to the right, left, or over participants.',
+        id: "sample-40",
+        category: "sequence",
+        title: "Notes (Right/Left/Over)",
+        description: "Notes positioned to the right, left, or over participants.",
         source: `sequenceDiagram
   participant A as Alice
   participant B as Bob
@@ -536,10 +536,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Note over A,B: Conversation complete`,
     },
     {
-        id: 'sample-41',
-        category: 'sequence',
-        title: 'OAuth 2.0 Flow',
-        description: 'Full OAuth 2.0 authorization code flow with token exchange.',
+        id: "sample-41",
+        category: "sequence",
+        title: "OAuth 2.0 Flow",
+        description: "Full OAuth 2.0 authorization code flow with token exchange.",
         source: `sequenceDiagram
   actor U as User
   participant App as Client App
@@ -557,10 +557,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   App-->>U: Display data`,
     },
     {
-        id: 'sample-42',
-        category: 'sequence',
-        title: 'Database Transaction',
-        description: 'Multi-step database transaction with rollback handling.',
+        id: "sample-42",
+        category: "sequence",
+        title: "Database Transaction",
+        description: "Multi-step database transaction with rollback handling.",
         source: `sequenceDiagram
   participant C as Client
   participant S as Server
@@ -579,10 +579,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   end`,
     },
     {
-        id: 'sample-43',
-        category: 'sequence',
-        title: 'Microservice Orchestration',
-        description: 'Complex multi-service flow with parallel calls and error handling.',
+        id: "sample-43",
+        category: "sequence",
+        title: "Microservice Orchestration",
+        description: "Complex multi-service flow with parallel calls and error handling.",
         source: `sequenceDiagram
   participant G as Gateway
   participant A as Auth
@@ -603,11 +603,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Note over G: Aggregate response`,
     },
     {
-        id: 'sample-44',
-        category: 'sequence',
-        title: 'Self-Messages with Notes',
-        description:
-            'Self-referencing messages inside alt blocks with notes — tests that notes clear self-message loops and stack without overlapping.',
+        id: "sample-44",
+        category: "sequence",
+        title: "Self-Messages with Notes",
+        description: "Self-referencing messages inside alt blocks with notes — tests that notes clear self-message loops and stack without overlapping.",
         source: `sequenceDiagram
   participant User
   participant Main as Main Process
@@ -631,10 +630,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   end`,
     },
     {
-        id: 'sample-45',
-        category: 'class',
-        title: 'Basic Class',
-        description: 'A single class with attributes and methods, rendered as a 3-compartment box.',
+        id: "sample-45",
+        category: "class",
+        title: "Basic Class",
+        description: "A single class with attributes and methods, rendered as a 3-compartment box.",
         source: `classDiagram
   class Animal {
     +String name
@@ -644,10 +643,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-46',
-        category: 'class',
-        title: 'Visibility Markers',
-        description: 'All four visibility levels: `+` (public), `-` (private), `#` (protected), `~` (package).',
+        id: "sample-46",
+        category: "class",
+        title: "Visibility Markers",
+        description: "All four visibility levels: `+` (public), `-` (private), `#` (protected), `~` (package).",
         source: `classDiagram
   class User {
     +String name
@@ -661,10 +660,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-47',
-        category: 'class',
-        title: 'Interface Annotation',
-        description: 'Using <\\> annotation above the class name.',
+        id: "sample-47",
+        category: "class",
+        title: "Interface Annotation",
+        description: "Using <\\> annotation above the class name.",
         source: `classDiagram
   class Serializable {
     <<interface>>
@@ -673,10 +672,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-48',
-        category: 'class',
-        title: 'Abstract Annotation',
-        description: 'Using <\\> annotation for abstract classes.',
+        id: "sample-48",
+        category: "class",
+        title: "Abstract Annotation",
+        description: "Using <\\> annotation for abstract classes.",
         source: `classDiagram
   class Shape {
     <<abstract>>
@@ -686,10 +685,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-49',
-        category: 'class',
-        title: 'Enum Annotation',
-        description: 'Using <\\> annotation for enum types.',
+        id: "sample-49",
+        category: "class",
+        title: "Enum Annotation",
+        description: "Using <\\> annotation for enum types.",
         source: `classDiagram
   class Status {
     <<enumeration>>
@@ -700,10 +699,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-50',
-        category: 'class',
-        title: 'Inheritance (<|--)',
-        description: 'Inheritance relationship rendered with a hollow triangle marker.',
+        id: "sample-50",
+        category: "class",
+        title: "Inheritance (<|--)",
+        description: "Inheritance relationship rendered with a hollow triangle marker.",
         source: `classDiagram
   class Animal {
     +String name
@@ -721,10 +720,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Animal <|-- Cat`,
     },
     {
-        id: 'sample-51',
-        category: 'class',
-        title: 'Composition (\\*--)',
-        description: 'Composition — "owns" relationship with filled diamond marker.',
+        id: "sample-51",
+        category: "class",
+        title: "Composition (\\*--)",
+        description: "Composition — \"owns\" relationship with filled diamond marker.",
         source: `classDiagram
   class Car {
     +String model
@@ -737,10 +736,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Car *-- Engine`,
     },
     {
-        id: 'sample-52',
-        category: 'class',
-        title: 'Aggregation (o--)',
-        description: 'Aggregation — "has" relationship with hollow diamond marker.',
+        id: "sample-52",
+        category: "class",
+        title: "Aggregation (o--)",
+        description: "Aggregation — \"has\" relationship with hollow diamond marker.",
         source: `classDiagram
   class University {
     +String name
@@ -751,10 +750,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   University o-- Department`,
     },
     {
-        id: 'sample-53',
-        category: 'class',
-        title: 'Association (-->)',
-        description: 'Basic association — simple directed arrow.',
+        id: "sample-53",
+        category: "class",
+        title: "Association (-->)",
+        description: "Basic association — simple directed arrow.",
         source: `classDiagram
   class Customer {
     +String name
@@ -765,10 +764,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Customer --> Order`,
     },
     {
-        id: 'sample-54',
-        category: 'class',
-        title: 'Dependency (..>)',
-        description: 'Dependency — dashed line with open arrow.',
+        id: "sample-54",
+        category: "class",
+        title: "Dependency (..>)",
+        description: "Dependency — dashed line with open arrow.",
         source: `classDiagram
   class Service {
     +process() void
@@ -779,10 +778,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Service ..> Repository`,
     },
     {
-        id: 'sample-55',
-        category: 'class',
-        title: 'Realization (..|>)',
-        description: 'Realization — dashed line with hollow triangle (implements interface).',
+        id: "sample-55",
+        category: "class",
+        title: "Realization (..|>)",
+        description: "Realization — dashed line with hollow triangle (implements interface).",
         source: `classDiagram
   class Flyable {
     <<interface>>
@@ -795,10 +794,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Bird ..|> Flyable`,
     },
     {
-        id: 'sample-56',
-        category: 'class',
-        title: 'All 6 Relationship Types',
-        description: 'Every relationship type in a single diagram for comparison.',
+        id: "sample-56",
+        category: "class",
+        title: "All 6 Relationship Types",
+        description: "Every relationship type in a single diagram for comparison.",
         source: `classDiagram
   A <|-- B : inheritance
   C *-- D : composition
@@ -808,10 +807,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   K ..|> L : realization`,
     },
     {
-        id: 'sample-57',
-        category: 'class',
-        title: 'Relationship Labels',
-        description: 'Labeled relationships between classes with descriptive text.',
+        id: "sample-57",
+        category: "class",
+        title: "Relationship Labels",
+        description: "Labeled relationships between classes with descriptive text.",
         source: `classDiagram
   class Teacher {
     +String name
@@ -826,10 +825,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Student --> Course : enrolled in`,
     },
     {
-        id: 'sample-58',
-        category: 'class',
-        title: 'Design Pattern — Observer',
-        description: 'The Observer (publish-subscribe) design pattern with interface + concrete implementations.',
+        id: "sample-58",
+        category: "class",
+        title: "Design Pattern — Observer",
+        description: "The Observer (publish-subscribe) design pattern with interface + concrete implementations.",
         source: `classDiagram
   class Subject {
     <<interface>>
@@ -859,10 +858,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   EventEmitter --> Observer`,
     },
     {
-        id: 'sample-59',
-        category: 'class',
-        title: 'MVC Architecture',
-        description: 'Model-View-Controller pattern showing relationships between layers.',
+        id: "sample-59",
+        category: "class",
+        title: "MVC Architecture",
+        description: "Model-View-Controller pattern showing relationships between layers.",
         source: `classDiagram
   class Model {
     -data Map
@@ -887,10 +886,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Model ..> View : notifies`,
     },
     {
-        id: 'sample-60',
-        category: 'class',
-        title: 'Full Hierarchy',
-        description: 'A complete class hierarchy with abstract base, interfaces, and concrete classes.',
+        id: "sample-60",
+        category: "class",
+        title: "Full Hierarchy",
+        description: "A complete class hierarchy with abstract base, interfaces, and concrete classes.",
         source: `classDiagram
   class Animal {
     <<abstract>>
@@ -926,18 +925,18 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   Bird <|-- Parrot`,
     },
     {
-        id: 'sample-61',
-        category: 'er',
-        title: 'Basic Relationship',
-        description: 'A simple one-to-many relationship between two entities.',
+        id: "sample-61",
+        category: "er",
+        title: "Basic Relationship",
+        description: "A simple one-to-many relationship between two entities.",
         source: `erDiagram
   CUSTOMER ||--o{ ORDER : places`,
     },
     {
-        id: 'sample-62',
-        category: 'er',
-        title: 'Entity with Attributes',
-        description: 'An entity with typed attributes and `PK`/`FK`/`UK` key badges.',
+        id: "sample-62",
+        category: "er",
+        title: "Entity with Attributes",
+        description: "An entity with typed attributes and `PK`/`FK`/`UK` key badges.",
         source: `erDiagram
   CUSTOMER {
     int id PK
@@ -947,10 +946,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-63',
-        category: 'er',
-        title: 'Attribute Keys (PK, FK, UK)',
-        description: 'All three key constraint types rendered as badges.',
+        id: "sample-63",
+        category: "er",
+        title: "Attribute Keys (PK, FK, UK)",
+        description: "All three key constraint types rendered as badges.",
         source: `erDiagram
   ORDER {
     int id PK
@@ -962,42 +961,42 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   }`,
     },
     {
-        id: 'sample-64',
-        category: 'er',
-        title: 'Exactly One to Exactly One (||--||)',
-        description: 'One-to-one mandatory relationship.',
+        id: "sample-64",
+        category: "er",
+        title: "Exactly One to Exactly One (||--||)",
+        description: "One-to-one mandatory relationship.",
         source: `erDiagram
   PERSON ||--|| PASSPORT : has`,
     },
     {
-        id: 'sample-65',
-        category: 'er',
-        title: 'Exactly One to Zero-or-Many (||--o{)',
+        id: "sample-65",
+        category: "er",
+        title: "Exactly One to Zero-or-Many (||--o{)",
         description: "Classic one-to-many optional relationship (crow's foot).",
         source: `erDiagram
   CUSTOMER ||--o{ ORDER : places`,
     },
     {
-        id: 'sample-66',
-        category: 'er',
-        title: 'Zero-or-One to One-or-Many (|o--|{)',
-        description: 'Optional on one side, at-least-one on the other.',
+        id: "sample-66",
+        category: "er",
+        title: "Zero-or-One to One-or-Many (|o--|{)",
+        description: "Optional on one side, at-least-one on the other.",
         source: `erDiagram
   SUPERVISOR |o--|{ EMPLOYEE : manages`,
     },
     {
-        id: 'sample-67',
-        category: 'er',
-        title: 'One-or-More to Zero-or-Many (}|--o{)',
-        description: 'At-least-one to zero-or-many relationship.',
+        id: "sample-67",
+        category: "er",
+        title: "One-or-More to Zero-or-Many (}|--o{)",
+        description: "At-least-one to zero-or-many relationship.",
         source: `erDiagram
   TEACHER }|--o{ COURSE : teaches`,
     },
     {
-        id: 'sample-68',
-        category: 'er',
-        title: 'All Cardinality Types',
-        description: 'Every cardinality combination in one diagram.',
+        id: "sample-68",
+        category: "er",
+        title: "All Cardinality Types",
+        description: "Every cardinality combination in one diagram.",
         source: `erDiagram
   A ||--|| B : one-to-one
   C ||--o{ D : one-to-many
@@ -1005,27 +1004,27 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   G }|--o{ H : many-to-many`,
     },
     {
-        id: 'sample-69',
-        category: 'er',
-        title: 'Identifying (Solid) Relationship',
-        description: 'Solid line indicating an identifying relationship (child depends on parent for identity).',
+        id: "sample-69",
+        category: "er",
+        title: "Identifying (Solid) Relationship",
+        description: "Solid line indicating an identifying relationship (child depends on parent for identity).",
         source: `erDiagram
   ORDER ||--|{ LINE_ITEM : contains`,
     },
     {
-        id: 'sample-70',
-        category: 'er',
-        title: 'Non-Identifying (Dashed) Relationship',
-        description: 'Dashed line indicating a non-identifying relationship.',
+        id: "sample-70",
+        category: "er",
+        title: "Non-Identifying (Dashed) Relationship",
+        description: "Dashed line indicating a non-identifying relationship.",
         source: `erDiagram
   USER ||..o{ LOG_ENTRY : generates
   USER ||..o{ SESSION : opens`,
     },
     {
-        id: 'sample-71',
-        category: 'er',
-        title: 'Mixed Identifying & Non-Identifying',
-        description: 'Both solid and dashed lines in the same diagram.',
+        id: "sample-71",
+        category: "er",
+        title: "Mixed Identifying & Non-Identifying",
+        description: "Both solid and dashed lines in the same diagram.",
         source: `erDiagram
   ORDER ||--|{ LINE_ITEM : contains
   ORDER ||..o{ SHIPMENT : ships-via
@@ -1033,10 +1032,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   PRODUCT ||..o{ REVIEW : receives`,
     },
     {
-        id: 'sample-72',
-        category: 'er',
-        title: 'E-Commerce Schema',
-        description: 'Full e-commerce database schema with customers, orders, products, and line items.',
+        id: "sample-72",
+        category: "er",
+        title: "E-Commerce Schema",
+        description: "Full e-commerce database schema with customers, orders, products, and line items.",
         source: `erDiagram
   CUSTOMER {
     int id PK
@@ -1064,10 +1063,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   PRODUCT ||--o{ LINE_ITEM : includes`,
     },
     {
-        id: 'sample-73',
-        category: 'er',
-        title: 'Blog Platform Schema',
-        description: 'Blog system with users, posts, comments, and tags.',
+        id: "sample-73",
+        category: "er",
+        title: "Blog Platform Schema",
+        description: "Blog system with users, posts, comments, and tags.",
         source: `erDiagram
   USER {
     int id PK
@@ -1099,10 +1098,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   POST }|--o{ TAG : tagged-with`,
     },
     {
-        id: 'sample-74',
-        category: 'er',
-        title: 'School Management Schema',
-        description: 'School system with students, teachers, courses, and enrollments.',
+        id: "sample-74",
+        category: "er",
+        title: "School Management Schema",
+        description: "School system with students, teachers, courses, and enrollments.",
         source: `erDiagram
   STUDENT {
     int id PK
@@ -1133,30 +1132,30 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   COURSE ||--o{ ENROLLMENT : has`,
     },
     {
-        id: 'sample-75',
-        category: 'xy-chart',
-        title: 'Simple Bar Chart',
-        description: 'Basic bar chart with categorical x-axis.',
+        id: "sample-75",
+        category: "xy-chart",
+        title: "Simple Bar Chart",
+        description: "Basic bar chart with categorical x-axis.",
         source: `xychart-beta
     title "Product Sales"
     x-axis [Widgets, Gadgets, Gizmos, Doodads, Thingamajigs]
     bar [150, 230, 180, 95, 310]`,
     },
     {
-        id: 'sample-76',
-        category: 'xy-chart',
-        title: 'Line Chart',
-        description: 'Line chart showing revenue growth over years.',
+        id: "sample-76",
+        category: "xy-chart",
+        title: "Line Chart",
+        description: "Line chart showing revenue growth over years.",
         source: `xychart-beta
     title "Revenue Growth"
     x-axis [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
     line [320, 420, 540, 680, 820, 950, 1080, 1200]`,
     },
     {
-        id: 'sample-77',
-        category: 'xy-chart',
-        title: 'Bar and Line Overlay',
-        description: 'Bars with a line overlay and both axis titles.',
+        id: "sample-77",
+        category: "xy-chart",
+        title: "Bar and Line Overlay",
+        description: "Bars with a line overlay and both axis titles.",
         source: `xychart-beta
     title "Monthly Revenue"
     x-axis "Month" [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]
@@ -1165,20 +1164,20 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     line [4200, 5000, 5800, 6200, 5500, 7000, 7800, 7200, 8400, 8100, 9000, 9200]`,
     },
     {
-        id: 'sample-78',
-        category: 'xy-chart',
-        title: 'Horizontal Bars',
-        description: 'Horizontal bar chart showing language popularity.',
+        id: "sample-78",
+        category: "xy-chart",
+        title: "Horizontal Bars",
+        description: "Horizontal bar chart showing language popularity.",
         source: `xychart-beta horizontal
     title "Language Popularity"
     x-axis [Python, JavaScript, Java, Go, Rust]
     bar [30, 25, 20, 12, 8]`,
     },
     {
-        id: 'sample-79',
-        category: 'xy-chart',
-        title: 'Multiple Bar Series',
-        description: 'Two bar series comparing years side by side.',
+        id: "sample-79",
+        category: "xy-chart",
+        title: "Multiple Bar Series",
+        description: "Two bar series comparing years side by side.",
         source: `xychart-beta
     title "2023 vs 2024 Sales"
     x-axis [Q1, Q2, Q3, Q4]
@@ -1186,10 +1185,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     bar [230, 280, 320, 350]`,
     },
     {
-        id: 'sample-80',
-        category: 'xy-chart',
-        title: 'Dual Lines',
-        description: 'Two lines comparing planned vs actual values.',
+        id: "sample-80",
+        category: "xy-chart",
+        title: "Dual Lines",
+        description: "Two lines comparing planned vs actual values.",
         source: `xychart-beta
     title "Planned vs Actual"
     x-axis [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug]
@@ -1197,20 +1196,20 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     line [90, 130, 185, 235, 275, 340, 380, 420]`,
     },
     {
-        id: 'sample-81',
-        category: 'xy-chart',
-        title: 'Numeric X-Axis',
-        description: 'Line chart using a numeric x-axis range.',
+        id: "sample-81",
+        category: "xy-chart",
+        title: "Numeric X-Axis",
+        description: "Line chart using a numeric x-axis range.",
         source: `xychart-beta
     title "Distribution Curve"
     x-axis 0 --> 100
     line [4, 7, 13, 21, 31, 43, 58, 71, 84, 91, 95, 91, 84, 71, 58, 43, 31, 21, 13, 7, 4]`,
     },
     {
-        id: 'sample-82',
-        category: 'xy-chart',
-        title: '12-Month Dataset',
-        description: 'Full year monthly data with bar and trend line.',
+        id: "sample-82",
+        category: "xy-chart",
+        title: "12-Month Dataset",
+        description: "Full year monthly data with bar and trend line.",
         source: `xychart-beta
     title "Monthly Active Users (2024)"
     x-axis [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]
@@ -1219,10 +1218,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     line [12000, 13500, 15200, 16800, 18500, 20100, 19800, 21500, 23000, 24200, 25800, 28000]`,
     },
     {
-        id: 'sample-83',
-        category: 'xy-chart',
-        title: 'Horizontal Combined',
-        description: 'Horizontal chart with both bars and a trend line.',
+        id: "sample-83",
+        category: "xy-chart",
+        title: "Horizontal Combined",
+        description: "Horizontal chart with both bars and a trend line.",
         source: `xychart-beta horizontal
     title "Budget vs Actual"
     x-axis [Eng, Sales, Marketing, Product, Ops, HR, Finance, Legal]
@@ -1230,10 +1229,10 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     line [480, 380, 230, 180, 160, 110, 95, 75]`,
     },
     {
-        id: 'sample-84',
-        category: 'xy-chart',
-        title: 'Sprint Burndown',
-        description: 'Sprint burndown chart with actual and ideal lines.',
+        id: "sample-84",
+        category: "xy-chart",
+        title: "Sprint Burndown",
+        description: "Sprint burndown chart with actual and ideal lines.",
         source: `xychart-beta
     title "Sprint Burndown"
     x-axis [D1, D2, D3, D4, D5, D6, D7, D8, D9, D10]
@@ -1243,4 +1242,6 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     },
 ]
 
-export const CRAFT_EXAMPLE_BY_ID: Record<string, CraftExample> = Object.fromEntries(CRAFT_EXAMPLES.map((e) => [e.id, e]))
+export const CRAFT_EXAMPLE_BY_ID: Record<string, CraftExample> = Object.fromEntries(
+    CRAFT_EXAMPLES.map((e) => [e.id, e])
+)
