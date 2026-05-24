@@ -3,6 +3,7 @@
 import type { CSSProperties } from 'react'
 import { Focus, Loader2, Lock, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
+import { DiagramExportMenu } from '@/components/studio/editor/diagram-export-menu'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
 import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-context-menu'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
@@ -83,7 +84,8 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                     )
                 })}
             </div>
-            <div className="flex shrink-0 items-center border-l border-border px-1">
+            <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
+                <DiagramExportMenu disabled={!canFitToView} />
                 <Button
                     variant="ghost"
                     size="icon-sm"
