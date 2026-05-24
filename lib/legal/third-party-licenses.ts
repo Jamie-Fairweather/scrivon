@@ -98,6 +98,13 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": null
     },
     {
+        "name": "@tauri-apps/plugin-process",
+        "version": "2.3.1",
+        "license": "MIT OR Apache-2.0",
+        "repository": "https://github.com/tauri-apps/plugins-workspace",
+        "licenseText": null
+    },
+    {
         "name": "@tauri-apps/plugin-store",
         "version": "2.4.3",
         "license": "MIT OR Apache-2.0",
