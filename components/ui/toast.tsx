@@ -3,8 +3,9 @@
 import { Toast } from '@base-ui/react/toast'
 import { CircleAlertIcon, CircleCheckIcon, InfoIcon, LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react'
 import type React from 'react'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { isAppUpdateToastData } from '@/lib/updater/update-toast-data'
 import { cn } from '@/lib/utils'
-import { buttonVariants } from '@/components/ui/button'
 
 const TOAST_ICONS = {
     error: CircleAlertIcon,
@@ -40,8 +41,45 @@ function upsertReplayClassName(toast: { type?: string; updateKey?: number }): st
     return isEven ? 'animate-toast-success-even' : 'animate-toast-success-odd'
 }
 
+function ToastActions({
+    toast,
+    close,
+}: {
+    toast: { id: string; data?: unknown; actionProps?: React.ComponentProps<typeof Toast.Action> }
+    close: (toastId?: string) => void
+}): React.ReactElement | null {
+    const data = toast.data
+    if (isAppUpdateToastData(data)) {
+        return (
+            <div className="flex shrink-0 gap-1.5">
+                <Button type="button" size="xs" variant="outline" onClick={() => close(toast.id)}>
+                    Dismiss
+                </Button>
+                <Button
+                    type="button"
+                    size="xs"
+                    onClick={() => {
+                        data.onView()
+                        close(toast.id)
+                    }}
+                >
+                    View
+                </Button>
+            </div>
+        )
+    }
+
+    if (!toast.actionProps) return null
+
+    return (
+        <Toast.Action className={buttonVariants({ size: 'xs' })} data-slot="toast-action" {...toast.actionProps}>
+            {toast.actionProps.children}
+        </Toast.Action>
+    )
+}
+
 function Toasts({ position, portalProps }: { position: ToastPosition; portalProps?: React.ComponentProps<typeof Toast.Portal> }): React.ReactElement {
-    const { toasts } = Toast.useToastManager()
+    const { toasts, close } = Toast.useToastManager()
     const swipeDirection = getSwipeDirection(position)
 
     return (
@@ -145,11 +183,7 @@ function Toasts({ position, portalProps }: { position: ToastPosition; portalProp
                                         <Toast.Description className="text-muted-foreground" data-slot="toast-description" />
                                     </div>
                                 </div>
-                                {toast.actionProps && (
-                                    <Toast.Action className={buttonVariants({ size: 'xs' })} data-slot="toast-action">
-                                        {toast.actionProps.children}
-                                    </Toast.Action>
-                                )}
+                                <ToastActions toast={toast} close={close} />
                             </Toast.Content>
                         </Toast.Root>
                     )

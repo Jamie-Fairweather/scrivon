@@ -2,6 +2,7 @@
 
 import { UpdateAvailableDialog, type AppUpdateInfo } from '@/components/studio/dialogs/update-available-dialog'
 import { fetchReleaseNotes } from '@/lib/updater/release-notes'
+import { showUpdateAvailableToast } from '@/lib/updater/update-toast'
 import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -46,7 +47,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 if (!result || cancelled) return
 
                 setUpdate(result)
-                setDialogOpen(true)
+                showUpdateAvailableToast(result.version, () => setDialogOpen(true))
 
                 if (result.notes?.trim()) return
 
