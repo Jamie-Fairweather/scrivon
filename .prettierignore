@@ -8,3 +8,5 @@ next-env.d.ts
 .agents
 lib/examples/craft-samples.ts
 lib/legal/third-party-licenses.ts
+src-tauri/Cargo.lock
+src-tauri/Cargo.toml
