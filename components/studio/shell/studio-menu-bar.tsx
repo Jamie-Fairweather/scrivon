@@ -1,6 +1,9 @@
 'use client'
 
+import Image from 'next/image'
 import { useState, type MouseEvent, type ReactNode } from 'react'
+import appIcon from '@/app-icon.png'
+import { APP_NAME } from '@/lib/app-branding'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -67,6 +70,10 @@ export function StudioMenuBar() {
             aria-label="Application title bar"
             className="pointer-events-auto flex h-[var(--titlebar-height)] shrink-0 items-center border-b border-border bg-background select-none"
         >
+            <div className="flex shrink-0 items-center pr-1 pl-2">
+                <Image src={appIcon} alt="" width={20} height={20} className="size-5 shrink-0 rounded-sm" aria-hidden />
+                <span className="sr-only">{APP_NAME}</span>
+            </div>
             <nav aria-label="Application menu" className="flex shrink-0 items-center px-1">
                 <div className="flex items-center gap-0.5">
                     <MenuBarEntry label="File">
