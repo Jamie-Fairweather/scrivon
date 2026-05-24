@@ -22,7 +22,8 @@ function gh(args) {
 
 const notes = gh(['api', `repos/${repository}/releases/tags/${tag}`, '--jq', '.body'])
 
-gh(['release', 'download', tag, '-p', 'latest.json'])
+// tauri-action leaves latest.json in the workspace; --clobber overwrites it with the release asset
+gh(['release', 'download', tag, '-p', 'latest.json', '--clobber'])
 
 const manifestPath = 'latest.json'
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
