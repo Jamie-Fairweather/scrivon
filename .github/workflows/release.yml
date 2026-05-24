@@ -93,3 +93,11 @@ jobs:
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
                   args: --bundles ${{ steps.gh_release.outputs.bundles }}
+
+            - name: Add release notes to updater manifest
+              shell: bash
+              run: node scripts/patch-updater-manifest.mjs
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ needs.release.outputs.version }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
