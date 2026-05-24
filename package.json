@@ -1,7 +1,7 @@
 {
     "name": "diagram-app",
     "private": true,
-    "version": "1.1.0",
+    "version": "1.1.1-rc.1",
     "license": "MIT",
     "type": "module",
     "scripts": {
@@ -38,6 +38,7 @@
         "react": "^19.2.6",
         "react-day-picker": "^10.0.1",
         "react-dom": "^19.2.6",
+        "react-markdown": "^10.1.0",
         "shadcn": "^4.8.0",
         "tailwind-merge": "^3.6.0",
         "tailwindcss": "^4.3.0",
