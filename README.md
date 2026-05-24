@@ -24,7 +24,9 @@ Releases are automated with [semantic-release](https://semantic-release.gitbook.
 | `main` | Stable releases                                    | `0.2.0`         |
 | `rc`   | Pre-releases (GitHub Release marked as prerelease) | `0.2.0-rc.1`    |
 
-Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow bumps versions, updates the changelog, creates a git tag and GitHub Release. A separate workflow then builds Tauri installers for Windows, macOS, and Linux and uploads them to that release.
+Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow bumps versions, updates the changelog, creates a git tag and GitHub Release, then builds Windows `.msi` and `.exe` (NSIS) installers and uploads them to that release.
+
+To rebuild installers for an existing tag (e.g. `v1.0.0`), run **Actions → Build release artifacts (manual)** and enter the tag name.
 
 ### Commit messages
 

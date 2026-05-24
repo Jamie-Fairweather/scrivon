@@ -1,64 +1,63 @@
-name: Build release artifacts
+# Manual re-run for releases that were published before the Windows build job existed,
+# or when you need to rebuild installers without a new version bump.
+name: Build release artifacts (manual)
 
 on:
-    release:
-        types: [published]
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Release tag to build (e.g. v1.0.0)'
+                required: true
+                type: string
 
 permissions:
     contents: write
 
 jobs:
-    build-tauri:
-        name: build (${{ matrix.platform }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - platform: macos-latest
-                      args: '--target aarch64-apple-darwin'
-                    - platform: ubuntu-22.04
-                      args: ''
-                    - platform: windows-latest
-                      args: ''
-
-        runs-on: ${{ matrix.platform }}
+    build-windows:
+        name: Build Windows installers
+        runs-on: windows-latest
         steps:
             - name: Checkout
               uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.release.tag_name }}
+                  ref: ${{ inputs.tag }}
 
             - name: Setup Bun
               uses: oven-sh/setup-bun@v2
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@stable
-              with:
-                  targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
             - name: Rust cache
               uses: swatinem/rust-cache@v2
               with:
                   workspaces: src-tauri -> target
 
-            - name: Install Linux dependencies
-              if: matrix.platform == 'ubuntu-22.04'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
             - name: Install dependencies
               run: bun install --frozen-lockfile
 
-            - name: Build and upload to release
+            - name: Get release ID
+              id: gh_release
+              shell: bash
+              run: |
+                  id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)
+                  prerelease=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .prerelease)
+                  echo "id=$id" >> "$GITHUB_OUTPUT"
+                  echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ inputs.tag }}
+
+            - name: Build and upload MSI and EXE
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
                   projectPath: src-tauri
                   tauriScript: bun run tauri
-                  releaseId: ${{ github.event.release.id }}
-                  tagName: ${{ github.event.release.tag_name }}
+                  releaseId: ${{ steps.gh_release.outputs.id }}
+                  tagName: ${{ inputs.tag }}
                   releaseDraft: false
-                  prerelease: ${{ github.event.release.prerelease }}
-                  args: ${{ matrix.args }}
+                  prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
+                  args: --bundles msi,nsis
