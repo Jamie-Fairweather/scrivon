@@ -10,3 +10,5 @@ lib/examples/craft-samples.ts
 lib/legal/third-party-licenses.ts
 src-tauri/Cargo.lock
 src-tauri/Cargo.toml
+src-tauri/tauri.conf.json
+CHANGELOG.md
