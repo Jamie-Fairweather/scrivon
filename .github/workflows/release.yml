@@ -70,11 +70,17 @@ jobs:
                   prerelease=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .prerelease)
                   echo "id=$id" >> "$GITHUB_OUTPUT"
                   echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+                  # WiX/MSI only supports numeric pre-release segments (e.g. 1.0.0-1), not 1.0.0-rc.1
+                  if [ "$prerelease" = "true" ]; then
+                    echo "bundles=nsis" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "bundles=msi,nsis" >> "$GITHUB_OUTPUT"
+                  fi
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   VERSION: ${{ needs.release.outputs.version }}
 
-            - name: Build and upload MSI and EXE
+            - name: Build and upload installers
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -85,4 +91,4 @@ jobs:
                   tagName: v${{ needs.release.outputs.version }}
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
-                  args: --bundles msi,nsis
+                  args: --bundles ${{ steps.gh_release.outputs.bundles }}

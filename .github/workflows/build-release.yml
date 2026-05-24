@@ -45,11 +45,16 @@ jobs:
                   prerelease=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .prerelease)
                   echo "id=$id" >> "$GITHUB_OUTPUT"
                   echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+                  if [ "$prerelease" = "true" ]; then
+                    echo "bundles=nsis" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "bundles=msi,nsis" >> "$GITHUB_OUTPUT"
+                  fi
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAG: ${{ inputs.tag }}
 
-            - name: Build and upload MSI and EXE
+            - name: Build and upload installers
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,4 +65,4 @@ jobs:
                   tagName: ${{ inputs.tag }}
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
-                  args: --bundles msi,nsis
+                  args: --bundles ${{ steps.gh_release.outputs.bundles }}
