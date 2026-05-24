@@ -4,7 +4,13 @@ import { isTauri } from '@/lib/tauri/platform'
 const STORE_PATH = 'workspace.json'
 const RECENT_KEY = 'recent-workspaces'
 const LAST_FILE_PREFIX = 'last-file:'
+const OPEN_TABS_PREFIX = 'open-tabs:'
 const MAX_RECENTS = 10
+
+export type WorkspaceTabSession = {
+    tabIds: string[]
+    activeTabId: string | null
+}
 
 let store: LazyStore | null = null
 
@@ -56,5 +62,35 @@ export async function setLastOpenedFile(workspaceRoot: string, filePath: string)
     const s = await getStore()
     if (!s) return
     await s.set(`${LAST_FILE_PREFIX}${workspaceRoot}`, filePath)
+    await s.save()
+}
+
+export async function getWorkspaceTabSession(workspaceRoot: string): Promise<WorkspaceTabSession | null> {
+    const s = await getStore()
+    if (!s) return null
+
+    const stored = await s.get<WorkspaceTabSession>(`${OPEN_TABS_PREFIX}${workspaceRoot}`)
+    if (stored && Array.isArray(stored.tabIds)) {
+        const tabIds = stored.tabIds.filter((id): id is string => typeof id === 'string')
+        const activeTabId = typeof stored.activeTabId === 'string' ? stored.activeTabId : null
+        if (tabIds.length > 0) return { tabIds, activeTabId }
+    }
+
+    const lastFile = await getLastOpenedFile(workspaceRoot)
+    if (lastFile) return { tabIds: [lastFile], activeTabId: lastFile }
+
+    return null
+}
+
+export async function setWorkspaceTabSession(workspaceRoot: string, session: WorkspaceTabSession): Promise<void> {
+    const s = await getStore()
+    if (!s) return
+
+    await s.set(`${OPEN_TABS_PREFIX}${workspaceRoot}`, session)
+    if (session.activeTabId) {
+        await s.set(`${LAST_FILE_PREFIX}${workspaceRoot}`, session.activeTabId)
+    } else {
+        await s.delete(`${LAST_FILE_PREFIX}${workspaceRoot}`)
+    }
     await s.save()
 }

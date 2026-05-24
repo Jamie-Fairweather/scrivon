@@ -17,7 +17,7 @@ import {
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
-import { addRecentWorkspace, getLastOpenedFile, getRecentWorkspaces, removeRecentWorkspace } from '@/lib/tauri/store'
+import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { collectFileNames, uniqueFileName, validateFileName } from '@/lib/workspace/paths'
 import type { FileNode } from '@/lib/workspace/types'
@@ -81,7 +81,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (!isDesktop) return
 
             await allowWorkspacePath(path)
-            if (workspaceRoot) await coordinator.flushAllSaves.current()
+            if (workspaceRoot) {
+                await coordinator.flushAllSaves.current()
+                await coordinator.persistWorkspaceTabSession.current()
+            }
 
             const nextTree = await listWorkspaceTree(path)
             const recents = await addRecentWorkspace(path)
@@ -91,15 +94,26 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             setRecentWorkspaces(recents)
             coordinator.clearTabs.current()
 
-            const lastFile = await getLastOpenedFile(path)
-            if (lastFile) {
-                try {
-                    const content = await readWorkspaceFile(lastFile)
-                    const tab = tabFromPath(lastFile, content)
-                    coordinator.setTabsFromWorkspace.current([tab], lastFile)
+            const tabSession = await getWorkspaceTabSession(path)
+            if (tabSession && tabSession.tabIds.length > 0) {
+                const restoredTabs = (
+                    await Promise.all(
+                        tabSession.tabIds.map(async (filePath) => {
+                            try {
+                                const content = await readWorkspaceFile(filePath)
+                                return tabFromPath(filePath, content)
+                            } catch {
+                                return null
+                            }
+                        })
+                    )
+                ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
+
+                if (restoredTabs.length > 0) {
+                    const restoredIds = new Set(restoredTabs.map((t) => t.id))
+                    const activeId = tabSession.activeTabId && restoredIds.has(tabSession.activeTabId) ? tabSession.activeTabId : restoredTabs[0].id
+                    coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
                     coordinator.requestCanvasFit.current()
-                } catch {
-                    // ignore missing last file
                 }
             }
         },
@@ -113,6 +127,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const closeWorkspace = useCallback(async () => {
         await coordinator.flushAllSaves.current()
+        await coordinator.persistWorkspaceTabSession.current()
         setWorkspaceRoot(null)
         setTree([])
         coordinator.clearTabs.current()

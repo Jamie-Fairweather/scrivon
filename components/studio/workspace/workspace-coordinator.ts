@@ -14,6 +14,7 @@ export type WorkspaceCoordinatorRefs = {
     requestCanvasFit: MutableRefObject<() => void>
     clearTabs: MutableRefObject<() => void>
     setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => void>
+    persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
 }
 
@@ -30,6 +31,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         requestCanvasFit: { current: () => {} },
         clearTabs: { current: () => {} },
         setTabsFromWorkspace: { current: () => {} },
+        persistWorkspaceTabSession: { current: async () => {} },
         openFile: { current: async () => {} },
     }
 }
