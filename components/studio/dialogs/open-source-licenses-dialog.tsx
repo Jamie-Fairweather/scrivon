@@ -78,12 +78,7 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                                         )}
                                         {pkg.licenseText ? (
                                             <ScrollArea className="h-64 w-full overflow-hidden rounded-md border bg-muted/40" scrollbarGutter>
-                                                <pre
-                                                    className={cn(
-                                                        'p-3 font-mono text-xs leading-relaxed',
-                                                        'break-words whitespace-pre-wrap'
-                                                    )}
-                                                >
+                                                <pre className={cn('p-3 font-mono text-xs leading-relaxed', 'break-words whitespace-pre-wrap')}>
                                                     {pkg.licenseText}
                                                 </pre>
                                             </ScrollArea>

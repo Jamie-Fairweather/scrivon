@@ -6,15 +6,7 @@ import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-sourc
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
 import { WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
-import {
-    useCanvasFit,
-    useDocumentSave,
-    useDocumentTabs,
-    useStudioLayout,
-    useWorkspaceSession,
-} from '@/components/studio/workspace/workspace-provider'
-import { CRAFT_EXAMPLES, EXAMPLE_CATEGORIES } from '@/lib/examples/craft-samples'
-import { EXAMPLE_CATEGORY_LABELS } from '@/lib/examples/category-labels'
+import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import {
     Menu,
@@ -45,38 +37,6 @@ function MenuBarEntry({ label, children }: { label: string; children: ReactNode 
                 {children}
             </MenuPopup>
         </Menu>
-    )
-}
-
-function ExamplesMenu() {
-    const { openExample } = useDocumentTabs()
-    const byCategory = EXAMPLE_CATEGORIES.map((category) => ({
-        category,
-        examples: CRAFT_EXAMPLES.filter((e) => e.category === category),
-    }))
-
-    return (
-        <MenuSub>
-            <MenuSubTrigger>Examples</MenuSubTrigger>
-            <MenuSubPopup className="min-w-48">
-                <MenuGroup>
-                    {byCategory.map(({ category, examples }) => (
-                        <MenuSub key={category}>
-                            <MenuSubTrigger>{EXAMPLE_CATEGORY_LABELS[category]}</MenuSubTrigger>
-                            <MenuSubPopup className="max-h-80 min-w-56 overflow-y-auto">
-                                <MenuGroup>
-                                    {examples.map((example) => (
-                                        <MenuItem key={example.id} onClick={() => openExample(example.id)} title={example.description}>
-                                            <span className="truncate">{example.title}</span>
-                                        </MenuItem>
-                                    ))}
-                                </MenuGroup>
-                            </MenuSubPopup>
-                        </MenuSub>
-                    ))}
-                </MenuGroup>
-            </MenuSubPopup>
-        </MenuSub>
     )
 }
 
@@ -133,12 +93,6 @@ export function StudioMenuBar() {
                                         </MenuGroup>
                                     </MenuSubPopup>
                                 </MenuSub>
-                            </>
-                        )}
-                        {hasWorkspace && (
-                            <>
-                                <MenuSeparator />
-                                <ExamplesMenu />
                             </>
                         )}
                     </MenuBarEntry>
