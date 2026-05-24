@@ -6,7 +6,6 @@ import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, Dia
 export type AppUpdateInfo = {
     version: string
     notes: string | null
-    channel: string
 }
 
 type UpdateAvailableDialogProps = {
@@ -17,16 +16,12 @@ type UpdateAvailableDialogProps = {
 }
 
 export function UpdateAvailableDialog({ update, installing, onLater, onInstall }: UpdateAvailableDialogProps) {
-    const channelLabel = update.channel === 'rc' ? 'pre-release' : 'stable release'
-
     return (
         <Dialog open onOpenChange={(open) => !open && !installing && onLater()}>
             <DialogPopup className="max-w-md">
                 <DialogHeader>
                     <DialogTitle>Update available</DialogTitle>
-                    <DialogDescription>
-                        Version {update.version} ({channelLabel}) is ready to install.
-                    </DialogDescription>
+                    <DialogDescription>Version {update.version} is ready to install.</DialogDescription>
                 </DialogHeader>
                 {update.notes ? (
                     <DialogPanel className="pt-0">

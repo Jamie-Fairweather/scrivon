@@ -70,14 +70,7 @@ If `main` or `rc` require pull requests, allow `github-actions[bot]` to bypass r
 
 ### In-app updates
 
-The desktop app checks for updates shortly after launch and only offers installs from the matching channel:
-
-| Installed build                    | Update source                                                                                       | Will not see                |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------- |
-| Stable (`1.0.0` on `main`)         | [Latest stable release](https://github.com/Jamie-Fairweather/scrivon/releases/latest) `latest.json` | Pre-releases (`1.0.0-rc.x`) |
-| Pre-release (`1.0.0-rc.1` on `rc`) | Rolling `updater-rc` manifest (created automatically on the first rc release)                       | Stable-only releases        |
-
-Channel is chosen from the app version: builds with a semver pre-release segment (e.g. `-rc.1`) only check the RC manifest.
+Stable releases only. The desktop app checks [latest stable `latest.json`](https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json) shortly after launch. Pre-release builds (e.g. `1.0.0-rc.1`) do not check for updates — install a new rc build from GitHub Releases manually.
 
 ### Generate updater signing keys
 

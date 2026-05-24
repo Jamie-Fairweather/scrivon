@@ -5,8 +5,6 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 const STABLE_MANIFEST: &str =
     "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json";
-const RC_MANIFEST: &str =
-    "https://github.com/Jamie-Fairweather/scrivon/releases/download/updater-rc/latest-rc.json";
 
 pub struct PendingUpdate(pub Mutex<Option<Update>>);
 
@@ -15,15 +13,10 @@ pub struct PendingUpdate(pub Mutex<Option<Update>>);
 pub struct UpdateInfo {
     pub version: String,
     pub notes: Option<String>,
-    pub channel: String,
 }
 
-fn manifest_url_for(version: &str) -> (&'static str, &'static str) {
-    if version.contains('-') {
-        (RC_MANIFEST, "rc")
-    } else {
-        (STABLE_MANIFEST, "stable")
-    }
+fn is_prerelease_build(version: &str) -> bool {
+    version.contains('-')
 }
 
 #[tauri::command]
@@ -32,9 +25,11 @@ pub async fn check_for_app_update(
     pending: State<'_, PendingUpdate>,
 ) -> Result<Option<UpdateInfo>, String> {
     let current = app.package_info().version.to_string();
-    let (endpoint, channel) = manifest_url_for(&current);
+    if is_prerelease_build(&current) {
+        return Ok(None);
+    }
 
-    let manifest_url = Url::parse(endpoint).map_err(|e| e.to_string())?;
+    let manifest_url = Url::parse(STABLE_MANIFEST).map_err(|e| e.to_string())?;
 
     let updater = app
         .updater_builder()
@@ -48,7 +43,6 @@ pub async fn check_for_app_update(
             let info = UpdateInfo {
                 version: update.version.clone(),
                 notes: update.body.clone(),
-                channel: channel.to_string(),
             };
             *pending.0.lock().unwrap() = Some(update);
             Ok(Some(info))
