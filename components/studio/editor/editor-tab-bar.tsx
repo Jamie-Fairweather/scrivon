@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react'
 import { Focus, Loader2, Lock, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
+import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-context-menu'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -60,24 +61,25 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                 {tabs.map((tab) => {
                     const isActive = tab.id === activeTabId
                     return (
-                        <div
-                            key={tab.id}
-                            className={cn(
-                                'group/tab flex max-w-[200px] min-w-0 items-center border-r border-border',
-                                isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
-                            )}
-                        >
-                            <button
-                                type="button"
-                                className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
-                                onClick={() => void setActiveTab(tab.id)}
-                                title={tab.saveError ?? tab.path}
+                        <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
+                            <div
+                                className={cn(
+                                    'group/tab flex max-w-[200px] min-w-0 items-center border-r border-border',
+                                    isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
+                                )}
                             >
-                                {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
-                                <span className="truncate">{tab.name}</span>
-                            </button>
-                            <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
-                        </div>
+                                <button
+                                    type="button"
+                                    className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
+                                    onClick={() => void setActiveTab(tab.id)}
+                                    title={tab.saveError ?? tab.path}
+                                >
+                                    {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
+                                    <span className="truncate">{tab.name}</span>
+                                </button>
+                                <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
+                            </div>
+                        </EditorTabRowContextMenu>
                     )
                 })}
             </div>

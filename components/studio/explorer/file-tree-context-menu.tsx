@@ -1,15 +1,17 @@
 'use client'
 
 import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useCallback } from 'react'
 import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
 import { useFileTreeActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
+import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import type { FileNode } from '@/lib/workspace/types'
 
-export function FileTreeContextMenu({ node }: { node: FileNode }) {
+function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { confirmDelete } = useDeleteConfirm()
     const { promptName } = useNamePrompt()
     const { openFile, renameEntry, deleteEntry, duplicateFile } = useWorkspaceSession()
@@ -26,6 +28,49 @@ export function FileTreeContextMenu({ node }: { node: FileNode }) {
         if (ok) await deleteEntry(node.path, node.kind === 'directory')
     }
 
+    if (node.kind === 'file') {
+        return (
+            <>
+                <MenuItem onClick={() => void openFile(node.path)}>Open</MenuItem>
+                <MenuItem onClick={() => void handleRename()}>
+                    <Pencil />
+                    Rename
+                </MenuItem>
+                <MenuItem onClick={() => void duplicateFile(node.path)}>
+                    <Copy />
+                    Duplicate
+                </MenuItem>
+                <MenuItem variant="destructive" onClick={() => void handleDelete()}>
+                    <Trash2 />
+                    Delete
+                </MenuItem>
+            </>
+        )
+    }
+
+    return (
+        <>
+            <MenuItem onClick={() => void createFileInParent()}>
+                <Plus />
+                New File
+            </MenuItem>
+            <MenuItem onClick={() => void createFolderInParent()}>
+                <Plus />
+                New Folder
+            </MenuItem>
+            <MenuItem onClick={() => void handleRename()}>
+                <Pencil />
+                Rename
+            </MenuItem>
+            <MenuItem variant="destructive" onClick={() => void handleDelete()}>
+                <Trash2 />
+                Delete
+            </MenuItem>
+        </>
+    )
+}
+
+export function FileTreeContextMenu({ node }: { node: FileNode }) {
     return (
         <Menu>
             <MenuTrigger
@@ -45,43 +90,30 @@ export function FileTreeContextMenu({ node }: { node: FileNode }) {
                 }
             />
             <MenuPopup align="start" className="min-w-44">
-                {node.kind === 'file' ? (
-                    <>
-                        <MenuItem onClick={() => void openFile(node.path)}>Open</MenuItem>
-                        <MenuItem onClick={() => void handleRename()}>
-                            <Pencil />
-                            Rename
-                        </MenuItem>
-                        <MenuItem onClick={() => void duplicateFile(node.path)}>
-                            <Copy />
-                            Duplicate
-                        </MenuItem>
-                        <MenuItem variant="destructive" onClick={() => void handleDelete()}>
-                            <Trash2 />
-                            Delete
-                        </MenuItem>
-                    </>
-                ) : (
-                    <>
-                        <MenuItem onClick={() => void createFileInParent()}>
-                            <Plus />
-                            New File
-                        </MenuItem>
-                        <MenuItem onClick={() => void createFolderInParent()}>
-                            <Plus />
-                            New Folder
-                        </MenuItem>
-                        <MenuItem onClick={() => void handleRename()}>
-                            <Pencil />
-                            Rename
-                        </MenuItem>
-                        <MenuItem variant="destructive" onClick={() => void handleDelete()}>
-                            <Trash2 />
-                            Delete
-                        </MenuItem>
-                    </>
-                )}
+                <FileTreeMenuItems node={node} />
             </MenuPopup>
         </Menu>
+    )
+}
+
+export function FileTreeRowContextMenu({ node, children }: { node: FileNode; children: React.ReactNode }) {
+    const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
+
+    const onContextMenu = useCallback(
+        (e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            openAt({ x: e.clientX, y: e.clientY })
+        },
+        [openAt]
+    )
+
+    return (
+        <span onContextMenu={onContextMenu} className="contents">
+            {children}
+            <ContextMenuAtPoint open={open} onOpenChange={onOpenChange} anchor={anchor} align="start" className="min-w-44">
+                <FileTreeMenuItems node={node} />
+            </ContextMenuAtPoint>
+        </span>
     )
 }

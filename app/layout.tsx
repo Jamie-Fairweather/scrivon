@@ -4,6 +4,7 @@ import { Inter, Geist_Mono } from 'next/font/google'
 import { cn } from '@/lib/utils'
 import { ThemeProvider } from '@/components/theme-provider'
 import { APP_TAGLINE } from '@/lib/app-branding'
+import { DisableNativeContextMenu } from '@/components/disable-native-context-menu'
 
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono', preload: true })
 
@@ -30,6 +31,7 @@ export default function RootLayout({
         >
             <body className="h-full w-full overflow-hidden bg-background font-sans">
                 <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" disableTransitionOnChange>
+                    <DisableNativeContextMenu />
                     {children}
                 </ThemeProvider>
             </body>

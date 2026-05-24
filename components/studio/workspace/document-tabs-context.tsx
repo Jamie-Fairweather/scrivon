@@ -32,6 +32,8 @@ type DocumentTabsContextValue = {
     setActiveTab: (id: string) => Promise<void>
     updateTabContent: (id: string, content: string) => void
     closeTab: (id: string) => Promise<void>
+    closeOtherTabs: (keepId: string) => Promise<void>
+    closeAllTabs: () => Promise<void>
 }
 
 const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
@@ -190,6 +192,35 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [coordinator, setTabs, setActiveTabId]
     )
 
+    const closeOtherTabs = useCallback(
+        async (keepId: string) => {
+            const idsToClose = tabsRef.current.filter((t) => t.id !== keepId).map((t) => t.id)
+            for (const id of idsToClose) {
+                if (coordinator.getAutosaveEnabled.current()) {
+                    await coordinator.flushSave.current(id)
+                } else {
+                    coordinator.cancelScheduledSave.current(id)
+                }
+            }
+            setTabs((prev) => prev.filter((t) => t.id === keepId))
+            setActiveTabId(keepId)
+        },
+        [coordinator, setTabs, setActiveTabId, tabsRef]
+    )
+
+    const closeAllTabs = useCallback(async () => {
+        const idsToClose = tabsRef.current.map((t) => t.id)
+        for (const id of idsToClose) {
+            if (coordinator.getAutosaveEnabled.current()) {
+                await coordinator.flushSave.current(id)
+            } else {
+                coordinator.cancelScheduledSave.current(id)
+            }
+        }
+        setTabs([])
+        setActiveTabId(null)
+    }, [coordinator, setTabs, setActiveTabId, tabsRef])
+
     useEffect(() => {
         coordinator.openFile.current = openFile
     }, [coordinator, openFile])
@@ -204,8 +235,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setActiveTab,
             updateTabContent,
             closeTab,
+            closeOtherTabs,
+            closeAllTabs,
         }),
-        [tabs, activeTabId, activeTab, openFile, openExample, setActiveTab, updateTabContent, closeTab]
+        [tabs, activeTabId, activeTab, openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs]
     )
 
     return <DocumentTabsContext.Provider value={value}>{children}</DocumentTabsContext.Provider>
