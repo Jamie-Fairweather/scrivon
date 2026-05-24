@@ -30,6 +30,7 @@ out
 # Tauri / Rust
 src-tauri/target/
 src-tauri/gen/
+src-tauri/.updater/scrivon
 
 # Testing
 coverage/

@@ -26,6 +26,16 @@
     "bundle": {
         "active": true,
         "targets": "all",
+        "createUpdaterArtifacts": true,
         "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4RUEyRTdFNDU0NTY4MkUKUldRdWFFVkZmaTdxS0xjU2hWZktwRm9tbklGNWhFOC9EUHJWQjc1R2paZmExL25FREFpRkovTmwK",
+            "endpoints": ["https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json"],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
     }
 }

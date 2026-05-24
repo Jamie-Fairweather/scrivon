@@ -26,9 +26,9 @@ Releases are automated with [semantic-release](https://semantic-release.gitbook.
 
 Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow bumps versions, updates the changelog, creates a git tag and GitHub Release, then builds Windows installers and uploads them to that release.
 
-| Release type | Windows assets |
-|--------------|----------------|
-| Stable (`main`, e.g. `1.0.0`) | `.msi` + `.exe` (NSIS) |
+| Release type                          | Windows assets                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| Stable (`main`, e.g. `1.0.0`)         | `.msi` + `.exe` (NSIS)                                                       |
 | Pre-release (`rc`, e.g. `1.0.0-rc.1`) | `.exe` only — WiX/MSI does not support semver pre-release labels like `rc.1` |
 
 To rebuild installers for an existing tag (e.g. `v1.0.0`), run **Actions → Build release artifacts (manual)** and enter the tag name.
@@ -67,6 +67,28 @@ feat!: remove legacy file format support
 ### Branch protection
 
 If `main` or `rc` require pull requests, allow `github-actions[bot]` to bypass rules (or use a PAT in `GH_TOKEN`) so semantic-release can push the version bump commit.
+
+### In-app updates
+
+The desktop app checks for updates shortly after launch and only offers installs from the matching channel:
+
+| Installed build                    | Update source                                                                                       | Will not see                |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------- |
+| Stable (`1.0.0` on `main`)         | [Latest stable release](https://github.com/Jamie-Fairweather/scrivon/releases/latest) `latest.json` | Pre-releases (`1.0.0-rc.x`) |
+| Pre-release (`1.0.0-rc.1` on `rc`) | Rolling `updater-rc` manifest                                                                       | Stable-only releases        |
+
+Channel is chosen from the app version: builds with a semver pre-release segment (e.g. `-rc.1`) only check the RC manifest.
+
+### Updater signing (required for in-app updates)
+
+CI must sign update bundles. Add these GitHub repository secrets:
+
+| Secret                               | Value                                                                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon` (generate locally with `bun tauri signer generate -w src-tauri/.updater/scrivon --ci`) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Leave empty if the key has no password                                                                                               |
+
+The matching public key is already in `tauri.conf.json`. **Never commit the private key** (it is gitignored).
 
 ### Code signing (optional)
 

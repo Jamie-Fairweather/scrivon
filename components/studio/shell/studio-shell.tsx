@@ -1,5 +1,6 @@
 'use client'
 
+import { AppUpdater } from '@/components/studio/app-updater'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
 import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
 import { StudioLayout } from '@/components/studio/shell/studio-layout'
@@ -36,6 +37,7 @@ export function StudioShell() {
         <WorkspaceProvider>
             <NamePromptProvider>
                 <DeleteConfirmProvider>
+                    <AppUpdater />
                     <StudioRouter />
                 </DeleteConfirmProvider>
             </NamePromptProvider>

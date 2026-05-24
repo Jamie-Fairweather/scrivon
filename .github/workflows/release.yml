@@ -84,6 +84,8 @@ jobs:
               uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
               with:
                   projectPath: src-tauri
                   tauriScript: bun run tauri
@@ -92,3 +94,24 @@ jobs:
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
                   args: --bundles ${{ steps.gh_release.outputs.bundles }}
+
+            - name: Ensure RC updater channel release exists
+              if: steps.gh_release.outputs.prerelease == 'true'
+              shell: bash
+              run: |
+                  gh release view updater-rc --repo "${GITHUB_REPOSITORY}" 2>/dev/null || \
+                    gh release create updater-rc --repo "${GITHUB_REPOSITORY}" \
+                      --title "Updater channel (RC)" \
+                      --notes "Rolling update manifest for pre-release builds. Install Scrivon from the latest rc GitHub Release instead." \
+                      --prerelease
+
+            - name: Publish RC updater manifest
+              if: steps.gh_release.outputs.prerelease == 'true'
+              shell: bash
+              run: |
+                  gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'latest.json' --dir ./updater-tmp
+                  cp ./updater-tmp/latest.json ./updater-tmp/latest-rc.json
+                  gh release upload updater-rc ./updater-tmp/latest-rc.json --repo "${GITHUB_REPOSITORY}" --clobber
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: v${{ needs.release.outputs.version }}
