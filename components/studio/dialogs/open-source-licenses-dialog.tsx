@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from '@/components/ui/accordion'
 import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { THIRD_PARTY_PACKAGES } from '@/lib/legal/third-party-licenses'
 import { cn } from '@/lib/utils'
 
@@ -76,14 +77,16 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                                             </p>
                                         )}
                                         {pkg.licenseText ? (
-                                            <pre
-                                                className={cn(
-                                                    'max-h-64 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed',
-                                                    'break-words whitespace-pre-wrap'
-                                                )}
-                                            >
-                                                {pkg.licenseText}
-                                            </pre>
+                                            <ScrollArea className="h-64 w-full overflow-hidden rounded-md border bg-muted/40" scrollbarGutter>
+                                                <pre
+                                                    className={cn(
+                                                        'p-3 font-mono text-xs leading-relaxed',
+                                                        'break-words whitespace-pre-wrap'
+                                                    )}
+                                                >
+                                                    {pkg.licenseText}
+                                                </pre>
+                                            </ScrollArea>
                                         ) : (
                                             <p className="text-sm text-muted-foreground">
                                                 License: {pkg.license}. Full license text was not bundled with this package metadata.
