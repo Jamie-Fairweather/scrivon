@@ -1,6 +1,7 @@
 'use client'
 
 import { UpdateAvailableDialog, type AppUpdateInfo } from '@/components/studio/dialogs/update-available-dialog'
+import { fetchReleaseNotes } from '@/lib/updater/release-notes'
 import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -10,21 +11,41 @@ const UPDATE_CHECK_DELAY_MS = 4_000
 
 export function AppUpdater() {
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
+    const [notesLoading, setNotesLoading] = useState(false)
     const [installing, setInstalling] = useState(false)
 
     useEffect(() => {
         if (!isTauri()) return
 
+        let cancelled = false
+
         const timer = window.setTimeout(async () => {
             try {
                 const result = await invoke<AppUpdateInfo | null>('check_for_app_update')
-                if (result) setUpdate(result)
+                if (!result || cancelled) return
+
+                setUpdate(result)
+
+                if (result.notes?.trim()) return
+
+                setNotesLoading(true)
+                const notes = await fetchReleaseNotes(result.version)
+                if (cancelled) return
+
+                if (notes) {
+                    setUpdate((current) => (current ? { ...current, notes } : null))
+                }
             } catch (error) {
                 console.warn('Update check failed:', error)
+            } finally {
+                if (!cancelled) setNotesLoading(false)
             }
         }, UPDATE_CHECK_DELAY_MS)
 
-        return () => window.clearTimeout(timer)
+        return () => {
+            cancelled = true
+            window.clearTimeout(timer)
+        }
     }, [])
 
     const handleInstall = useCallback(async () => {
@@ -40,5 +61,13 @@ export function AppUpdater() {
 
     if (!update) return null
 
-    return <UpdateAvailableDialog update={update} installing={installing} onLater={() => setUpdate(null)} onInstall={handleInstall} />
+    return (
+        <UpdateAvailableDialog
+            update={update}
+            notesLoading={notesLoading}
+            installing={installing}
+            onLater={() => setUpdate(null)}
+            onInstall={handleInstall}
+        />
+    )
 }

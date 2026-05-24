@@ -10,12 +10,15 @@ export type AppUpdateInfo = {
 
 type UpdateAvailableDialogProps = {
     update: AppUpdateInfo
+    notesLoading: boolean
     installing: boolean
     onLater: () => void
     onInstall: () => void
 }
 
-export function UpdateAvailableDialog({ update, installing, onLater, onInstall }: UpdateAvailableDialogProps) {
+export function UpdateAvailableDialog({ update, notesLoading, installing, onLater, onInstall }: UpdateAvailableDialogProps) {
+    const showChangelog = Boolean(update.notes?.trim()) || notesLoading
+
     return (
         <Dialog open onOpenChange={(open) => !open && !installing && onLater()}>
             <DialogPopup className="max-w-md">
@@ -23,9 +26,14 @@ export function UpdateAvailableDialog({ update, installing, onLater, onInstall }
                     <DialogTitle>Update available</DialogTitle>
                     <DialogDescription>Version {update.version} is ready to install.</DialogDescription>
                 </DialogHeader>
-                {update.notes ? (
-                    <DialogPanel className="pt-0">
-                        <p className="text-sm whitespace-pre-wrap text-muted-foreground">{update.notes}</p>
+                {showChangelog ? (
+                    <DialogPanel className="max-h-56 pt-0">
+                        <h3 className="mb-2 text-sm font-medium">What&apos;s new</h3>
+                        {notesLoading && !update.notes?.trim() ? (
+                            <p className="text-sm text-muted-foreground">Loading release notes…</p>
+                        ) : (
+                            <p className="text-sm whitespace-pre-wrap text-muted-foreground">{update.notes}</p>
+                        )}
                     </DialogPanel>
                 ) : null}
                 <DialogFooter variant="bare">
