@@ -1,5 +1,7 @@
 # Scrivon
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Mermaid & markdown on your machine.**
 
 Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams. Open a folder on disk, edit `.mmd` files with syntax highlighting, and preview diagrams live on the canvas — no account, no cloud workspace required.
@@ -94,6 +96,10 @@ See **[docs/development.md](docs/development.md)** for the full release pipeline
 - [Mermaid](https://mermaid.js.org/) for the diagram syntax
 - Example diagrams adapted from [Craft Mermaid samples](https://agents.craft.do/mermaid)
 - UI built with [coss](https://coss.com/ui) / Base UI primitives
+
+## License
+
+Scrivon is released under the [MIT License](LICENSE). Third-party dependencies are listed in-app under **Help → Licences**.
 
 ## Links
 
