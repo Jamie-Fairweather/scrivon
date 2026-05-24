@@ -1,44 +1,62 @@
 /** @type {import('semantic-release').GlobalConfig} */
+
+const analyzer = [
+    '@semantic-release/commit-analyzer',
+    {
+        preset: 'conventionalcommits',
+    },
+]
+
+const releaseNotes = [
+    '@semantic-release/release-notes-generator',
+    {
+        preset: 'conventionalcommits',
+    },
+]
+
+const npm = [
+    '@semantic-release/npm',
+    {
+        npmPublish: false,
+    },
+]
+
+const exec = [
+    '@semantic-release/exec',
+    {
+        prepareCmd: 'node scripts/sync-version.mjs',
+    },
+]
+
+const versionAssets = ['package.json', 'src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'lib/legal/third-party-licenses.ts']
+
+/** @param {string[]} assets */
+function git(assets) {
+    return [
+        '@semantic-release/git',
+        {
+            assets,
+            message: 'chore(release): ${nextRelease.version}\n\n${nextRelease.notes}',
+        },
+    ]
+}
+
+// Plugins must be top-level — semantic-release ignores plugins nested under branches[].
+// Changelog is main-only; rc releases only bump version files.
+const branch = process.env.GITHUB_REF?.replace(/^refs\/heads\//, '') ?? ''
+const isRc = branch === 'rc'
+
+const changelog = ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md' }]
+
 export default {
-    branches: ['main', { name: 'rc', prerelease: 'rc' }],
+    branches: [{ name: 'main' }, { name: 'rc', prerelease: 'rc' }],
     plugins: [
-        [
-            '@semantic-release/commit-analyzer',
-            {
-                preset: 'conventionalcommits',
-            },
-        ],
-        [
-            '@semantic-release/release-notes-generator',
-            {
-                preset: 'conventionalcommits',
-            },
-        ],
-        [
-            '@semantic-release/changelog',
-            {
-                changelogFile: 'CHANGELOG.md',
-            },
-        ],
-        [
-            '@semantic-release/npm',
-            {
-                npmPublish: false,
-            },
-        ],
-        [
-            '@semantic-release/exec',
-            {
-                prepareCmd: 'node scripts/sync-version.mjs',
-            },
-        ],
-        [
-            '@semantic-release/git',
-            {
-                assets: ['package.json', 'CHANGELOG.md', 'src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'lib/legal/third-party-licenses.ts'],
-                message: 'chore(release): ${nextRelease.version}\n\n${nextRelease.notes}',
-            },
-        ],
+        ...analyzer,
+        releaseNotes,
+        npm,
+        exec,
+        ...(isRc ? [] : [changelog]),
+        git(isRc ? versionAssets : [...versionAssets, 'CHANGELOG.md']),
         '@semantic-release/github',
     ],
 }

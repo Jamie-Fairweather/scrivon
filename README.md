@@ -1,151 +1,110 @@
 # Scrivon
 
-A Tauri desktop app for diagram editing, built with Next.js and React.
+[![Version](https://img.shields.io/github/v/release/Jamie-Fairweather/scrivon?label=version)](https://github.com/Jamie-Fairweather/scrivon/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/Jamie-Fairweather/scrivon/releases/latest)
 
-## Recommended IDE setup
+**Mermaid & markdown on your machine.**
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams. Open a folder on disk, edit `.mmd` files with syntax highlighting, and preview diagrams live on the canvas — no account, no cloud workspace required.
 
-## Development
+<p align="center">
+  <img src="preview.png" alt="Scrivon — workspace, Monaco editor, and live Mermaid preview" width="900" />
+</p>
+
+## Features
+
+- **Folder workspaces** — Open any directory on disk; your files never leave your machine
+- **File explorer** — Create, rename, duplicate, and delete `.mmd` / `.mermaid` files and folders from the sidebar
+- **Split editor + preview** — [Monaco](https://microsoft.github.io/monaco-editor/) editor with syntax highlighting beside a live-rendered diagram canvas
+- **Multi-tab editing** — Work across several diagrams in one session; tab state is restored per workspace
+- **Canvas tools** — Pan and zoom the preview, fit diagram to screen, or switch to preview-only layout
+- **Export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×)
+- **Built-in examples** — Curated sample diagrams to explore Mermaid syntax and layouts
+- **Themes** — Light and dark UI plus 15+ diagram palettes (Scrivon, Zinc, Tokyo Night, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, and more)
+- **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
+- **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
+- **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
+- **Auto-updates** — Stable releases can update in-app (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
+
+> Scrivon is an independent editor. It is not affiliated with Mermaid Chart Inc. or the mermaid-js project.
+
+## Download
+
+Pre-built installers are published on **[GitHub Releases](https://github.com/Jamie-Fairweather/scrivon/releases)**.
+
+| Channel     | Branch | Notes                                                |
+| ----------- | ------ | ---------------------------------------------------- |
+| Stable      | `main` | Recommended for everyday use; in-app updates enabled |
+| Pre-release | `rc`   | Test builds; install manually from Releases          |
+
+## Getting started
+
+### Use a release
+
+1. Download the latest installer from [Releases](https://github.com/Jamie-Fairweather/scrivon/releases).
+2. Launch Scrivon and choose **Open Folder**.
+3. Select a directory containing `.mmd` (or compatible) diagram files.
+4. Edit in the center pane; the preview updates as you type.
+
+### Build from source
+
+**Prerequisites:** [Bun](https://bun.sh/), [Rust](https://www.rust-lang.org/tools/install), and platform dependencies for [Tauri](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
+git clone https://github.com/Jamie-Fairweather/scrivon.git
+cd scrivon
 bun install
 bun run tauri dev
 ```
 
-## Releasing
+For release builds, signing keys, branch workflow, and semantic-release setup, see **[docs/development.md](docs/development.md)**.
 
-Releases are automated with [semantic-release](https://semantic-release.gitbook.io/) and [Conventional Commits](https://www.conventionalcommits.org/).
+## Tech stack
 
-### Branches
+| Layer             | Technologies                                                       |
+| ----------------- | ------------------------------------------------------------------ |
+| Desktop shell     | [Tauri 2](https://v2.tauri.app/) (Rust)                            |
+| UI                | [Next.js](https://nextjs.org/), [React 19](https://react.dev/)     |
+| Editor            | [Monaco](https://microsoft.github.io/monaco-editor/)               |
+| Diagram rendering | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid) |
+| Styling           | [Tailwind CSS](https://tailwindcss.com/)                           |
 
-| Branch | Purpose                                            | Example version |
-| ------ | -------------------------------------------------- | --------------- |
-| `main` | Stable releases                                    | `0.2.0`         |
-| `rc`   | Pre-releases (GitHub Release marked as prerelease) | `0.2.0-rc.1`    |
-
-Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow bumps versions, updates the changelog, creates a git tag and GitHub Release, then builds Windows installers and uploads them to that release.
-
-| Release type                          | Windows assets                                                               |
-| ------------------------------------- | ---------------------------------------------------------------------------- |
-| Stable (`main`, e.g. `1.0.0`)         | `.msi` + `.exe` (NSIS)                                                       |
-| Pre-release (`rc`, e.g. `1.0.0-rc.1`) | `.exe` only — WiX/MSI does not support semver pre-release labels like `rc.1` |
-
-To rebuild installers for an existing tag (e.g. `v1.0.0`), run **Actions → Build release artifacts (manual)** and enter the tag name.
-
-### Commit messages
-
-Use these prefixes so semantic-release can determine the next version:
-
-- `fix:` — patch (e.g. `0.1.0` → `0.1.1`)
-- `feat:` — minor (e.g. `0.1.0` → `0.2.0`)
-- `feat!:` or a `BREAKING CHANGE:` footer — major (e.g. `0.1.0` → `1.0.0`)
-- `chore:`, `docs:`, `refactor:`, etc. — no release by themselves (unless they include breaking change markers)
-
-Examples:
+## Project layout
 
 ```
-feat: add diagram export
-fix: prevent canvas flash on theme change
-feat!: remove legacy file format support
+scrivon/
+├── app/                 # Next.js app routes
+├── components/studio/   # Editor, canvas, workspace UI
+├── lib/                 # Mermaid, workspace, Tauri helpers
+├── src-tauri/           # Tauri / Rust backend
+├── scripts/             # Build and codegen utilities
+└── docs/                # Maintainer documentation
 ```
 
-### Bootstrap (first automated release)
+## Contributing
 
-1. Create an `rc` branch on GitHub from `main` if you want pre-releases.
-2. Optionally tag the current state so the first run only considers newer commits:
+Contributions are welcome. Please open an issue to discuss larger changes before submitting a pull request.
 
-    ```bash
-    git tag v0.1.0
-    git push origin v0.1.0
-    ```
+1. Fork the repository and create a branch from `dev` (or `main` for small fixes).
+2. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, etc.) so releases can be automated.
+3. Run `bun run tauri dev` locally to verify desktop behavior.
+4. Open a pull request with a clear description of the change.
 
-    Without this tag, existing `feat:` commits in history may produce a larger first bump (e.g. `0.2.0`).
+See **[docs/development.md](docs/development.md)** for the full release pipeline, branch model, and updater signing.
 
-3. Merge a conventional commit to `main` or `rc` and confirm the [Release](.github/workflows/release.yml) and [Build release artifacts](.github/workflows/build-release.yml) workflows succeed.
+## Acknowledgments
 
-### Branch model
+- [Mermaid](https://mermaid.js.org/) for the diagram syntax
+- Example diagrams adapted from [Craft Mermaid samples](https://agents.craft.do/mermaid)
+- UI built with [coss](https://coss.com/ui) / Base UI primitives
 
-| Branch | Purpose                                                       |
-| ------ | ------------------------------------------------------------- |
-| `dev`  | Day-to-day development                                        |
-| `rc`   | Pre-releases (`1.0.0-rc.1`, …) — push here to test installers |
-| `main` | Stable releases only                                          |
+## License
 
-Create `rc` **from** `main`, not the other way around. Do **not** delete `main` and recreate it from `rc` — that copies the rc version (`1.0.0-rc.x` in `package.json`) and the `chore(release): …` commit from the rc line onto stable.
+Scrivon is released under the [MIT License](LICENSE). Third-party dependencies are listed in-app under **Help → Licences**.
 
-### Promoting rc → stable (main)
+## Links
 
-When rc is ready to ship:
-
-1. Open a PR **rc → main** (or merge locally).
-2. Use **Create a merge commit** on GitHub (not fast-forward). That makes a new commit on `main` and triggers the Release workflow.
-3. semantic-release on `main` publishes the next **stable** version (from commits since the last stable tag) and the Windows build job runs.
-
-Fast-forwarding `main` to match `rc` tip still works now that release commits no longer use `[skip ci]`, but a merge commit is clearer in history.
-
-### Fix main after recreating it from rc
-
-If `main` currently matches `rc` (wrong version in `package.json`, no Release run):
-
-```bash
-git fetch origin
-git checkout main
-git reset --hard v1.0.0          # last stable tag on main (adjust if yours differs)
-git merge origin/rc --no-ff -m "chore: promote rc to stable"
-git push origin main
-```
-
-Review the diff before pushing. If `v1.0.0` already exists, the next stable release is usually a **minor** bump (e.g. `1.1.0`) because of `feat:` commits since that tag — not re-publishing `1.0.0`.
-
-### Branch protection
-
-If `main` or `rc` require pull requests, allow `github-actions[bot]` to bypass rules (or use a PAT in `GH_TOKEN`) so semantic-release can push the version bump commit.
-
-### In-app updates
-
-Stable releases only. The desktop app checks [latest stable `latest.json`](https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json) shortly after launch. Pre-release builds (e.g. `1.0.0-rc.1`) do not check for updates — install a new rc build from GitHub Releases manually.
-
-### Generate updater signing keys
-
-In-app updates require a minisign keypair. Do this once per machine (or again if you rotate keys).
-
-1. **Generate the keypair** (no password — press Enter if prompted, or use `--ci` to skip prompts):
-
-    ```bash
-    bun tauri signer generate -w src-tauri/.updater/scrivon --ci -f
-    ```
-
-    Creates:
-    - `src-tauri/.updater/scrivon` — private key (**never commit**; gitignored)
-    - `src-tauri/.updater/scrivon.pub` — public key
-
-2. **Update the public key in config** — copy the full contents of `scrivon.pub` into `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` (one line, no line breaks). Commit only this change to the public key, not the private key.
-
-3. **Use the private key locally and in CI**
-    - **Local:** copy [`.env.example`](.env.example) to `.env` and set `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (see [Local builds with signing](#local-builds-with-signing) below).
-    - **CI:** add [repository secrets](#github-secrets-for-updater-signing) (not Environment secrets).
-
-If you regenerate keys, repeat all three steps. Existing installs signed with the old key will not trust updates signed with the new key.
-
-### GitHub secrets for updater signing
-
-Under **Settings → Secrets and variables → Actions → Repository secrets**:
-
-| Secret                               | Value                                         |
-| ------------------------------------ | --------------------------------------------- |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon` |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Leave empty if the key has no password        |
-
-### Local builds with signing
-
-The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tauri build` loads [`.env`](.env) first. Copy [`.env.example`](.env.example) to `.env` and set either:
-
-- `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (recommended), or
-- `TAURI_SIGNING_PRIVATE_KEY` with the full key contents.
-
-If neither is set but `src-tauri/.updater/scrivon` exists, that file is used automatically.
-
-### Code signing (optional)
-
-Installers build unsigned by default. To sign releases later, add repository secrets for Tauri signing (Windows) and Apple notarization (macOS) per the [Tauri distribution docs](https://v2.tauri.app/distribute/sign/).
+- [Releases](https://github.com/Jamie-Fairweather/scrivon/releases)
+- [Development & releases guide](docs/development.md)
+- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues)

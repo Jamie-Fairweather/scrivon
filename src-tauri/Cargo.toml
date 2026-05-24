@@ -1,8 +1,9 @@
 [package]
 name = "diagram-app"
-version = "1.0.0"
+version = "1.1.0-rc.1"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["Jamie Fairweather"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
