@@ -96,14 +96,6 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
             onDoubleClick={reset}
             {...handlers}
         >
-            <div
-                className="pointer-events-none absolute inset-0 opacity-30"
-                style={{
-                    backgroundImage: 'radial-gradient(circle, var(--muted-foreground) 1px, transparent 1px)',
-                    backgroundSize: '24px 24px',
-                }}
-            />
-
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div ref={transformRef} className="origin-center">
                     {error ? (
