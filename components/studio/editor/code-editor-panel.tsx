@@ -1,8 +1,11 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { editor } from 'monaco-editor'
+import type { Monaco } from '@monaco-editor/react'
+import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -50,8 +53,10 @@ function languageForTab(tab: DocumentTab) {
 }
 
 export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
+    const { isLight, tokens } = useAppTheme()
     const { activeTab, updateTabContent } = useDocumentTabs()
     const resizeStart = useRef({ x: 0, width: 0 })
+    const monacoRef = useRef<Monaco | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
     activeTabIdRef.current = activeTab?.id ?? null
 
@@ -92,6 +97,21 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     const editorDefaultValue = activeTab?.content
     const editorOptions = useMemo(() => (isReadOnly ? { ...EDITOR_OPTIONS, readOnly: true, domReadOnly: true } : EDITOR_OPTIONS), [isReadOnly])
 
+    const onMonacoBeforeMount = useCallback(
+        (monaco: Monaco) => {
+            monacoRef.current = monaco
+            defineMonacoDiagramTheme(monaco, tokens, isLight)
+        },
+        [tokens, isLight]
+    )
+
+    useEffect(() => {
+        const monaco = monacoRef.current
+        if (!monaco) return
+        defineMonacoDiagramTheme(monaco, tokens, isLight)
+        monaco.editor.setTheme(MONACO_DIAGRAM_THEME_ID)
+    }, [tokens, isLight])
+
     return (
         <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-code" style={{ width }}>
             <div className="min-h-0 flex-1 overflow-hidden bg-code">
@@ -100,7 +120,8 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
                         path={editorPath}
                         defaultValue={editorDefaultValue}
                         language={editorLanguage}
-                        theme="vs-dark"
+                        theme={MONACO_DIAGRAM_THEME_ID}
+                        beforeMount={onMonacoBeforeMount}
                         options={editorOptions}
                         saveViewState
                         onChange={isReadOnly ? undefined : onEditorChange}

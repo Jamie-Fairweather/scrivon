@@ -28,6 +28,7 @@ import {
     MenuSubTrigger,
     MenuTrigger,
 } from '@/components/ui/menu'
+import { ThemeMenu } from '@/components/studio/theme/theme-menu'
 import { getBaseName } from '@/lib/tauri/fs'
 
 function MenuBarEntry({ label, children }: { label: string; children: ReactNode }) {
@@ -152,6 +153,8 @@ export function StudioMenuBar() {
                                 Autosave
                             </MenuCheckboxItem>
                         </MenuGroup>
+                        <MenuSeparator />
+                        <ThemeMenu />
                     </MenuBarEntry>
 
                     {hasWorkspace && (
