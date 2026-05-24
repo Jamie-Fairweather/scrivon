@@ -36,7 +36,7 @@ export default {
             '@semantic-release/git',
             {
                 assets: ['package.json', 'CHANGELOG.md', 'src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'lib/legal/third-party-licenses.ts'],
-                message: 'chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}',
+                message: 'chore(release): ${nextRelease.version}\n\n${nextRelease.notes}',
             },
         ],
         '@semantic-release/github',

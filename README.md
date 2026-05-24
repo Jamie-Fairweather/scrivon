@@ -64,6 +64,40 @@ feat!: remove legacy file format support
 
 3. Merge a conventional commit to `main` or `rc` and confirm the [Release](.github/workflows/release.yml) and [Build release artifacts](.github/workflows/build-release.yml) workflows succeed.
 
+### Branch model
+
+| Branch | Purpose                                                       |
+| ------ | ------------------------------------------------------------- |
+| `dev`  | Day-to-day development                                        |
+| `rc`   | Pre-releases (`1.0.0-rc.1`, …) — push here to test installers |
+| `main` | Stable releases only                                          |
+
+Create `rc` **from** `main`, not the other way around. Do **not** delete `main` and recreate it from `rc` — that copies the rc version (`1.0.0-rc.x` in `package.json`) and the `chore(release): …` commit from the rc line onto stable.
+
+### Promoting rc → stable (main)
+
+When rc is ready to ship:
+
+1. Open a PR **rc → main** (or merge locally).
+2. Use **Create a merge commit** on GitHub (not fast-forward). That makes a new commit on `main` and triggers the Release workflow.
+3. semantic-release on `main` publishes the next **stable** version (from commits since the last stable tag) and the Windows build job runs.
+
+Fast-forwarding `main` to match `rc` tip still works now that release commits no longer use `[skip ci]`, but a merge commit is clearer in history.
+
+### Fix main after recreating it from rc
+
+If `main` currently matches `rc` (wrong version in `package.json`, no Release run):
+
+```bash
+git fetch origin
+git checkout main
+git reset --hard v1.0.0          # last stable tag on main (adjust if yours differs)
+git merge origin/rc --no-ff -m "chore: promote rc to stable"
+git push origin main
+```
+
+Review the diff before pushing. If `v1.0.0` already exists, the next stable release is usually a **minor** bump (e.g. `1.1.0`) because of `feat:` commits since that tag — not re-publishing `1.0.0`.
+
 ### Branch protection
 
 If `main` or `rc` require pull requests, allow `github-actions[bot]` to bypass rules (or use a PAT in `GH_TOKEN`) so semantic-release can push the version bump commit.
