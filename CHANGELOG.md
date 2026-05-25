@@ -1,3 +1,9 @@
+## [1.1.2](https://github.com/Jamie-Fairweather/scrivon/compare/v1.1.1...v1.1.2) (2026-05-25)
+
+### Bug Fixes
+
+* read-only editor after viewing examples ([cd83a80](https://github.com/Jamie-Fairweather/scrivon/commit/cd83a8068a3b9720de0f005bc47f2c20c313c1f6))
+
 ## [1.1.1](https://github.com/Jamie-Fairweather/scrivon/compare/v1.1.0...v1.1.1) (2026-05-24)
 
 ### Bug Fixes
