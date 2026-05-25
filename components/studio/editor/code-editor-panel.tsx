@@ -95,7 +95,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
-    const editorOptions = useMemo(() => (isReadOnly ? { ...EDITOR_OPTIONS, readOnly: true, domReadOnly: true } : EDITOR_OPTIONS), [isReadOnly])
+    const editorOptions = useMemo(() => ({ ...EDITOR_OPTIONS, readOnly: isReadOnly, domReadOnly: isReadOnly }), [isReadOnly])
 
     const onMonacoBeforeMount = useCallback(
         (monaco: Monaco) => {
