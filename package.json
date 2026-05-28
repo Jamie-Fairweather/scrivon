@@ -16,7 +16,17 @@
         "format": "prettier --write \"**/*.{ts,tsx,md,mjs,json,css}\"",
         "generate:examples": "node scripts/generate-examples.mjs",
         "generate:licenses": "node scripts/generate-licenses.mjs",
-        "release": "semantic-release"
+        "release": "semantic-release",
+        "prepare": "husky"
+    },
+    "lint-staged": {
+        "*.{ts,tsx,js,jsx,mjs}": [
+            "eslint --fix",
+            "prettier --write"
+        ],
+        "*.{md,json,css}": [
+            "prettier --write"
+        ]
     },
     "dependencies": {
         "@base-ui/react": "^1.5.0",
@@ -49,6 +59,8 @@
         "tw-animate-css": "^1.4.0"
     },
     "devDependencies": {
+        "@commitlint/cli": "^21.0.1",
+        "@commitlint/config-conventional": "^21.0.1",
         "@semantic-release/changelog": "^6.0.3",
         "@semantic-release/exec": "^7.1.0",
         "@semantic-release/git": "^10.0.1",
@@ -60,6 +72,8 @@
         "conventional-changelog-conventionalcommits": "^9.3.1",
         "eslint": "^9",
         "eslint-config-next": "^16.2.6",
+        "husky": "^9.1.7",
+        "lint-staged": "^17.0.5",
         "prettier": "^3.8.3",
         "prettier-plugin-classnames": "^0.10.1",
         "prettier-plugin-merge": "^0.10.1",
