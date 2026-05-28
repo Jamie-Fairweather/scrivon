@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { writeWorkspaceFile } from '@/lib/tauri/fs'
 import { AUTO_SAVE_MS, STORAGE_AUTOSAVE, type DocumentTab } from '@/lib/workspace/types'
+import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type DocumentSaveContextValue = {
@@ -29,16 +30,19 @@ type DocumentSaveProviderProps = {
     setTabs: React.Dispatch<React.SetStateAction<DocumentTab[]>>
 }
 
+function readAutosaveEnabled(): boolean {
+    if (typeof window === 'undefined') return true
+    return localStorage.getItem(STORAGE_AUTOSAVE) !== 'false'
+}
+
 export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }: DocumentSaveProviderProps) {
-    const [autosaveEnabled, setAutosaveEnabledState] = useState(true)
+    const [autosaveEnabled, setAutosaveEnabledState] = useState(readAutosaveEnabled)
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
     const autosaveEnabledRef = useRef(autosaveEnabled)
-    autosaveEnabledRef.current = autosaveEnabled
 
     useEffect(() => {
-        const autosave = localStorage.getItem(STORAGE_AUTOSAVE)
-        setAutosaveEnabledState(autosave !== 'false')
-    }, [])
+        autosaveEnabledRef.current = autosaveEnabled
+    }, [autosaveEnabled])
 
     const flushSave = useCallback(
         async (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
@@ -119,12 +123,14 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
     }, [])
 
     useEffect(() => {
-        coordinator.flushAllSaves.current = flushAllSaves
-        coordinator.flushSave.current = flushSave
-        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
-        coordinator.scheduleSave.current = scheduleSave
-        coordinator.cancelScheduledSave.current = cancelScheduledSave
-        coordinator.getAutosaveEnabled.current = () => autosaveEnabledRef.current
+        registerCoordinatorRefs(coordinator, {
+            flushAllSaves,
+            flushSave,
+            flushSaveOnTabLeave,
+            scheduleSave,
+            cancelScheduledSave,
+            getAutosaveEnabled: () => autosaveEnabledRef.current,
+        })
     }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, cancelScheduledSave])
 
     const value = useMemo(

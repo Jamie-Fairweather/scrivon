@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
 import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
@@ -14,14 +14,15 @@ const STORAGE_EXPLORER_PANEL = 'mermaid-studio-explorer-panel'
 
 type ExplorerPanel = 'files' | 'examples'
 
+function readStoredExplorerPanel(): ExplorerPanel {
+    if (typeof window === 'undefined') return 'files'
+    const stored = sessionStorage.getItem(STORAGE_EXPLORER_PANEL)
+    return stored === 'examples' ? 'examples' : 'files'
+}
+
 export function WorkspaceExplorer() {
     const { workspaceName, tree } = useWorkspaceSession()
-    const [panel, setPanel] = useState<ExplorerPanel>('files')
-
-    useEffect(() => {
-        const stored = sessionStorage.getItem(STORAGE_EXPLORER_PANEL)
-        if (stored === 'files' || stored === 'examples') setPanel(stored)
-    }, [])
+    const [panel, setPanel] = useState<ExplorerPanel>(readStoredExplorerPanel)
 
     const onPanelChange = (value: ExplorerPanel) => {
         setPanel(value)

@@ -25,10 +25,8 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     const [themeId, setThemeIdState] = useState<AppThemeId>(readInitialTheme)
 
     useEffect(() => {
-        const initial = readInitialTheme()
-        setThemeIdState(initial)
-        applyThemeToDocument(initial)
-    }, [])
+        applyThemeToDocument(themeId)
+    }, [themeId])
 
     const setThemeId = useCallback((id: AppThemeId) => {
         setThemeIdState(id)

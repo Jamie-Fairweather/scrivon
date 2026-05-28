@@ -68,11 +68,15 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     )
 
     useEffect(() => {
-        setContentBounds(null)
-        setBoundsForSvg(null)
+        queueMicrotask(() => {
+            setContentBounds(null)
+            setBoundsForSvg(null)
+        })
     }, [viewKey, hasSource])
 
-    dimensionsRef.current = fitDimensions
+    useEffect(() => {
+        dimensionsRef.current = fitDimensions
+    }, [fitDimensions])
 
     useEffect(() => {
         setCanFitToView(Boolean(fitDimensions))

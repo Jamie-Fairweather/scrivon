@@ -49,12 +49,14 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, bounds, onBounds
     const slotsRef = useRef(slots)
     const targetSvgRef = useRef(svg)
     const swapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    slotsRef.current = slots
-    targetSvgRef.current = svg
+
+    useEffect(() => {
+        slotsRef.current = slots
+        targetSvgRef.current = svg
+    }, [slots, svg])
 
     const active = slots[activeSlot]
     const activeDims = slotDimensions(active.svg, bounds)
-    if (!activeDims) return null
 
     const clearSwapTimer = useCallback(() => {
         if (swapTimerRef.current !== null) {
@@ -113,6 +115,8 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, bounds, onBounds
     }, [svg, activeSlot, clearSwapTimer, commitSlot])
 
     useEffect(() => () => clearSwapTimer(), [clearSwapTimer])
+
+    if (!activeDims) return null
 
     return (
         <div className="relative overflow-hidden" style={{ width: activeDims.width, height: activeDims.height }}>

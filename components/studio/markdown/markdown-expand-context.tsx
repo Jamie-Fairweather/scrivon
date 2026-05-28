@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 
 export type ExpandedMermaidBlock = {
     blockId: string
@@ -17,10 +17,6 @@ const MarkdownExpandContext = createContext<MarkdownExpandContextValue | null>(n
 
 export function MarkdownExpandProvider({ tabId, children }: { tabId: string | null; children: ReactNode }) {
     const [expanded, setExpanded] = useState<ExpandedMermaidBlock | null>(null)
-
-    useEffect(() => {
-        setExpanded(null)
-    }, [tabId])
 
     const value = useMemo(() => ({ expanded, setExpanded }), [expanded])
 

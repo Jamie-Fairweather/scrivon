@@ -59,7 +59,10 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     const resizeStart = useRef({ x: 0, width: 0 })
     const monacoRef = useRef<Monaco | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
-    activeTabIdRef.current = activeTab?.id ?? null
+
+    useEffect(() => {
+        activeTabIdRef.current = activeTab?.id ?? null
+    }, [activeTab?.id])
 
     const onResizePointerDown = useCallback(
         (e: React.PointerEvent) => {

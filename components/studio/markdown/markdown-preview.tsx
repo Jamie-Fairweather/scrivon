@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, type ComponentProps, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, type ComponentProps, type CSSProperties, type ReactNode } from 'react'
 import type { Components } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -34,9 +34,9 @@ function cellAlignStyle(align: string | null | undefined): CSSProperties | undef
 }
 
 export function MarkdownPreview({ source, tabId, onExpandBlock, className }: MarkdownPreviewProps) {
-    const blockIndexRef = useRef(0)
-
     const components = useMemo((): Components => {
+        let blockIndex = 0
+
         return {
             h1: ({ children }) => <h1 className="mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0">{children}</h1>,
             h2: ({ children }) => <h2 className="mt-6 mb-3 text-xl font-semibold text-foreground">{children}</h2>,
@@ -82,7 +82,7 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, className }: Mar
                 const isBlock = lang === 'mermaid' || text.includes('\n')
 
                 if (lang === 'mermaid' && isBlock) {
-                    const blockId = String(blockIndexRef.current++)
+                    const blockId = String(blockIndex++)
                     return <EmbeddedMermaidBlock blockId={blockId} source={text.replace(/\n$/, '')} tabId={tabId} onExpand={onExpandBlock} />
                 }
 
@@ -94,8 +94,6 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, className }: Mar
             },
         }
     }, [tabId, onExpandBlock])
-
-    blockIndexRef.current = 0
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>

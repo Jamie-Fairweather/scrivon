@@ -61,16 +61,15 @@ type WorkspaceSessionProviderProps = {
 
 export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSessionProviderProps) {
     const isDesktop = isTauri()
-    const [hydrated, setHydrated] = useState(false)
     const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
     const [tree, setTree] = useState<FileNode[]>([])
-    const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([])
+    const [recentWorkspaces, setRecentWorkspaces] = useState<string[] | null>(null)
+    const hydrated = recentWorkspaces !== null
 
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
 
     useEffect(() => {
         void getRecentWorkspaces().then(setRecentWorkspaces)
-        setHydrated(true)
     }, [])
 
     const refreshTree = useCallback(async () => {
@@ -227,7 +226,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceRoot,
             workspaceName,
             tree,
-            recentWorkspaces,
+            recentWorkspaces: recentWorkspaces ?? [],
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,

@@ -11,28 +11,35 @@ type FencedCodeBlockProps = {
     className?: string
 }
 
+type HighlightResult = {
+    code: string
+    language?: string
+    theme: 'github-light' | 'github-dark'
+    html: string
+}
+
 export function FencedCodeBlock({ code, language, className }: FencedCodeBlockProps) {
     const { isLight } = useAppTheme()
-    const [html, setHtml] = useState<string | null>(null)
+    const theme = isLight ? 'github-light' : 'github-dark'
+    const [result, setResult] = useState<HighlightResult | null>(null)
+
+    const html = result && result.code === code && result.language === language && result.theme === theme ? result.html : null
 
     useEffect(() => {
         let cancelled = false
-        const theme = isLight ? 'github-light' : 'github-dark'
-
-        setHtml('')
 
         void highlightFencedCode(code, language, theme)
             .then((next) => {
-                if (!cancelled) setHtml(next)
+                if (!cancelled) setResult({ code, language, theme, html: next })
             })
             .catch(() => {
-                if (!cancelled) setHtml('')
+                if (!cancelled) setResult(null)
             })
 
         return () => {
             cancelled = true
         }
-    }, [code, language, isLight])
+    }, [code, language, theme])
 
     if (!html) {
         return (
