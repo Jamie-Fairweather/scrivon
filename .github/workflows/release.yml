@@ -29,6 +29,7 @@ jobs:
               with:
                   fetch-depth: 0
                   token: ${{ secrets.RELEASE_BOT_TOKEN }}
+                  persist-credentials: false
 
             - name: Setup Bun and dependencies
               uses: ./.github/actions/setup-bun
