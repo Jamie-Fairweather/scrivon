@@ -82,8 +82,8 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, className }: Mar
         pre: ({ children }) => <>{children}</>,
         code(props: ComponentProps<'code'>) {
             const { className: codeClassName, children } = props
-            const match = /language-(\w+)/.exec(codeClassName ?? '')
-            const lang = match?.[1]
+            const match = /language-([^\s]+)/i.exec(codeClassName ?? '')
+            const lang = match?.[1]?.toLowerCase()
             const text = extractText(children)
             const isBlock = lang === 'mermaid' || text.includes('\n')
 
