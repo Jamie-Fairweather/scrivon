@@ -5,7 +5,8 @@ export function isMarkdownFile(name: string): boolean {
 }
 
 export function isMermaidFile(name: string): boolean {
-    return name.toLowerCase().endsWith('.mmd')
+    const lower = name.toLowerCase()
+    return lower.endsWith('.mmd') || lower.endsWith('.mermaid')
 }
 
 export function isSupportedDocument(name: string): boolean {

@@ -19,9 +19,15 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
         let cancelled = false
         const theme = isLight ? 'github-light' : 'github-dark'
 
-        void highlightFencedCode(code, language, theme).then((next) => {
-            if (!cancelled) setHtml(next)
-        })
+        setHtml('')
+
+        void highlightFencedCode(code, language, theme)
+            .then((next) => {
+                if (!cancelled) setHtml(next)
+            })
+            .catch(() => {
+                if (!cancelled) setHtml('')
+            })
 
         return () => {
             cancelled = true

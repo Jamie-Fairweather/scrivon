@@ -21,7 +21,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
 
     const handleRename = async () => {
         const name = await promptName('Rename', node.name)
-        if (name && name !== node.name) await renameEntry(node.path, name)
+        if (name && name !== node.name) await renameEntry(node.path, name, node.kind === 'directory')
     }
 
     const handleDelete = async () => {

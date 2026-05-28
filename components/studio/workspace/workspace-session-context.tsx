@@ -40,7 +40,7 @@ type WorkspaceSessionContextValue = {
     removeRecent: (path: string) => Promise<void>
     createFile: (parentPath: string, name: string, content?: string) => Promise<void>
     createFolder: (parentPath: string, name: string) => Promise<void>
-    renameEntry: (oldPath: string, newName: string) => Promise<void>
+    renameEntry: (oldPath: string, newName: string, isDirectory: boolean) => Promise<void>
     deleteEntry: (path: string, isDirectory: boolean) => Promise<void>
     duplicateFile: (path: string) => Promise<void>
     openFile: (path: string) => Promise<void>
@@ -176,13 +176,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     )
 
     const renameEntry = useCallback(
-        async (oldPath: string, newName: string) => {
+        async (oldPath: string, newName: string, isDirectory: boolean) => {
             const error = validateFileName(newName)
             if (error) {
                 await showError('Invalid name', error)
                 return
             }
-            if (!isSupportedDocument(newName)) {
+            if (!isDirectory && !isSupportedDocument(newName)) {
                 await showError('Unsupported file', 'File name must end with .md or .mmd.')
                 return
             }

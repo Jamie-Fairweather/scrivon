@@ -336,7 +336,7 @@ user@example.com
 
 @username
 
-#123
+\`#123\`
 
 owner/repo#456
 
