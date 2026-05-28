@@ -30,7 +30,6 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
 
     const setThemeId = useCallback((id: AppThemeId) => {
         setThemeIdState(id)
-        applyThemeToDocument(id)
         try {
             localStorage.setItem(STORAGE_MERMAID_THEME, id)
         } catch {

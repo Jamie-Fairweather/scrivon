@@ -69,7 +69,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
 
     useEffect(() => {
-        void getRecentWorkspaces().then(setRecentWorkspaces)
+        void getRecentWorkspaces()
+            .then(setRecentWorkspaces)
+            .catch(() => setRecentWorkspaces([]))
     }, [])
 
     const refreshTree = useCallback(async () => {
