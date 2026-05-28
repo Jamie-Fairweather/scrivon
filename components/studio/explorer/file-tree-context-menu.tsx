@@ -9,6 +9,7 @@ import { useWorkspaceSession } from '@/components/studio/workspace/workspace-pro
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
+import { isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
@@ -16,11 +17,11 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { promptName } = useNamePrompt()
     const { openFile, renameEntry, deleteEntry, duplicateFile } = useWorkspaceSession()
     const parentPath = node.kind === 'directory' ? node.path : null
-    const { createFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
+    const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
 
     const handleRename = async () => {
         const name = await promptName('Rename', node.name)
-        if (name && name !== node.name) await renameEntry(node.path, name)
+        if (name && name !== node.name) await renameEntry(node.path, name, node.kind === 'directory')
     }
 
     const handleDelete = async () => {
@@ -31,7 +32,9 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
     if (node.kind === 'file') {
         return (
             <>
-                <MenuItem onClick={() => void openFile(node.path)}>Open</MenuItem>
+                <MenuItem disabled={!isSupportedDocument(node.name)} onClick={() => void openFile(node.path)}>
+                    Open
+                </MenuItem>
                 <MenuItem onClick={() => void handleRename()}>
                     <Pencil />
                     Rename
@@ -50,9 +53,13 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
 
     return (
         <>
-            <MenuItem onClick={() => void createFileInParent()}>
+            <MenuItem onClick={() => void createMermaidFileInParent()}>
                 <Plus />
-                New File
+                New Diagram (.mmd)
+            </MenuItem>
+            <MenuItem onClick={() => void createMarkdownFileInParent()}>
+                <Plus />
+                New Document (.md)
             </MenuItem>
             <MenuItem onClick={() => void createFolderInParent()}>
                 <Plus />

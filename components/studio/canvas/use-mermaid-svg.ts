@@ -20,34 +20,25 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
     const documentKeyRef = useRef(documentKey)
     const sourceRef = useRef(source)
     const themeIdRef = useRef(themeId)
-    documentKeyRef.current = documentKey
-    sourceRef.current = source
-    themeIdRef.current = themeId
+
+    useEffect(() => {
+        documentKeyRef.current = documentKey
+        sourceRef.current = source
+        themeIdRef.current = themeId
+    }, [documentKey, source, themeId])
 
     const [display, setDisplay] = useState<DiagramDisplay | null>(null)
     const [error, setError] = useState<RenderError | null>(null)
+
+    const trimmedSource = source.trim()
+    const canRender = Boolean(trimmedSource && documentKey)
 
     useEffect(() => {
         svgCacheRef.current.clear()
     }, [themeId])
 
-    const hasRenderError = Boolean(error && documentKey && error.documentKey === documentKey)
-    const errorMessage = hasRenderError && error ? error.message : null
-    const svgForDisplay =
-        display && documentKey && display.documentKey === documentKey && display.themeId === themeId && !hasRenderError ? display.svg : null
-    const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
-    const isPending =
-        Boolean(source.trim() && documentKey) &&
-        !hasRenderError &&
-        (!display || display.documentKey !== documentKey || display.source !== source || display.themeId !== themeId)
-
     useEffect(() => {
-        const trimmedSource = source.trim()
-        if (!trimmedSource || !documentKey) {
-            setDisplay(null)
-            setError(null)
-            return
-        }
+        if (!canRender || !documentKey) return
 
         const key = cacheKey(themeId, trimmedSource)
         const cached = svgCacheRef.current.get(key)
@@ -95,7 +86,17 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [source, documentKey, themeId])
+    }, [canRender, documentKey, source, trimmedSource, themeId])
+
+    const hasRenderError = Boolean(error && documentKey && error.documentKey === documentKey)
+    const errorMessage = hasRenderError && error ? error.message : null
+    const svgForDisplay =
+        canRender && display && documentKey && display.documentKey === documentKey && display.themeId === themeId && !hasRenderError
+            ? display.svg
+            : null
+    const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
+    const isPending =
+        canRender && !hasRenderError && (!display || display.documentKey !== documentKey || display.source !== source || display.themeId !== themeId)
 
     return { svgForDisplay, dimensions, error: errorMessage, isPending }
 }

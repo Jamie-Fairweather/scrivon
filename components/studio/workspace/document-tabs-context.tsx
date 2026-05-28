@@ -13,14 +13,15 @@ import {
     type ReactNode,
     type SetStateAction,
 } from 'react'
-import { CRAFT_EXAMPLE_BY_ID } from '@/lib/examples/craft-samples'
+import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
 import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { showError } from '@/lib/tauri/dialog'
-import { readWorkspaceFile } from '@/lib/tauri/fs'
+import { getBaseName, isSupportedDocument, readWorkspaceFile } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab } from '@/lib/workspace/types'
+import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type DocumentTabsContextValue = {
@@ -62,7 +63,10 @@ type DocumentTabsProviderProps = {
 export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tabsState }: DocumentTabsProviderProps) {
     const { tabs, setTabs, activeTabId, setActiveTabId, tabsRef } = tabsState
     const activeTabIdRef = useRef(activeTabId)
-    activeTabIdRef.current = activeTabId
+
+    useEffect(() => {
+        activeTabIdRef.current = activeTabId
+    }, [activeTabId])
 
     const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId])
 
@@ -83,43 +87,52 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     )
 
     useEffect(() => {
-        coordinator.persistWorkspaceTabSession.current = persistTabSession
+        registerCoordinatorRefs(coordinator, { persistWorkspaceTabSession: persistTabSession })
     }, [coordinator, persistTabSession])
 
     useEffect(() => {
-        coordinator.remapTabsAfterRename.current = (oldPath, newPath, newName) => {
-            const nextTabs = remapTabsAfterRename(tabsRef.current, oldPath, newPath, newName)
-            const nextActiveId = activeTabIdRef.current === oldPath ? newPath : activeTabIdRef.current
-            setTabs(nextTabs)
-            if (activeTabIdRef.current === oldPath) setActiveTabId(newPath)
-            void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
-        }
-        coordinator.closeTabsForDelete.current = (path, isDirectory) => {
-            const toClose = tabsToCloseOnDelete(tabsRef.current, path, isDirectory)
-            for (const tab of toClose) {
-                coordinator.cancelScheduledSave.current(tab.id)
-            }
-            const closingIds = new Set(toClose.map((t) => t.id))
-            const nextTabs = tabsRef.current.filter((t) => !closingIds.has(t.id))
-            const nextActiveId = activeTabIdRef.current && closingIds.has(activeTabIdRef.current) ? (nextTabs[0]?.id ?? null) : activeTabIdRef.current
-            setTabs(nextTabs)
-            if (activeTabIdRef.current && closingIds.has(activeTabIdRef.current)) {
+        registerCoordinatorRefs(coordinator, {
+            remapTabsAfterRename: (oldPath, newPath, newName) => {
+                const nextTabs = remapTabsAfterRename(tabsRef.current, oldPath, newPath, newName)
+                const nextActiveId = activeTabIdRef.current === oldPath ? newPath : activeTabIdRef.current
+                setTabs(nextTabs)
+                if (activeTabIdRef.current === oldPath) setActiveTabId(newPath)
+                void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
+            },
+            closeTabsForDelete: (path, isDirectory) => {
+                const toClose = tabsToCloseOnDelete(tabsRef.current, path, isDirectory)
+                for (const tab of toClose) {
+                    coordinator.cancelScheduledSave.current(tab.id)
+                }
+                const closingIds = new Set(toClose.map((t) => t.id))
+                const nextTabs = tabsRef.current.filter((t) => !closingIds.has(t.id))
+                const nextActiveId =
+                    activeTabIdRef.current && closingIds.has(activeTabIdRef.current) ? (nextTabs[0]?.id ?? null) : activeTabIdRef.current
+                setTabs(nextTabs)
+                if (activeTabIdRef.current && closingIds.has(activeTabIdRef.current)) {
+                    setActiveTabId(nextActiveId)
+                }
+                void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
+            },
+            clearTabs: () => {
+                setTabs([])
+                setActiveTabId(null)
+            },
+            setTabsFromWorkspace: (nextTabs, nextActiveId) => {
+                setTabs(nextTabs)
                 setActiveTabId(nextActiveId)
-            }
-            void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
-        }
-        coordinator.clearTabs.current = () => {
-            setTabs([])
-            setActiveTabId(null)
-        }
-        coordinator.setTabsFromWorkspace.current = (nextTabs, nextActiveId) => {
-            setTabs(nextTabs)
-            setActiveTabId(nextActiveId)
-        }
+            },
+        })
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef])
 
     const openFile = useCallback(
         async (path: string) => {
+            const fileName = getBaseName(path)
+            if (!isSupportedDocument(fileName)) {
+                await showError('Unsupported file', 'Scrivon supports .md and .mmd files only.')
+                return
+            }
+
             const previousId = activeTabIdRef.current
 
             const existing = tabsRef.current.find((t) => t.id === path)
@@ -149,7 +162,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const openExample = useCallback(
         (exampleId: string) => {
-            const example = CRAFT_EXAMPLE_BY_ID[exampleId]
+            const example = APP_EXAMPLE_BY_ID[exampleId]
             if (!example) {
                 void showError('Example not found', `No example with id "${exampleId}"`)
                 return
@@ -183,7 +196,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             if (!isExampleTabId(id)) void persistTabSession({ tabs: tabsRef.current, activeTabId: id })
             if (previousId) coordinator.flushSaveOnTabLeave.current(previousId)
         },
-        [coordinator, persistTabSession, setActiveTabId]
+        [coordinator, persistTabSession, setActiveTabId, tabsRef]
     )
 
     const updateTabContent = useCallback(
@@ -251,7 +264,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef])
 
     useEffect(() => {
-        coordinator.openFile.current = openFile
+        registerCoordinatorRefs(coordinator, { openFile })
     }, [coordinator, openFile])
 
     const value = useMemo(
@@ -277,6 +290,10 @@ export function useDocumentTabsState(): DocumentTabsState {
     const [tabs, setTabs] = useState<DocumentTab[]>([])
     const [activeTabId, setActiveTabId] = useState<string | null>(null)
     const tabsRef = useRef(tabs)
-    tabsRef.current = tabs
+
+    useEffect(() => {
+        tabsRef.current = tabs
+    }, [tabs])
+
     return { tabs, setTabs, activeTabId, setActiveTabId, tabsRef }
 }

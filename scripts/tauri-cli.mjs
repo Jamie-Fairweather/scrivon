@@ -1,11 +1,9 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 import { applyTauriSigningFromEnv, loadDotEnv, projectRoot } from './load-dotenv.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
 const tauriBin = join(projectRoot, 'node_modules', '@tauri-apps', 'cli', 'tauri.js')
 
 loadDotEnv()

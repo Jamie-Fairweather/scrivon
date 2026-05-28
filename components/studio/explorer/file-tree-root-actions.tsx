@@ -8,7 +8,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 
 export function FileTreeRootActions() {
     const { workspaceRoot } = useWorkspaceSession()
-    const { createFileInParent, createFolderInParent } = useFileTreeActions(workspaceRoot)
+    const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(workspaceRoot)
 
     return (
         <Menu>
@@ -20,7 +20,8 @@ export function FileTreeRootActions() {
                 }
             />
             <MenuPopup align="end">
-                <MenuItem onClick={() => void createFileInParent()}>New File</MenuItem>
+                <MenuItem onClick={() => void createMermaidFileInParent()}>New Diagram (.mmd)</MenuItem>
+                <MenuItem onClick={() => void createMarkdownFileInParent()}>New Document (.md)</MenuItem>
                 <MenuItem onClick={() => void createFolderInParent()}>New Folder</MenuItem>
             </MenuPopup>
         </Menu>

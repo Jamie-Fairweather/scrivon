@@ -1,22 +1,21 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { STORAGE_KEY_WIDTH } from '@/lib/workspace/types'
 
 const DEFAULT_WIDTH = 400
 
-export function useEditorPanelLayout() {
-    const [width, setWidth] = useState(DEFAULT_WIDTH)
-    const [hydrated, setHydrated] = useState(false)
+function readStoredEditorWidth(): number {
+    if (typeof window === 'undefined') return DEFAULT_WIDTH
+    const storedWidth = localStorage.getItem(STORAGE_KEY_WIDTH)
+    if (!storedWidth) return DEFAULT_WIDTH
+    const parsed = Number.parseInt(storedWidth, 10)
+    return Number.isNaN(parsed) ? DEFAULT_WIDTH : parsed
+}
 
-    useEffect(() => {
-        const storedWidth = localStorage.getItem(STORAGE_KEY_WIDTH)
-        if (storedWidth) {
-            const parsed = Number.parseInt(storedWidth, 10)
-            if (!Number.isNaN(parsed)) setWidth(parsed)
-        }
-        setHydrated(true)
-    }, [])
+export function useEditorPanelLayout() {
+    const [width, setWidth] = useState(readStoredEditorWidth)
+    const hydrated = typeof window !== 'undefined'
 
     const onWidthChange = useCallback((next: number) => {
         setWidth(next)

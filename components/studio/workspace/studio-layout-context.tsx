@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, type StudioLayoutState } from '@/lib/workspace/types'
 
 type StudioLayoutContextValue = {
@@ -18,20 +18,18 @@ export function useStudioLayout(): StudioLayoutContextValue {
     return ctx
 }
 
-export function StudioLayoutProvider({ children }: { children: ReactNode }) {
-    const [layout, setLayout] = useState<StudioLayoutState>({
-        explorerOpen: true,
-        editorOpen: true,
-    })
+function readInitialStudioLayout(): StudioLayoutState {
+    if (typeof window === 'undefined') {
+        return { explorerOpen: true, editorOpen: true }
+    }
+    return {
+        explorerOpen: localStorage.getItem(STORAGE_LAYOUT_EXPLORER) !== 'false',
+        editorOpen: localStorage.getItem(STORAGE_LAYOUT_EDITOR) !== 'false',
+    }
+}
 
-    useEffect(() => {
-        const explorer = localStorage.getItem(STORAGE_LAYOUT_EXPLORER)
-        const editor = localStorage.getItem(STORAGE_LAYOUT_EDITOR)
-        setLayout({
-            explorerOpen: explorer !== 'false',
-            editorOpen: editor !== 'false',
-        })
-    }, [])
+export function StudioLayoutProvider({ children }: { children: ReactNode }) {
+    const [layout, setLayout] = useState<StudioLayoutState>(readInitialStudioLayout)
 
     const persistLayout = useCallback((next: StudioLayoutState) => {
         setLayout(next)

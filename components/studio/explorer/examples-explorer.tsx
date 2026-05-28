@@ -3,14 +3,14 @@
 import { useMemo } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
-import { CRAFT_EXAMPLES, EXAMPLE_CATEGORIES, type CraftExample, type ExampleCategory } from '@/lib/examples/craft-samples'
+import { APP_EXAMPLES, APP_EXAMPLE_CATEGORIES, type AppExample, type AppExampleCategory } from '@/lib/examples/app-samples'
 import { EXAMPLE_CATEGORY_LABELS } from '@/lib/examples/category-labels'
 import { exampleTabId } from '@/lib/examples/example-tab'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
-function ExamplesByCategory({ category, examples }: { category: ExampleCategory; examples: CraftExample[] }) {
+function ExamplesByCategory({ category, examples }: { category: AppExampleCategory; examples: AppExample[] }) {
     const { activeTabId, openExample } = useDocumentTabs()
 
     return (
@@ -51,11 +51,11 @@ function ExamplesByCategory({ category, examples }: { category: ExampleCategory;
 
 export function ExamplesExplorer() {
     const byCategory = useMemo(() => {
-        const map = new Map<ExampleCategory, CraftExample[]>()
-        for (const cat of EXAMPLE_CATEGORIES) {
+        const map = new Map<AppExampleCategory, AppExample[]>()
+        for (const cat of APP_EXAMPLE_CATEGORIES) {
             map.set(cat, [])
         }
-        for (const ex of CRAFT_EXAMPLES) {
+        for (const ex of APP_EXAMPLES) {
             map.get(ex.category)?.push(ex)
         }
         return map
@@ -64,7 +64,7 @@ export function ExamplesExplorer() {
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <ScrollArea className="min-h-0 flex-1">
-                {EXAMPLE_CATEGORIES.map((category) => {
+                {APP_EXAMPLE_CATEGORIES.map((category) => {
                     const examples = byCategory.get(category) ?? []
                     if (examples.length === 0) return null
                     return <ExamplesByCategory key={category} category={category} examples={examples} />
