@@ -6,7 +6,9 @@ import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-pr
 import { DiagramExportMenu } from '@/components/studio/editor/diagram-export-menu'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
 import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-context-menu'
+import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -52,8 +54,13 @@ function TabCloseButton({
 }
 
 export function EditorTabBar({ className, style }: EditorTabBarProps) {
-    const { tabs, activeTabId, setActiveTab, closeTab } = useDocumentTabs()
+    const { tabs, activeTabId, setActiveTab, closeTab, activeTab } = useDocumentTabs()
     const { canFitToView, fitToView } = useCanvasControls()
+    const { expanded } = useMarkdownExpand()
+
+    const tabKind = activeTab ? documentKind(activeTab.name) : null
+    const markdownNeedsExpand = tabKind === 'markdown' && !expanded
+    const fitDisabled = !canFitToView || markdownNeedsExpand
 
     return (
         <div className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)} style={style}>
@@ -85,13 +92,13 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                 })}
             </div>
             <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
-                <DiagramExportMenu disabled={!canFitToView} />
+                <DiagramExportMenu disabled={fitDisabled} />
                 <Button
                     variant="ghost"
                     size="icon-sm"
                     aria-label="Fit diagram to screen"
-                    title="Fit diagram to screen"
-                    disabled={!canFitToView}
+                    title={markdownNeedsExpand ? 'Expand a Mermaid block to fit' : 'Fit diagram to screen'}
+                    disabled={fitDisabled}
                     onClick={fitToView}
                 >
                     <Focus className="size-4" />

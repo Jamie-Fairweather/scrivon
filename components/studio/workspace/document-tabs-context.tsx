@@ -13,10 +13,10 @@ import {
     type ReactNode,
     type SetStateAction,
 } from 'react'
-import { CRAFT_EXAMPLE_BY_ID } from '@/lib/examples/craft-samples'
+import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
 import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { showError } from '@/lib/tauri/dialog'
-import { readWorkspaceFile } from '@/lib/tauri/fs'
+import { getBaseName, isSupportedDocument, readWorkspaceFile } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
@@ -120,6 +120,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const openFile = useCallback(
         async (path: string) => {
+            const fileName = getBaseName(path)
+            if (!isSupportedDocument(fileName)) {
+                await showError('Unsupported file', 'Scrivon supports .md and .mmd files only.')
+                return
+            }
+
             const previousId = activeTabIdRef.current
 
             const existing = tabsRef.current.find((t) => t.id === path)
@@ -149,7 +155,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const openExample = useCallback(
         (exampleId: string) => {
-            const example = CRAFT_EXAMPLE_BY_ID[exampleId]
+            const example = APP_EXAMPLE_BY_ID[exampleId]
             if (!example) {
                 void showError('Example not found', `No example with id "${exampleId}"`)
                 return

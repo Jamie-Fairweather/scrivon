@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils'
 type MermaidCanvasProps = {
     source: string
     className?: string
+    /** Overrides active tab id for pan/zoom state and render cache (e.g. expanded md diagram). */
+    canvasKey?: string
 }
 
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
@@ -36,19 +38,20 @@ const DiagramEmpty = memo(function DiagramEmpty({ message }: { message: string }
     )
 })
 
-export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
+export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
     const dimensionsRef = useRef<{ width: number; height: number } | null>(null)
     const lastHandledFitRequestRef = useRef(0)
 
     const { activeTabId, tabs } = useDocumentTabs()
+    const viewKey = canvasKey ?? activeTabId
     const { canvasFitRequestId } = useCanvasFit()
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
-    const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, activeTabId, openTabIds)
+    const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
-    const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, activeTabId)
+    const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, viewKey)
     const [contentBounds, setContentBounds] = useState<SvgContentBounds | null>(null)
     const [boundsForSvg, setBoundsForSvg] = useState<string | null>(null)
 
@@ -67,12 +70,13 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
     useEffect(() => {
         setContentBounds(null)
         setBoundsForSvg(null)
-    }, [activeTabId, hasSource])
+    }, [viewKey, hasSource])
 
     dimensionsRef.current = fitDimensions
 
     useEffect(() => {
         setCanFitToView(Boolean(fitDimensions))
+        return () => setCanFitToView(false)
     }, [fitDimensions, setCanFitToView])
 
     useEffect(() => {
@@ -82,10 +86,10 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
         })
     }, [registerFitToView, fitToView])
 
-    useCanvasFitOnRequest(canvasFitRequestId, activeTabId, source, fitDimensions, fitToView, lastHandledFitRequestRef)
-    useCanvasFitOnFirstView(fitDimensions, svgForDisplay, activeTabId, hasViewStateForTab, fitToView)
+    useCanvasFitOnRequest(canvasFitRequestId, viewKey, source, fitDimensions, fitToView, lastHandledFitRequestRef)
+    useCanvasFitOnFirstView(fitDimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
-    const emptyMessage = !activeTabId ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
+    const emptyMessage = !viewKey ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
     const showDiagram = hasSource && Boolean(svgForDisplay) && !error
     const showEmpty = !error && !showDiagram && !isPending
 
@@ -102,7 +106,7 @@ export function MermaidCanvas({ source, className }: MermaidCanvasProps) {
                         <DiagramError message={error} />
                     ) : showDiagram ? (
                         <DiagramIframe
-                            key={activeTabId ?? 'none'}
+                            key={viewKey ?? 'none'}
                             svg={svgForDisplay!}
                             bounds={effectiveBounds}
                             onBoundsMeasured={handleBoundsMeasured}

@@ -7,7 +7,7 @@ import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
-import { isMermaidFile } from '@/lib/tauri/fs'
+import { documentKind } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
@@ -49,7 +49,8 @@ function clampWidth(width: number) {
 
 function languageForTab(tab: DocumentTab) {
     if (tab.readOnly) return 'markdown'
-    return isMermaidFile(tab.name) ? 'markdown' : 'plaintext'
+    const kind = documentKind(tab.name)
+    return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
 }
 
 export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {

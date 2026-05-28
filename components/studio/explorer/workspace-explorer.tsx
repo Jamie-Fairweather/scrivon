@@ -66,7 +66,7 @@ export function WorkspaceExplorer() {
                     </div>
                 )}
 
-                {panel === 'examples' && <p className="px-1 text-center text-xs text-muted-foreground">View-only diagram samples</p>}
+                {panel === 'examples' && <p className="px-1 text-center text-xs text-muted-foreground">View-only diagram and markdown samples</p>}
             </div>
 
             <div className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>
