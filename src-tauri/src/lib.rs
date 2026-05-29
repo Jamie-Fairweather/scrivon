@@ -1,3 +1,4 @@
+mod pdf_export;
 mod updater;
 
 use std::sync::Mutex;
@@ -25,6 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
+            pdf_export::export_html_to_pdf,
             updater::check_for_app_update,
             updater::install_app_update,
         ])
