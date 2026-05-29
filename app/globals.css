@@ -255,6 +255,10 @@
     html {
         @apply font-sans;
     }
+    ::selection {
+        background-color: var(--primary);
+        color: var(--primary-foreground);
+    }
     code,
     kbd,
     samp,
