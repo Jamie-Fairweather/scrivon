@@ -36,9 +36,18 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
     const containerRef = useRef<HTMLDivElement>(null)
     const [containerWidth, setContainerWidth] = useState(0)
     const [contentBounds, setContentBounds] = useState<SvgContentBounds | null>(null)
+    const displayedSvgRef = useRef<string | null>(null)
 
     useEffect(() => {
-        setContentBounds(null)
+        if (!svgForDisplay) {
+            displayedSvgRef.current = null
+            setContentBounds(null)
+            return
+        }
+
+        if (displayedSvgRef.current !== svgForDisplay) {
+            displayedSvgRef.current = svgForDisplay
+        }
     }, [svgForDisplay])
 
     useEffect(() => {
@@ -51,14 +60,11 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
         const observer = new ResizeObserver(update)
         observer.observe(el)
         return () => observer.disconnect()
-    }, [trimmed, svgForDisplay])
+    }, [blockId])
 
-    const onBoundsMeasured = useCallback(
-        (bounds: SvgContentBounds, measuredForSvg: string) => {
-            if (measuredForSvg === svgForDisplay) setContentBounds(bounds)
-        },
-        [svgForDisplay]
-    )
+    const onBoundsMeasured = useCallback((bounds: SvgContentBounds, measuredForSvg: string) => {
+        if (measuredForSvg === displayedSvgRef.current) setContentBounds(bounds)
+    }, [])
 
     const fitWidth = contentBounds?.width ?? dimensions?.width
     const fitHeight = contentBounds?.height ?? dimensions?.height
@@ -68,6 +74,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
     const layoutHeight = fitHeight ? fitHeight * scale : undefined
 
     const showDiagram = trimmed.length > 0 && Boolean(svgForDisplay) && !error && fitWidth != null && fitHeight != null
+    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0)
 
     return (
         <div className={cn('relative my-4 w-full min-w-0', className)}>
@@ -90,8 +97,9 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                 ref={containerRef}
                 className={cn(
                     'relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-muted/30',
-                    (isPending && trimmed) || !trimmed ? 'flex min-h-[120px] items-center justify-center' : ''
+                    showPlaceholder ? 'flex min-h-[120px] items-center justify-center' : ''
                 )}
+                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + 32 } : undefined}
             >
                 {error ? (
                     <div className="p-4">
@@ -108,11 +116,11 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                                     transform: `scale(${scale})`,
                                 }}
                             >
-                                <DiagramIframe svg={svgForDisplay!} bounds={contentBounds} onBoundsMeasured={onBoundsMeasured} />
+                                <DiagramIframe svg={svgForDisplay!} bounds={contentBounds} onBoundsMeasured={onBoundsMeasured} liveUpdate />
                             </div>
                         </div>
                     </div>
-                ) : isPending && trimmed ? (
+                ) : isPending ? (
                     <p className="text-xs text-muted-foreground">Rendering diagram…</p>
                 ) : !trimmed ? (
                     <p className="text-xs text-muted-foreground">Empty Mermaid block</p>

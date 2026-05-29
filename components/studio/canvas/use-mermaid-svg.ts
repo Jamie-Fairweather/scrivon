@@ -5,21 +5,59 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
 
-const RENDER_DEBOUNCE_MS = 48
+const RENDER_DEBOUNCE_MS = 200
 
 type DiagramDisplay = { source: string; svg: string; documentKey: string; themeId: string }
 type RenderError = { message: string; documentKey: string }
 
-function cacheKey(themeId: string, trimmedSource: string) {
-    return `${themeId}\0${trimmedSource}`
+const globalSvgCache = new Map<string, string>()
+
+function cacheKey(themeId: string, documentKey: string, trimmedSource: string) {
+    return `${themeId}\0${documentKey}\0${trimmedSource}`
+}
+
+function readCachedSvg(themeId: string, documentKey: string, trimmedSource: string): string | null {
+    return globalSvgCache.get(cacheKey(themeId, documentKey, trimmedSource)) ?? null
+}
+
+function readStaleSvg(themeId: string, documentKey: string): string | null {
+    const prefix = `${themeId}\0${documentKey}\0`
+    for (const [key, svg] of globalSvgCache) {
+        if (key.startsWith(prefix)) return svg
+    }
+    return null
+}
+
+function resolveSvgForDisplay(
+    themeId: string,
+    documentKey: string,
+    trimmedSource: string,
+    display: DiagramDisplay | null,
+    hasRenderError: boolean
+): string | null {
+    if (hasRenderError) return null
+
+    const exact = readCachedSvg(themeId, documentKey, trimmedSource)
+    if (exact) return exact
+
+    if (display?.documentKey === documentKey && display.themeId === themeId) {
+        return display.svg
+    }
+
+    return readStaleSvg(themeId, documentKey)
 }
 
 export function useMermaidSvg(source: string, documentKey: string | null) {
     const { themeId } = useAppTheme()
-    const svgCacheRef = useRef(new Map<string, string>())
     const documentKeyRef = useRef(documentKey)
     const sourceRef = useRef(source)
     const themeIdRef = useRef(themeId)
+
+    const trimmedSource = source.trim()
+    const canRender = Boolean(trimmedSource && documentKey)
+
+    const [display, setDisplay] = useState<DiagramDisplay | null>(null)
+    const [error, setError] = useState<RenderError | null>(null)
 
     useEffect(() => {
         documentKeyRef.current = documentKey
@@ -27,34 +65,19 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         themeIdRef.current = themeId
     }, [documentKey, source, themeId])
 
-    const [display, setDisplay] = useState<DiagramDisplay | null>(null)
-    const [error, setError] = useState<RenderError | null>(null)
-
-    const trimmedSource = source.trim()
-    const canRender = Boolean(trimmedSource && documentKey)
-
     useEffect(() => {
-        svgCacheRef.current.clear()
+        globalSvgCache.clear()
     }, [themeId])
 
     useEffect(() => {
         if (!canRender || !documentKey) return
+        if (readCachedSvg(themeId, documentKey, trimmedSource)) return
 
-        const key = cacheKey(themeId, trimmedSource)
-        const cached = svgCacheRef.current.get(key)
-        if (cached) {
-            setDisplay({ source, svg: cached, documentKey, themeId })
-            setError(null)
-            return
-        }
-
-        setDisplay((prev) => (prev?.documentKey === documentKey && prev.themeId === themeId ? prev : null))
-
+        let cancelled = false
         const renderForKey = documentKey
         const renderSource = source
         const renderTrimmed = trimmedSource
         const renderThemeId = themeId
-        let cancelled = false
 
         const timer = window.setTimeout(() => {
             if (cancelled) return
@@ -68,7 +91,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 if (sourceRef.current !== renderSource) return
                 if (themeIdRef.current !== renderThemeId) return
 
-                svgCacheRef.current.set(key, svg)
+                globalSvgCache.set(cacheKey(renderThemeId, renderForKey, renderTrimmed), svg)
                 setDisplay({ source: renderSource, svg, documentKey: renderForKey, themeId: renderThemeId })
                 setError(null)
             } catch (err) {
@@ -86,17 +109,13 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [canRender, documentKey, source, trimmedSource, themeId])
+    }, [canRender, documentKey, source, themeId, trimmedSource])
 
     const hasRenderError = Boolean(error && documentKey && error.documentKey === documentKey)
     const errorMessage = hasRenderError && error ? error.message : null
-    const svgForDisplay =
-        canRender && display && documentKey && display.documentKey === documentKey && display.themeId === themeId && !hasRenderError
-            ? display.svg
-            : null
+    const svgForDisplay = canRender && documentKey ? resolveSvgForDisplay(themeId, documentKey, trimmedSource, display, hasRenderError) : null
     const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
-    const isPending =
-        canRender && !hasRenderError && (!display || display.documentKey !== documentKey || display.source !== source || display.themeId !== themeId)
+    const isPending = canRender && !hasRenderError && !svgForDisplay
 
     return { svgForDisplay, dimensions, error: errorMessage, isPending }
 }
