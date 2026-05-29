@@ -262,3 +262,33 @@
         font-family: var(--font-mono);
     }
 }
+
+/* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.
+   https://github.com/microsoft/monaco-editor/issues/5137 */
+body:has(.bg-code .monaco-editor .find-widget.visible) .bg-code.overflow-hidden,
+body:has(.bg-code .monaco-editor .find-widget.visible) .flex.min-h-0.min-w-0.flex-1.overflow-hidden:has(.bg-code),
+body:has(.bg-code .monaco-editor .find-widget.visible) .flex.min-h-0.min-w-0.flex-1.flex-col.overflow-hidden:has(.bg-code) {
+    overflow: visible;
+}
+
+/* Prevent workbench hover tooltips from overlapping buttons (replace-all flicker).
+   https://github.com/Jamie-Fairweather/scrivon/issues/21
+   https://github.com/microsoft/monaco-editor/issues/5208 */
+body:has(.bg-code .monaco-editor .find-widget.visible) .workbench-hover-container {
+    pointer-events: none !important;
+}
+
+body:has(.bg-code .monaco-editor .find-widget.visible)
+    :is(
+        .workbench-hover-container,
+        .workbench-hover-container .hover-row,
+        .workbench-hover-container .hover-contents,
+        .workbench-hover-container .action-container,
+        .workbench-hover-container .actions-container
+    ) {
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    gap: 6px !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+}
