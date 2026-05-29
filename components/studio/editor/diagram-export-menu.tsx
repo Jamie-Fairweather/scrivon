@@ -4,7 +4,9 @@ import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
+import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
 import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
@@ -21,13 +23,20 @@ const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
 
 export function DiagramExportMenu({ disabled: disabledProp }: DiagramExportMenuProps) {
     const { activeTab, activeTabId } = useDocumentTabs()
+    const { expanded } = useMarkdownExpand()
     const { themeId } = useAppTheme()
-    const source = activeTab?.content ?? ''
-    const { error, isPending } = useMermaidSvg(source, activeTabId)
+
+    const tabKind = activeTab ? documentKind(activeTab.name) : null
+    const isMarkdownTab = tabKind === 'markdown'
+    const exportSource = isMarkdownTab ? (expanded?.source ?? '') : (activeTab?.content ?? '')
+    const exportCanvasKey = isMarkdownTab ? (expanded?.canvasKey ?? null) : activeTabId
+
+    const { error, isPending } = useMermaidSvg(exportSource, exportCanvasKey)
     const [exporting, setExporting] = useState(false)
 
-    const hasSource = source.trim().length > 0
-    const disabled = disabledProp || !hasSource || Boolean(error) || isPending || exporting
+    const hasSource = exportSource.trim().length > 0
+    const markdownBlocked = isMarkdownTab && !expanded
+    const disabled = disabledProp || markdownBlocked || !hasSource || Boolean(error) || isPending || exporting
 
     const runExport = async (action: () => Promise<void>) => {
         if (disabled) return
@@ -48,7 +57,7 @@ export function DiagramExportMenu({ disabled: disabledProp }: DiagramExportMenuP
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-44">
                 <MenuGroup>
-                    <MenuItem disabled={disabled} onClick={() => void runExport(() => exportSvg(source, themeId, tabName))}>
+                    <MenuItem disabled={disabled} onClick={() => void runExport(() => exportSvg(exportSource, themeId, tabName))}>
                         Save SVG
                     </MenuItem>
                     <MenuSub>
@@ -59,7 +68,7 @@ export function DiagramExportMenu({ disabled: disabledProp }: DiagramExportMenuP
                                     <MenuItem
                                         key={scale}
                                         disabled={disabled}
-                                        onClick={() => void runExport(() => exportPng(source, themeId, tabName, scale))}
+                                        onClick={() => void runExport(() => exportPng(exportSource, themeId, tabName, scale))}
                                     >
                                         {label}
                                     </MenuItem>

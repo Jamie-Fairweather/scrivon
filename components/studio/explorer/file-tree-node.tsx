@@ -4,7 +4,7 @@ import { ChevronRight, FileCode2, FileText, Folder } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { FileTreeContextMenu, FileTreeRowContextMenu } from '@/components/studio/explorer/file-tree-context-menu'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
-import { isMermaidFile } from '@/lib/tauri/fs'
+import { isMarkdownFile, isMermaidFile, isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -18,10 +18,14 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     const [expanded, setExpanded] = useState(depth < 2)
     const isActive = node.kind === 'file' && node.path === activeTabId
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
+    const isMarkdown = node.kind === 'file' && isMarkdownFile(node.name)
+    const isSupported = node.kind === 'file' && isSupportedDocument(node.name)
 
     const handleOpen = useCallback(() => {
-        if (node.kind === 'file') void openFile(node.path)
-        else setExpanded((e) => !e)
+        if (node.kind === 'file') {
+            if (!isSupportedDocument(node.name)) return
+            void openFile(node.path)
+        } else setExpanded((e) => !e)
     }, [node, openFile])
 
     return (
@@ -32,8 +36,10 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                         type="button"
                         className={cn(
                             'flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1 text-left text-sm hover:bg-sidebar-accent',
-                            isActive && 'bg-sidebar-accent font-medium'
+                            isActive && 'bg-sidebar-accent font-medium',
+                            !isSupported && node.kind === 'file' && 'text-muted-foreground/60 hover:bg-transparent'
                         )}
+                        title={!isSupported && node.kind === 'file' ? 'Scrivon supports .md and .mmd files only' : undefined}
                         onClick={handleOpen}
                     >
                         {node.kind === 'directory' ? (
@@ -43,6 +49,8 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                             </>
                         ) : isMermaid ? (
                             <FileCode2 className="size-4 shrink-0 text-primary" />
+                        ) : isMarkdown ? (
+                            <FileText className="size-4 shrink-0 text-primary" />
                         ) : (
                             <FileText className="size-4 shrink-0 text-muted-foreground" />
                         )}

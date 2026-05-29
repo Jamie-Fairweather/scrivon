@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
 import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
@@ -14,19 +14,32 @@ const STORAGE_EXPLORER_PANEL = 'mermaid-studio-explorer-panel'
 
 type ExplorerPanel = 'files' | 'examples'
 
+const explorerPanelListeners = new Set<() => void>()
+
+function getExplorerPanelSnapshot(): ExplorerPanel {
+    const stored = sessionStorage.getItem(STORAGE_EXPLORER_PANEL)
+    return stored === 'examples' ? 'examples' : 'files'
+}
+
+function getExplorerPanelServerSnapshot(): ExplorerPanel {
+    return 'files'
+}
+
+function subscribeExplorerPanel(onStoreChange: () => void): () => void {
+    explorerPanelListeners.add(onStoreChange)
+    return () => explorerPanelListeners.delete(onStoreChange)
+}
+
+function setExplorerPanel(value: ExplorerPanel): void {
+    sessionStorage.setItem(STORAGE_EXPLORER_PANEL, value)
+    for (const listener of explorerPanelListeners) {
+        listener()
+    }
+}
+
 export function WorkspaceExplorer() {
     const { workspaceName, tree } = useWorkspaceSession()
-    const [panel, setPanel] = useState<ExplorerPanel>('files')
-
-    useEffect(() => {
-        const stored = sessionStorage.getItem(STORAGE_EXPLORER_PANEL)
-        if (stored === 'files' || stored === 'examples') setPanel(stored)
-    }, [])
-
-    const onPanelChange = (value: ExplorerPanel) => {
-        setPanel(value)
-        sessionStorage.setItem(STORAGE_EXPLORER_PANEL, value)
-    }
+    const panel = useSyncExternalStore(subscribeExplorerPanel, getExplorerPanelSnapshot, getExplorerPanelServerSnapshot)
 
     return (
         <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -38,7 +51,7 @@ export function WorkspaceExplorer() {
                         aria-label="Files"
                         aria-pressed={panel === 'files'}
                         title="Files"
-                        onClick={() => onPanelChange('files')}
+                        onClick={() => setExplorerPanel('files')}
                     >
                         <Files className="size-4" />
                     </Button>
@@ -48,7 +61,7 @@ export function WorkspaceExplorer() {
                         aria-label="Examples"
                         aria-pressed={panel === 'examples'}
                         title="Examples"
-                        onClick={() => onPanelChange('examples')}
+                        onClick={() => setExplorerPanel('examples')}
                     >
                         <BookOpen className="size-4" />
                     </Button>
@@ -66,7 +79,7 @@ export function WorkspaceExplorer() {
                     </div>
                 )}
 
-                {panel === 'examples' && <p className="px-1 text-center text-xs text-muted-foreground">View-only diagram samples</p>}
+                {panel === 'examples' && <p className="px-1 text-center text-xs text-muted-foreground">View-only diagram and markdown samples</p>}
             </div>
 
             <div className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>

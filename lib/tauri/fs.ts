@@ -92,8 +92,7 @@ export function getParentPath(path: string): string {
     return parts.join(path.includes('\\') ? '\\' : '/')
 }
 
-export function isMermaidFile(name: string): boolean {
-    return name.endsWith('.mmd') || name.endsWith('.mermaid')
-}
+export { isMarkdownFile, isMermaidFile, isSupportedDocument, documentKind } from '@/lib/workspace/file-types'
+export type { DocumentKind } from '@/lib/workspace/file-types'
 
 export type { DirEntry }

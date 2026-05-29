@@ -48,7 +48,7 @@ const isRc = branch === 'rc'
 
 const changelog = ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md' }]
 
-export default {
+const releaseConfig = {
     branches: [{ name: 'main' }, { name: 'rc', prerelease: 'rc' }],
     plugins: [
         ...analyzer,
@@ -60,3 +60,5 @@ export default {
         '@semantic-release/github',
     ],
 }
+
+export default releaseConfig

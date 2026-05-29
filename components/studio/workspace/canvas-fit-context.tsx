@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type CanvasFitContextValue = {
@@ -24,7 +25,7 @@ export function CanvasFitProvider({ children, coordinator }: { children: ReactNo
     }, [])
 
     useEffect(() => {
-        if (coordinator) coordinator.requestCanvasFit.current = requestCanvasFit
+        if (coordinator) registerCoordinatorRefs(coordinator, { requestCanvasFit })
     }, [coordinator, requestCanvasFit])
 
     const value = useMemo(

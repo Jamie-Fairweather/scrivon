@@ -1,0 +1,363 @@
+# Markdown syntax showcase
+
+A single document demonstrating common Markdown features (CommonMark + GitHub Flavored Markdown where noted).
+
+---
+
+## Headings
+
+# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+#### Heading 4
+
+##### Heading 5
+
+###### Heading 6
+
+Alternate H1 and H2 (some parsers only):
+
+# Heading level 1
+
+## Heading level 2
+
+---
+
+## Paragraphs and line breaks
+
+This is a normal paragraph. It can span multiple lines in the source file without creating separate paragraphs—only a blank line starts a new paragraph.
+
+This line ends with two spaces at the end of the line  
+so the next line is a hard line break (not a new paragraph).
+
+This paragraph uses a backslash at the end of a line\
+for another hard break style (supported in some flavors).
+
+---
+
+## Emphasis
+
+_Italic_ with asterisks, _italic_ with underscores.
+
+**Bold** with asterisks, **bold** with underscores.
+
+**_Bold and italic_** combined.
+
+~~Strikethrough~~ (GFM).
+
+==Highlighted== (not universal; some extended flavors).
+
+Subscript H~2~O and superscript E=mc^2^ (not universal).
+
+---
+
+## Links and images
+
+[Inline link](https://example.com)
+
+[Link with title](https://example.com 'Example title')
+
+<https://example.com>
+
+[Reference-style link][ref]
+
+[ref]: https://example.com 'Optional title'
+
+![Alt text for an image](https://via.placeholder.com/150x80.png?text=Demo)
+
+[![Image as link](https://via.placeholder.com/80x40.png?text=Click)](https://example.com)
+
+---
+
+## Lists
+
+### Unordered
+
+- Item one
+- Item two
+    - Nested item
+    - Another nested
+- Item three
+
+Also valid markers:
+
+- Asterisk
+
+* Plus
+
+### Ordered
+
+1. First
+2. Second
+    1. Nested ordered
+    2. Another nested
+3. Third
+
+Numbers need not be sequential in source (renderers renumber):
+
+1. One
+1. Two
+1. Three
+
+### Task list (GFM)
+
+- [x] Completed task
+- [ ] Incomplete task
+- [ ] Nested tasks
+    - [x] Subtask done
+    - [ ] Subtask pending
+
+### Mixed
+
+1. Ordered with **bold**
+    - Unordered child
+    - [x] Task child
+2. Second ordered
+
+---
+
+## Blockquotes
+
+> A single-level blockquote.
+> Multiple lines in one quote.
+
+> Nested quotes:
+>
+> > Inner quote
+> >
+> > Back to outer.
+
+> Blockquote with other elements:
+>
+> - List inside quote
+> - Second item
+>
+> `inline code` and **emphasis**
+
+---
+
+## Code
+
+Inline `code` with backticks.
+
+Inline ``code with `backtick` inside`` using doubled backticks.
+
+Fenced block without language:
+
+```
+plain text
+no highlighting
+```
+
+Fenced block with language:
+
+```javascript
+const greeting = 'Hello'
+console.log(greeting)
+```
+
+```python
+def add(a, b):
+    return a + b
+```
+
+Indented code block (4 spaces or tab):
+
+    function legacy() {
+      return true;
+    }
+
+---
+
+## Tables (GFM)
+
+| Left aligned | Center aligned | Right aligned |
+| :----------- | :------------: | ------------: |
+| cell         |      cell      |          cell |
+| longer text  |     `code`     |      **bold** |
+
+Pipe in cell: use escape or HTML — see \| or &#124;
+
+---
+
+## Horizontal rules
+
+Three or more of:
+
+---
+
+---
+
+---
+
+---
+
+## Footnotes (GFM / some parsers)
+
+Here is a sentence with a footnote.[^1]
+
+[^1]: This is the footnote body at the bottom of the document.
+
+---
+
+## Definition lists (some parsers)
+
+Term 1
+: Definition for term 1
+
+Term 2
+: Definition 2a
+: Definition 2b
+
+---
+
+## Abbreviations (some parsers)
+
+The HTML specification is maintained by the W3C.
+
+_[HTML]: Hyper Text Markup Language
+_[W3C]: World Wide Web Consortium
+
+---
+
+## HTML (embedded in Markdown)
+
+<details>
+<summary>Click to expand</summary>
+
+Markdown inside HTML blocks may or may not parse depending on the renderer.
+
+</details>
+
+<kbd>Ctrl</kbd> + <kbd>C</kbd>
+
+---
+
+## Escaping special characters
+
+\*not italic\* \# not a heading \[not a link\]
+
+Backslash escapes: \* \_ \# \[ \] \( \) \` \~
+
+---
+
+## Mermaid diagram
+
+```mermaid
+graph LR
+  A[Rectangle] --> B(Rounded)
+  B --> C{Diamond}
+  C --> D([Stadium])
+  D --> E((Circle))
+```
+
+---
+
+## Math (where supported, e.g. KaTeX)
+
+Inline: $E = mc^2$
+
+Block:
+
+$$
+\int_0^1 x^2 \, dx = \frac{1}{3}
+$$
+
+---
+
+## Alerts / admonitions (GFM on GitHub)
+
+> [!NOTE]
+> Useful information.
+
+> [!TIP]
+> Helpful advice.
+
+> [!IMPORTANT]
+> Key information.
+
+> [!WARNING]
+> Urgent attention.
+
+> [!CAUTION]
+> Risk of data loss.
+
+---
+
+## Collapsible sections (HTML)
+
+<details>
+<summary>Section title</summary>
+
+Hidden content until expanded.
+
+</details>
+
+---
+
+## Comments (HTML, hidden in output)
+
+<!-- This comment does not appear in rendered output -->
+
+---
+
+## Emoji (GFM shortcodes)
+
+:rocket: :tada: :+1: (render as emoji on GitHub; plain text elsewhere)
+
+Unicode also works: 🎉 ✨
+
+---
+
+## Autolinks (GFM)
+
+www.example.com
+
+https://example.com
+
+user@example.com
+
+---
+
+## Mentions and issues (GitHub-specific)
+
+@username
+
+`#123`
+
+owner/repo#456
+
+---
+
+## Sample document structure
+
+Use headings, lists, and code together:
+
+### Installation
+
+1. Clone the repo
+2. Install dependencies:
+
+    ```bash
+    npm install
+    ```
+
+3. Run:
+
+    ```bash
+    npm start
+    ```
+
+> **Tip:** Read the docs before deploying.
+
+| Step  | Command         |
+| ----- | --------------- |
+| dev   | `npm run dev`   |
+| build | `npm run build` |
+
+---
+
+_End of Markdown showcase._

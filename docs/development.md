@@ -102,7 +102,7 @@ Review the diff before pushing. If `v1.0.0` already exists, the next stable rele
 
 ### Branch protection
 
-If `main` or `rc` require pull requests, allow `github-actions[bot]` to bypass rules (or use a PAT in `GH_TOKEN`) so semantic-release can push the version bump commit.
+If `main` or `rc` require pull requests, the Release workflow uses the `RELEASE_BOT_TOKEN` secret (a fine-grained or classic PAT) so semantic-release can push the `chore(release): …` commit. Add the **PAT owner** to the branch ruleset bypass list. The workflow is configured in [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
 ### In-app updates
 
@@ -126,18 +126,19 @@ In-app updates require a minisign keypair. Do this once per machine (or again if
 
 3. **Use the private key locally and in CI**
     - **Local:** copy [`.env.example`](../.env.example) to `.env` and set `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (see [Local builds with signing](#local-builds-with-signing) below).
-    - **CI:** add [repository secrets](#github-secrets-for-updater-signing) (not Environment secrets).
+    - **CI:** add [repository secrets](#github-actions-secrets) (not Environment secrets).
 
 If you regenerate keys, repeat all three steps. Existing installs signed with the old key will not trust updates signed with the new key.
 
-### GitHub secrets for updater signing
+### GitHub Actions secrets
 
 Under **Settings → Secrets and variables → Actions → Repository secrets**:
 
-| Secret                               | Value                                         |
-| ------------------------------------ | --------------------------------------------- |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon` |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Leave empty if the key has no password        |
+| Secret                               | Value                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `RELEASE_BOT_TOKEN`                  | PAT with **Contents** (read/write) on this repo; owner on bypass list |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon`                         |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Leave empty if the key has no password                                |
 
 ### Local builds with signing
 

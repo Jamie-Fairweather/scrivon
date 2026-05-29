@@ -22,7 +22,7 @@ export function WelcomeScreen() {
                 <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
                 <p className="max-w-md text-sm text-muted-foreground">{APP_TAGLINE}</p>
                 <p className="max-w-md text-sm text-muted-foreground/80">
-                    Open a folder to browse diagram files, edit in the editor, and preview on the canvas.
+                    Open a folder to browse `.md` and `.mmd` files, edit in the editor, and preview diagrams or rendered Markdown.
                 </p>
             </div>
 
