@@ -1,3 +1,15 @@
+## [1.3.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.2.0...v1.3.0) (2026-05-29)
+
+### Features
+
+* export markdown to pdf ([#22](https://github.com/Jamie-Fairweather/scrivon/issues/22)) ([4c2506f](https://github.com/Jamie-Fairweather/scrivon/commit/4c2506f0c8cda8be103ac0ae7b0fd8abce1ba20b))
+
+### Bug Fixes
+
+* flickering search and replace tooltips ([#24](https://github.com/Jamie-Fairweather/scrivon/issues/24)) ([4427a72](https://github.com/Jamie-Fairweather/scrivon/commit/4427a72ff62b02332b38a114f6a9651afd8df838))
+* markdown flickering with document updates ([#18](https://github.com/Jamie-Fairweather/scrivon/issues/18)) ([4cce7e3](https://github.com/Jamie-Fairweather/scrivon/commit/4cce7e3c75104984b32f202c23f781ae68317364))
+* text highlight contrast ([#23](https://github.com/Jamie-Fairweather/scrivon/issues/23)) ([a853dd5](https://github.com/Jamie-Fairweather/scrivon/commit/a853dd5e285ea80ddfc9f4280c1a212d7f11e929))
+
 ## [1.2.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.1.2...v1.2.0) (2026-05-29)
 
 ### Features
