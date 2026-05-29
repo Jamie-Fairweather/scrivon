@@ -175,7 +175,13 @@ async function codeBlockToHtml(node: Code): Promise<string> {
     }
 }
 
-async function transformCodeBlocks(tree: Root): Promise<void> {
+function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function transformCodeBlocks(tree: Root): Promise<Map<string, string>> {
+    const exportId = crypto.randomUUID()
+    const placeholders = new Map<string, string>()
     const replacements: { parent: Parent; index: number; promise: Promise<string> }[] = []
 
     visit(tree, 'code', (node: Code, index, parent) => {
@@ -189,8 +195,15 @@ async function transformCodeBlocks(tree: Root): Promise<void> {
 
     const htmlFragments = await Promise.all(replacements.map((r) => r.promise))
     replacements.forEach((r, i) => {
-        r.parent.children[r.index] = { type: 'html', value: htmlFragments[i] }
+        const key = `__SCRIVON_${exportId}_BLOCK_${i}__`
+        placeholders.set(key, htmlFragments[i]!)
+        r.parent.children[r.index] = {
+            type: 'paragraph',
+            children: [{ type: 'text', value: key }],
+        }
     })
+
+    return placeholders
 }
 
 function exportStylesheet(): string {
@@ -204,10 +217,15 @@ export async function markdownToExportHtml(source: string): Promise<string> {
     }
 
     const tree = unified().use(remarkParse).use(remarkGfm).parse(trimmed) as Root
-    await transformCodeBlocks(tree)
+    const placeholders = await transformCodeBlocks(tree)
 
-    const hast = unified().use(remarkRehype, { allowDangerousHtml: true }).runSync(tree)
-    const bodyHtml = toHtml(hast, { allowDangerousHtml: true })
+    const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree)
+    let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
+
+    for (const [key, html] of placeholders) {
+        const pattern = new RegExp(`<p>${escapeRegExp(key)}</p>`, 'g')
+        bodyHtml = bodyHtml.replace(pattern, html)
+    }
 
     return `<!DOCTYPE html>
 <html lang="en">

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
 import { pickSavePath, showError } from '@/lib/tauri/dialog'
-import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
+import { isWindowsTauri } from '@/lib/tauri/platform'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 
@@ -76,15 +76,10 @@ export async function exportMarkdownToPdf(source: string, tabName: string | unde
         const html = await markdownToExportHtml(source)
         const filename = `${markdownExportBaseName(tabName)}.pdf`
 
-        if (isTauri() && isWindowsTauri()) {
+        if (isWindowsTauri()) {
             const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
             if (!path) return
             await savePdfWithWebView2(html, path)
-            return
-        }
-
-        if (isTauri()) {
-            await printExportHtml(html)
             return
         }
 

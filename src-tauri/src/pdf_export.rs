@@ -4,7 +4,6 @@ async fn export_html_to_pdf_impl(
     html: String,
     output_path: String,
 ) -> Result<(), String> {
-    use std::sync::mpsc::sync_channel;
     use std::time::Duration;
 
     use tauri::webview::{PlatformWebview, WebviewWindowBuilder};
@@ -35,7 +34,7 @@ async fn export_html_to_pdf_impl(
     tokio::time::sleep(Duration::from_millis(1200)).await;
 
     let path = output_path;
-    let (tx, rx) = sync_channel::<Result<(), String>>(1);
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
     window
         .with_webview(move |webview: PlatformWebview| {
@@ -106,10 +105,13 @@ async fn export_html_to_pdf_impl(
         })
         .map_err(|e| e.to_string())?;
 
+    let result = rx
+        .await
+        .map_err(|_| "PDF export failed.".to_string())?;
+
     window.close().ok();
 
-    rx.recv()
-        .map_err(|_| "PDF export failed.".to_string())?
+    result
 }
 
 #[cfg(not(windows))]
