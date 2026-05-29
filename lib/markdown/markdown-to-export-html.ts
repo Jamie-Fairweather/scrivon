@@ -223,8 +223,10 @@ export async function markdownToExportHtml(source: string): Promise<string> {
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
-        const pattern = new RegExp(`<p>${escapeRegExp(key)}</p>`, 'g')
-        bodyHtml = bodyHtml.replace(pattern, html)
+        const wrappedPattern = new RegExp(`<p>${escapeRegExp(key)}</p>`, 'g')
+        bodyHtml = bodyHtml.replace(wrappedPattern, () => html)
+        const barePattern = new RegExp(escapeRegExp(key), 'g')
+        bodyHtml = bodyHtml.replace(barePattern, () => html)
     }
 
     return `<!DOCTYPE html>
