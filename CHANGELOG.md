@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.1.2...v1.2.0) (2026-05-29)
+
+### Features
+
+* markdown support ([#11](https://github.com/Jamie-Fairweather/scrivon/issues/11)) ([753b675](https://github.com/Jamie-Fairweather/scrivon/commit/753b675de56753ba6d24d80cfb58a4bc9469ecc1))
+
 ## [1.1.2](https://github.com/Jamie-Fairweather/scrivon/compare/v1.1.1...v1.1.2) (2026-05-25)
 
 ### Bug Fixes
