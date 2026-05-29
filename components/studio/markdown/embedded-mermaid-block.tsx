@@ -45,9 +45,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
             return
         }
 
-        if (displayedSvgRef.current !== svgForDisplay) {
-            displayedSvgRef.current = svgForDisplay
-        }
+        displayedSvgRef.current = svgForDisplay
     }, [svgForDisplay])
 
     useEffect(() => {
@@ -116,7 +114,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                                     transform: `scale(${scale})`,
                                 }}
                             >
-                                <DiagramIframe svg={svgForDisplay!} bounds={contentBounds} onBoundsMeasured={onBoundsMeasured} liveUpdate />
+                                <DiagramIframe svg={svgForDisplay!} bounds={contentBounds} onBoundsMeasured={onBoundsMeasured} />
                             </div>
                         </div>
                     </div>

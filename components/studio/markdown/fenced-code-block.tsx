@@ -6,6 +6,7 @@ import { highlightFencedCode, type ShikiTheme } from '@/lib/markdown/shiki-highl
 import { cn } from '@/lib/utils'
 
 const HIGHLIGHT_IDLE_MS = 400
+const MAX_HIGHLIGHT_CACHE_ENTRIES = 200
 
 const WRAPPER_CLASS =
     'mb-4 overflow-x-auto rounded-lg border border-border bg-muted/40 text-xs [&_code]:font-mono [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:p-3'
@@ -40,6 +41,17 @@ const containerByBlockId = new Map<string, HTMLDivElement>()
 
 function highlightCacheKey(theme: ShikiTheme, language: string | undefined, code: string): string {
     return `${theme}\0${language ?? ''}\0${code}`
+}
+
+function setBoundedHighlightCache(key: string, html: string): void {
+    if (globalHighlightCache.has(key)) {
+        globalHighlightCache.delete(key)
+    }
+    globalHighlightCache.set(key, html)
+    if (globalHighlightCache.size > MAX_HIGHLIGHT_CACHE_ENTRIES) {
+        const oldest = globalHighlightCache.keys().next().value
+        if (oldest !== undefined) globalHighlightCache.delete(oldest)
+    }
 }
 
 function resolveHighlightHtml(code: string, language: string | undefined, theme: ShikiTheme, idleHighlight: IdleHighlight | null): string | null {
@@ -111,6 +123,11 @@ export function FencedCodeBlock({ blockId, code, language, className }: FencedCo
             writePlainCode(container, code)
             blockDisplayCache.set(blockId, { mode: 'plain', code, language, theme })
         }
+
+        return () => {
+            containerByBlockId.delete(blockId)
+            blockDisplayCache.delete(blockId)
+        }
     }, [blockId, code, language, theme, idleHighlight])
 
     useEffect(() => {
@@ -123,7 +140,7 @@ export function FencedCodeBlock({ blockId, code, language, className }: FencedCo
             void highlightFencedCode(code, language, theme)
                 .then((html) => {
                     if (cancelled) return
-                    globalHighlightCache.set(highlightCacheKey(theme, language, code), html)
+                    setBoundedHighlightCache(highlightCacheKey(theme, language, code), html)
                     setIdleHighlight({ code, language, theme, html })
                 })
                 .catch(() => {

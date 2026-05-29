@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, type ComponentProps, type CSSProperties, type ReactNode } from 'react'
+import { nextFencedCodeBlockOrdinal, nextMermaidBlockOrdinal, resetMarkdownBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import type { Element } from 'hast'
 import type { Components } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
@@ -38,16 +39,12 @@ function cellAlignStyle(align: string | null | undefined): CSSProperties | undef
     return undefined
 }
 
-function mermaidBlockId(tabId: string | null, node: Element | undefined, fallbackIndex: number): string {
-    const startLine = node?.position?.start.line
-    if (startLine != null) return `${tabId ?? 'none'}:${startLine}`
-    return `${tabId ?? 'none'}:mermaid:${fallbackIndex}`
+function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
+    return `${tabId ?? 'none'}:${fallbackIndex}:mermaid`
 }
 
-function fencedCodeBlockId(tabId: string | null, node: Element | undefined, fallbackIndex: number): string {
-    const startLine = node?.position?.start.line
-    if (startLine != null) return `${tabId ?? 'none'}:${startLine}`
-    return `${tabId ?? 'none'}:code:${fallbackIndex}`
+function fencedCodeBlockId(tabId: string | null, fallbackIndex: number, lang?: string): string {
+    return `${tabId ?? 'none'}:${fallbackIndex}:code${lang ? `:${lang}` : ''}`
 }
 
 const staticMarkdownComponents: Components = {
@@ -90,21 +87,20 @@ const staticMarkdownComponents: Components = {
 }
 
 export function MarkdownPreview({ source, tabId, onExpandBlock, className }: MarkdownPreviewProps) {
-    const components = useMemo((): Components => {
-        let mermaidBlockFallback = 0
-        let fencedCodeBlockFallback = 0
+    resetMarkdownBlockOrdinals()
 
+    const components = useMemo((): Components => {
         return {
             ...staticMarkdownComponents,
             code(props: CodeComponentProps) {
-                const { className: codeClassName, children, node } = props
+                const { className: codeClassName, children } = props
                 const match = /language-([^\s]+)/i.exec(codeClassName ?? '')
                 const lang = match?.[1]?.toLowerCase()
                 const text = extractText(children)
                 const isBlock = lang === 'mermaid' || text.includes('\n')
 
                 if (lang === 'mermaid' && isBlock) {
-                    const blockId = mermaidBlockId(tabId, node, mermaidBlockFallback++)
+                    const blockId = mermaidBlockId(tabId, nextMermaidBlockOrdinal())
                     return (
                         <EmbeddedMermaidBlock
                             key={blockId}
@@ -120,7 +116,7 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, className }: Mar
                     return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
                 }
 
-                const blockId = fencedCodeBlockId(tabId, node, fencedCodeBlockFallback++)
+                const blockId = fencedCodeBlockId(tabId, nextFencedCodeBlockOrdinal(), lang)
                 return <FencedCodeBlock key={blockId} blockId={blockId} code={text.replace(/\n$/, '')} language={lang} />
             },
         }
