@@ -25,7 +25,7 @@ export function ScrollArea({
                         mask-r-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-end)))]
                         mask-b-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-end)))]
                         mask-l-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-start)))] [--fade-size:1.5rem]`,
-                    scrollbarGutter && 'data-has-overflow-x:pb-2.5 data-has-overflow-y:pe-2.5'
+                    scrollbarGutter && 'pe-2.5 data-has-overflow-x:pb-2.5'
                 )}
                 data-slot="scroll-area-viewport"
             >
