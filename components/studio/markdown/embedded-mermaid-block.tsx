@@ -36,16 +36,20 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
     const containerRef = useRef<HTMLDivElement>(null)
     const [containerWidth, setContainerWidth] = useState(0)
     const [contentBounds, setContentBounds] = useState<SvgContentBounds | null>(null)
+    const [boundsForSvg, setBoundsForSvg] = useState<string | null>(null)
     const displayedSvgRef = useRef<string | null>(null)
 
     useEffect(() => {
         if (!svgForDisplay) {
             displayedSvgRef.current = null
             setContentBounds(null)
+            setBoundsForSvg(null)
             return
         }
 
-        displayedSvgRef.current = svgForDisplay
+        if (displayedSvgRef.current !== svgForDisplay) {
+            displayedSvgRef.current = svgForDisplay
+        }
     }, [svgForDisplay])
 
     useEffect(() => {
@@ -61,11 +65,15 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
     }, [blockId])
 
     const onBoundsMeasured = useCallback((bounds: SvgContentBounds, measuredForSvg: string) => {
-        if (measuredForSvg === displayedSvgRef.current) setContentBounds(bounds)
+        if (measuredForSvg === displayedSvgRef.current) {
+            setContentBounds(bounds)
+            setBoundsForSvg(measuredForSvg)
+        }
     }, [])
 
-    const fitWidth = contentBounds?.width ?? dimensions?.width
-    const fitHeight = contentBounds?.height ?? dimensions?.height
+    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : null
+    const fitWidth = effectiveBounds?.width ?? dimensions?.width
+    const fitHeight = effectiveBounds?.height ?? dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)
     const scale = fitWidth && availableWidth > 0 ? Math.min(1, availableWidth / fitWidth) : 1
     const layoutWidth = fitWidth ? fitWidth * scale : undefined
@@ -114,7 +122,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                                     transform: `scale(${scale})`,
                                 }}
                             >
-                                <DiagramIframe svg={svgForDisplay!} bounds={contentBounds} onBoundsMeasured={onBoundsMeasured} />
+                                <DiagramIframe svg={svgForDisplay!} bounds={effectiveBounds} onBoundsMeasured={onBoundsMeasured} />
                             </div>
                         </div>
                     </div>
