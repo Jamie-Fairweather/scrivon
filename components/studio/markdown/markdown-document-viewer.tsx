@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import { clearFencedCodeBlockContainers } from '@/components/studio/markdown/fenced-code-block'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
+import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -21,10 +23,15 @@ function scrollViewport(root: HTMLElement | null): HTMLElement | null {
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
+    const previewSource = useFrameSyncedValue(source)
     const { expanded, setExpanded } = useMarkdownExpand()
     const { requestCanvasFit } = useCanvasFit()
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const savedScrollTopRef = useRef(0)
+
+    useEffect(() => {
+        clearFencedCodeBlockContainers()
+    }, [tabId])
 
     const onExpandBlock = useCallback(
         (blockId: string, blockSource: string) => {
@@ -56,11 +63,14 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         if (expanded) return
 
         const scrollTop = savedScrollTopRef.current
+        const viewport = scrollViewport(scrollAreaRef.current)
+        if (!viewport || viewport.scrollTop === scrollTop) return
+
         let innerId = 0
         const outerId = requestAnimationFrame(() => {
             innerId = requestAnimationFrame(() => {
-                const viewport = scrollViewport(scrollAreaRef.current)
-                if (viewport) viewport.scrollTop = scrollTop
+                const nextViewport = scrollViewport(scrollAreaRef.current)
+                if (nextViewport) nextViewport.scrollTop = scrollTop
             })
         })
 
@@ -72,6 +82,11 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
 
     return (
         <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background', className)}>
+            <div ref={scrollAreaRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <ScrollArea className="size-full min-h-0" scrollbarGutter>
+                    <MarkdownPreview source={previewSource} tabId={tabId} onExpandBlock={onExpandBlock} />
+                </ScrollArea>
+            </div>
             {expanded ? (
                 <div className="absolute inset-0 z-10 flex min-h-0 flex-col bg-background">
                     <div className="absolute top-2 right-2 z-20">
@@ -90,13 +105,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     </div>
                     <MermaidCanvas source={expanded.source} canvasKey={expanded.canvasKey} className="min-h-0 flex-1" />
                 </div>
-            ) : (
-                <div ref={scrollAreaRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <ScrollArea className="size-full min-h-0">
-                        <MarkdownPreview source={source} tabId={tabId} onExpandBlock={onExpandBlock} />
-                    </ScrollArea>
-                </div>
-            )}
+            ) : null}
         </div>
     )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { measureSvgContentBounds, type SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 
@@ -21,6 +21,7 @@ type DiagramIframeProps = {
     svg: string
     bounds: SvgContentBounds | null
     onBoundsMeasured?: (bounds: SvgContentBounds, svg: string) => void
+    liveUpdate?: boolean
 }
 
 type SlotState = { svg: string; loadId: number }
@@ -38,8 +39,56 @@ function slotDimensions(svg: string, clip: SvgContentBounds | null) {
     }
 }
 
+const LiveDiagramIframe = memo(function LiveDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
+    const iframeRef = useRef<HTMLIFrameElement>(null)
+    const appliedRef = useRef<string | null>(null)
+    const dims = slotDimensions(svg, bounds)
+
+    useLayoutEffect(() => {
+        const iframe = iframeRef.current
+        if (!iframe || !dims) return
+
+        const token = `${svg}\0${dims.offsetX}\0${dims.offsetY}`
+        if (appliedRef.current === token) return
+
+        appliedRef.current = token
+        iframe.srcdoc = svgIframeDocument(svg, dims.offsetX, dims.offsetY)
+    }, [svg, dims])
+
+    const onLoad = useCallback(
+        (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+            const doc = e.currentTarget.contentDocument
+            const svgEl = doc?.querySelector('svg')
+            if (!svgEl) return
+
+            const measured = measureSvgContentBounds(svgEl)
+            if (measured) onBoundsMeasured?.(measured, svg)
+        },
+        [onBoundsMeasured, svg]
+    )
+
+    if (!dims) return null
+
+    return (
+        <iframe
+            ref={iframeRef}
+            title="Diagram preview"
+            className="pointer-events-none overflow-hidden border-0 bg-transparent"
+            sandbox=""
+            onLoad={onLoad}
+            style={{
+                width: dims.width,
+                height: dims.height,
+                background: 'transparent',
+                colorScheme: 'normal',
+                overflow: 'hidden',
+            }}
+        />
+    )
+})
+
 /** Isolated iframe preview — keeps Mermaid &lt;style&gt;/@import out of the app document. */
-export const DiagramIframe = memo(function DiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
+const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
     const [activeSlot, setActiveSlot] = useState(0)
     const [slots, setSlots] = useState<[SlotState, SlotState]>(() => [
         { svg, loadId: 0 },
@@ -149,4 +198,9 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, bounds, onBounds
             })}
         </div>
     )
+})
+
+export const DiagramIframe = memo(function DiagramIframe({ liveUpdate = false, ...props }: DiagramIframeProps) {
+    if (liveUpdate) return <LiveDiagramIframe {...props} />
+    return <BufferedDiagramIframe {...props} />
 })
