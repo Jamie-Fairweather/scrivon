@@ -104,6 +104,7 @@ function buildExportCss(mermaidBg: string): string {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 12px;
     line-height: 1.45;
+    white-space: pre;
     tab-size: 2;
   }
   .code-block pre.shiki code {
@@ -112,10 +113,28 @@ function buildExportCss(mermaidBg: string): string {
     border: none;
     padding: 0;
     font-size: inherit;
+    line-height: inherit;
+    white-space: inherit;
   }
-  .code-block .line {
-    display: block;
-    min-height: 1.45em;
+  .code-block pre:not(.shiki) {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    tab-size: 2;
+  }
+  .code-block pre:not(.shiki) code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    line-height: inherit;
+    white-space: inherit;
   }
   .mermaid-export {
     margin: 0 0 1rem;
