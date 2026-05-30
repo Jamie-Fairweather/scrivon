@@ -42,5 +42,6 @@ describe('createWorkspaceCoordinatorRefs', () => {
         await expect(refs.persistWorkspaceTabSession.current()).resolves.toBeUndefined()
         await expect(refs.openFile.current('/ws/a.mmd')).resolves.toBeUndefined()
         expect(() => refs.revealInEditor.current('/ws/a.mmd', 1, 1)).not.toThrow()
+        expect(refs.getEditorSelectedText.current()).toBeNull()
     })
 })

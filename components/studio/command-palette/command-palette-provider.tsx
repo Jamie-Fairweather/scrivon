@@ -31,12 +31,19 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
     const [open, setOpen] = useState(false)
     const [mode, setMode] = useState<PaletteMode>('all')
 
-    const { query, setQuery, resetSearch, groups, textCapped, runItem, hasWorkspace } = usePaletteSearch(mode, open)
+    const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, runItem, hasWorkspace } = usePaletteSearch(mode, open)
 
-    const openPalette = useCallback((nextMode: PaletteMode = 'all') => {
-        setMode(nextMode)
-        setOpen(true)
-    }, [])
+    const openPalette = useCallback(
+        (nextMode: PaletteMode = 'all') => {
+            const selectedText = coordinator.getEditorSelectedText.current()?.trim()
+            if (selectedText) {
+                setQuery(selectedText)
+            }
+            setMode(nextMode)
+            setOpen(true)
+        },
+        [coordinator, setQuery]
+    )
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -74,6 +81,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
             <CommandPaletteDialog
                 groups={groups}
                 hasWorkspace={hasWorkspace}
+                isSearchingText={isSearchingText}
                 onOpenChange={handleOpenChange}
                 onQueryChange={setQuery}
                 onSelectItem={handleSelectItem}

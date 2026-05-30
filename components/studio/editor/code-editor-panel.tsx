@@ -6,6 +6,8 @@ import type { editor } from 'monaco-editor'
 import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
+import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
+import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { documentKind } from '@/lib/tauri/fs'
@@ -89,9 +91,11 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
         pendingRevealRef.current = null
     }, [])
 
+    const getEditorSelectedText = useCallback(() => readEditorSelectedText(editorRef.current), [])
+
     useEffect(() => {
-        registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition })
-    }, [coordinator, revealPosition])
+        registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition, getEditorSelectedText })
+    }, [coordinator, revealPosition, getEditorSelectedText])
 
     useEffect(() => {
         const pending = pendingRevealRef.current
@@ -144,8 +148,9 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
         [tokens, isLight]
     )
 
-    const onMonacoMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
+    const onMonacoMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
         editorRef.current = editor
+        unbindEditorF1Command(editor, monaco)
         const pending = pendingRevealRef.current
         if (pending && activeTabIdRef.current === pending.path) {
             const position = { lineNumber: pending.line, column: pending.column }

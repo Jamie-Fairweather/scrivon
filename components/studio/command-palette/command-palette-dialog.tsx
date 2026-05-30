@@ -20,6 +20,7 @@ import {
     CommandShortcut,
 } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
+import { Spinner } from '@/components/ui/spinner'
 
 type CommandPaletteDialogProps = {
     open: boolean
@@ -27,6 +28,7 @@ type CommandPaletteDialogProps = {
     query: string
     onQueryChange: (query: string) => void
     groups: PaletteGroup[]
+    isSearchingText: boolean
     textCapped: boolean
     hasWorkspace: boolean
     onSelectItem: (item: PaletteItem) => void | Promise<void>
@@ -131,6 +133,7 @@ export function CommandPaletteDialog({
     query,
     onQueryChange,
     groups,
+    isSearchingText,
     textCapped,
     hasWorkspace,
     onSelectItem,
@@ -149,7 +152,10 @@ export function CommandPaletteDialog({
         <CommandDialog onOpenChange={onOpenChange} open={open}>
             <CommandDialogPopup>
                 <Command itemToStringValue={paletteItemToStringValue} items={groups} mode="none" onValueChange={onQueryChange} value={query}>
-                    <CommandInput placeholder="Search files, text, and commands…" />
+                    <CommandInput
+                        endAddon={isSearchingText ? <Spinner className="size-4 text-muted-foreground" /> : undefined}
+                        placeholder="Search files, text, and commands…"
+                    />
                     <CommandPanel>
                         <CommandEmpty>{emptyMessage}</CommandEmpty>
                         <CommandList>

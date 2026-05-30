@@ -16,6 +16,7 @@ export function useCommandPaletteShortcut(isDesktop: boolean, openPalette: (mode
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'F1') {
                 event.preventDefault()
+                event.stopPropagation()
                 openPalette('all')
                 return
             }

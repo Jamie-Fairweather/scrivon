@@ -17,6 +17,7 @@ export type WorkspaceCoordinatorRefs = {
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
     revealInEditor: MutableRefObject<(path: string, line: number, column: number) => void>
+    getEditorSelectedText: MutableRefObject<() => string | null>
 }
 
 export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
@@ -35,5 +36,6 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         persistWorkspaceTabSession: { current: async () => {} },
         openFile: { current: async () => {} },
         revealInEditor: { current: () => {} },
+        getEditorSelectedText: { current: () => null },
     }
 }

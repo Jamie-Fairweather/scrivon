@@ -48,11 +48,13 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
     const [textItems, setTextItems] = useState<PaletteGroup | null>(null)
     const [textCapped, setTextCapped] = useState(false)
+    const [lastResolvedTextQuery, setLastResolvedTextQuery] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
 
     const parsedQueryState = useMemo(() => parsePaletteQuery(query), [query])
     const shouldSearchText =
         enabled && Boolean(workspaceRoot) && !parsedQueryState.actionsOnly && mode !== 'files' && parsedQueryState.query.length >= MIN_QUERY_LENGTH
+    const isSearchingText = shouldSearchText && lastResolvedTextQuery !== parsedQueryState.query
 
     const recentFiles = useMemo(() => (recentFilesState?.root === workspaceRoot ? recentFilesState.paths : []), [recentFilesState, workspaceRoot])
 
@@ -64,6 +66,9 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const resetSearch = useCallback(() => {
         abortRef.current?.abort()
         setQuery('')
+        setLastResolvedTextQuery(null)
+        setTextItems(null)
+        setTextCapped(false)
     }, [])
 
     const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
@@ -130,12 +135,13 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         const { actionsOnly, query: parsedQuery } = parsedQueryState
         const result: PaletteGroup[] = []
 
-        const actionItems = searchActions(allActions, parsedQuery)
-        if (actionItems.length > 0) {
-            result.push({ id: 'actions', label: 'Actions', items: actionItems })
+        if (actionsOnly) {
+            const actionItems = searchActions(allActions, parsedQuery)
+            if (actionItems.length > 0) {
+                result.push({ id: 'actions', label: 'Actions', items: actionItems })
+            }
+            return result
         }
-
-        if (actionsOnly) return result
 
         if (!workspaceRoot) {
             const workspaceGroup = buildWorkspaceItems(recentWorkspaces, parsedQuery)
@@ -204,6 +210,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 const items = result.hits.map(textHitToPaletteItem)
                 setTextItems(items.length > 0 ? { id: 'text', label: 'Text', items } : null)
                 setTextCapped(result.capped)
+                setLastResolvedTextQuery(parsedQuery)
             })()
         }, DEBOUNCE_MS)
 
@@ -243,6 +250,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         setQuery,
         resetSearch,
         groups,
+        isSearchingText,
         textCapped: shouldSearchText && textCapped,
         runItem,
         hasWorkspace: Boolean(workspaceRoot),

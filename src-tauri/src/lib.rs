@@ -1,4 +1,5 @@
 mod pdf_export;
+mod prevent_browser_shortcuts;
 mod updater;
 
 use std::sync::Mutex;
@@ -19,6 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(PendingUpdate(Mutex::new(None)))
         .plugin(tauri_plugin_process::init())
+        .plugin(prevent_browser_shortcuts::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
