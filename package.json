@@ -97,5 +97,9 @@
         "semantic-release": "^25.0.3",
         "typescript": "~6.0.3",
         "vitest": "^4.1.7"
+    },
+    "overrides": {
+        "dompurify": "^3.4.7",
+        "postcss": "^8.5.15"
     }
 }
