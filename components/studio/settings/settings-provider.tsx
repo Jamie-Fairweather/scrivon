@@ -48,11 +48,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const updateSettings = useCallback((patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
+        let next: AppSettings
         setSettingsState((current) => {
-            const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
-            saveSettings(next)
+            next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
             return next
         })
+        saveSettings(next!)
     }, [])
 
     const openSettings = useCallback((section: SettingsSection = 'general') => {

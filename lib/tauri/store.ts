@@ -1,4 +1,5 @@
 import { LazyStore } from '@tauri-apps/plugin-store'
+import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
 import { loadSettings } from '@/lib/settings/storage'
 import { isTauri } from '@/lib/tauri/platform'
 
@@ -10,7 +11,10 @@ const OPEN_TABS_PREFIX = 'open-tabs:'
 const MAX_RECENT_FILES = 20
 
 function getMaxRecentWorkspaces(): number {
-    return loadSettings().workspace.maxRecentFolders
+    const raw = loadSettings().workspace.maxRecentFolders
+    const parsed = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(parsed)) return DEFAULT_MAX_RECENT_FOLDERS
+    return Math.min(50, Math.max(1, Math.floor(parsed)))
 }
 
 export type WorkspaceTabSession = {

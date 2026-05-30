@@ -23,6 +23,7 @@ export function SettingsNav({ activeSection, onSectionChange }: SettingsNavProps
                 <button
                     key={section.id}
                     type="button"
+                    aria-current={activeSection === section.id ? 'true' : undefined}
                     onClick={() => onSectionChange(section.id)}
                     className={cn(
                         'rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
