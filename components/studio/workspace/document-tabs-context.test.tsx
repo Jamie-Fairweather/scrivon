@@ -496,4 +496,501 @@ describe('DocumentTabsProvider', () => {
         expect(result.current.tabs).toEqual([])
         expect(result.current.activeTabId).toBeNull()
     })
+
+    it('throws when useDocumentTabs is used outside the provider', () => {
+        expect(() => renderHook(() => useDocumentTabs())).toThrow('useDocumentTabs must be used within WorkspaceProvider')
+    })
+
+    it('persists session with first workspace tab when active tab is an example', async () => {
+        const initial = {
+            tabs: [tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true }), tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: 'example:sample-1',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+
+        renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await act(async () => {
+            await coordinator.persistWorkspaceTabSession.current()
+        })
+
+        expect(setWorkspaceTabSession).toHaveBeenCalledWith('/ws', {
+            tabIds: ['/ws/a.mmd'],
+            activeTabId: '/ws/a.mmd',
+        })
+    })
+
+    it('persists session with first workspace tab when active id is stale', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/missing.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+
+        renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await act(async () => {
+            await coordinator.persistWorkspaceTabSession.current()
+        })
+
+        expect(setWorkspaceTabSession).toHaveBeenCalledWith('/ws', {
+            tabIds: ['/ws/a.mmd'],
+            activeTabId: '/ws/a.mmd',
+        })
+    })
+
+    it('persists null active id when only example tabs remain', async () => {
+        const initial = {
+            tabs: [tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true })],
+            activeTabId: 'example:sample-1',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+
+        renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await act(async () => {
+            await coordinator.persistWorkspaceTabSession.current()
+        })
+
+        expect(setWorkspaceTabSession).toHaveBeenCalledWith('/ws', {
+            tabIds: [],
+            activeTabId: null,
+        })
+    })
+
+    it('persists tab session from coordinator without a snapshot', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/b.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+
+        renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await act(async () => {
+            await coordinator.persistWorkspaceTabSession.current()
+        })
+
+        expect(setWorkspaceTabSession).toHaveBeenCalledWith('/ws', {
+            tabIds: ['/ws/a.mmd', '/ws/b.mmd'],
+            activeTabId: '/ws/b.mmd',
+        })
+    })
+
+    it('remaps a non-active tab without changing the active tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/old.mmd', 'old.mmd'), tab('/ws/other.mmd', 'other.mmd')],
+            activeTabId: '/ws/other.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        act(() => {
+            coordinator.remapTabsAfterRename.current('/ws/old.mmd', '/ws/new.mmd', 'new.mmd')
+        })
+
+        expect(result.current.tabs[0]).toMatchObject({ id: '/ws/new.mmd', path: '/ws/new.mmd', name: 'new.mmd' })
+        expect(result.current.activeTabId).toBe('/ws/other.mmd')
+    })
+
+    it('closes a single file tab via the delete handler', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const cancelScheduledSave = vi.fn()
+        coordinator.cancelScheduledSave.current = cancelScheduledSave
+        coordinator.getAutosaveEnabled.current = () => false
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        act(() => {
+            coordinator.closeTabsForDelete.current('/ws/b.mmd', false)
+        })
+
+        expect(result.current.tabs).toEqual([expect.objectContaining({ id: '/ws/a.mmd' })])
+        expect(result.current.activeTabId).toBe('/ws/a.mmd')
+        expect(cancelScheduledSave).toHaveBeenCalledWith('/ws/b.mmd')
+    })
+
+    it('does not change active tab when deleting an inactive file', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        coordinator.cancelScheduledSave.current = vi.fn()
+        coordinator.getAutosaveEnabled.current = () => false
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        const activeBefore = result.current.activeTabId
+
+        act(() => {
+            coordinator.closeTabsForDelete.current('/ws/b.mmd', false)
+        })
+
+        expect(result.current.activeTabId).toBe(activeBefore)
+    })
+
+    it('does not flush save when re-opening the already active file', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        await act(async () => {
+            await result.current.openFile('/ws/a.mmd')
+        })
+
+        expect(flushSaveOnTabLeave).not.toHaveBeenCalled()
+    })
+
+    it('does not flush save when opening the first workspace file', async () => {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await act(async () => {
+            await result.current.openFile('/ws/new.mmd')
+        })
+
+        expect(flushSaveOnTabLeave).not.toHaveBeenCalled()
+    })
+
+    it('shows a generic error when opening a file fails with a non-Error value', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readTextFile).mockRejectedValueOnce('Permission denied')
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper(),
+        })
+
+        await act(async () => {
+            await result.current.openFile('/ws/new.mmd')
+        })
+
+        expect(showError).toHaveBeenCalledWith('Open failed', 'Could not read file')
+    })
+
+    it('does not flush save when focusing an already active example', async () => {
+        const initial = {
+            tabs: [tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true })],
+            activeTabId: 'example:sample-1',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        act(() => {
+            result.current.openExample('sample-1')
+        })
+
+        expect(flushSaveOnTabLeave).not.toHaveBeenCalled()
+    })
+
+    it('does not flush save when opening the first example tab', () => {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ coordinator }),
+        })
+
+        act(() => {
+            result.current.openExample('sample-1')
+        })
+
+        expect(flushSaveOnTabLeave).not.toHaveBeenCalled()
+    })
+
+    it('returns early when switching to the same active tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        await act(async () => {
+            await result.current.setActiveTab('/ws/a.mmd')
+        })
+
+        expect(flushSaveOnTabLeave).not.toHaveBeenCalled()
+    })
+
+    it('does not persist session when switching to an example tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true })],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        vi.mocked(setWorkspaceTabSession).mockClear()
+
+        await act(async () => {
+            await result.current.setActiveTab('example:sample-1')
+        })
+
+        expect(result.current.activeTabId).toBe('example:sample-1')
+        expect(setWorkspaceTabSession).not.toHaveBeenCalled()
+    })
+
+    it('does not flush save when switching tabs with no previous active tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: null,
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        await act(async () => {
+            await result.current.setActiveTab('/ws/a.mmd')
+        })
+
+        expect(flushSaveOnTabLeave).not.toHaveBeenCalled()
+    })
+
+    it('still schedules save for content updates on unknown tab ids', async () => {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const scheduleSave = vi.fn()
+        coordinator.scheduleSave.current = scheduleSave
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd')], activeTabId: '/ws/a.mmd' }
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        act(() => {
+            result.current.updateTabContent('/ws/nonexistent.mmd', 'changed')
+        })
+
+        expect(result.current.tabs[0]?.content).toBe('content')
+        expect(scheduleSave).toHaveBeenCalledWith('/ws/nonexistent.mmd')
+    })
+
+    it('closes an inactive tab without changing the active tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/b.mmd',
+        }
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs).toHaveLength(1)
+        expect(result.current.activeTabId).toBe('/ws/b.mmd')
+    })
+
+    it('flushes save when opening a new file from another tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        await act(async () => {
+            await result.current.openFile('/ws/b.mmd')
+        })
+
+        expect(flushSaveOnTabLeave).toHaveBeenCalledWith('/ws/a.mmd')
+    })
+
+    it('flushes save when opening a new example from a workspace tab', () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSaveOnTabLeave = vi.fn()
+        coordinator.flushSaveOnTabLeave.current = flushSaveOnTabLeave
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator }),
+        })
+
+        act(() => {
+            result.current.openExample('sample-1')
+        })
+
+        expect(flushSaveOnTabLeave).toHaveBeenCalledWith('/ws/a.mmd')
+    })
+
+    it('clears active tab when closing the last tab', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs).toEqual([])
+        expect(result.current.activeTabId).toBeNull()
+    })
+
+    it('clears active tab when deleting the only open file', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        coordinator.cancelScheduledSave.current = vi.fn()
+        coordinator.getAutosaveEnabled.current = () => false
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(1)
+        })
+
+        act(() => {
+            coordinator.closeTabsForDelete.current('/ws/a.mmd', false)
+        })
+
+        expect(result.current.tabs).toEqual([])
+        expect(result.current.activeTabId).toBeNull()
+    })
+
+    it('flushes saves when closing tabs with autosave enabled', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSave = vi.fn(async () => true)
+        coordinator.flushSave.current = flushSave
+        coordinator.getAutosaveEnabled.current = () => true
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+
+        await waitFor(() => {
+            expect(result.current.tabs).toHaveLength(2)
+        })
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        await act(async () => {
+            await result.current.closeOtherTabs('/ws/b.mmd')
+        })
+        await act(async () => {
+            await result.current.closeAllTabs()
+        })
+
+        expect(flushSave).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(flushSave).toHaveBeenCalledWith('/ws/b.mmd')
+    })
 })

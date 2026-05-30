@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { getBaseName, getParentPath, joinPath } from './fs'
+import { compareFileNodes, getBaseName, getParentPath, joinPath } from './fs'
+import type { FileNode } from '@/lib/workspace/types'
+
+function node(name: string, kind: FileNode['kind']): FileNode {
+    return kind === 'directory' ? { kind, name, path: `/ws/${name}`, children: [] } : { kind, name, path: `/ws/${name}` }
+}
+
+describe('compareFileNodes', () => {
+    it('sorts directories before files', () => {
+        expect(compareFileNodes(node('docs', 'directory'), node('a.mmd', 'file'))).toBeLessThan(0)
+        expect(compareFileNodes(node('a.mmd', 'file'), node('docs', 'directory'))).toBeGreaterThan(0)
+    })
+
+    it('sorts same-kind nodes by name', () => {
+        expect(compareFileNodes(node('b.mmd', 'file'), node('a.mmd', 'file'))).toBeGreaterThan(0)
+    })
+})
 
 describe('joinPath', () => {
     it('uses forward slashes for POSIX paths', () => {
