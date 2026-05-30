@@ -36,4 +36,6 @@ vi.mock('@/lib/tauri/platform', () => ({
 vi.mock('@/lib/tauri/store', () => ({
     setWorkspaceTabSession: vi.fn(async () => undefined),
     getWorkspaceTabSession: vi.fn(async () => null),
+    getRecentFiles: vi.fn(async () => []),
+    addRecentFile: vi.fn(async () => []),
 }))

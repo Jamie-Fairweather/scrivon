@@ -3,9 +3,11 @@ import { isTauri } from '@/lib/tauri/platform'
 
 const STORE_PATH = 'workspace.json'
 const RECENT_KEY = 'recent-workspaces'
+const RECENT_FILES_PREFIX = 'recent-files:'
 const LAST_FILE_PREFIX = 'last-file:'
 const OPEN_TABS_PREFIX = 'open-tabs:'
 const MAX_RECENTS = 10
+const MAX_RECENT_FILES = 20
 
 export type WorkspaceTabSession = {
     tabIds: string[]
@@ -93,4 +95,22 @@ export async function setWorkspaceTabSession(workspaceRoot: string, session: Wor
         await s.delete(`${LAST_FILE_PREFIX}${workspaceRoot}`)
     }
     await s.save()
+}
+
+export async function getRecentFiles(workspaceRoot: string): Promise<string[]> {
+    const s = await getStore()
+    if (!s) return []
+    const value = await s.get<string[]>(`${RECENT_FILES_PREFIX}${workspaceRoot}`)
+    return Array.isArray(value) ? value : []
+}
+
+export async function addRecentFile(workspaceRoot: string, filePath: string): Promise<string[]> {
+    const s = await getStore()
+    if (!s) return []
+
+    const current = await getRecentFiles(workspaceRoot)
+    const next = [filePath, ...current.filter((p) => p !== filePath)].slice(0, MAX_RECENT_FILES)
+    await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
+    await s.save()
+    return next
 }
