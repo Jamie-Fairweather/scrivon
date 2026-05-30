@@ -3,6 +3,8 @@ import './globals.css'
 import { Inter, Geist_Mono } from 'next/font/google'
 import { cn } from '@/lib/utils'
 import { AppThemeProvider } from '@/components/theme/app-theme-provider'
+import { SettingsDialog } from '@/components/studio/settings/settings-dialog'
+import { SettingsProvider } from '@/components/studio/settings/settings-provider'
 import { ToastProvider } from '@/components/ui/toast'
 import { getThemeBootScript } from '@/lib/theme/theme-boot-script'
 import { APP_TAGLINE } from '@/lib/app-branding'
@@ -30,12 +32,15 @@ export default function RootLayout({
                 <script dangerouslySetInnerHTML={{ __html: getThemeBootScript() }} />
             </head>
             <body className="h-full w-full overflow-hidden bg-background font-sans">
-                <AppThemeProvider>
-                    <ToastProvider position="bottom-right">
-                        <DisableNativeContextMenu />
-                        {children}
-                    </ToastProvider>
-                </AppThemeProvider>
+                <SettingsProvider>
+                    <AppThemeProvider>
+                        <ToastProvider position="bottom-right">
+                            <DisableNativeContextMenu />
+                            {children}
+                            <SettingsDialog />
+                        </ToastProvider>
+                    </AppThemeProvider>
+                </SettingsProvider>
             </body>
         </html>
     )

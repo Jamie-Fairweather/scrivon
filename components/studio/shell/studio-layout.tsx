@@ -8,7 +8,6 @@ import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
 import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
-import { useSaveShortcut } from '@/components/studio/hooks/use-save-shortcut'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
 import { documentKind } from '@/lib/workspace/file-types'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
@@ -21,7 +20,6 @@ export function StudioLayout() {
     const editorLayout = useEditorPanelLayout()
 
     useWindowCloseHandler()
-    useSaveShortcut()
 
     const viewerKind = activeTab ? documentKind(activeTab.name) : null
 

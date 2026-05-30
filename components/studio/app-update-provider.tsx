@@ -1,5 +1,6 @@
 'use client'
 
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { UpdateAvailableDialog, type AppUpdateInfo } from '@/components/studio/dialogs/update-available-dialog'
 import { fetchReleaseNotes } from '@/lib/updater/release-notes'
 import { showUpdateAvailableToast } from '@/lib/updater/update-toast'
@@ -31,13 +32,14 @@ export function useAppUpdate(): AppUpdateContextValue {
 }
 
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
+    const { settings } = useAppSettings()
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
     const [notesLoading, setNotesLoading] = useState(false)
     const [installing, setInstalling] = useState(false)
     const [dialogOpen, setDialogOpen] = useState(false)
 
     useEffect(() => {
-        if (!isTauri()) return
+        if (!isTauri() || !settings.updates.checkOnLaunch) return
 
         let cancelled = false
 
@@ -69,7 +71,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [])
+    }, [settings.updates.checkOnLaunch])
 
     const openUpdateDialog = useCallback(() => {
         if (update) setDialogOpen(true)

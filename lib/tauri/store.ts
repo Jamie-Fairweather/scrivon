@@ -1,4 +1,5 @@
 import { LazyStore } from '@tauri-apps/plugin-store'
+import { loadSettings } from '@/lib/settings/storage'
 import { isTauri } from '@/lib/tauri/platform'
 
 const STORE_PATH = 'workspace.json'
@@ -6,8 +7,11 @@ const RECENT_KEY = 'recent-workspaces'
 const RECENT_FILES_PREFIX = 'recent-files:'
 const LAST_FILE_PREFIX = 'last-file:'
 const OPEN_TABS_PREFIX = 'open-tabs:'
-const MAX_RECENTS = 10
 const MAX_RECENT_FILES = 20
+
+function getMaxRecentWorkspaces(): number {
+    return loadSettings().workspace.maxRecentFolders
+}
 
 export type WorkspaceTabSession = {
     tabIds: string[]
@@ -37,7 +41,7 @@ export async function addRecentWorkspace(path: string): Promise<string[]> {
     if (!s) return []
 
     const current = await getRecentWorkspaces()
-    const next = [path, ...current.filter((p) => p !== path)].slice(0, MAX_RECENTS)
+    const next = [path, ...current.filter((p) => p !== path)].slice(0, getMaxRecentWorkspaces())
     await s.set(RECENT_KEY, next)
     await s.save()
     return next

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
+import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { CanvasFitProvider } from '@/components/studio/workspace/canvas-fit-context'
 import { DocumentSaveProvider } from '@/components/studio/workspace/document-save-context'
 import { DocumentTabsProvider, useDocumentTabsState } from '@/components/studio/workspace/document-tabs-context'
@@ -53,7 +54,9 @@ function WorkspaceInner({
                 <StudioLayoutProvider>
                     <CanvasFitProvider coordinator={coordinator}>
                         <CoordinatorContext.Provider value={coordinator}>
-                            <CommandPaletteProvider coordinator={coordinator}>{children}</CommandPaletteProvider>
+                            <CommandPaletteProvider coordinator={coordinator}>
+                                <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+                            </CommandPaletteProvider>
                         </CoordinatorContext.Provider>
                     </CanvasFitProvider>
                 </StudioLayoutProvider>

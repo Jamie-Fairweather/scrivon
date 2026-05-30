@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { editor } from 'monaco-editor'
 import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
@@ -18,7 +19,7 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false 
 const MIN_WIDTH = 280
 const MAX_WIDTH_RATIO = 0.6
 
-const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
@@ -58,6 +59,7 @@ function languageForTab(tab: DocumentTab) {
 
 export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
+    const { settings } = useAppSettings()
     const { activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
     const resizeStart = useRef({ x: 0, width: 0 })
@@ -138,7 +140,29 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
-    const editorOptions = useMemo(() => ({ ...EDITOR_OPTIONS, readOnly: isReadOnly, domReadOnly: isReadOnly }), [isReadOnly])
+    const editorOptions = useMemo(
+        () => ({
+            ...BASE_EDITOR_OPTIONS,
+            fontSize: settings.editor.fontSize,
+            tabSize: settings.editor.tabSize,
+            wordWrap: settings.editor.wordWrap,
+            lineNumbers: settings.editor.lineNumbers,
+            minimap: { enabled: settings.editor.minimap },
+            readOnly: isReadOnly,
+            domReadOnly: isReadOnly,
+        }),
+        [settings.editor, isReadOnly]
+    )
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({
+            fontSize: settings.editor.fontSize,
+            tabSize: settings.editor.tabSize,
+            wordWrap: settings.editor.wordWrap,
+            lineNumbers: settings.editor.lineNumbers,
+            minimap: { enabled: settings.editor.minimap },
+        })
+    }, [settings.editor])
 
     const onMonacoBeforeMount = useCallback(
         (monaco: Monaco) => {
