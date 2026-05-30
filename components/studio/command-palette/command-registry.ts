@@ -1,7 +1,9 @@
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { isExampleTabId } from '@/lib/examples/example-tab'
+import { formatKeybindForAction } from '@/lib/settings/format-keybind'
 import { SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME } from '@/lib/theme/catalog'
 import { getBaseName } from '@/lib/tauri/fs'
+import type { KeybindBindings } from '@/lib/settings/types'
 import type { ActionPaletteItem } from '@/components/studio/command-palette/types'
 
 export type CommandRegistryContext = {
@@ -13,6 +15,7 @@ export type CommandRegistryContext = {
     autosaveEnabled: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    keybinds: KeybindBindings
     pickAndOpenWorkspace: () => Promise<void>
     openWorkspace: (path: string) => Promise<void>
     closeWorkspace: () => Promise<void>
@@ -27,28 +30,13 @@ export type CommandRegistryContext = {
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
     openExample: (exampleId: string) => void
+    openSettings: () => void
     isLight: boolean
     toggleLightDark: () => void
 }
 
-type NavigatorWithUserAgentData = Navigator & {
-    userAgentData?: { platform?: string }
-}
-
-function isMacPlatform(): boolean {
-    if (typeof navigator === 'undefined') return false
-
-    const hintsPlatform = (navigator as NavigatorWithUserAgentData).userAgentData?.platform
-    if (hintsPlatform) {
-        return /mac/i.test(hintsPlatform)
-    }
-
-    return /macintosh|mac os x|iphone|ipad/i.test(navigator.userAgent)
-}
-
-function modShortcut(key: string): string {
-    const mod = isMacPlatform() ? '⌘' : 'Ctrl'
-    return `${mod}+${key}`
+function shortcut(actionId: Parameters<typeof formatKeybindForAction>[0], keybinds: KeybindBindings): string | undefined {
+    return formatKeybindForAction(actionId, keybinds)
 }
 
 export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPaletteItem[] {
@@ -57,6 +45,14 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
     const hasWorkspaceTab = hasActiveTab && ctx.activeTabId !== null && !isExampleTabId(ctx.activeTabId)
 
     const actions: ActionPaletteItem[] = [
+        {
+            kind: 'action',
+            value: 'action:open-settings',
+            searchText: 'settings preferences options',
+            label: 'Open Settings',
+            shortcut: shortcut('settings.open', ctx.keybinds),
+            run: () => ctx.openSettings(),
+        },
         {
             kind: 'action',
             value: 'action:open-folder',
@@ -80,7 +76,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:save',
             searchText: 'save file',
             label: 'Save',
-            shortcut: modShortcut('S'),
+            shortcut: shortcut('document.save', ctx.keybinds),
             disabled: !hasWorkspaceTab,
             disabledReason: 'No workspace file open',
             run: () => {
@@ -92,6 +88,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:save-all',
             searchText: 'save all files',
             label: 'Save All',
+            shortcut: shortcut('workspace.saveAll', ctx.keybinds),
             disabled: !hasWorkspace || !ctx.hasDirtyTabs,
             disabledReason: 'Nothing to save',
             run: () => void ctx.flushAllSaves(),
@@ -108,6 +105,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:toggle-explorer',
             searchText: 'explorer sidebar toggle',
             label: ctx.explorerOpen ? 'Hide Explorer' : 'Show Explorer',
+            shortcut: shortcut('view.toggleExplorer', ctx.keybinds),
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => ctx.setExplorerOpen(!ctx.explorerOpen),
@@ -117,6 +115,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:toggle-editor',
             searchText: 'editor toggle',
             label: ctx.editorOpen ? 'Hide Editor' : 'Show Editor',
+            shortcut: shortcut('view.toggleEditor', ctx.keybinds),
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => ctx.setEditorOpen(!ctx.editorOpen),
@@ -126,6 +125,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:preview-only',
             searchText: 'preview only layout',
             label: 'Preview Only',
+            shortcut: shortcut('view.previewOnly', ctx.keybinds),
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => ctx.setPreviewOnly(),
@@ -135,6 +135,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:fit-diagram',
             searchText: 'fit diagram canvas screen',
             label: 'Fit Diagram to Screen',
+            shortcut: shortcut('view.fitDiagram', ctx.keybinds),
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => ctx.requestCanvasFit(),

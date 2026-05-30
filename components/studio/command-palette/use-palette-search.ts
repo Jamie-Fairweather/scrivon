@@ -13,6 +13,7 @@ import { DEBOUNCE_MS, MIN_QUERY_LENGTH, searchWorkspaceContent, textHitToPalette
 import { searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import {
     useCanvasFit,
     useDocumentSave,
@@ -43,6 +44,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     const { isLight, setThemeId } = useAppTheme()
+    const { settings, openSettings } = useAppSettings()
 
     const [query, setQuery] = useState('')
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
@@ -84,6 +86,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 autosaveEnabled,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                keybinds: settings.keybinds,
                 pickAndOpenWorkspace,
                 openWorkspace,
                 closeWorkspace,
@@ -98,6 +101,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 closeOtherTabs,
                 closeAllTabs,
                 openExample,
+                openSettings,
                 isLight,
                 toggleLightDark: createToggleLightDark(isLight, setThemeId),
             }),
@@ -110,6 +114,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             autosaveEnabled,
             layout.explorerOpen,
             layout.editorOpen,
+            settings.keybinds,
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,
@@ -124,6 +129,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             closeOtherTabs,
             closeAllTabs,
             openExample,
+            openSettings,
             isLight,
             setThemeId,
         ]

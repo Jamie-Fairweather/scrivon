@@ -4,8 +4,6 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
-import { useCommandPaletteShortcut } from '@/components/studio/hooks/use-command-palette-shortcut'
-import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type CommandPaletteContextValue = {
@@ -27,7 +25,6 @@ type CommandPaletteProviderProps = {
 }
 
 export function CommandPaletteProvider({ children, coordinator }: CommandPaletteProviderProps) {
-    const { isDesktop } = useWorkspaceSession()
     const [open, setOpen] = useState(false)
     const [mode, setMode] = useState<PaletteMode>('all')
 
@@ -60,8 +57,6 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
         }),
         [openPalette]
     )
-
-    useCommandPaletteShortcut(isDesktop, openPalette)
 
     const handleSelectItem = useCallback(
         async (item: PaletteItem) => {

@@ -1,10 +1,10 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { applyThemeToDocument } from '@/lib/theme/apply-document-theme'
-import { DEFAULT_APP_THEME, getDiagramColors, isLightTheme, parseStoredTheme, type AppThemeId, type DiagramColors } from '@/lib/theme/catalog'
+import { getDiagramColors, isLightTheme, type AppThemeId, type DiagramColors } from '@/lib/theme/catalog'
 import { resolveThemeTokensForId, type ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
-import { STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
 type AppThemeContextValue = {
     themeId: AppThemeId
@@ -16,26 +16,13 @@ type AppThemeContextValue = {
 
 const AppThemeContext = createContext<AppThemeContextValue | null>(null)
 
-function readInitialTheme(): AppThemeId {
-    if (typeof window === 'undefined') return DEFAULT_APP_THEME
-    return parseStoredTheme(localStorage.getItem(STORAGE_MERMAID_THEME))
-}
-
 export function AppThemeProvider({ children }: { children: ReactNode }) {
-    const [themeId, setThemeIdState] = useState<AppThemeId>(readInitialTheme)
+    const { settings, setThemeId } = useAppSettings()
+    const themeId = settings.theme.id
 
     useEffect(() => {
         applyThemeToDocument(themeId)
     }, [themeId])
-
-    const setThemeId = useCallback((id: AppThemeId) => {
-        setThemeIdState(id)
-        try {
-            localStorage.setItem(STORAGE_MERMAID_THEME, id)
-        } catch {
-            // private browsing / quota
-        }
-    }, [])
 
     const value = useMemo<AppThemeContextValue>(() => {
         return {

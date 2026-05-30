@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/menu'
 import { MenuBarUpdateButton } from '@/components/studio/shell/menu-bar-update-button'
 import { ThemeMenu } from '@/components/studio/theme/theme-menu'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { getBaseName } from '@/lib/tauri/fs'
 
 function MenuBarEntry({ label, children }: { label: string; children: ReactNode }) {
@@ -48,6 +49,7 @@ export function StudioMenuBar() {
     const { isDesktop, workspaceRoot, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } = useWorkspaceSession()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
+    const { openSettings } = useAppSettings()
     const { requestCanvasFit } = useCanvasFit()
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
@@ -106,6 +108,10 @@ export function StudioMenuBar() {
                     </MenuBarEntry>
 
                     <MenuBarEntry label="Options">
+                        <MenuGroup>
+                            <MenuItem onClick={() => openSettings()}>Settings…</MenuItem>
+                        </MenuGroup>
+                        <MenuSeparator />
                         <MenuGroup>
                             <MenuCheckboxItem
                                 variant="switch"
