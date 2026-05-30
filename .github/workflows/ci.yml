@@ -1,0 +1,47 @@
+name: CI
+
+on:
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    frontend:
+        name: Lint, build, and test
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Bun and dependencies
+              uses: ./.github/actions/setup-bun
+
+            - name: Lint
+              run: bun run lint
+
+            - name: Build Next.js app
+              run: bun run build
+
+            - name: Test with coverage
+              run: bun run test:coverage
+
+    rust:
+        name: Rust tests
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target
+
+            - name: Test
+              run: cargo test
+              working-directory: src-tauri

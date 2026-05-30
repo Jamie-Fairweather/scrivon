@@ -19,6 +19,18 @@ fn is_prerelease_build(version: &str) -> bool {
     version.contains('-')
 }
 
+#[cfg(test)]
+mod tests {
+    use super::is_prerelease_build;
+
+    #[test]
+    fn prerelease_versions_contain_hyphen() {
+        assert!(is_prerelease_build("1.3.0-rc.1"));
+        assert!(is_prerelease_build("2.0.0-beta"));
+        assert!(!is_prerelease_build("1.3.0"));
+    }
+}
+
 #[tauri::command]
 pub async fn check_for_app_update(
     app: AppHandle,
