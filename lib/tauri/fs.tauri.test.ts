@@ -73,6 +73,7 @@ describe('workspace fs (Tauri)', () => {
             if (dirPath === '/ws') {
                 return [
                     { name: 'node_modules', isDirectory: true, isFile: false, isSymlink: false },
+                    { name: 'link', isDirectory: false, isFile: false, isSymlink: true },
                     { name: 'b.mmd', isDirectory: false, isFile: true, isSymlink: false },
                     { name: 'docs', isDirectory: true, isFile: false, isSymlink: false },
                 ]
@@ -91,13 +92,19 @@ describe('workspace fs (Tauri)', () => {
     })
 
     it('sorts sibling files by name', async () => {
-        readDirMock.mockResolvedValue([
-            { name: 'b.mmd', isDirectory: false, isFile: true, isSymlink: false },
-            { name: 'a.mmd', isDirectory: false, isFile: true, isSymlink: false },
-        ])
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === '/ws') {
+                return [
+                    { name: 'b.mmd', isDirectory: false, isFile: true, isSymlink: false },
+                    { name: 'a.mmd', isDirectory: false, isFile: true, isSymlink: false },
+                    { name: 'z-dir', isDirectory: true, isFile: false, isSymlink: false },
+                ]
+            }
+            return []
+        })
 
         const tree = await listWorkspaceTree('/ws')
-        expect(tree.map((node) => node.name)).toEqual(['a.mmd', 'b.mmd'])
+        expect(tree.map((node) => node.name)).toEqual(['z-dir', 'a.mmd', 'b.mmd'])
     })
 
     it('returns empty results outside Tauri', async () => {
@@ -105,6 +112,15 @@ describe('workspace fs (Tauri)', () => {
         await expect(listWorkspaceTree('/ws')).resolves.toEqual([])
         await expect(readWorkspaceFile('/ws/a.mmd')).resolves.toBe('')
         await writeWorkspaceFile('/ws/a.mmd', 'x')
+        await createWorkspaceDirectory('/ws/docs')
+        await createWorkspaceFile('/ws/docs/readme.md', '# Hello')
+        await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
+        await removeWorkspacePath('/ws/new.mmd')
+        await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
         expect(writeTextFileMock).not.toHaveBeenCalled()
+        expect(mkdirMock).not.toHaveBeenCalled()
+        expect(renameMock).not.toHaveBeenCalled()
+        expect(removeMock).not.toHaveBeenCalled()
+        expect(copyFileMock).not.toHaveBeenCalled()
     })
 })
