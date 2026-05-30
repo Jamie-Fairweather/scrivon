@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { isTauriMock, readDirMock, readTextFileMock, writeTextFileMock, mkdirMock, renameMock, removeMock, copyFileMock } = vi.hoisted(() => ({
-    isTauriMock: vi.fn(),
-    readDirMock: vi.fn(),
-    readTextFileMock: vi.fn(),
-    writeTextFileMock: vi.fn(),
-    mkdirMock: vi.fn(),
-    renameMock: vi.fn(),
-    removeMock: vi.fn(),
-    copyFileMock: vi.fn(),
-}))
+const { isTauriMock, readDirMock, readTextFileMock, writeTextFileMock, mkdirMock, renameMock, removeMock, copyFileMock, statMock } = vi.hoisted(
+    () => ({
+        isTauriMock: vi.fn(),
+        readDirMock: vi.fn(),
+        readTextFileMock: vi.fn(),
+        writeTextFileMock: vi.fn(),
+        mkdirMock: vi.fn(),
+        renameMock: vi.fn(),
+        removeMock: vi.fn(),
+        copyFileMock: vi.fn(),
+        statMock: vi.fn(),
+    })
+)
 
 vi.mock('@/lib/tauri/platform', () => ({
     isTauri: isTauriMock,
@@ -23,12 +26,14 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     rename: renameMock,
     remove: removeMock,
     copyFile: copyFileMock,
+    stat: statMock,
 }))
 
 import {
     createWorkspaceDirectory,
     createWorkspaceFile,
     duplicateWorkspaceFile,
+    getWorkspaceFileSize,
     listWorkspaceTree,
     readWorkspaceFile,
     removeWorkspacePath,
@@ -107,10 +112,27 @@ describe('workspace fs (Tauri)', () => {
         expect(tree.map((node) => node.name)).toEqual(['z-dir', 'a.mmd', 'b.mmd'])
     })
 
+    it('reads workspace file size through Tauri', async () => {
+        statMock.mockResolvedValue({ size: 4096 })
+        await expect(getWorkspaceFileSize('/ws/diagram.mmd')).resolves.toBe(4096)
+        expect(statMock).toHaveBeenCalledWith('/ws/diagram.mmd')
+    })
+
+    it('returns null when file size is unavailable', async () => {
+        statMock.mockResolvedValue({ size: undefined })
+        await expect(getWorkspaceFileSize('/ws/diagram.mmd')).resolves.toBeNull()
+    })
+
+    it('returns null when stat fails', async () => {
+        statMock.mockRejectedValue(new Error('missing'))
+        await expect(getWorkspaceFileSize('/ws/missing.mmd')).resolves.toBeNull()
+    })
+
     it('returns empty results outside Tauri', async () => {
         isTauriMock.mockReturnValue(false)
         await expect(listWorkspaceTree('/ws')).resolves.toEqual([])
         await expect(readWorkspaceFile('/ws/a.mmd')).resolves.toBe('')
+        await expect(getWorkspaceFileSize('/ws/a.mmd')).resolves.toBeNull()
         await writeWorkspaceFile('/ws/a.mmd', 'x')
         await createWorkspaceDirectory('/ws/docs')
         await createWorkspaceFile('/ws/docs/readme.md', '# Hello')
@@ -122,5 +144,6 @@ describe('workspace fs (Tauri)', () => {
         expect(renameMock).not.toHaveBeenCalled()
         expect(removeMock).not.toHaveBeenCalled()
         expect(copyFileMock).not.toHaveBeenCalled()
+        expect(statMock).not.toHaveBeenCalled()
     })
 })

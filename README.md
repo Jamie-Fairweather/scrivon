@@ -41,6 +41,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Built-in examples** — Curated sample diagrams and a Markdown syntax showcase to explore features
 - **Themes** — Light and dark UI plus 15+ diagram palettes (Scrivon, Zinc, Tokyo Night, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, and more)
 - **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
+- **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
 - **Auto-updates** — Stable releases can update in-app (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 

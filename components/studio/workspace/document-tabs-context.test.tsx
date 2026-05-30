@@ -3,7 +3,7 @@ import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readTextFile } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
-import { setWorkspaceTabSession } from '@/lib/tauri/store'
+import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { showError } from '@/lib/tauri/dialog'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
@@ -247,6 +247,7 @@ describe('DocumentTabsProvider', () => {
         })
         expect(result.current.tabs[0]?.name).toBe('new.mmd')
         expect(requestCanvasFit).toHaveBeenCalled()
+        expect(addRecentFile).toHaveBeenCalledWith('/ws', '/ws/new.mmd')
     })
 
     it('reads file content when running inside Tauri', async () => {
@@ -290,6 +291,7 @@ describe('DocumentTabsProvider', () => {
         expect(result.current.activeTabId).toBe('/ws/b.mmd')
         expect(result.current.tabs).toHaveLength(2)
         expect(flushSaveOnTabLeave).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(addRecentFile).toHaveBeenCalledWith('/ws', '/ws/b.mmd')
     })
 
     it('rejects unsupported workspace files', async () => {
@@ -343,6 +345,56 @@ describe('DocumentTabsProvider', () => {
 
         expect(result.current.activeTabId).toBe('/ws/b.mmd')
         expect(flushSaveOnTabLeave).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(addRecentFile).toHaveBeenCalledWith('/ws', '/ws/b.mmd')
+    })
+
+    it('does not track recent files without a workspace root', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial }),
+        })
+
+        await act(async () => {
+            await result.current.openFile('/ws/b.mmd')
+        })
+
+        expect(addRecentFile).not.toHaveBeenCalled()
+    })
+
+    it('does not track recent files when opening a new file without a workspace root', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readTextFile).mockResolvedValueOnce('content')
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper(),
+        })
+
+        await act(async () => {
+            await result.current.openFile('/ws/new.mmd')
+        })
+
+        expect(addRecentFile).not.toHaveBeenCalled()
+    })
+
+    it('does not track recent files when switching tabs without a workspace root', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial }),
+        })
+
+        await act(async () => {
+            await result.current.setActiveTab('/ws/b.mmd')
+        })
+
+        expect(addRecentFile).not.toHaveBeenCalled()
     })
 
     it('remaps tabs when coordinator rename handler runs', async () => {
