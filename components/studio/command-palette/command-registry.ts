@@ -31,8 +31,23 @@ export type CommandRegistryContext = {
     toggleLightDark: () => void
 }
 
+type NavigatorWithUserAgentData = Navigator & {
+    userAgentData?: { platform?: string }
+}
+
+function isMacPlatform(): boolean {
+    if (typeof navigator === 'undefined') return false
+
+    const hintsPlatform = (navigator as NavigatorWithUserAgentData).userAgentData?.platform
+    if (hintsPlatform) {
+        return /mac/i.test(hintsPlatform)
+    }
+
+    return /macintosh|mac os x|iphone|ipad/i.test(navigator.userAgent)
+}
+
 function modShortcut(key: string): string {
-    const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
+    const mod = isMacPlatform() ? '⌘' : 'Ctrl'
     return `${mod}+${key}`
 }
 
