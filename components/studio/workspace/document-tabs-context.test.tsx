@@ -24,23 +24,23 @@ type WrapperOptions = {
 }
 
 function createTabsWrapper(options: WrapperOptions = {}) {
-    const { initial, coordinator: coordinatorOverride, workspaceRoot = null } = options
-
     return function Wrapper({ children }: { children: ReactNode }) {
+        const optionsRef = useRef(options)
         const tabsState = useDocumentTabsState()
-        const coordinator = useMemo(() => coordinatorOverride ?? createWorkspaceCoordinatorRefs(), [coordinatorOverride])
+        const coordinator = useMemo(() => optionsRef.current.coordinator ?? createWorkspaceCoordinatorRefs(), [])
         const seeded = useRef(false)
 
         useLayoutEffect(() => {
+            const initial = optionsRef.current.initial
             if (!initial || seeded.current) return
             seeded.current = true
             tabsState.tabsRef.current = initial.tabs
             tabsState.setTabs(initial.tabs)
             tabsState.setActiveTabId(initial.activeTabId)
-        }, [initial, tabsState])
+        }, [tabsState])
 
         return (
-            <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
+            <DocumentTabsProvider coordinator={coordinator} workspaceRoot={optionsRef.current.workspaceRoot ?? null} tabsState={tabsState}>
                 {children}
             </DocumentTabsProvider>
         )
