@@ -3,6 +3,11 @@ import { resolveThemeTokens } from '@/lib/theme/resolve-theme-tokens'
 import { tokensToSemanticVars } from '@/lib/theme/semantic-vars'
 import { STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
+/** JSON safe to embed in `<script>` — prevents `</script>` breakout from interpolated values. */
+export function jsonForInlineScript(value: unknown): string {
+    return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
 /** Inline script for layout <head> — applies saved theme before React hydrates. */
 export function getThemeBootScript(): string {
     const bootThemes = Object.fromEntries(
@@ -18,11 +23,11 @@ export function getThemeBootScript(): string {
         })
     )
 
-    const storageKey = JSON.stringify(STORAGE_MERMAID_THEME)
-    const themesJson = JSON.stringify(bootThemes)
-    const darkTheme = JSON.stringify('scrivon-dark')
-    const lightTheme = JSON.stringify('scrivon-light')
-    const varNames = JSON.stringify([
+    const storageKey = jsonForInlineScript(STORAGE_MERMAID_THEME)
+    const themesJson = jsonForInlineScript(bootThemes)
+    const darkTheme = jsonForInlineScript('scrivon-dark')
+    const lightTheme = jsonForInlineScript('scrivon-light')
+    const varNames = jsonForInlineScript([
         '--background',
         '--foreground',
         '--card',
