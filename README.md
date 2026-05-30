@@ -1,6 +1,8 @@
 # Scrivon
 
 [![Version](https://img.shields.io/github/v/release/Jamie-Fairweather/scrivon?label=version)](https://github.com/Jamie-Fairweather/scrivon/releases/latest)
+[![CI](https://github.com/Jamie-Fairweather/scrivon/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Jamie-Fairweather/scrivon/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Jamie-Fairweather/scrivon/branch/dev/graph/badge.svg)](https://codecov.io/gh/Jamie-Fairweather/scrivon/tree/dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/Jamie-Fairweather/scrivon/releases/latest)
 

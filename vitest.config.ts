@@ -12,6 +12,7 @@ export default defineConfig({
     test: {
         coverage: {
             provider: 'v8',
+            reporter: ['text', 'html', 'lcov'],
             exclude: ['vitest/**', '**/*.test.ts', '**/*.test.tsx', 'lib/examples/craft-samples.ts'],
             thresholds: {
                 statements: 90,
