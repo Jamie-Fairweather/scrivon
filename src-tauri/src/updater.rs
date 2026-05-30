@@ -16,6 +16,7 @@ pub struct UpdateInfo {
 }
 
 fn is_prerelease_build(version: &str) -> bool {
+    let version = version.split('+').next().unwrap_or(version);
     version.contains('-')
 }
 
@@ -28,6 +29,7 @@ mod tests {
         assert!(is_prerelease_build("1.3.0-rc.1"));
         assert!(is_prerelease_build("2.0.0-beta"));
         assert!(!is_prerelease_build("1.3.0"));
+        assert!(!is_prerelease_build("1.3.0+build-1"));
     }
 }
 

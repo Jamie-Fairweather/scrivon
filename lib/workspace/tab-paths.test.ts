@@ -27,15 +27,15 @@ describe('remapTabsAfterRename', () => {
             tab('/ws/other.mmd', '/ws/other.mmd', 'other.mmd'),
         ]
         const result = remapTabsAfterRename(tabs, '/ws/docs', '/ws/archive', 'archive')
-        expect(result[0].path).toBe('/ws/archive/readme.md')
-        expect(result[1].path).toBe('/ws/archive/nested/diagram.mmd')
-        expect(result[2].path).toBe('/ws/other.mmd')
+        expect(result[0]).toMatchObject({ id: '/ws/archive/readme.md', path: '/ws/archive/readme.md' })
+        expect(result[1]).toMatchObject({ id: '/ws/archive/nested/diagram.mmd', path: '/ws/archive/nested/diagram.mmd' })
+        expect(result[2]).toMatchObject({ id: '/ws/other.mmd', path: '/ws/other.mmd' })
     })
 
     it('handles Windows-style path separators', () => {
         const tabs = [tab('C:\\ws\\docs\\readme.md', 'C:\\ws\\docs\\readme.md', 'readme.md')]
         const result = remapTabsAfterRename(tabs, 'C:\\ws\\docs', 'C:\\ws\\archive', 'archive')
-        expect(result[0].path).toBe('C:\\ws\\archive\\readme.md')
+        expect(result[0]).toMatchObject({ id: 'C:\\ws\\archive\\readme.md', path: 'C:\\ws\\archive\\readme.md' })
     })
 })
 
