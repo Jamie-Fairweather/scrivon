@@ -1,11 +1,14 @@
-import { readDir, readTextFile, writeTextFile, mkdir, rename, remove, copyFile, type DirEntry } from '@tauri-apps/plugin-fs'
+import { readDir, readTextFile, writeTextFile, mkdir, rename, remove, copyFile, stat, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import type { FileNode } from '@/lib/workspace/types'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'target', 'dist', 'build'])
 
 function compareEntries(a: FileNode, b: FileNode): number {
-    if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1
+    if (a.kind !== b.kind) {
+        if (a.kind === 'directory') return -1
+        return 1
+    }
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
@@ -46,6 +49,16 @@ export async function readWorkspaceFile(path: string): Promise<string> {
     return readTextFile(path)
 }
 
+export async function getWorkspaceFileSize(path: string): Promise<number | null> {
+    if (!isTauri()) return null
+    try {
+        const info = await stat(path)
+        return typeof info.size === 'number' ? info.size : null
+    } catch {
+        return null
+    }
+}
+
 export async function writeWorkspaceFile(path: string, content: string): Promise<void> {
     if (!isTauri()) return
     await writeTextFile(path, content)
@@ -76,6 +89,10 @@ export async function duplicateWorkspaceFile(sourcePath: string, destPath: strin
     await copyFile(sourcePath, destPath)
 }
 
+export function compareFileNodes(a: FileNode, b: FileNode): number {
+    return compareEntries(a, b)
+}
+
 export function joinPath(parent: string, name: string): string {
     const sep = parent.includes('\\') ? '\\' : '/'
     return `${parent.replace(/[/\\]+$/, '')}${sep}${name}`
@@ -83,7 +100,7 @@ export function joinPath(parent: string, name: string): string {
 
 export function getBaseName(path: string): string {
     const parts = path.split(/[/\\]/)
-    return parts[parts.length - 1] ?? path
+    return parts[parts.length - 1]!
 }
 
 export function getParentPath(path: string): string {

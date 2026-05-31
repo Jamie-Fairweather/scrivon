@@ -1,12 +1,22 @@
 'use client'
 
-import { useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
+import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { CanvasFitProvider } from '@/components/studio/workspace/canvas-fit-context'
 import { DocumentSaveProvider } from '@/components/studio/workspace/document-save-context'
 import { DocumentTabsProvider, useDocumentTabsState } from '@/components/studio/workspace/document-tabs-context'
 import { StudioLayoutProvider } from '@/components/studio/workspace/studio-layout-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-session-context'
-import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
+import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
+
+const CoordinatorContext = createContext<WorkspaceCoordinatorRefs | null>(null)
+
+export function useWorkspaceCoordinator(): WorkspaceCoordinatorRefs {
+    const ctx = useContext(CoordinatorContext)
+    if (!ctx) throw new Error('useWorkspaceCoordinator must be used within WorkspaceProvider')
+    return ctx
+}
 
 export { useCanvasFit } from '@/components/studio/workspace/canvas-fit-context'
 export { useDocumentSave } from '@/components/studio/workspace/document-save-context'
@@ -42,7 +52,13 @@ function WorkspaceInner({
         <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
             <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
                 <StudioLayoutProvider>
-                    <CanvasFitProvider coordinator={coordinator}>{children}</CanvasFitProvider>
+                    <CanvasFitProvider coordinator={coordinator}>
+                        <CoordinatorContext.Provider value={coordinator}>
+                            <CommandPaletteProvider coordinator={coordinator}>
+                                <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+                            </CommandPaletteProvider>
+                        </CoordinatorContext.Provider>
+                    </CanvasFitProvider>
                 </StudioLayoutProvider>
             </DocumentSaveProvider>
         </DocumentTabsProvider>

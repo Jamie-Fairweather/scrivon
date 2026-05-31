@@ -14,6 +14,7 @@ export function AutocompleteInput({
     showTrigger = false,
     showClear = false,
     startAddon,
+    endAddon,
     size,
     triggerProps,
     clearProps,
@@ -22,6 +23,7 @@ export function AutocompleteInput({
     showTrigger?: boolean
     showClear?: boolean
     startAddon?: React.ReactNode
+    endAddon?: React.ReactNode
     size?: 'sm' | 'default' | 'lg' | number
     ref?: React.Ref<HTMLInputElement>
     triggerProps?: AutocompletePrimitive.Trigger.Props
@@ -55,12 +57,27 @@ export function AutocompleteInput({
                     sizeValue === 'sm'
                         ? 'has-[+[data-slot=autocomplete-trigger],+[data-slot=autocomplete-clear]]:*:data-[slot=autocomplete-input]:pe-6.5'
                         : 'has-[+[data-slot=autocomplete-trigger],+[data-slot=autocomplete-clear]]:*:data-[slot=autocomplete-input]:pe-7',
+                    endAddon &&
+                        `*:data-[slot=autocomplete-input]:pe-[calc(--spacing(8.5)-1px)]
+                        data-[size=sm]:*:data-[slot=autocomplete-input]:pe-[calc(--spacing(7.5)-1px)]
+                        sm:*:data-[slot=autocomplete-input]:pe-[calc(--spacing(8)-1px)]
+                        sm:data-[size=sm]:*:data-[slot=autocomplete-input]:pe-[calc(--spacing(7)-1px)]`,
                     className
                 )}
                 data-slot="autocomplete-input"
                 render={<Input nativeInput size={sizeValue} />}
                 {...props}
             />
+            {endAddon ? (
+                <div
+                    className="pointer-events-none absolute inset-y-0 end-px z-10 flex items-center pe-[calc(--spacing(3)-1px)] opacity-80
+                        has-[+[data-size=sm]]:pe-[calc(--spacing(2.5)-1px)] [&_svg]:-mx-0.5 [&_svg:not([class*='size-'])]:size-4.5
+                        sm:[&_svg:not([class*='size-'])]:size-4"
+                    data-slot="autocomplete-end-addon"
+                >
+                    {endAddon}
+                </div>
+            ) : null}
             {showTrigger && (
                 <AutocompleteTrigger
                     className={cn(

@@ -1,0 +1,13 @@
+codecov:
+  branch: dev
+
+coverage:
+  status:
+    project:
+      default:
+        target: 100%
+        threshold: 1%
+        branches:
+          - dev
+        only_pulls: false
+    patch: off

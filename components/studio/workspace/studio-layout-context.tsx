@@ -1,7 +1,8 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, type StudioLayoutState } from '@/lib/workspace/types'
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import type { StudioLayoutState } from '@/lib/workspace/types'
 
 type StudioLayoutContextValue = {
     layout: StudioLayoutState
@@ -18,51 +19,30 @@ export function useStudioLayout(): StudioLayoutContextValue {
     return ctx
 }
 
-function readInitialStudioLayout(): StudioLayoutState {
-    if (typeof window === 'undefined') {
-        return { explorerOpen: true, editorOpen: true }
-    }
-    return {
-        explorerOpen: localStorage.getItem(STORAGE_LAYOUT_EXPLORER) !== 'false',
-        editorOpen: localStorage.getItem(STORAGE_LAYOUT_EDITOR) !== 'false',
-    }
-}
-
 export function StudioLayoutProvider({ children }: { children: ReactNode }) {
-    const [layout, setLayout] = useState<StudioLayoutState>(readInitialStudioLayout)
+    const { settings, setLayoutExplorerOpen, setLayoutEditorOpen } = useAppSettings()
 
-    const persistLayout = useCallback((next: StudioLayoutState) => {
-        setLayout(next)
-        localStorage.setItem(STORAGE_LAYOUT_EXPLORER, String(next.explorerOpen))
-        localStorage.setItem(STORAGE_LAYOUT_EDITOR, String(next.editorOpen))
-    }, [])
+    const layout = useMemo<StudioLayoutState>(
+        () => ({
+            explorerOpen: settings.layout.explorerOpen,
+            editorOpen: settings.layout.editorOpen,
+        }),
+        [settings.layout.explorerOpen, settings.layout.editorOpen]
+    )
 
-    const setExplorerOpen = useCallback((open: boolean) => {
-        setLayout((prev) => {
-            const next = { ...prev, explorerOpen: open }
-            localStorage.setItem(STORAGE_LAYOUT_EXPLORER, String(open))
-            return next
-        })
-    }, [])
-
-    const setEditorOpen = useCallback((open: boolean) => {
-        setLayout((prev) => {
-            const next = { ...prev, editorOpen: open }
-            localStorage.setItem(STORAGE_LAYOUT_EDITOR, String(open))
-            return next
-        })
-    }, [])
-
-    const setPreviewOnly = useCallback(() => persistLayout({ explorerOpen: false, editorOpen: false }), [persistLayout])
+    const setPreviewOnly = useCallback(() => {
+        setLayoutExplorerOpen(false)
+        setLayoutEditorOpen(false)
+    }, [setLayoutExplorerOpen, setLayoutEditorOpen])
 
     const value = useMemo(
         () => ({
             layout,
-            setExplorerOpen,
-            setEditorOpen,
+            setExplorerOpen: setLayoutExplorerOpen,
+            setEditorOpen: setLayoutEditorOpen,
             setPreviewOnly,
         }),
-        [layout, setExplorerOpen, setEditorOpen, setPreviewOnly]
+        [layout, setLayoutExplorerOpen, setLayoutEditorOpen, setPreviewOnly]
     )
 
     return <StudioLayoutContext.Provider value={value}>{children}</StudioLayoutContext.Provider>

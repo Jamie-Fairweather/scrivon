@@ -1,29 +1,48 @@
 # Scrivon
 
 [![Version](https://img.shields.io/github/v/release/Jamie-Fairweather/scrivon?label=version)](https://github.com/Jamie-Fairweather/scrivon/releases/latest)
+[![CI](https://github.com/Jamie-Fairweather/scrivon/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Jamie-Fairweather/scrivon/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Jamie-Fairweather/scrivon/branch/dev/graph/badge.svg)](https://codecov.io/gh/Jamie-Fairweather/scrivon/tree/dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/Jamie-Fairweather/scrivon/releases/latest)
 
 **Mermaid & markdown on your machine.**
 
-Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams. Open a folder on disk, edit `.mmd` files with syntax highlighting, and preview diagrams live on the canvas — no account, no cloud workspace required.
+Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.mmd` or `.md` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
 
 <p align="center">
-  <img src="preview.png" alt="Scrivon — workspace, Monaco editor, and live Mermaid preview" width="900" />
+  <img src="preview.png" alt="Scrivon — workspace, Monaco editor, and live diagram or Markdown preview" width="900" />
 </p>
 
 ## Features
 
+### Workspaces & files
+
 - **Folder workspaces** — Open any directory on disk; your files never leave your machine
-- **File explorer** — Create, rename, duplicate, and delete `.mmd` / `.mermaid` files and folders from the sidebar
-- **Split editor + preview** — [Monaco](https://microsoft.github.io/monaco-editor/) editor with syntax highlighting beside a live-rendered diagram canvas
-- **Multi-tab editing** — Work across several diagrams in one session; tab state is restored per workspace
+- **File explorer** — Create, rename, duplicate, and delete `.md`, `.mmd`, `.mermaid` files and folders from the sidebar
+- **Multi-tab editing** — Work across several documents in one session; tab state is restored per workspace
+- **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
+
+### Mermaid diagrams
+
+- **Dedicated diagram files** — Edit standalone `.mmd` / `.mermaid` sources with a split editor and canvas preview
 - **Canvas tools** — Pan and zoom the preview, fit diagram to screen, or switch to preview-only layout
-- **Export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×)
-- **Built-in examples** — Curated sample diagrams to explore Mermaid syntax and layouts
+- **Diagram export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×)
+
+### Markdown documents
+
+- **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
+- **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
+- **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
+- **PDF export** — Save the full rendered document as PDF (native export on Windows via WebView2)
+
+### General
+
+- **Built-in examples** — Curated sample diagrams and a Markdown syntax showcase to explore features
 - **Themes** — Light and dark UI plus 15+ diagram palettes (Scrivon, Zinc, Tokyo Night, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, and more)
 - **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
-- **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
+- **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
+- **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
 - **Auto-updates** — Stable releases can update in-app (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 
@@ -44,8 +63,10 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 
 1. Download the latest installer from [Releases](https://github.com/Jamie-Fairweather/scrivon/releases).
 2. Launch Scrivon and choose **Open Folder**.
-3. Select a directory containing `.mmd` (or compatible) diagram files.
+3. Select a directory containing `.md` and/or `.mmd` files.
 4. Edit in the center pane; the preview updates as you type.
+    - **Diagram files** — Preview renders on the canvas.
+    - **Markdown files** — Preview shows rendered Markdown; use **Expand** on a `mermaid` block to open it on the canvas.
 
 ### Build from source
 
@@ -62,24 +83,29 @@ For release builds, signing keys, branch workflow, and semantic-release setup, s
 
 ## Tech stack
 
-| Layer             | Technologies                                                       |
-| ----------------- | ------------------------------------------------------------------ |
-| Desktop shell     | [Tauri 2](https://v2.tauri.app/) (Rust)                            |
-| UI                | [Next.js](https://nextjs.org/), [React 19](https://react.dev/)     |
-| Editor            | [Monaco](https://microsoft.github.io/monaco-editor/)               |
-| Diagram rendering | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid) |
-| Styling           | [Tailwind CSS](https://tailwindcss.com/)                           |
+| Layer              | Technologies                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Desktop shell      | [Tauri 2](https://v2.tauri.app/) (Rust)                                                                            |
+| UI                 | [Next.js](https://nextjs.org/), [React 19](https://react.dev/)                                                     |
+| Editor             | [Monaco](https://microsoft.github.io/monaco-editor/)                                                               |
+| Diagram rendering  | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid)                                                 |
+| Markdown rendering | [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm) |
+| Code highlighting  | [Shiki](https://shiki.style/)                                                                                      |
+| Styling            | [Tailwind CSS](https://tailwindcss.com/)                                                                           |
 
 ## Project layout
 
 ```
 scrivon/
-├── app/                 # Next.js app routes
-├── components/studio/   # Editor, canvas, workspace UI
-├── lib/                 # Mermaid, workspace, Tauri helpers
-├── src-tauri/           # Tauri / Rust backend
-├── scripts/             # Build and codegen utilities
-└── docs/                # Maintainer documentation
+├── app/                      # Next.js app routes
+├── components/studio/        # Editor, canvas, workspace UI
+│   └── markdown/             # Markdown preview and embedded diagrams
+├── lib/
+│   ├── markdown/             # GFM pipeline, Shiki, PDF export HTML
+│   └── mermaid/              # Diagram render and export
+├── src-tauri/                # Tauri / Rust backend
+├── scripts/                  # Build and codegen utilities
+└── docs/                     # Maintainer documentation
 ```
 
 ## Contributing

@@ -5,6 +5,7 @@ import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
 import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
 import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root-actions'
+import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -65,6 +66,7 @@ export function WorkspaceExplorer() {
                     >
                         <BookOpen className="size-4" />
                     </Button>
+                    <CommandPaletteTriggerButton />
                 </div>
 
                 {panel === 'files' && (

@@ -5,8 +5,12 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { editor } from 'monaco-editor'
 import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
+import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
+import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { documentKind } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -15,7 +19,7 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false 
 const MIN_WIDTH = 280
 const MAX_WIDTH_RATIO = 0.6
 
-const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
@@ -55,14 +59,51 @@ function languageForTab(tab: DocumentTab) {
 
 export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
+    const { settings } = useAppSettings()
     const { activeTab, updateTabContent } = useDocumentTabs()
+    const coordinator = useWorkspaceCoordinator()
     const resizeStart = useRef({ x: 0, width: 0 })
     const monacoRef = useRef<Monaco | null>(null)
+    const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
+    const pendingRevealRef = useRef<{ path: string; line: number; column: number } | null>(null)
 
     useEffect(() => {
         activeTabIdRef.current = activeTab?.id ?? null
     }, [activeTab?.id])
+
+    const revealPosition = useCallback((path: string, line: number, column: number) => {
+        const editor = editorRef.current
+        const activePath = activeTabIdRef.current
+
+        if (!editor || activePath !== path) {
+            pendingRevealRef.current = { path, line, column }
+            return
+        }
+
+        const position = { lineNumber: line, column }
+        editor.revealPositionInCenter(position)
+        editor.setSelection({
+            startLineNumber: line,
+            startColumn: column,
+            endLineNumber: line,
+            endColumn: column,
+        })
+        editor.focus()
+        pendingRevealRef.current = null
+    }, [])
+
+    const getEditorSelectedText = useCallback(() => readEditorSelectedText(editorRef.current), [])
+
+    useEffect(() => {
+        registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition, getEditorSelectedText })
+    }, [coordinator, revealPosition, getEditorSelectedText])
+
+    useEffect(() => {
+        const pending = pendingRevealRef.current
+        if (!pending || activeTab?.path !== pending.path || !editorRef.current) return
+        revealPosition(pending.path, pending.line, pending.column)
+    }, [activeTab?.path, revealPosition])
 
     const onResizePointerDown = useCallback(
         (e: React.PointerEvent) => {
@@ -99,7 +140,29 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
-    const editorOptions = useMemo(() => ({ ...EDITOR_OPTIONS, readOnly: isReadOnly, domReadOnly: isReadOnly }), [isReadOnly])
+    const editorOptions = useMemo(
+        () => ({
+            ...BASE_EDITOR_OPTIONS,
+            fontSize: settings.editor.fontSize,
+            tabSize: settings.editor.tabSize,
+            wordWrap: settings.editor.wordWrap,
+            lineNumbers: settings.editor.lineNumbers,
+            minimap: { enabled: settings.editor.minimap },
+            readOnly: isReadOnly,
+            domReadOnly: isReadOnly,
+        }),
+        [settings.editor, isReadOnly]
+    )
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({
+            fontSize: settings.editor.fontSize,
+            tabSize: settings.editor.tabSize,
+            wordWrap: settings.editor.wordWrap,
+            lineNumbers: settings.editor.lineNumbers,
+            minimap: { enabled: settings.editor.minimap },
+        })
+    }, [settings.editor])
 
     const onMonacoBeforeMount = useCallback(
         (monaco: Monaco) => {
@@ -108,6 +171,24 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
         },
         [tokens, isLight]
     )
+
+    const onMonacoMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+        editorRef.current = editor
+        unbindEditorF1Command(editor, monaco)
+        const pending = pendingRevealRef.current
+        if (pending && activeTabIdRef.current === pending.path) {
+            const position = { lineNumber: pending.line, column: pending.column }
+            editor.revealPositionInCenter(position)
+            editor.setSelection({
+                startLineNumber: pending.line,
+                startColumn: pending.column,
+                endLineNumber: pending.line,
+                endColumn: pending.column,
+            })
+            editor.focus()
+            pendingRevealRef.current = null
+        }
+    }, [])
 
     useEffect(() => {
         const monaco = monacoRef.current
@@ -126,6 +207,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
                         language={editorLanguage}
                         theme={MONACO_DIAGRAM_THEME_ID}
                         beforeMount={onMonacoBeforeMount}
+                        onMount={onMonacoMount}
                         options={editorOptions}
                         saveViewState
                         onChange={isReadOnly ? undefined : onEditorChange}

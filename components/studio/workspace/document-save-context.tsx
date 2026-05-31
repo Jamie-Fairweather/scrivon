@@ -1,8 +1,9 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { writeWorkspaceFile } from '@/lib/tauri/fs'
-import { AUTO_SAVE_MS, STORAGE_AUTOSAVE, type DocumentTab } from '@/lib/workspace/types'
+import type { DocumentTab } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
@@ -30,18 +31,26 @@ type DocumentSaveProviderProps = {
     setTabs: React.Dispatch<React.SetStateAction<DocumentTab[]>>
 }
 
-function readAutosaveEnabled(): boolean {
-    if (typeof window === 'undefined') return true
-    return localStorage.getItem(STORAGE_AUTOSAVE) !== 'false'
-}
-
 export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }: DocumentSaveProviderProps) {
-    const [autosaveEnabled, setAutosaveEnabledState] = useState(readAutosaveEnabled)
+    const { settings, setAutosaveEnabled } = useAppSettings()
+    const autosaveEnabled = settings.autosave.enabled
+    const autosaveDelayMs = settings.autosave.delayMs
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
     const autosaveEnabledRef = useRef(autosaveEnabled)
+    const autosaveDelayMsRef = useRef(autosaveDelayMs)
 
     useEffect(() => {
         autosaveEnabledRef.current = autosaveEnabled
+    }, [autosaveEnabled])
+
+    useEffect(() => {
+        autosaveDelayMsRef.current = autosaveDelayMs
+    }, [autosaveDelayMs])
+
+    useEffect(() => {
+        if (autosaveEnabled) return
+        for (const timer of saveTimers.current.values()) clearTimeout(timer)
+        saveTimers.current.clear()
     }, [autosaveEnabled])
 
     const flushSave = useCallback(
@@ -90,7 +99,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             const timer = setTimeout(() => {
                 saveTimers.current.delete(id)
                 void flushSave(id)
-            }, AUTO_SAVE_MS)
+            }, autosaveDelayMsRef.current)
 
             saveTimers.current.set(id, timer)
         },
@@ -112,15 +121,6 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         },
         [flushSave]
     )
-
-    const setAutosaveEnabled = useCallback((enabled: boolean) => {
-        setAutosaveEnabledState(enabled)
-        localStorage.setItem(STORAGE_AUTOSAVE, String(enabled))
-        if (!enabled) {
-            for (const timer of saveTimers.current.values()) clearTimeout(timer)
-            saveTimers.current.clear()
-        }
-    }, [])
 
     useEffect(() => {
         registerCoordinatorRefs(coordinator, {

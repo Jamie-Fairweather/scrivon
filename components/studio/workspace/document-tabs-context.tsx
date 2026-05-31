@@ -17,7 +17,7 @@ import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
 import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { showError } from '@/lib/tauri/dialog'
 import { getBaseName, isSupportedDocument, readWorkspaceFile } from '@/lib/tauri/fs'
-import { setWorkspaceTabSession } from '@/lib/tauri/store'
+import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -139,6 +139,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             if (existing) {
                 setActiveTabId(path)
                 void persistTabSession({ tabs: tabsRef.current, activeTabId: path })
+                if (workspaceRoot) void addRecentFile(workspaceRoot, path)
                 if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
                 return
             }
@@ -153,11 +154,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 setActiveTabId(path)
                 coordinator.requestCanvasFit.current()
                 await persistTabSession({ tabs: nextTabs, activeTabId: path })
+                if (workspaceRoot) void addRecentFile(workspaceRoot, path)
             } catch (err) {
                 await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
             }
         },
-        [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef]
+        [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, workspaceRoot]
     )
 
     const openExample = useCallback(
@@ -193,10 +195,13 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             if (activeTabIdRef.current === id) return
             const previousId = activeTabIdRef.current
             setActiveTabId(id)
-            if (!isExampleTabId(id)) void persistTabSession({ tabs: tabsRef.current, activeTabId: id })
+            if (!isExampleTabId(id)) {
+                void persistTabSession({ tabs: tabsRef.current, activeTabId: id })
+                if (workspaceRoot) void addRecentFile(workspaceRoot, id)
+            }
             if (previousId) coordinator.flushSaveOnTabLeave.current(previousId)
         },
-        [coordinator, persistTabSession, setActiveTabId, tabsRef]
+        [coordinator, persistTabSession, setActiveTabId, tabsRef, workspaceRoot]
     )
 
     const updateTabContent = useCallback(
