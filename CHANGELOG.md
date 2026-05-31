@@ -1,3 +1,10 @@
+## [1.4.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.3.0...v1.4.0) (2026-05-31)
+
+### Features
+
+* centralized settings for preferences and shortcuts ([#37](https://github.com/Jamie-Fairweather/scrivon/issues/37)) ([5af7386](https://github.com/Jamie-Fairweather/scrivon/commit/5af7386c0e0f6f9acfcd0ca47cccdbf0755ea2ae))
+* command palette for searching files, text, and commands ([#36](https://github.com/Jamie-Fairweather/scrivon/issues/36)) ([aacb5c4](https://github.com/Jamie-Fairweather/scrivon/commit/aacb5c4702aec7c464c62a3548bb2ac1c9146ddb))
+
 ## [1.3.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.2.0...v1.3.0) (2026-05-29)
 
 ### Features
