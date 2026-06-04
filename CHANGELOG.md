@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/Jamie-Fairweather/scrivon/compare/v1.4.0...v1.4.1) (2026-06-04)
+
+### Bug Fixes
+
+* update app identifier ([#45](https://github.com/Jamie-Fairweather/scrivon/issues/45)) ([bbe4735](https://github.com/Jamie-Fairweather/scrivon/commit/bbe4735f69d7df7f3e74692d578c7f5de06ef992))
+
 ## [1.4.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.3.0...v1.4.0) (2026-05-31)
 
 ### Features
