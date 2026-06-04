@@ -1,5 +1,5 @@
 [package]
-name = "diagram-app"
+name = "scrivon"
 version = "1.4.0"
 description = "A Tauri App"
 authors = ["Jamie Fairweather"]
