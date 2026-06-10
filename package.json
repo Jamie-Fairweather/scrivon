@@ -89,7 +89,7 @@
         "happy-dom": "^20.10.1",
         "husky": "^9.1.7",
         "lint-staged": "^17.0.7",
-        "prettier": "^3.8.3",
+        "prettier": "^3.8.4",
         "prettier-plugin-classnames": "^0.10.2",
         "prettier-plugin-merge": "^0.10.1",
         "prettier-plugin-organize-imports": "^4.3.0",
