@@ -1,3 +1,9 @@
+## [1.4.2](https://github.com/Jamie-Fairweather/scrivon/compare/v1.4.1...v1.4.2) (2026-06-16)
+
+### Bug Fixes
+
+* patch transitive deps to clear security audit ([#53](https://github.com/Jamie-Fairweather/scrivon/issues/53)) ([3b4e34a](https://github.com/Jamie-Fairweather/scrivon/commit/3b4e34a2bcd513b95c0af72e6893c4990aa87c61))
+
 ## [1.4.1](https://github.com/Jamie-Fairweather/scrivon/compare/v1.4.0...v1.4.1) (2026-06-04)
 
 ### Bug Fixes
