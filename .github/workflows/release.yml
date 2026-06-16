@@ -39,6 +39,7 @@ jobs:
               uses: cycjimmy/semantic-release-action@v4
               env:
                   GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+                  HUSKY: 0
 
     build-windows:
         name: Build Windows installers
