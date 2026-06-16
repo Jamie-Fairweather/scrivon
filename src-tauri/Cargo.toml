@@ -1,6 +1,6 @@
 [package]
 name = "scrivon"
-version = "1.4.2-rc.1"
+version = "1.4.2"
 description = "A Tauri App"
 authors = ["Jamie Fairweather"]
 license = "MIT"

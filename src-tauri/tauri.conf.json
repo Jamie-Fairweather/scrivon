@@ -1,7 +1,7 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "Scrivon",
-    "version": "1.4.2-rc.1",
+    "version": "1.4.2",
     "identifier": "io.github.jamie-fairweather.scrivon",
     "build": {
         "beforeDevCommand": "bun run dev",
