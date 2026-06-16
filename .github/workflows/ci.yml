@@ -21,7 +21,7 @@ jobs:
             id-token: write
         steps:
             - name: Checkout
-              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              uses: actions/checkout@v4
               with:
                   persist-credentials: false
 
@@ -39,7 +39,7 @@ jobs:
 
             - name: Upload coverage to Codecov
               if: github.event_name == 'push'
-              uses: codecov/codecov-action@cddd853df119a48c5be31a973f8cd97e12e35e16 # v6.0.1
+              uses: codecov/codecov-action@v6
               with:
                   files: coverage/lcov.info
                   flags: frontend
@@ -51,7 +51,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout
-              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              uses: actions/checkout@v4
               with:
                   persist-credentials: false
 
@@ -70,10 +70,10 @@ jobs:
                     librsvg2-dev
 
             - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+              uses: dtolnay/rust-toolchain@stable
 
             - name: Rust cache
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              uses: swatinem/rust-cache@v2
               with:
                   workspaces: src-tauri -> target
 
