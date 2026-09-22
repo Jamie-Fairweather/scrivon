@@ -32,7 +32,7 @@ describe('markdownToExportHtml', () => {
 
     it('exports basic markdown with default profile', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
-        const html = await markdownToExportHtml('# Hello\n\nParagraph', { tabName: 'hello.md' })
+        const { html } = await markdownToExportHtml('# Hello\n\nParagraph', { tabName: 'hello.md' })
         expect(html).toContain('<title>Hello</title>')
         expect(html).toContain('id="hello"')
         expect(html).toContain('Paragraph')
@@ -85,7 +85,7 @@ SHIKI_FAIL
 \`\`\`
 `
 
-        const html = await markdownToExportHtml(source, {
+        const { html } = await markdownToExportHtml(source, {
             profile,
             assets: {
                 logoDataUrl: 'data:image/png;base64,logo',
@@ -140,7 +140,7 @@ SHIKI_FAIL
         profile.header.enabled = true
         profile.footer.pageNumbers = 'number'
 
-        const html = await markdownToExportHtml('# Only', {
+        const { html } = await markdownToExportHtml('# Only', {
             profile,
             assets: EMPTY_ASSETS,
         })
@@ -159,7 +159,7 @@ SHIKI_FAIL
         profile.footer.right.text = 'Ignored: the counter owns this slot'
         profile.footer.pageNumbers = 'none'
 
-        const html = await markdownToExportHtml('# Only', {
+        const { html } = await markdownToExportHtml('# Only', {
             profile,
             assets: EMPTY_ASSETS,
         })
@@ -177,17 +177,17 @@ SHIKI_FAIL
         profile.footer.right.text = '{{title}} — confidential'
 
         const source = '---\ntitle: Spec\n---\n# Only'
-        const plain = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        const { html: plain } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(plain).toContain('<span class="pdf-chrome-side pdf-chrome-right"><span>Spec — confidential</span></span>')
         expect(plain).not.toContain('SFPN')
 
         profile.footer.right.text = 'Page {{page}} of {{total}}'
-        const counted = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        const { html: counted } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(counted).toContain('<span class="pdf-page-number"><span class="pdf-page-number-mark">SFPN</span></span>')
         expect(counted).not.toContain('{{page}}')
 
         profile.footer.right.text = '   '
-        const empty = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        const { html: empty } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(empty).not.toContain('class="pdf-chrome-table')
     })
 
@@ -198,7 +198,7 @@ SHIKI_FAIL
         profile.brand.logoPath = 'C:/brand/cover.png'
         profile.brand.logoIgnoreMargins = true
 
-        const html = await markdownToExportHtml('# Cover\n\nBody', {
+        const { html } = await markdownToExportHtml('# Cover\n\nBody', {
             profile,
             assets: { ...EMPTY_ASSETS, logoDataUrl: 'data:image/png;base64,logo' },
         })
@@ -216,7 +216,7 @@ SHIKI_FAIL
         profile.frontMatter.toc = true
         profile.frontMatter.titlePage = true
 
-        const html = await markdownToExportHtml('Just text, no headings.', {
+        const { html } = await markdownToExportHtml('Just text, no headings.', {
             profile,
             overrides: { title: 'Custom', subtitle: '', author: '', date: '' },
         })
@@ -225,9 +225,42 @@ SHIKI_FAIL
         expect(html).not.toContain('class="pdf-toc-page"')
     })
 
-    it('skips ids for setext headings missing from the ATX outline', async () => {
+    it('gives setext headings ids and ignores hashes inside fenced code', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
-        const html = await markdownToExportHtml('Setext\n======\n\n## Still')
-        expect(html).toContain('id="still"')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        const { html } = await markdownToExportHtml('Setext\n======\n\n```bash\n# install deps\n```\n\n## Still', { profile })
+        expect(html).toContain('<h1 id="setext">')
+        expect(html).toContain('<h2 id="still">')
+        expect(html).toContain('href="#setext"')
+        expect(html).toContain('href="#still"')
+        expect(html).not.toContain('install-deps')
+        expect(html).not.toContain('SFT0003')
+    })
+
+    it('returns the metadata and print options that match the html', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.page.size = 'letter'
+        profile.page.orientation = 'landscape'
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
+        profile.footer.textColor = '#ff0000'
+
+        const doc = await markdownToExportHtml('---\ntitle: Spec\n---\n# Hi', { profile, tabName: 'hi.md' })
+        expect(doc.metadata.title).toBe('Spec')
+        expect(doc.print).toEqual({
+            pageWidthMm: 215.9,
+            pageHeightMm: 279.4,
+            landscape: true,
+            marginTopMm: 10,
+            marginRightMm: 10,
+            marginBottomMm: 10,
+            marginLeftMm: 10,
+            pageNumberFormat: 'custom:Spec · {{page}}/{{total}}',
+            pageNumberColor: '#ff0000',
+        })
+        expect(doc.html).toContain('SFPN')
     })
 })

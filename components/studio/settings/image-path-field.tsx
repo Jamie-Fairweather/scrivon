@@ -10,7 +10,7 @@ const IMAGE_FILTERS = [
     { name: 'All files', extensions: ['*'] },
 ]
 
-type PathFieldProps = {
+type ImagePathFieldProps = {
     id?: string
     value: string
     placeholder?: string
@@ -18,7 +18,8 @@ type PathFieldProps = {
     onChange: (value: string) => void
 }
 
-export function PathField({ id, value, placeholder = 'Choose a file', title = 'Choose file', onChange }: PathFieldProps) {
+/** Read-only path display with Browse (image file picker) and Clear. */
+export function ImagePathField({ id, value, placeholder = 'Choose an image', title = 'Choose image', onChange }: ImagePathFieldProps) {
     return (
         <div className="flex min-w-0 items-center gap-2">
             <Input id={id} value={value} placeholder={placeholder} readOnly title={value || undefined} className="min-w-0 flex-1" />

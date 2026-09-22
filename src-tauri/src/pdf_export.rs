@@ -1,17 +1,31 @@
+use base64::Engine;
+use serde::Deserialize;
+
+/// Print-engine settings that accompany the export HTML. Mirrors
+/// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPrintOptions {
+    /// Portrait sheet size; `landscape` rotates it.
+    pub page_width_mm: f64,
+    pub page_height_mm: f64,
+    pub landscape: bool,
+    pub margin_top_mm: f64,
+    pub margin_right_mm: f64,
+    pub margin_bottom_mm: f64,
+    pub margin_left_mm: f64,
+    /// Stamper format: a preset name, `custom:<template>`, or `none`.
+    pub page_number_format: String,
+    /// Hex colour for the stamped label; empty for the default chrome colour.
+    pub page_number_color: String,
+}
+
 #[cfg(windows)]
 async fn export_html_to_pdf_impl(
     app: tauri::AppHandle,
     html: String,
     output_path: String,
-    page_width_mm: f64,
-    page_height_mm: f64,
-    landscape: bool,
-    margin_top_mm: f64,
-    margin_right_mm: f64,
-    margin_bottom_mm: f64,
-    margin_left_mm: f64,
-    page_number_format: String,
-    page_number_color: String,
+    options: PdfPrintOptions,
 ) -> Result<(), String> {
     use std::time::Duration;
 
@@ -43,6 +57,7 @@ async fn export_html_to_pdf_impl(
     tokio::time::sleep(Duration::from_millis(1200)).await;
 
     let path = output_path.clone();
+    let print = options.clone();
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
     window
@@ -74,29 +89,29 @@ async fn export_html_to_pdf_impl(
                     // and centres it, which leaves side gaps on anything meant to bleed.
                     // Width/height are the portrait sheet; orientation rotates it.
                     print_settings
-                        .SetPageWidth(page_width_mm / 25.4)
+                        .SetPageWidth(print.page_width_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetPageHeight(page_height_mm / 25.4)
+                        .SetPageHeight(print.page_height_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetOrientation(if landscape {
+                        .SetOrientation(if print.landscape {
                             COREWEBVIEW2_PRINT_ORIENTATION_LANDSCAPE
                         } else {
                             COREWEBVIEW2_PRINT_ORIENTATION_PORTRAIT
                         })
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetMarginTop(margin_top_mm / 25.4)
+                        .SetMarginTop(print.margin_top_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetMarginBottom(margin_bottom_mm / 25.4)
+                        .SetMarginBottom(print.margin_bottom_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetMarginLeft(margin_left_mm / 25.4)
+                        .SetMarginLeft(print.margin_left_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetMarginRight(margin_right_mm / 25.4)
+                        .SetMarginRight(print.margin_right_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
                         .SetShouldPrintBackgrounds(true.into())
@@ -132,13 +147,7 @@ async fn export_html_to_pdf_impl(
     window.close().ok();
 
     result?;
-    crate::page_numbers::stamp_page_numbers(
-        &output_path,
-        &page_number_format,
-        &page_number_color,
-        margin_right_mm,
-        margin_bottom_mm,
-    )
+    crate::page_numbers::stamp_page_numbers(&output_path, &options)
 }
 
 #[cfg(not(windows))]
@@ -146,17 +155,19 @@ async fn export_html_to_pdf_impl(
     _app: tauri::AppHandle,
     _html: String,
     _output_path: String,
-    _page_width_mm: f64,
-    _page_height_mm: f64,
-    _landscape: bool,
-    _margin_top_mm: f64,
-    _margin_right_mm: f64,
-    _margin_bottom_mm: f64,
-    _margin_left_mm: f64,
-    _page_number_format: String,
-    _page_number_color: String,
+    _options: PdfPrintOptions,
 ) -> Result<(), String> {
     Err("Direct PDF save is only available on Windows.".into())
+}
+
+#[tauri::command]
+pub async fn export_html_to_pdf(
+    app: tauri::AppHandle,
+    html: String,
+    output_path: String,
+    options: PdfPrintOptions,
+) -> Result<(), String> {
+    export_html_to_pdf_impl(app, html, output_path, options).await
 }
 
 const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
@@ -178,31 +189,6 @@ fn mime_from_path(path: &str) -> &'static str {
     }
 }
 
-fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    let mut i = 0;
-    while i < data.len() {
-        let b0 = data[i];
-        let b1 = if i + 1 < data.len() { data[i + 1] } else { 0 };
-        let b2 = if i + 2 < data.len() { data[i + 2] } else { 0 };
-        out.push(CHARS[(b0 >> 2) as usize] as char);
-        out.push(CHARS[(((b0 & 3) << 4) | (b1 >> 4)) as usize] as char);
-        if i + 1 < data.len() {
-            out.push(CHARS[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if i + 2 < data.len() {
-            out.push(CHARS[(b2 & 0x3f) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        i += 3;
-    }
-    out
-}
-
 /// Read a user-chosen export image without the JS FS plugin scope (survives restarts / Drive paths).
 #[tauri::command]
 pub fn read_export_image(path: String) -> Result<String, String> {
@@ -217,19 +203,25 @@ pub fn read_export_image(path: String) -> Result<String, String> {
     Ok(format!(
         "data:{};base64,{}",
         mime_from_path(path),
-        base64_encode(&bytes)
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
     ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{base64_encode, mime_from_path, read_export_image};
+    use super::{mime_from_path, read_export_image, PdfPrintOptions};
 
     #[test]
-    fn encodes_known_base64() {
-        assert_eq!(base64_encode(b"Man"), "TWFu");
-        assert_eq!(base64_encode(b"Ma"), "TWE=");
-        assert_eq!(base64_encode(b"M"), "TQ==");
+    fn deserializes_camel_case_options_from_the_frontend() {
+        let options: PdfPrintOptions = serde_json::from_str(
+            r##"{"pageWidthMm":210,"pageHeightMm":297,"landscape":true,"marginTopMm":10,"marginRightMm":0,"marginBottomMm":10,"marginLeftMm":0,"pageNumberFormat":"page-n","pageNumberColor":"#ff0000"}"##,
+        )
+        .unwrap();
+        assert!(options.landscape);
+        assert_eq!(options.page_width_mm, 210.0);
+        assert_eq!(options.margin_right_mm, 0.0);
+        assert_eq!(options.page_number_format, "page-n");
+        assert_eq!(options.page_number_color, "#ff0000");
     }
 
     #[test]
@@ -248,39 +240,7 @@ mod tests {
         let path = dir.join("scrivon-export-image-test.png");
         std::fs::write(&path, [0x89, 0x50, 0x4E, 0x47]).unwrap();
         let url = read_export_image(path.to_string_lossy().into_owned()).unwrap();
-        assert!(url.starts_with("data:image/png;base64,"));
+        assert_eq!(url, "data:image/png;base64,iVBORw==");
         let _ = std::fs::remove_file(path);
     }
-}
-
-#[tauri::command]
-pub async fn export_html_to_pdf(
-    app: tauri::AppHandle,
-    html: String,
-    output_path: String,
-    page_width_mm: f64,
-    page_height_mm: f64,
-    landscape: bool,
-    margin_top_mm: f64,
-    margin_right_mm: f64,
-    margin_bottom_mm: f64,
-    margin_left_mm: f64,
-    page_number_format: String,
-    page_number_color: String,
-) -> Result<(), String> {
-    export_html_to_pdf_impl(
-        app,
-        html,
-        output_path,
-        page_width_mm,
-        page_height_mm,
-        landscape,
-        margin_top_mm,
-        margin_right_mm,
-        margin_bottom_mm,
-        margin_left_mm,
-        page_number_format,
-        page_number_color,
-    )
-    .await
 }

@@ -7,7 +7,22 @@ const invoke = vi.hoisted(() => vi.fn())
 const pickSavePath = vi.hoisted(() => vi.fn())
 const showError = vi.hoisted(() => vi.fn())
 const isWindowsTauri = vi.hoisted(() => vi.fn(() => false))
-const markdownToExportHtml = vi.hoisted(() => vi.fn(async () => '<html><body><article class="export-article">x</article></body></html>'))
+const EXPORT_DOCUMENT = vi.hoisted(() => ({
+    html: '<html><body><article class="export-article">x</article></body></html>',
+    metadata: { title: 'Hi', subtitle: '', author: '', date: '' },
+    print: {
+        pageWidthMm: 210,
+        pageHeightMm: 297,
+        landscape: false,
+        marginTopMm: 10,
+        marginRightMm: 10,
+        marginBottomMm: 10,
+        marginLeftMm: 10,
+        pageNumberFormat: 'none',
+        pageNumberColor: '',
+    },
+}))
+const markdownToExportHtml = vi.hoisted(() => vi.fn(async () => EXPORT_DOCUMENT))
 const EMPTY_ASSETS = vi.hoisted(() => ({ logoDataUrl: '', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
 const resolvePdfExportAssets = vi.hoisted(() => vi.fn(async () => EMPTY_ASSETS))
 
@@ -25,7 +40,7 @@ describe('export-pdf helpers', () => {
         showError.mockReset()
         isWindowsTauri.mockReturnValue(false)
         markdownToExportHtml.mockReset()
-        markdownToExportHtml.mockImplementation(async () => '<html><body><article class="export-article">x</article></body></html>')
+        markdownToExportHtml.mockImplementation(async () => EXPORT_DOCUMENT)
         resolvePdfExportAssets.mockReset()
         resolvePdfExportAssets.mockResolvedValue(EMPTY_ASSETS)
         document.body.innerHTML = ''
@@ -38,32 +53,19 @@ describe('export-pdf helpers', () => {
         expect(markdownExportBaseName('.md')).toBe('document')
     })
 
-    it('builds html through assets + markdown pipeline', async () => {
-        const { buildMarkdownExportHtml } = await import('@/lib/markdown/export-pdf')
-        const result = await buildMarkdownExportHtml('# Hi', 'hi.md')
-        expect(resolvePdfExportAssets).toHaveBeenCalled()
-        expect(markdownToExportHtml).toHaveBeenCalled()
-        expect(result.html).toContain('export-article')
-        expect(result.pageNumberFormat).toBe('none')
-    })
-
-    it('hands custom counting templates to the stamper with document placeholders filled', async () => {
+    it('builds the document through the assets + markdown pipeline', async () => {
         const { buildMarkdownExportHtml } = await import('@/lib/markdown/export-pdf')
         const { createDefaultPdfExportProfile } = await import('@/lib/settings/pdf-export-defaults')
         const profile = createDefaultPdfExportProfile()
-        profile.footer.pageNumbers = 'custom'
-        profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
-        const counted = await buildMarkdownExportHtml('# Hi', 'hi.md', { profile, overrides: { title: 'Spec' } })
-        expect(counted.pageNumberFormat).toBe('custom:Spec · {{page}}/{{total}}')
-
-        // Static custom text is ordinary footer HTML; nothing for the stamper to do.
-        profile.footer.right.text = 'Confidential'
-        const plain = await buildMarkdownExportHtml('# Hi', 'hi.md', { profile })
-        expect(plain.pageNumberFormat).toBe('none')
-
-        profile.footer.pageNumbers = 'n-of-total'
-        const preset = await buildMarkdownExportHtml('# Hi', 'hi.md', { profile })
-        expect(preset.pageNumberFormat).toBe('n-of-total')
+        const result = await buildMarkdownExportHtml('# Hi', 'hi.md', { profile, overrides: { title: 'Spec' } })
+        expect(resolvePdfExportAssets).toHaveBeenCalledWith(profile)
+        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', {
+            profile,
+            tabName: 'hi.md',
+            overrides: { title: 'Spec' },
+            assets: EMPTY_ASSETS,
+        })
+        expect(result).toBe(EXPORT_DOCUMENT)
     })
 
     it('prints via iframe when not on windows tauri', async () => {
@@ -166,23 +168,17 @@ describe('export-pdf helpers', () => {
         expect(showError).toHaveBeenCalledWith('Export failed', 'Export document is empty.')
     })
 
-    it('saves with webview2 margins on windows tauri', async () => {
+    it('hands the html and its print options to webview2 on windows tauri', async () => {
         isWindowsTauri.mockReturnValue(true)
         pickSavePath.mockResolvedValue('C:/out.pdf')
         invoke.mockResolvedValue(undefined)
         const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
         await exportMarkdownToPdf('# Hi', 'hi.md')
-        expect(invoke).toHaveBeenCalledWith(
-            'export_html_to_pdf',
-            expect.objectContaining({
-                outputPath: 'C:/out.pdf',
-                marginTopMm: 10,
-                marginRightMm: 10,
-                marginBottomMm: 10,
-                marginLeftMm: 10,
-                pageNumberFormat: 'none',
-            })
-        )
+        expect(invoke).toHaveBeenCalledWith('export_html_to_pdf', {
+            html: EXPORT_DOCUMENT.html,
+            outputPath: 'C:/out.pdf',
+            options: EXPORT_DOCUMENT.print,
+        })
     })
 
     it('cancels windows save when dialog is dismissed', async () => {

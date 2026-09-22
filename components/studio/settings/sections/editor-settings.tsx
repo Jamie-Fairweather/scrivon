@@ -1,143 +1,76 @@
 'use client'
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
+import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 import { Button } from '@/components/ui/button'
+import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import type { EditorLineNumbers, EditorWordWrap } from '@/lib/settings/types'
+import { SwitchSetting } from '@/components/studio/settings/switch-setting'
+import type { AppSettings, EditorLineNumbers, EditorWordWrap } from '@/lib/settings/types'
+
+const WORD_WRAP_OPTIONS: SelectOption<EditorWordWrap>[] = [
+    { label: 'On', value: 'on' },
+    { label: 'Off', value: 'off' },
+    { label: 'At column', value: 'wordWrapColumn' },
+]
+const LINE_NUMBER_OPTIONS: SelectOption<EditorLineNumbers>[] = [
+    { label: 'On', value: 'on' },
+    { label: 'Off', value: 'off' },
+    { label: 'Relative', value: 'relative' },
+]
 
 export function EditorSettings() {
     const { settings, updateSettings, resetEditorWidth } = useAppSettings()
+    const setEditor = (changes: Partial<AppSettings['editor']>) =>
+        updateSettings((current) => ({ ...current, editor: { ...current.editor, ...changes } }))
 
     return (
         <div className="space-y-6">
-            <Field>
-                <FieldLabel htmlFor="editor-font-size">Font size</FieldLabel>
-                <NumberField
-                    id="editor-font-size"
-                    value={settings.editor.fontSize}
-                    min={8}
-                    max={32}
-                    step={1}
-                    onValueChange={(value) => {
-                        if (value != null) {
-                            updateSettings((current) => ({
-                                ...current,
-                                editor: { ...current.editor, fontSize: value },
-                            }))
-                        }
-                    }}
-                >
-                    <NumberFieldGroup>
-                        <NumberFieldDecrement />
-                        <NumberFieldInput />
-                        <NumberFieldIncrement />
-                    </NumberFieldGroup>
-                </NumberField>
-            </Field>
-
-            <Field>
-                <FieldLabel htmlFor="editor-tab-size">Tab size</FieldLabel>
-                <NumberField
-                    id="editor-tab-size"
-                    value={settings.editor.tabSize}
-                    min={1}
-                    max={8}
-                    step={1}
-                    onValueChange={(value) => {
-                        if (value != null) {
-                            updateSettings((current) => ({
-                                ...current,
-                                editor: { ...current.editor, tabSize: value },
-                            }))
-                        }
-                    }}
-                >
-                    <NumberFieldGroup>
-                        <NumberFieldDecrement />
-                        <NumberFieldInput />
-                        <NumberFieldIncrement />
-                    </NumberFieldGroup>
-                </NumberField>
-            </Field>
+            <NumberSetting
+                id="editor-font-size"
+                label="Font size"
+                value={settings.editor.fontSize}
+                min={8}
+                max={32}
+                step={1}
+                onChange={(fontSize) => setEditor({ fontSize })}
+            />
+            <NumberSetting
+                id="editor-tab-size"
+                label="Tab size"
+                value={settings.editor.tabSize}
+                min={1}
+                max={8}
+                step={1}
+                onChange={(tabSize) => setEditor({ tabSize })}
+            />
 
             <Field>
                 <FieldLabel htmlFor="editor-word-wrap">Word wrap</FieldLabel>
-                <Select
-                    items={[
-                        { label: 'On', value: 'on' },
-                        { label: 'Off', value: 'off' },
-                        { label: 'At column', value: 'wordWrapColumn' },
-                    ]}
+                <OptionSelect
+                    id="editor-word-wrap"
                     value={settings.editor.wordWrap}
-                    onValueChange={(value) => {
-                        if (value) {
-                            updateSettings((current) => ({
-                                ...current,
-                                editor: { ...current.editor, wordWrap: value as EditorWordWrap },
-                            }))
-                        }
-                    }}
-                >
-                    <SelectTrigger id="editor-word-wrap">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        <SelectItem value="on">On</SelectItem>
-                        <SelectItem value="off">Off</SelectItem>
-                        <SelectItem value="wordWrapColumn">At column</SelectItem>
-                    </SelectPopup>
-                </Select>
+                    options={WORD_WRAP_OPTIONS}
+                    onChange={(wordWrap) => setEditor({ wordWrap })}
+                />
             </Field>
 
             <Field>
                 <FieldLabel htmlFor="editor-line-numbers">Line numbers</FieldLabel>
-                <Select
-                    items={[
-                        { label: 'On', value: 'on' },
-                        { label: 'Off', value: 'off' },
-                        { label: 'Relative', value: 'relative' },
-                    ]}
+                <OptionSelect
+                    id="editor-line-numbers"
                     value={settings.editor.lineNumbers}
-                    onValueChange={(value) => {
-                        if (value) {
-                            updateSettings((current) => ({
-                                ...current,
-                                editor: { ...current.editor, lineNumbers: value as EditorLineNumbers },
-                            }))
-                        }
-                    }}
-                >
-                    <SelectTrigger id="editor-line-numbers">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        <SelectItem value="on">On</SelectItem>
-                        <SelectItem value="off">Off</SelectItem>
-                        <SelectItem value="relative">Relative</SelectItem>
-                    </SelectPopup>
-                </Select>
+                    options={LINE_NUMBER_OPTIONS}
+                    onChange={(lineNumbers) => setEditor({ lineNumbers })}
+                />
             </Field>
 
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <div>
-                        <FieldLabel>Minimap</FieldLabel>
-                        <FieldDescription>Show a code minimap in the editor gutter.</FieldDescription>
-                    </div>
-                    <Switch
-                        checked={settings.editor.minimap}
-                        onCheckedChange={(checked) =>
-                            updateSettings((current) => ({
-                                ...current,
-                                editor: { ...current.editor, minimap: checked === true },
-                            }))
-                        }
-                    />
-                </div>
-            </Field>
+            <SwitchSetting
+                label="Minimap"
+                description="Show a code minimap in the editor gutter."
+                checked={settings.editor.minimap}
+                onChange={(minimap) => setEditor({ minimap })}
+            />
 
             <Field>
                 <FieldLabel>Editor pane width</FieldLabel>

@@ -1,17 +1,24 @@
+import type { Element, Root as HastRoot } from 'hast'
 import { toHtml } from 'hast-util-to-html'
-import type { Code, Heading, Parent, Root, Text } from 'mdast'
+import type { Code, Parent, Root, Text } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
-import { buildPdfExportCss, PDF_PAGE_NUMBER_MARK, pdfTocMark, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
+import { buildPdfExportCss, PDF_PAGE_NUMBER_MARK, pdfTocMark, resolvePdfExportLayout, resolvePdfPrintOptions } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
-import { extractPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
+import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
+import type {
+    PdfExportDocument,
+    PdfExportMetadata,
+    PdfExportMetadataOverrides,
+    PdfExportProfile,
+    PdfExportResolvedAssets,
+} from '@/lib/settings/pdf-export-types'
 
 export type MarkdownToExportHtmlOptions = {
     profile?: PdfExportProfile
@@ -34,19 +41,22 @@ function normalizeShikiPre(html: string): string {
     return html.replace(/\s*tabindex="0"/g, '')
 }
 
-function applyHeadingIds(tree: Root, body: string): void {
-    const ids = extractPdfExportOutline(body, 6, false).map((item) => item.id)
-    let index = 0
-    visit(tree, 'heading', (node: Heading) => {
-        const id = ids[index]
-        index += 1
-        if (!id) return
-        node.data = {
-            ...node.data,
-            hProperties: {
-                id,
-            },
-        }
+const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+/** Hidden mark inside each TOC-listed heading so the PDF stamper can read which page it landed on. */
+function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
+    if (items.length === 0) return
+    const markById = new Map(items.map((item, index) => [item.id, pdfTocMark(index, 'heading')]))
+    visit(hast, 'element', (node: Element) => {
+        if (!HEADING_TAGS.has(node.tagName)) return
+        const mark = typeof node.properties.id === 'string' ? markById.get(node.properties.id) : undefined
+        if (!mark) return
+        node.children.unshift({
+            type: 'element',
+            tagName: 'span',
+            properties: { className: ['pdf-heading-mark'] },
+            children: [{ type: 'text', value: mark }],
+        })
     })
 }
 
@@ -115,19 +125,6 @@ function renderToc(items: PdfExportOutlineItem[]): string {
         })
         .join('')
     return `<section class="pdf-toc-page"><h1>Contents</h1><ol class="pdf-toc-list">${list}</ol></section>`
-}
-
-/** Hidden mark at each TOC heading so the PDF stamper can read which page it landed on. */
-function injectHeadingMarks(bodyHtml: string, items: PdfExportOutlineItem[]): string {
-    return items.reduce((html, item, index) => {
-        const attr = `id="${escapeHtml(item.id)}"`
-        const at = html.indexOf(attr)
-        if (at < 0) return html
-        const close = html.indexOf('>', at)
-        if (close < 0) return html
-        const mark = `<span class="pdf-heading-mark">${pdfTocMark(index, 'heading')}</span>`
-        return `${html.slice(0, close + 1)}${mark}${html.slice(close + 1)}`
-    }, bodyHtml)
 }
 
 function chromeImage(dataUrl: string): string {
@@ -210,7 +207,12 @@ function wrapWithChrome(
 </article>`
 }
 
-export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<string> {
+/**
+ * Markdown + profile (+ overrides) → the branded, self-contained HTML document
+ * and the print settings that must accompany it. Throws `Nothing to export.`
+ * when the body is empty after front matter is removed.
+ */
+export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<PdfExportDocument> {
     const profile = options.profile ?? createDefaultPdfExportProfile()
     const assets = options.assets ?? EMPTY_ASSETS
     const { metadata, body } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
@@ -220,10 +222,12 @@ export async function markdownToExportHtml(source: string, options: MarkdownToEx
     }
 
     const tree = unified().use(remarkParse).use(remarkGfm).parse(trimmed) as Root
-    applyHeadingIds(tree, trimmed)
+    const outline = collectPdfExportOutline(tree)
+    const tocItems = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
     const placeholders = await transformCodeBlocks(tree, profile)
 
-    const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree)
+    const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
+    addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
@@ -231,11 +235,9 @@ export async function markdownToExportHtml(source: string, options: MarkdownToEx
     }
 
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
-    const outline = profile.frontMatter.toc ? extractPdfExportOutline(trimmed, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
-    if (outline.length > 0) bodyHtml = injectHeadingMarks(bodyHtml, outline)
-    const toc = renderToc(outline)
+    const toc = renderToc(tocItems)
 
-    return `<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -247,4 +249,6 @@ export async function markdownToExportHtml(source: string, options: MarkdownToEx
   ${wrapWithChrome(titlePage, toc, bodyHtml, profile, assets, metadata)}
 </body>
 </html>`
+
+    return { html, metadata, print: resolvePdfPrintOptions(profile, metadata) }
 }

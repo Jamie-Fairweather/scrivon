@@ -1,3 +1,6 @@
+import type { Heading, Root } from 'mdast'
+import { visit } from 'unist-util-visit'
+
 export type PdfExportOutlineItem = {
     id: string
     level: number
@@ -17,22 +20,32 @@ function slugify(text: string, used: Map<string, number>): string {
     return count === 0 ? base : `${base}-${count}`
 }
 
-/** Extract ATX headings from markdown body for TOC / heading ids. */
-export function extractPdfExportOutline(body: string, maxDepth: number, excludeH1: boolean): PdfExportOutlineItem[] {
+function nodeText(node: { value?: string; children?: unknown[] }): string {
+    if (typeof node.value === 'string') return node.value
+    if (!Array.isArray(node.children)) return ''
+    return node.children.map((child) => nodeText(child as { value?: string; children?: unknown[] })).join('')
+}
+
+/**
+ * Every heading in the parsed document, in order, with a unique slug id. The
+ * same id is written onto the heading node (`hProperties.id`) so the rendered
+ * HTML and the TOC agree by construction. Works from the tree rather than raw
+ * lines, so `#` inside fenced code never leaks in and setext headings count.
+ */
+export function collectPdfExportOutline(tree: Root): PdfExportOutlineItem[] {
     const used = new Map<string, number>()
     const items: PdfExportOutlineItem[] = []
-    const lines = body.split(/\r?\n/)
-
-    for (const line of lines) {
-        const match = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/)
-        if (!match) continue
-        const level = match[1]!.length
-        if (level > maxDepth) continue
-        if (excludeH1 && level === 1) continue
-        const text = match[2]!.trim()
-        if (!text) continue
-        items.push({ id: slugify(text, used), level, text })
-    }
-
+    visit(tree, 'heading', (node: Heading) => {
+        const text = nodeText(node).trim()
+        if (!text) return
+        const id = slugify(text, used)
+        node.data = { ...node.data, hProperties: { ...node.data?.hProperties, id } }
+        items.push({ id, level: node.depth, text })
+    })
     return items
+}
+
+/** The outline rows a TOC should show for the profile's depth / H1 settings. */
+export function filterPdfExportOutline(items: PdfExportOutlineItem[], maxDepth: number, excludeH1: boolean): PdfExportOutlineItem[] {
+    return items.filter((item) => item.level <= maxDepth && !(excludeH1 && item.level === 1))
 }

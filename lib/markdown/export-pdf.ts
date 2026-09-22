@@ -1,10 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { resolvePdfExportAssets } from '@/lib/markdown/export-assets'
-import { pdfPageSizeMm, pdfPrintMarginsMm } from '@/lib/markdown/export-html-css'
-import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type { PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/settings/pdf-export-types'
+import type { PdfExportDocument, PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, showError } from '@/lib/tauri/dialog'
 import { isWindowsTauri } from '@/lib/tauri/platform'
 
@@ -77,50 +75,30 @@ async function printExportHtml(html: string): Promise<void> {
     })
 }
 
-async function savePdfWithWebView2(html: string, outputPath: string, profile: PdfExportProfile, pageNumberFormat: string): Promise<void> {
-    const marginsMm = pdfPrintMarginsMm(profile)
-    const pageMm = pdfPageSizeMm(profile)
-    await invoke('export_html_to_pdf', {
-        html,
-        outputPath,
-        pageWidthMm: pageMm.width,
-        pageHeightMm: pageMm.height,
-        landscape: profile.page.orientation === 'landscape',
-        marginTopMm: marginsMm.top,
-        marginRightMm: marginsMm.right,
-        marginBottomMm: marginsMm.bottom,
-        marginLeftMm: marginsMm.left,
-        pageNumberFormat,
-        pageNumberColor: profile.footer.textColor.trim(),
-    })
+async function savePdfWithWebView2(html: string, outputPath: string, options: PdfPrintOptions): Promise<void> {
+    await invoke('export_html_to_pdf', { html, outputPath, options })
 }
 
+/** Resolves the profile's images, then builds the document the export and preview paths share. */
 export async function buildMarkdownExportHtml(
     source: string,
     tabName: string | undefined,
     options: ExportMarkdownToPdfOptions = {}
-): Promise<{ html: string; profile: PdfExportProfile; pageNumberFormat: string }> {
+): Promise<PdfExportDocument> {
     const profile = options.profile ?? createDefaultPdfExportProfile()
     const assets = await resolvePdfExportAssets(profile)
-    const html = await markdownToExportHtml(source, {
-        profile,
-        tabName,
-        overrides: options.overrides,
-        assets,
-    })
-    const { metadata } = resolvePdfExportMetadata(source, tabName, options.overrides)
-    return { html, profile, pageNumberFormat: pdfPageNumberFormat(profile, metadata) }
+    return markdownToExportHtml(source, { profile, tabName, overrides: options.overrides, assets })
 }
 
 export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownToPdfOptions = {}): Promise<void> {
     try {
-        const { html, profile, pageNumberFormat } = await buildMarkdownExportHtml(source, tabName, options)
+        const { html, print } = await buildMarkdownExportHtml(source, tabName, options)
         const filename = `${markdownExportBaseName(tabName)}.pdf`
 
         if (isWindowsTauri()) {
             const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
             if (!path) return
-            await savePdfWithWebView2(html, path, profile, pageNumberFormat)
+            await savePdfWithWebView2(html, path, print)
             return
         }
 

@@ -1,5 +1,5 @@
 import { isAppThemeId } from '@/lib/theme/catalog'
-import { createDefaultPdfExportProfile, createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
+import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
 import type {
     PdfExportChrome,
     PdfExportChromeSide,
@@ -20,23 +20,19 @@ const ORIENTATIONS: PdfPageOrientation[] = ['portrait', 'landscape']
 const HIDE_OPTIONS: PdfHideOnFirstPages[] = ['none', 'title', 'title+toc']
 const PAGE_NUMBER_FORMATS: PdfPageNumberFormat[] = ['none', 'number', 'page-n', 'n-of-total', 'custom']
 const CODE_THEMES: ShikiTheme[] = ['github-light', 'github-dark']
-export const MAX_CHROME_HEIGHT_MM = 60
+const TOC_DEPTHS: PdfTocDepth[] = [1, 2, 3, 4]
+const NEW_PAGE_LEVELS: PdfNewPageFromHeading[] = [0, 1, 2, 3, 4, 5, 6]
 
-function normalizeTocDepth(value: unknown, fallback: PdfTocDepth): PdfTocDepth {
-    if (value === 1 || value === 2 || value === 3 || value === 4) return value
-    if (value === '1' || value === '2' || value === '3' || value === '4') return Number(value) as PdfTocDepth
-    return fallback
+/** Small integer enums; accepts the number or its string form (older builds stored select values as strings). */
+function normalizeIntEnum<T extends number>(value: unknown, allowed: readonly T[], fallback: T): T {
+    const num = typeof value === 'string' ? Number(value) : value
+    return (allowed as readonly number[]).includes(num as number) ? (num as T) : fallback
 }
 
 function normalizeNewPageFromHeading(flow: Record<string, unknown> | null, fallback: PdfNewPageFromHeading): PdfNewPageFromHeading {
-    const raw = flow?.newPageFromHeading
-    if (raw === 0 || raw === 1 || raw === 2 || raw === 3 || raw === 4 || raw === 5 || raw === 6) return raw
-    if (raw === '0' || raw === '1' || raw === '2' || raw === '3' || raw === '4' || raw === '5' || raw === '6') {
-        return Number(raw) as PdfNewPageFromHeading
-    }
-    // Migrate legacy boolean
-    if (typeof flow?.h1StartsNewPage === 'boolean') return flow.h1StartsNewPage ? 1 : 0
-    return fallback
+    // Profiles from before the level picker stored a boolean; it only applies when no valid level is present.
+    const legacy = typeof flow?.h1StartsNewPage === 'boolean' ? ((flow.h1StartsNewPage ? 1 : 0) as PdfNewPageFromHeading) : fallback
+    return normalizeIntEnum(flow?.newPageFromHeading, NEW_PAGE_LEVELS, legacy)
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -52,7 +48,7 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
     return typeof value === 'boolean' ? value : fallback
 }
 
-function normalizeNumber(value: unknown, fallback: number, min: number, max: number): number {
+function normalizeNumber(value: unknown, fallback: number, { min, max }: { min: number; max: number }): number {
     if (typeof value !== 'number' || Number.isNaN(value)) return fallback
     return Math.min(max, Math.max(min, value))
 }
@@ -63,11 +59,12 @@ function normalizeEnum<T extends string>(value: unknown, allowed: readonly T[], 
 
 function normalizeMargins(raw: unknown, fallback: PdfExportProfile['page']['marginsMm']): PdfExportProfile['page']['marginsMm'] {
     const source = asRecord(raw)
+    const limits = PDF_EXPORT_LIMITS.marginMm
     return {
-        top: normalizeNumber(source?.top, fallback.top, 0, 50),
-        right: normalizeNumber(source?.right, fallback.right, 0, 50),
-        bottom: normalizeNumber(source?.bottom, fallback.bottom, 0, 50),
-        left: normalizeNumber(source?.left, fallback.left, 0, 50),
+        top: normalizeNumber(source?.top, fallback.top, limits),
+        right: normalizeNumber(source?.right, fallback.right, limits),
+        bottom: normalizeNumber(source?.bottom, fallback.bottom, limits),
+        left: normalizeNumber(source?.left, fallback.left, limits),
     }
 }
 
@@ -92,8 +89,8 @@ function normalizeChrome(raw: unknown, fallback: PdfExportChrome): PdfExportChro
         right: normalizeSide(source?.right, fallback.right),
         backgroundColor: normalizeString(source?.backgroundColor, fallback.backgroundColor),
         textColor: normalizeString(source?.textColor, fallback.textColor),
-        heightMm: normalizeNumber(source?.heightMm, fallback.heightMm, 0, MAX_CHROME_HEIGHT_MM),
-        gapMm: normalizeNumber(source?.gapMm, fallback.gapMm, 0, MAX_CHROME_HEIGHT_MM),
+        heightMm: normalizeNumber(source?.heightMm, fallback.heightMm, PDF_EXPORT_LIMITS.chromeMm),
+        gapMm: normalizeNumber(source?.gapMm, fallback.gapMm, PDF_EXPORT_LIMITS.chromeMm),
         ignoreMargins: normalizeBoolean(source?.ignoreMargins, fallback.ignoreMargins),
         hideOnFirstPages: normalizeEnum(source?.hideOnFirstPages, HIDE_OPTIONS, fallback.hideOnFirstPages),
     }
@@ -134,8 +131,8 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             headingFont: normalizeString(typography?.headingFont, fallback.typography.headingFont),
             bodyFont: normalizeString(typography?.bodyFont, fallback.typography.bodyFont),
             monoFont: normalizeString(typography?.monoFont, fallback.typography.monoFont),
-            bodySizePt: normalizeNumber(typography?.bodySizePt, fallback.typography.bodySizePt, 8, 24),
-            lineHeight: normalizeNumber(typography?.lineHeight, fallback.typography.lineHeight, 1, 2.5),
+            bodySizePt: normalizeNumber(typography?.bodySizePt, fallback.typography.bodySizePt, PDF_EXPORT_LIMITS.bodySizePt),
+            lineHeight: normalizeNumber(typography?.lineHeight, fallback.typography.lineHeight, PDF_EXPORT_LIMITS.lineHeight),
         },
         brand: {
             accentColor: normalizeString(brand?.accentColor, fallback.brand.accentColor),
@@ -146,7 +143,7 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
         frontMatter: {
             titlePage: typeof frontMatter?.titlePage === 'boolean' ? frontMatter.titlePage : fallback.frontMatter.titlePage,
             toc: typeof frontMatter?.toc === 'boolean' ? frontMatter.toc : fallback.frontMatter.toc,
-            tocDepth: normalizeTocDepth(frontMatter?.tocDepth, fallback.frontMatter.tocDepth),
+            tocDepth: normalizeIntEnum(frontMatter?.tocDepth, TOC_DEPTHS, fallback.frontMatter.tocDepth),
             tocExcludeH1: typeof frontMatter?.tocExcludeH1 === 'boolean' ? frontMatter.tocExcludeH1 : fallback.frontMatter.tocExcludeH1,
         },
         header: normalizeChrome(source.header, fallback.header),

@@ -115,3 +115,29 @@ export type PdfExportResolvedAssets = {
     header: PdfExportResolvedChromeImages
     footer: PdfExportResolvedChromeImages
 }
+
+/**
+ * Everything the print engine needs alongside the HTML. Field names mirror
+ * `PdfPrintOptions` in `src-tauri/src/pdf_export.rs` (camelCase over the wire).
+ */
+export type PdfPrintOptions = {
+    /** Portrait sheet size; `landscape` rotates it. */
+    pageWidthMm: number
+    pageHeightMm: number
+    landscape: boolean
+    marginTopMm: number
+    marginRightMm: number
+    marginBottomMm: number
+    marginLeftMm: number
+    /** Stamper format: a preset name, `custom:<template>`, or `none`. */
+    pageNumberFormat: string
+    /** Hex colour for the stamped label; empty for the default chrome colour. */
+    pageNumberColor: string
+}
+
+/** The branded document plus what the printer needs to turn it into a PDF, produced by one call. */
+export type PdfExportDocument = {
+    html: string
+    metadata: PdfExportMetadata
+    print: PdfPrintOptions
+}

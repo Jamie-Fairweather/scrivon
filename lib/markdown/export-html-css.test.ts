@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPdfExportCss, pdfPageSizeMm, pdfPrintMarginsMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
+import { buildPdfExportCss, pdfPageSizeMm, pdfPrintMarginsMm, resolvePdfExportLayout, resolvePdfPrintOptions } from '@/lib/markdown/export-html-css'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 
 describe('buildPdfExportCss', () => {
@@ -94,6 +94,30 @@ describe('buildPdfExportCss', () => {
         profile.page.size = 'letter'
         profile.page.orientation = 'landscape'
         expect(pdfPageSizeMm(profile)).toEqual({ width: 215.9, height: 279.4 })
+    })
+
+    it('hands custom counting templates to the stamper with document placeholders filled', () => {
+        const metadata = { title: 'Spec', subtitle: '', author: '', date: '' }
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
+        expect(resolvePdfPrintOptions(profile, metadata).pageNumberFormat).toBe('custom:Spec · {{page}}/{{total}}')
+
+        // Static custom text is ordinary footer HTML; nothing for the stamper to do.
+        profile.footer.right.text = 'Confidential'
+        expect(resolvePdfPrintOptions(profile, metadata).pageNumberFormat).toBe('none')
+
+        profile.footer.pageNumbers = 'n-of-total'
+        profile.footer.textColor = ' #ff0000 '
+        expect(resolvePdfPrintOptions(profile, metadata)).toMatchObject({ pageNumberFormat: 'n-of-total', pageNumberColor: '#ff0000' })
+    })
+
+    it('zeroes the print margins when the css emulates them', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header.enabled = true
+        profile.header.ignoreMargins = true
+        const options = resolvePdfPrintOptions(profile, { title: '', subtitle: '', author: '', date: '' })
+        expect(options).toMatchObject({ marginTopMm: 0, marginRightMm: 0, marginBottomMm: 0, marginLeftMm: 0, landscape: false })
     })
 
     it('prints with zero margins and emulates them when the header bleeds', () => {

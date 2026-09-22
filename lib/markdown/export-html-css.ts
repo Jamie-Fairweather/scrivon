@@ -1,4 +1,5 @@
-import type { PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading } from '@/lib/settings/pdf-export-types'
+import { pdfPageNumberFormat } from '@/lib/markdown/export-metadata'
+import type { PdfExportMetadata, PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { getDiagramColors } from '@/lib/theme/catalog'
 
 export type PdfExportLayout = {
@@ -47,6 +48,23 @@ export function pdfPageSizeMm(profile: PdfExportProfile): { width: number; heigh
 export function pdfPrintMarginsMm(profile: PdfExportProfile): PdfMarginsMm {
     if (resolvePdfExportLayout(profile).bleed) return { top: 0, right: 0, bottom: 0, left: 0 }
     return { ...profile.page.marginsMm }
+}
+
+/** Print-engine settings that must agree with the CSS `@page` rules and footer markers this module emits. */
+export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfExportMetadata): PdfPrintOptions {
+    const page = pdfPageSizeMm(profile)
+    const margins = pdfPrintMarginsMm(profile)
+    return {
+        pageWidthMm: page.width,
+        pageHeightMm: page.height,
+        landscape: profile.page.orientation === 'landscape',
+        marginTopMm: margins.top,
+        marginRightMm: margins.right,
+        marginBottomMm: margins.bottom,
+        marginLeftMm: margins.left,
+        pageNumberFormat: pdfPageNumberFormat(profile, metadata),
+        pageNumberColor: profile.footer.textColor.trim(),
+    }
 }
 
 /**

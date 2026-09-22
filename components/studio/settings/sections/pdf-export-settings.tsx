@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { APP_THEME_IDS, APP_THEME_LABELS } from '@/lib/theme/catalog'
+import { APP_THEME_IDS, APP_THEME_LABELS, type AppThemeId } from '@/lib/theme/catalog'
 import {
     createPdfExportProfile,
     deletePdfExportProfile,
@@ -11,11 +11,14 @@ import {
     setActivePdfExportProfile,
     updatePdfExportProfile,
 } from '@/lib/settings/pdf-export-profiles'
+import { PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
 import { ensureFontOption, loadPdfExportFontOptions, PDF_EXPORT_FONT_OPTIONS, type PdfExportFontOption } from '@/lib/settings/pdf-export-fonts'
-import { MAX_CHROME_HEIGHT_MM } from '@/lib/settings/pdf-export-normalize'
 import type {
+    PdfExportChrome,
     PdfExportChromeSide,
+    PdfExportFooter,
     PdfExportProfile,
+    PdfExportSettings as PdfExportSettingsValue,
     PdfHideOnFirstPages,
     PdfNewPageFromHeading,
     PdfPageNumberFormat,
@@ -23,27 +26,60 @@ import type {
     PdfPageSize,
     PdfTocDepth,
 } from '@/lib/settings/pdf-export-types'
+import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
 import { ColorField } from '@/components/studio/settings/color-field'
-import { PathField } from '@/components/studio/settings/path-field'
+import { ImagePathField } from '@/components/studio/settings/image-path-field'
+import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 
-function patchProfile(
-    updateSettings: ReturnType<typeof useAppSettings>['updateSettings'],
-    profileId: string,
-    updater: (profile: PdfExportProfile) => PdfExportProfile
-) {
-    updateSettings((current) => ({
-        ...current,
-        pdfExport: updatePdfExportProfile(current.pdfExport, profileId, updater),
-    }))
-}
+const PAGE_SIZE_OPTIONS: SelectOption<PdfPageSize>[] = [
+    { label: 'A4', value: 'a4' },
+    { label: 'Letter', value: 'letter' },
+]
+const ORIENTATION_OPTIONS: SelectOption<PdfPageOrientation>[] = [
+    { label: 'Portrait', value: 'portrait' },
+    { label: 'Landscape', value: 'landscape' },
+]
+const MARGIN_SIDES = ['top', 'right', 'bottom', 'left'] as const
+const TOC_DEPTH_OPTIONS: SelectOption<`${PdfTocDepth}`>[] = [
+    { label: 'H1', value: '1' },
+    { label: 'H1–H2', value: '2' },
+    { label: 'H1–H3', value: '3' },
+    { label: 'H1–H4', value: '4' },
+]
+const NEW_PAGE_OPTIONS: SelectOption<`${PdfNewPageFromHeading}`>[] = [
+    { label: 'Off', value: '0' },
+    { label: 'H1', value: '1' },
+    { label: 'H2 and above', value: '2' },
+    { label: 'H3 and above', value: '3' },
+    { label: 'H4 and above', value: '4' },
+    { label: 'H5 and above', value: '5' },
+    { label: 'H6 and above', value: '6' },
+]
+const CODE_THEME_OPTIONS: SelectOption<ShikiTheme>[] = [
+    { label: 'GitHub Light', value: 'github-light' },
+    { label: 'GitHub Dark', value: 'github-dark' },
+]
+const DIAGRAM_THEME_OPTIONS: SelectOption<AppThemeId>[] = APP_THEME_IDS.map((id) => ({ label: APP_THEME_LABELS[id], value: id }))
+const HIDE_ON_OPTIONS: SelectOption<PdfHideOnFirstPages>[] = [
+    { label: 'None', value: 'none' },
+    { label: 'Title page', value: 'title' },
+    { label: 'Title page + TOC', value: 'title+toc' },
+]
+const PAGE_NUMBER_OPTIONS: SelectOption<PdfPageNumberFormat>[] = [
+    { label: 'None', value: 'none' },
+    { label: 'Number', value: 'number' },
+    { label: 'Page N', value: 'page-n' },
+    { label: 'N / total', value: 'n-of-total' },
+    { label: 'Custom text', value: 'custom' },
+]
+
+type ProfileSection = Exclude<keyof PdfExportProfile, 'id' | 'name'>
 
 function FontSelect({
     id,
@@ -57,20 +93,14 @@ function FontSelect({
     onChange: (value: string) => void
 }) {
     const items = useMemo(() => ensureFontOption(options, value), [options, value])
-
     return (
-        <Select items={items} value={value} onValueChange={(next) => next && onChange(next)}>
-            <SelectTrigger id={id}>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectPopup>
-                {items.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                        <span style={{ fontFamily: option.value }}>{option.label}</span>
-                    </SelectItem>
-                ))}
-            </SelectPopup>
-        </Select>
+        <OptionSelect
+            id={id}
+            value={value}
+            options={items}
+            onChange={onChange}
+            renderOption={(option) => <span style={{ fontFamily: option.value }}>{option.label}</span>}
+        />
     )
 }
 
@@ -90,52 +120,34 @@ export function PdfExportSettings() {
         }
     }, [])
 
+    const setPdf = (update: (pdf: PdfExportSettingsValue) => PdfExportSettingsValue) =>
+        updateSettings((current) => ({ ...current, pdfExport: update(current.pdfExport) }))
+    const patch = (update: (profile: PdfExportProfile) => PdfExportProfile) => setPdf((current) => updatePdfExportProfile(current, active.id, update))
+    /** Merge `changes` into one section of the active profile. */
+    const setSection = <K extends ProfileSection>(key: K, changes: Partial<PdfExportProfile[K]>) =>
+        patch((profile) => ({ ...profile, [key]: { ...profile[key], ...changes } }))
+
     return (
         <div className="space-y-6">
             <Field>
                 <FieldLabel htmlFor="pdf-profile">Profile</FieldLabel>
                 <FieldDescription>Named export styles for branded PDFs.</FieldDescription>
                 <div className="flex flex-wrap gap-2">
-                    <Select
-                        items={pdf.profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
+                    <OptionSelect
+                        id="pdf-profile"
+                        className="min-w-48 flex-1"
                         value={pdf.activeProfileId}
-                        onValueChange={(value) => {
-                            if (!value) return
-                            updateSettings((current) => ({
-                                ...current,
-                                pdfExport: setActivePdfExportProfile(current.pdfExport, value),
-                            }))
-                        }}
-                    >
-                        <SelectTrigger id="pdf-profile" className="min-w-48 flex-1">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectPopup>
-                            {pdf.profiles.map((profile) => (
-                                <SelectItem key={profile.id} value={profile.id}>
-                                    {profile.name}
-                                </SelectItem>
-                            ))}
-                        </SelectPopup>
-                    </Select>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateSettings((current) => ({ ...current, pdfExport: createPdfExportProfile(current.pdfExport) }))}
-                    >
+                        options={pdf.profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
+                        onChange={(id) => setPdf((current) => setActivePdfExportProfile(current, id))}
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={() => setPdf(createPdfExportProfile)}>
                         New
                     </Button>
                     <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                            updateSettings((current) => ({
-                                ...current,
-                                pdfExport: duplicatePdfExportProfile(current.pdfExport, current.pdfExport.activeProfileId),
-                            }))
-                        }
+                        onClick={() => setPdf((current) => duplicatePdfExportProfile(current, current.activeProfileId))}
                     >
                         Duplicate
                     </Button>
@@ -144,12 +156,7 @@ export function PdfExportSettings() {
                         variant="outline"
                         size="sm"
                         disabled={pdf.profiles.length <= 1}
-                        onClick={() =>
-                            updateSettings((current) => ({
-                                ...current,
-                                pdfExport: deletePdfExportProfile(current.pdfExport, current.pdfExport.activeProfileId),
-                            }))
-                        }
+                        onClick={() => setPdf((current) => deletePdfExportProfile(current, current.activeProfileId))}
                     >
                         Delete
                     </Button>
@@ -161,96 +168,43 @@ export function PdfExportSettings() {
                 <Input
                     id="pdf-profile-name"
                     value={active.name}
-                    onChange={(event) =>
-                        updateSettings((current) => ({
-                            ...current,
-                            pdfExport: renamePdfExportProfile(current.pdfExport, active.id, event.target.value),
-                        }))
-                    }
+                    onChange={(event) => setPdf((current) => renamePdfExportProfile(current, active.id, event.target.value))}
                 />
             </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                     <FieldLabel htmlFor="pdf-page-size">Page size</FieldLabel>
-                    <Select
-                        items={[
-                            { label: 'A4', value: 'a4' },
-                            { label: 'Letter', value: 'letter' },
-                        ]}
+                    <OptionSelect
+                        id="pdf-page-size"
                         value={active.page.size}
-                        onValueChange={(value) => {
-                            if (!value) return
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                page: { ...profile.page, size: value as PdfPageSize },
-                            }))
-                        }}
-                    >
-                        <SelectTrigger id="pdf-page-size">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectPopup>
-                            <SelectItem value="a4">A4</SelectItem>
-                            <SelectItem value="letter">Letter</SelectItem>
-                        </SelectPopup>
-                    </Select>
+                        options={PAGE_SIZE_OPTIONS}
+                        onChange={(size) => setSection('page', { size })}
+                    />
                 </Field>
                 <Field>
                     <FieldLabel htmlFor="pdf-orientation">Orientation</FieldLabel>
-                    <Select
-                        items={[
-                            { label: 'Portrait', value: 'portrait' },
-                            { label: 'Landscape', value: 'landscape' },
-                        ]}
+                    <OptionSelect
+                        id="pdf-orientation"
                         value={active.page.orientation}
-                        onValueChange={(value) => {
-                            if (!value) return
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                page: { ...profile.page, orientation: value as PdfPageOrientation },
-                            }))
-                        }}
-                    >
-                        <SelectTrigger id="pdf-orientation">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectPopup>
-                            <SelectItem value="portrait">Portrait</SelectItem>
-                            <SelectItem value="landscape">Landscape</SelectItem>
-                        </SelectPopup>
-                    </Select>
+                        options={ORIENTATION_OPTIONS}
+                        onChange={(orientation) => setSection('page', { orientation })}
+                    />
                 </Field>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-                {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
-                    <Field key={side}>
-                        <FieldLabel htmlFor={`pdf-margin-${side}`}>Margin {side} (mm)</FieldLabel>
-                        <NumberField
-                            id={`pdf-margin-${side}`}
-                            value={active.page.marginsMm[side]}
-                            min={0}
-                            max={50}
-                            step={1}
-                            onValueChange={(value) => {
-                                if (value == null) return
-                                patchProfile(updateSettings, active.id, (profile) => ({
-                                    ...profile,
-                                    page: {
-                                        ...profile.page,
-                                        marginsMm: { ...profile.page.marginsMm, [side]: value },
-                                    },
-                                }))
-                            }}
-                        >
-                            <NumberFieldGroup>
-                                <NumberFieldDecrement />
-                                <NumberFieldInput />
-                                <NumberFieldIncrement />
-                            </NumberFieldGroup>
-                        </NumberField>
-                    </Field>
+                {MARGIN_SIDES.map((side) => (
+                    <NumberSetting
+                        key={side}
+                        id={`pdf-margin-${side}`}
+                        label={`Margin ${side} (mm)`}
+                        value={active.page.marginsMm[side]}
+                        {...PDF_EXPORT_LIMITS.marginMm}
+                        onChange={(value) =>
+                            patch((profile) => ({ ...profile, page: { ...profile.page, marginsMm: { ...profile.page.marginsMm, [side]: value } } }))
+                        }
+                    />
                 ))}
             </div>
 
@@ -260,12 +214,7 @@ export function PdfExportSettings() {
                     id="pdf-heading-font"
                     value={active.typography.headingFont}
                     options={fontOptions}
-                    onChange={(headingFont) =>
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            typography: { ...profile.typography, headingFont },
-                        }))
-                    }
+                    onChange={(headingFont) => setSection('typography', { headingFont })}
                 />
             </Field>
             <Field>
@@ -274,12 +223,7 @@ export function PdfExportSettings() {
                     id="pdf-body-font"
                     value={active.typography.bodyFont}
                     options={fontOptions}
-                    onChange={(bodyFont) =>
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            typography: { ...profile.typography, bodyFont },
-                        }))
-                    }
+                    onChange={(bodyFont) => setSection('typography', { bodyFont })}
                 />
             </Field>
             <Field>
@@ -288,77 +232,31 @@ export function PdfExportSettings() {
                     id="pdf-mono-font"
                     value={active.typography.monoFont}
                     options={fontOptions}
-                    onChange={(monoFont) =>
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            typography: { ...profile.typography, monoFont },
-                        }))
-                    }
+                    onChange={(monoFont) => setSection('typography', { monoFont })}
                 />
             </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                    <FieldLabel htmlFor="pdf-body-size">Body size (pt)</FieldLabel>
-                    <NumberField
-                        id="pdf-body-size"
-                        value={active.typography.bodySizePt}
-                        min={8}
-                        max={24}
-                        step={0.5}
-                        onValueChange={(value) => {
-                            if (value == null) return
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                typography: { ...profile.typography, bodySizePt: value },
-                            }))
-                        }}
-                    >
-                        <NumberFieldGroup>
-                            <NumberFieldDecrement />
-                            <NumberFieldInput />
-                            <NumberFieldIncrement />
-                        </NumberFieldGroup>
-                    </NumberField>
-                </Field>
-                <Field>
-                    <FieldLabel htmlFor="pdf-line-height">Line height</FieldLabel>
-                    <NumberField
-                        id="pdf-line-height"
-                        value={active.typography.lineHeight}
-                        min={1}
-                        max={2.5}
-                        step={0.1}
-                        onValueChange={(value) => {
-                            if (value == null) return
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                typography: { ...profile.typography, lineHeight: value },
-                            }))
-                        }}
-                    >
-                        <NumberFieldGroup>
-                            <NumberFieldDecrement />
-                            <NumberFieldInput />
-                            <NumberFieldIncrement />
-                        </NumberFieldGroup>
-                    </NumberField>
-                </Field>
+                <NumberSetting
+                    id="pdf-body-size"
+                    label="Body size (pt)"
+                    value={active.typography.bodySizePt}
+                    {...PDF_EXPORT_LIMITS.bodySizePt}
+                    onChange={(bodySizePt) => setSection('typography', { bodySizePt })}
+                />
+                <NumberSetting
+                    id="pdf-line-height"
+                    label="Line height"
+                    value={active.typography.lineHeight}
+                    {...PDF_EXPORT_LIMITS.lineHeight}
+                    onChange={(lineHeight) => setSection('typography', { lineHeight })}
+                />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                     <FieldLabel htmlFor="pdf-accent">Brand colour</FieldLabel>
-                    <ColorField
-                        id="pdf-accent"
-                        value={active.brand.accentColor}
-                        onChange={(accentColor) =>
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                brand: { ...profile.brand, accentColor },
-                            }))
-                        }
-                    />
+                    <ColorField id="pdf-accent" value={active.brand.accentColor} onChange={(accentColor) => setSection('brand', { accentColor })} />
                 </Field>
                 <Field>
                     <FieldLabel htmlFor="pdf-link">Link colour (optional)</FieldLabel>
@@ -367,232 +265,90 @@ export function PdfExportSettings() {
                         value={active.brand.linkColor}
                         placeholder="Falls back to brand"
                         allowEmpty
-                        onChange={(linkColor) =>
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                brand: { ...profile.brand, linkColor },
-                            }))
-                        }
+                        onChange={(linkColor) => setSection('brand', { linkColor })}
                     />
                 </Field>
             </div>
 
             <Field>
                 <FieldLabel htmlFor="pdf-logo">Title-page logo</FieldLabel>
-                <PathField
+                <ImagePathField
                     id="pdf-logo"
                     value={active.brand.logoPath}
                     title="Choose title-page logo"
-                    placeholder="Choose an image"
-                    onChange={(logoPath) =>
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            brand: { ...profile.brand, logoPath },
-                        }))
-                    }
+                    onChange={(logoPath) => setSection('brand', { logoPath })}
                 />
             </Field>
 
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <div>
-                        <FieldLabel>Title-page image ignores margins</FieldLabel>
-                        <FieldDescription>Stretch the image to the page edges as a full-bleed cover banner.</FieldDescription>
-                    </div>
-                    <Switch
-                        checked={active.brand.logoIgnoreMargins}
-                        onCheckedChange={(checked) =>
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                brand: { ...profile.brand, logoIgnoreMargins: checked === true },
-                            }))
-                        }
-                    />
-                </div>
-            </Field>
-
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <div>
-                        <FieldLabel>Title page</FieldLabel>
-                        <FieldDescription>Include a cover page with title metadata and logo.</FieldDescription>
-                    </div>
-                    <Switch
-                        checked={active.frontMatter.titlePage}
-                        onCheckedChange={(checked) =>
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                frontMatter: { ...profile.frontMatter, titlePage: checked === true },
-                            }))
-                        }
-                    />
-                </div>
-            </Field>
-
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <div>
-                        <FieldLabel>Table of contents</FieldLabel>
-                        <FieldDescription>Generate a TOC from headings.</FieldDescription>
-                    </div>
-                    <Switch
-                        checked={active.frontMatter.toc}
-                        onCheckedChange={(checked) =>
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                frontMatter: { ...profile.frontMatter, toc: checked === true },
-                            }))
-                        }
-                    />
-                </div>
-            </Field>
+            <SwitchSetting
+                label="Title-page image ignores margins"
+                description="Stretch the image to the page edges as a full-bleed cover banner."
+                checked={active.brand.logoIgnoreMargins}
+                onChange={(logoIgnoreMargins) => setSection('brand', { logoIgnoreMargins })}
+            />
+            <SwitchSetting
+                label="Title page"
+                description="Include a cover page with title metadata and logo."
+                checked={active.frontMatter.titlePage}
+                onChange={(titlePage) => setSection('frontMatter', { titlePage })}
+            />
+            <SwitchSetting
+                label="Table of contents"
+                description="Generate a TOC from headings."
+                checked={active.frontMatter.toc}
+                onChange={(toc) => setSection('frontMatter', { toc })}
+            />
 
             <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                     <FieldLabel htmlFor="pdf-toc-depth">TOC depth</FieldLabel>
-                    <Select
-                        items={[
-                            { label: 'H1', value: '1' },
-                            { label: 'H1–H2', value: '2' },
-                            { label: 'H1–H3', value: '3' },
-                            { label: 'H1–H4', value: '4' },
-                        ]}
-                        value={String(active.frontMatter.tocDepth)}
-                        onValueChange={(value) => {
-                            if (!value) return
-                            patchProfile(updateSettings, active.id, (profile) => ({
-                                ...profile,
-                                frontMatter: { ...profile.frontMatter, tocDepth: Number(value) as PdfTocDepth },
-                            }))
-                        }}
-                    >
-                        <SelectTrigger id="pdf-toc-depth">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectPopup>
-                            <SelectItem value="1">H1</SelectItem>
-                            <SelectItem value="2">H1–H2</SelectItem>
-                            <SelectItem value="3">H1–H3</SelectItem>
-                            <SelectItem value="4">H1–H4</SelectItem>
-                        </SelectPopup>
-                    </Select>
+                    <OptionSelect
+                        id="pdf-toc-depth"
+                        value={`${active.frontMatter.tocDepth}`}
+                        options={TOC_DEPTH_OPTIONS}
+                        onChange={(depth) => setSection('frontMatter', { tocDepth: Number(depth) as PdfTocDepth })}
+                    />
                 </Field>
-                <Field>
-                    <div className="flex h-full items-center justify-between gap-4 pt-6">
-                        <FieldLabel>Exclude H1 from TOC</FieldLabel>
-                        <Switch
-                            checked={active.frontMatter.tocExcludeH1}
-                            onCheckedChange={(checked) =>
-                                patchProfile(updateSettings, active.id, (profile) => ({
-                                    ...profile,
-                                    frontMatter: { ...profile.frontMatter, tocExcludeH1: checked === true },
-                                }))
-                            }
-                        />
-                    </div>
-                </Field>
+                <SwitchSetting
+                    label="Exclude H1 from TOC"
+                    className="h-full pt-6"
+                    checked={active.frontMatter.tocExcludeH1}
+                    onChange={(tocExcludeH1) => setSection('frontMatter', { tocExcludeH1 })}
+                />
             </div>
 
-            <ChromeFields
-                title="Header"
-                chrome={active.header}
-                onChange={(header) => patchProfile(updateSettings, active.id, (profile) => ({ ...profile, header }))}
-            />
-            <ChromeFields
-                title="Footer"
-                chrome={active.footer}
-                showPageNumbers
-                onChange={(footer) => patchProfile(updateSettings, active.id, (profile) => ({ ...profile, footer }))}
-            />
+            <ChromeFields title="Header" chrome={active.header} onChange={(header) => setSection('header', header)} />
+            <ChromeFields title="Footer" chrome={active.footer} onChange={(footer) => setSection('footer', footer)} />
 
             <Field>
                 <FieldLabel htmlFor="pdf-new-page-heading">New page from heading</FieldLabel>
                 <FieldDescription>That level and every heading above it start on a fresh page.</FieldDescription>
-                <Select
-                    items={[
-                        { label: 'Off', value: '0' },
-                        { label: 'H1', value: '1' },
-                        { label: 'H2 and above', value: '2' },
-                        { label: 'H3 and above', value: '3' },
-                        { label: 'H4 and above', value: '4' },
-                        { label: 'H5 and above', value: '5' },
-                        { label: 'H6 and above', value: '6' },
-                    ]}
-                    value={String(active.flow.newPageFromHeading)}
-                    onValueChange={(value) => {
-                        if (!value) return
-                        const level = Number(value) as PdfNewPageFromHeading
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            flow: { newPageFromHeading: level },
-                        }))
-                    }}
-                >
-                    <SelectTrigger id="pdf-new-page-heading">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        <SelectItem value="0">Off</SelectItem>
-                        <SelectItem value="1">H1</SelectItem>
-                        <SelectItem value="2">H2 and above</SelectItem>
-                        <SelectItem value="3">H3 and above</SelectItem>
-                        <SelectItem value="4">H4 and above</SelectItem>
-                        <SelectItem value="5">H5 and above</SelectItem>
-                        <SelectItem value="6">H6 and above</SelectItem>
-                    </SelectPopup>
-                </Select>
+                <OptionSelect
+                    id="pdf-new-page-heading"
+                    value={`${active.flow.newPageFromHeading}`}
+                    options={NEW_PAGE_OPTIONS}
+                    onChange={(level) => setSection('flow', { newPageFromHeading: Number(level) as PdfNewPageFromHeading })}
+                />
             </Field>
 
             <Field>
                 <FieldLabel htmlFor="pdf-code-theme">Code theme</FieldLabel>
-                <Select
-                    items={[
-                        { label: 'GitHub Light', value: 'github-light' },
-                        { label: 'GitHub Dark', value: 'github-dark' },
-                    ]}
+                <OptionSelect
+                    id="pdf-code-theme"
                     value={active.content.codeTheme}
-                    onValueChange={(value) => {
-                        if (!value) return
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            content: { ...profile.content, codeTheme: value as ShikiTheme },
-                        }))
-                    }}
-                >
-                    <SelectTrigger id="pdf-code-theme">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        <SelectItem value="github-light">GitHub Light</SelectItem>
-                        <SelectItem value="github-dark">GitHub Dark</SelectItem>
-                    </SelectPopup>
-                </Select>
+                    options={CODE_THEME_OPTIONS}
+                    onChange={(codeTheme) => setSection('content', { codeTheme })}
+                />
             </Field>
 
             <Field>
                 <FieldLabel htmlFor="pdf-mermaid-theme">Diagram theme</FieldLabel>
-                <Select
-                    items={APP_THEME_IDS.map((id) => ({ label: APP_THEME_LABELS[id], value: id }))}
+                <OptionSelect
+                    id="pdf-mermaid-theme"
                     value={active.content.mermaidThemeId}
-                    onValueChange={(value) => {
-                        if (!value) return
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            content: { ...profile.content, mermaidThemeId: value as PdfExportProfile['content']['mermaidThemeId'] },
-                        }))
-                    }}
-                >
-                    <SelectTrigger id="pdf-mermaid-theme">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        {APP_THEME_IDS.map((id) => (
-                            <SelectItem key={id} value={id}>
-                                {APP_THEME_LABELS[id]}
-                            </SelectItem>
-                        ))}
-                    </SelectPopup>
-                </Select>
+                    options={DIAGRAM_THEME_OPTIONS}
+                    onChange={(mermaidThemeId) => setSection('content', { mermaidThemeId })}
+                />
             </Field>
 
             <Field>
@@ -601,52 +357,42 @@ export function PdfExportSettings() {
                     id="pdf-watermark"
                     value={active.content.watermark}
                     placeholder="e.g. DRAFT"
-                    onChange={(event) =>
-                        patchProfile(updateSettings, active.id, (profile) => ({
-                            ...profile,
-                            content: { ...profile.content, watermark: event.target.value },
-                        }))
-                    }
+                    onChange={(event) => setSection('content', { watermark: event.target.value })}
                 />
             </Field>
         </div>
     )
 }
 
-function ChromeFields<T extends PdfExportProfile['header'] | PdfExportProfile['footer']>({
+function ChromeFields({
     title,
     chrome,
-    showPageNumbers,
     onChange,
 }: {
     title: string
-    chrome: T
-    showPageNumbers?: boolean
-    onChange: (chrome: T) => void
+    chrome: PdfExportChrome | PdfExportFooter
+    /** Only the footer ever receives `pageNumbers`. */
+    onChange: (changes: Partial<PdfExportFooter>) => void
 }) {
+    const lower = title.toLowerCase()
     return (
         <div className="space-y-4 rounded-lg border border-border p-3">
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <FieldLabel>{title}</FieldLabel>
-                    <Switch checked={chrome.enabled} onCheckedChange={(checked) => onChange({ ...chrome, enabled: checked === true })} />
-                </div>
-            </Field>
+            <SwitchSetting label={title} checked={chrome.enabled} onChange={(enabled) => onChange({ enabled })} />
             <p className="text-sm text-muted-foreground">Images always sit outermost, nearest the page edge.</p>
             <div className="grid gap-4 sm:grid-cols-2">
-                <ChromeSideFields side="Left" title={title} value={chrome.left} onChange={(left) => onChange({ ...chrome, left })} />
+                <ChromeSideFields side="Left" title={title} value={chrome.left} onChange={(left) => onChange({ left })} />
                 <ChromeSideFields
                     side="Right"
                     title={title}
                     value={chrome.right}
-                    onChange={(right) => onChange({ ...chrome, right })}
+                    onChange={(right) => onChange({ right })}
                     text={
-                        showPageNumbers && 'pageNumbers' in chrome ? (
+                        'pageNumbers' in chrome ? (
                             <FooterRightText
                                 format={chrome.pageNumbers}
                                 text={chrome.right.text}
-                                onFormatChange={(pageNumbers) => onChange({ ...chrome, pageNumbers })}
-                                onTextChange={(text) => onChange({ ...chrome, right: { ...chrome.right, text } })}
+                                onFormatChange={(pageNumbers) => onChange({ pageNumbers })}
+                                onTextChange={(text) => onChange({ right: { ...chrome.right, text } })}
                             />
                         ) : undefined
                     }
@@ -659,93 +405,43 @@ function ChromeFields<T extends PdfExportProfile['header'] | PdfExportProfile['f
                         value={chrome.backgroundColor}
                         placeholder="Transparent"
                         allowEmpty
-                        onChange={(backgroundColor) => onChange({ ...chrome, backgroundColor })}
+                        onChange={(backgroundColor) => onChange({ backgroundColor })}
                     />
                 </Field>
                 <Field>
                     <FieldLabel>Font colour</FieldLabel>
-                    <ColorField
-                        value={chrome.textColor}
-                        placeholder="Default"
-                        allowEmpty
-                        onChange={(textColor) => onChange({ ...chrome, textColor })}
-                    />
+                    <ColorField value={chrome.textColor} placeholder="Default" allowEmpty onChange={(textColor) => onChange({ textColor })} />
                 </Field>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                    <FieldLabel>Height (mm)</FieldLabel>
-                    <FieldDescription>0 fits the content.</FieldDescription>
-                    <NumberField
-                        value={chrome.heightMm}
-                        min={0}
-                        max={MAX_CHROME_HEIGHT_MM}
-                        step={1}
-                        onValueChange={(value) => {
-                            if (value == null) return
-                            onChange({ ...chrome, heightMm: value })
-                        }}
-                    >
-                        <NumberFieldGroup>
-                            <NumberFieldDecrement />
-                            <NumberFieldInput />
-                            <NumberFieldIncrement />
-                        </NumberFieldGroup>
-                    </NumberField>
-                </Field>
-                <Field>
-                    <FieldLabel>Gap to content (mm)</FieldLabel>
-                    <FieldDescription>Space between the {title.toLowerCase()} and the body.</FieldDescription>
-                    <NumberField
-                        value={chrome.gapMm}
-                        min={0}
-                        max={MAX_CHROME_HEIGHT_MM}
-                        step={1}
-                        onValueChange={(value) => {
-                            if (value == null) return
-                            onChange({ ...chrome, gapMm: value })
-                        }}
-                    >
-                        <NumberFieldGroup>
-                            <NumberFieldDecrement />
-                            <NumberFieldInput />
-                            <NumberFieldIncrement />
-                        </NumberFieldGroup>
-                    </NumberField>
-                </Field>
+                <NumberSetting
+                    label="Height (mm)"
+                    description="0 fits the content."
+                    value={chrome.heightMm}
+                    {...PDF_EXPORT_LIMITS.chromeMm}
+                    onChange={(heightMm) => onChange({ heightMm })}
+                />
+                <NumberSetting
+                    label="Gap to content (mm)"
+                    description={`Space between the ${lower} and the body.`}
+                    value={chrome.gapMm}
+                    {...PDF_EXPORT_LIMITS.chromeMm}
+                    onChange={(gapMm) => onChange({ gapMm })}
+                />
             </div>
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <div>
-                        <FieldLabel>Ignore margins</FieldLabel>
-                        <FieldDescription>Bleed to the page edge.</FieldDescription>
-                    </div>
-                    <Switch checked={chrome.ignoreMargins} onCheckedChange={(checked) => onChange({ ...chrome, ignoreMargins: checked === true })} />
-                </div>
-            </Field>
+            <SwitchSetting
+                label="Ignore margins"
+                description="Bleed to the page edge."
+                checked={chrome.ignoreMargins}
+                onChange={(ignoreMargins) => onChange({ ignoreMargins })}
+            />
             <Field>
                 <FieldLabel>Hide on</FieldLabel>
-                <Select
-                    items={[
-                        { label: 'None', value: 'none' },
-                        { label: 'Title page', value: 'title' },
-                        { label: 'Title page + TOC', value: 'title+toc' },
-                    ]}
+                <OptionSelect
                     value={chrome.hideOnFirstPages}
-                    onValueChange={(value) => {
-                        if (!value) return
-                        onChange({ ...chrome, hideOnFirstPages: value as PdfHideOnFirstPages })
-                    }}
-                >
-                    <SelectTrigger>
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="title">Title page</SelectItem>
-                        <SelectItem value="title+toc">Title page + TOC</SelectItem>
-                    </SelectPopup>
-                </Select>
+                    options={HIDE_ON_OPTIONS}
+                    onChange={(hideOnFirstPages) => onChange({ hideOnFirstPages })}
+                />
             </Field>
         </div>
     )
@@ -771,10 +467,9 @@ function ChromeSideFields({
         <div className="space-y-3">
             <Field>
                 <FieldLabel>{side} image</FieldLabel>
-                <PathField
+                <ImagePathField
                     value={value.imagePath}
                     title={`Choose ${title.toLowerCase()} ${side.toLowerCase()} image`}
-                    placeholder="Choose an image"
                     onChange={(imagePath) => onChange({ ...value, imagePath })}
                 />
             </Field>
@@ -788,14 +483,6 @@ function ChromeSideFields({
         </div>
     )
 }
-
-const PAGE_NUMBER_OPTIONS: { label: string; value: PdfPageNumberFormat }[] = [
-    { label: 'None', value: 'none' },
-    { label: 'Number', value: 'number' },
-    { label: 'Page N', value: 'page-n' },
-    { label: 'N / total', value: 'n-of-total' },
-    { label: 'Custom text', value: 'custom' },
-]
 
 function FooterRightText({
     format,
@@ -812,24 +499,7 @@ function FooterRightText({
         <>
             <Field>
                 <FieldLabel>Right text</FieldLabel>
-                <Select
-                    items={PAGE_NUMBER_OPTIONS}
-                    value={format}
-                    onValueChange={(value) => {
-                        if (value) onFormatChange(value as PdfPageNumberFormat)
-                    }}
-                >
-                    <SelectTrigger>
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup>
-                        {PAGE_NUMBER_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                            </SelectItem>
-                        ))}
-                    </SelectPopup>
-                </Select>
+                <OptionSelect value={format} options={PAGE_NUMBER_OPTIONS} onChange={onFormatChange} />
             </Field>
             {format === 'custom' ? (
                 <Field>

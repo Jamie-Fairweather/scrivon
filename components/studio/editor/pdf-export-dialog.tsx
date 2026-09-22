@@ -1,16 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { buildMarkdownExportHtml, exportMarkdownToPdf } from '@/lib/markdown/export-pdf'
+import { exportMarkdownToPdf } from '@/lib/markdown/export-pdf'
 import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
-import { getActivePdfExportProfile, setActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadataOverrides } from '@/lib/settings/pdf-export-types'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { OptionSelect } from '@/components/ui/option-select'
 
 type PdfExportDialogProps = {
     open: boolean
@@ -31,40 +31,26 @@ export function PdfExportDialog({ open, onOpenChange, source, tabName }: PdfExpo
 }
 
 function PdfExportForm({ source, tabName, onClose }: { source: string; tabName: string | undefined; onClose: () => void }) {
-    const { settings, updateSettings } = useAppSettings()
+    const { settings } = useAppSettings()
     const pdf = settings.pdfExport
-    const active = getActivePdfExportProfile(pdf)
+    // The choice here is for this export only; the default profile lives in Settings.
+    const [profileId, setProfileId] = useState(pdf.activeProfileId)
+    const profile = pdf.profiles.find((candidate) => candidate.id === profileId) ?? getActivePdfExportProfile(pdf)
 
     const [defaults] = useState(() => resolvePdfExportMetadata(source, tabName).metadata)
     const [title, setTitle] = useState(defaults.title)
     const [subtitle, setSubtitle] = useState(defaults.subtitle)
     const [author, setAuthor] = useState(defaults.author)
     const [date, setDate] = useState(defaults.date)
-    const [previewHtml, setPreviewHtml] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
 
-    const overrides: PdfExportMetadataOverrides = {
-        title,
-        subtitle,
-        author,
-        date,
-    }
+    const overrides: PdfExportMetadataOverrides = { title, subtitle, author, date }
 
     const runExport = async () => {
         setBusy(true)
         try {
-            await exportMarkdownToPdf(source, tabName, { profile: active, overrides })
+            await exportMarkdownToPdf(source, tabName, { profile, overrides })
             onClose()
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    const runPreview = async () => {
-        setBusy(true)
-        try {
-            const { html } = await buildMarkdownExportHtml(source, tabName, { profile: active, overrides })
-            setPreviewHtml(html)
         } finally {
             setBusy(false)
         }
@@ -79,28 +65,12 @@ function PdfExportForm({ source, tabName, onClose }: { source: string; tabName: 
             <DialogPanel className="space-y-4">
                 <Field>
                     <FieldLabel htmlFor="export-profile">Profile</FieldLabel>
-                    <Select
-                        items={pdf.profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
-                        value={pdf.activeProfileId}
-                        onValueChange={(value) => {
-                            if (!value) return
-                            updateSettings((current) => ({
-                                ...current,
-                                pdfExport: setActivePdfExportProfile(current.pdfExport, value),
-                            }))
-                        }}
-                    >
-                        <SelectTrigger id="export-profile">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectPopup>
-                            {pdf.profiles.map((profile) => (
-                                <SelectItem key={profile.id} value={profile.id}>
-                                    {profile.name}
-                                </SelectItem>
-                            ))}
-                        </SelectPopup>
-                    </Select>
+                    <OptionSelect
+                        id="export-profile"
+                        value={profile.id}
+                        options={pdf.profiles.map((candidate) => ({ label: candidate.name, value: candidate.id }))}
+                        onChange={setProfileId}
+                    />
                 </Field>
                 <Field>
                     <FieldLabel htmlFor="export-title">Title</FieldLabel>
@@ -118,14 +88,8 @@ function PdfExportForm({ source, tabName, onClose }: { source: string; tabName: 
                     <FieldLabel htmlFor="export-date">Date</FieldLabel>
                     <Input id="export-date" value={date} onChange={(event) => setDate(event.target.value)} />
                 </Field>
-                {previewHtml ? (
-                    <iframe title="PDF export preview" className="h-64 w-full rounded-md border border-border bg-white" srcDoc={previewHtml} />
-                ) : null}
             </DialogPanel>
             <DialogFooter>
-                <Button type="button" variant="outline" disabled={busy} onClick={() => void runPreview()}>
-                    Preview
-                </Button>
                 <Button type="button" disabled={busy} onClick={() => void runExport()}>
                     Export
                 </Button>

@@ -16,25 +16,23 @@ import {
     useState,
 } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SliderPrimitive } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 
-type HslColor = {
+export type HslColor = {
     hue: number
     saturation: number
     lightness: number
+    /** 0–100 */
     alpha: number
 }
 
 type ColorPickerContextValue = HslColor & {
-    mode: string
     setHue: (hue: number) => void
     setSaturation: (saturation: number) => void
     setLightness: (lightness: number) => void
     setAlpha: (alpha: number) => void
-    setMode: (mode: string) => void
+    setColor: (color: HslColor) => void
 }
 
 const ColorPickerContext = createContext<ColorPickerContextValue | undefined>(undefined)
@@ -45,20 +43,23 @@ export function useColorPicker(): ColorPickerContextValue {
     return context
 }
 
-const HEX_PATTERN = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const HEX_PATTERN = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 
 function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value))
 }
 
+/**
+ * Accepts `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`; returns lowercase `#rrggbb`,
+ * or `#rrggbbaa` when the colour is translucent. `null` for anything else.
+ */
 export function normalizeColorHex(value: string): string | null {
     const trimmed = value.trim()
     if (!HEX_PATTERN.test(trimmed)) return null
-    if (trimmed.length === 4) {
-        const [, r, g, b] = trimmed
-        return `#${r}${r}${g}${g}${b}${b}`.toLowerCase()
-    }
-    return trimmed.toLowerCase()
+    let digits = trimmed.slice(1).toLowerCase()
+    if (digits.length <= 4) digits = [...digits].map((d) => d + d).join('')
+    if (digits.length === 8 && digits.endsWith('ff')) digits = digits.slice(0, 6)
+    return `#${digits}`
 }
 
 export function hexToHsl(hex: string): HslColor {
@@ -66,10 +67,11 @@ export function hexToHsl(hex: string): HslColor {
     const r = Number.parseInt(normalized.slice(1, 3), 16) / 255
     const g = Number.parseInt(normalized.slice(3, 5), 16) / 255
     const b = Number.parseInt(normalized.slice(5, 7), 16) / 255
+    const alpha = normalized.length === 9 ? Math.round((Number.parseInt(normalized.slice(7, 9), 16) / 255) * 100) : 100
     const max = Math.max(r, g, b)
     const min = Math.min(r, g, b)
     const lightness = (max + min) / 2
-    if (max === min) return { hue: 0, saturation: 0, lightness: lightness * 100, alpha: 100 }
+    if (max === min) return { hue: 0, saturation: 0, lightness: lightness * 100, alpha }
 
     const delta = max - min
     const saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min)
@@ -82,7 +84,7 @@ export function hexToHsl(hex: string): HslColor {
         hue: Math.round(hue * 360),
         saturation: Math.round(saturation * 1000) / 10,
         lightness: Math.round(lightness * 1000) / 10,
-        alpha: 100,
+        alpha,
     }
 }
 
@@ -109,39 +111,40 @@ export function hslToRgb(hue: number, saturation: number, lightness: number): [n
     return [Math.round(hueToRgb(p, q, h + 1 / 3) * 255), Math.round(hueToRgb(p, q, h) * 255), Math.round(hueToRgb(p, q, h - 1 / 3) * 255)]
 }
 
-export function hslToHex(hue: number, saturation: number, lightness: number): string {
-    const [r, g, b] = hslToRgb(hue, saturation, lightness)
-    return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
+/** `#rrggbb`, or `#rrggbbaa` when alpha is below 100. */
+export function hslToHex(hue: number, saturation: number, lightness: number, alpha = 100): string {
+    const channels: number[] = hslToRgb(hue, saturation, lightness)
+    const a = clamp(alpha, 0, 100)
+    if (a < 100) channels.push(Math.round((a / 100) * 255))
+    return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
 }
 
-export type ColorPickerProps = HTMLAttributes<HTMLDivElement> & {
+function colorToHex(color: HslColor): string {
+    return hslToHex(color.hue, color.saturation, color.lightness, color.alpha)
+}
+
+export type ColorPickerProps = Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> & {
     value?: string
     defaultValue?: string
+    /** Receives the normalised hex (`#rrggbb` or `#rrggbbaa`) whenever the colour changes. */
     onChange?: (hex: string) => void
 }
 
 export function ColorPicker({ value, defaultValue = '#000000', onChange, className, children, ...props }: ColorPickerProps) {
-    const initial = hexToHsl(value ?? defaultValue)
-    const [hue, setHue] = useState(initial.hue)
-    const [saturation, setSaturation] = useState(initial.saturation)
-    const [lightness, setLightness] = useState(initial.lightness)
-    const [alpha, setAlpha] = useState(initial.alpha)
-    const [mode, setMode] = useState('hex')
-    const lastEmittedRef = useRef(hslToHex(initial.hue, initial.saturation, initial.lightness))
+    const [color, setColor] = useState(() => hexToHsl(value ?? defaultValue))
+    const lastEmittedRef = useRef(colorToHex(color))
 
     const syncFromValue = useEffectEvent((next: string) => {
         const parsed = hexToHsl(next)
-        setHue(parsed.hue)
-        setSaturation(parsed.saturation)
-        setLightness(parsed.lightness)
-        setAlpha(parsed.alpha)
+        // Remember the round-tripped hex so the emit effect below stays quiet for an external update.
+        lastEmittedRef.current = colorToHex(parsed)
+        setColor(parsed)
     })
 
     useEffect(() => {
         if (value == null) return
         const normalized = normalizeColorHex(value)
         if (!normalized || normalized === lastEmittedRef.current) return
-        lastEmittedRef.current = normalized
         syncFromValue(normalized)
     }, [value])
 
@@ -152,24 +155,23 @@ export function ColorPicker({ value, defaultValue = '#000000', onChange, classNa
     })
 
     useEffect(() => {
-        emitChange(hslToHex(hue, saturation, lightness))
-    }, [hue, saturation, lightness])
+        emitChange(colorToHex(color))
+    }, [color])
+
+    const context = useMemo<ColorPickerContextValue>(
+        () => ({
+            ...color,
+            setColor,
+            setHue: (hue) => setColor((current) => ({ ...current, hue })),
+            setSaturation: (saturation) => setColor((current) => ({ ...current, saturation })),
+            setLightness: (lightness) => setColor((current) => ({ ...current, lightness })),
+            setAlpha: (alpha) => setColor((current) => ({ ...current, alpha })),
+        }),
+        [color]
+    )
 
     return (
-        <ColorPickerContext.Provider
-            value={{
-                hue,
-                saturation,
-                lightness,
-                alpha,
-                mode,
-                setHue,
-                setSaturation,
-                setLightness,
-                setAlpha,
-                setMode,
-            }}
-        >
+        <ColorPickerContext.Provider value={context}>
             <div className={cn('flex w-full flex-col gap-3', className)} {...props}>
                 {children}
             </div>
@@ -310,6 +312,12 @@ export function ColorPickerHue({ className, ...props }: ColorPickerHueProps) {
 
 export type ColorPickerAlphaProps = HTMLAttributes<HTMLDivElement>
 
+/** 8px checkerboard used behind translucent colours. */
+export const COLOR_CHECKERBOARD =
+    'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)'
+export const COLOR_CHECKERBOARD_SIZE = '8px 8px, 8px 8px, 8px 8px, 8px 8px'
+export const COLOR_CHECKERBOARD_POSITION = '0 0, 0 4px, 4px -4px, -4px 0'
+
 export function ColorPickerAlpha({ className, ...props }: ColorPickerAlphaProps) {
     const { alpha, setAlpha, hue, saturation, lightness } = useColorPicker()
     const solid = hslToHex(hue, saturation, lightness)
@@ -321,8 +329,9 @@ export function ColorPickerAlpha({ className, ...props }: ColorPickerAlphaProps)
                 value={alpha}
                 onValueChange={setAlpha}
                 style={{
-                    background: `linear-gradient(90deg, transparent, ${solid}),
-                      url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMUlEQVQ4T2NkYGAQYcAP3uCTZhw1gGGYhAGBZIA/nYDCgBDAm9BGDWAAJyRCgLaBCAAgXwixzAS0pgAAAABJRU5ErkJggg==")`,
+                    backgroundImage: `linear-gradient(90deg, transparent, ${solid}), ${COLOR_CHECKERBOARD}`,
+                    backgroundSize: `100% 100%, ${COLOR_CHECKERBOARD_SIZE}`,
+                    backgroundPosition: `0 0, ${COLOR_CHECKERBOARD_POSITION}`,
                 }}
             />
         </div>
@@ -331,8 +340,10 @@ export function ColorPickerAlpha({ className, ...props }: ColorPickerAlphaProps)
 
 export type ColorPickerEyeDropperProps = ComponentProps<typeof Button>
 
+type EyeDropperWindow = { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }
+
 export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDropperProps) {
-    const { setHue, setSaturation, setLightness, setAlpha } = useColorPicker()
+    const { alpha, setColor } = useColorPicker()
     // Only ever rendered inside a client-opened popover, so reading `window` in the initialiser is safe.
     const [supported] = useState(() => typeof window !== 'undefined' && 'EyeDropper' in window)
 
@@ -344,15 +355,12 @@ export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDro
             variant="outline"
             size="icon"
             className={cn('shrink-0 text-muted-foreground', className)}
+            aria-label="Pick a colour from the screen"
             onClick={async () => {
                 try {
-                    const EyeDropperCtor = (window as Window & { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper
-                    const result = await new EyeDropperCtor().open()
-                    const next = hexToHsl(result.sRGBHex)
-                    setHue(next.hue)
-                    setSaturation(next.saturation)
-                    setLightness(next.lightness)
-                    setAlpha(100)
+                    const result = await new (window as unknown as EyeDropperWindow).EyeDropper().open()
+                    // Screen colours are opaque; keep whatever alpha the user had dialled in.
+                    setColor({ ...hexToHsl(result.sRGBHex), alpha })
                 } catch {
                     // Cancelled or unavailable.
                 }
@@ -361,101 +369,5 @@ export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDro
         >
             <PipetteIcon className="size-4" />
         </Button>
-    )
-}
-
-const FORMAT_ITEMS = [
-    { label: 'HEX', value: 'hex' },
-    { label: 'RGB', value: 'rgb' },
-    { label: 'CSS', value: 'css' },
-    { label: 'HSL', value: 'hsl' },
-]
-
-export function ColorPickerOutput({ className, ...props }: ComponentProps<typeof SelectTrigger>) {
-    const { mode, setMode } = useColorPicker()
-    return (
-        <Select items={FORMAT_ITEMS} value={mode} onValueChange={(next) => next && setMode(next)}>
-            <SelectTrigger className={cn('h-8 w-20 shrink-0 text-xs', className)} size="sm" {...props}>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectPopup>
-                {FORMAT_ITEMS.map((format) => (
-                    <SelectItem key={format.value} value={format.value}>
-                        {format.label}
-                    </SelectItem>
-                ))}
-            </SelectPopup>
-        </Select>
-    )
-}
-
-function PercentageInput({ value }: { value: number }) {
-    return (
-        <div className="relative">
-            <Input readOnly type="text" value={Math.round(value)} className="h-8 w-[3.25rem] rounded-l-none bg-secondary px-2 text-xs shadow-none" />
-            <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-        </div>
-    )
-}
-
-export type ColorPickerFormatProps = HTMLAttributes<HTMLDivElement>
-
-export function ColorPickerFormat({ className, ...props }: ColorPickerFormatProps) {
-    const { hue, saturation, lightness, alpha, mode } = useColorPicker()
-    const hex = hslToHex(hue, saturation, lightness)
-    const rgb = hslToRgb(hue, saturation, lightness)
-
-    if (mode === 'hex') {
-        return (
-            <div className={cn('relative flex w-full items-center -space-x-px rounded-md shadow-sm', className)} {...props}>
-                <Input readOnly type="text" value={hex} className="h-8 rounded-r-none bg-secondary px-2 text-xs shadow-none" />
-                <PercentageInput value={alpha} />
-            </div>
-        )
-    }
-
-    if (mode === 'rgb') {
-        return (
-            <div className={cn('flex items-center -space-x-px rounded-md shadow-sm', className)} {...props}>
-                {rgb.map((channel, index) => (
-                    <Input
-                        key={index}
-                        readOnly
-                        type="text"
-                        value={channel}
-                        className={cn('h-8 rounded-r-none bg-secondary px-2 text-xs shadow-none', index > 0 && 'rounded-l-none')}
-                    />
-                ))}
-                <PercentageInput value={alpha} />
-            </div>
-        )
-    }
-
-    if (mode === 'css') {
-        return (
-            <div className={cn('w-full rounded-md shadow-sm', className)} {...props}>
-                <Input
-                    readOnly
-                    type="text"
-                    value={`rgba(${rgb.join(', ')}, ${Math.round(alpha)}%)`}
-                    className="h-8 w-full bg-secondary px-2 text-xs shadow-none"
-                />
-            </div>
-        )
-    }
-
-    return (
-        <div className={cn('flex items-center -space-x-px rounded-md shadow-sm', className)} {...props}>
-            {[Math.round(hue), Math.round(saturation), Math.round(lightness)].map((channel, index) => (
-                <Input
-                    key={index}
-                    readOnly
-                    type="text"
-                    value={channel}
-                    className={cn('h-8 rounded-r-none bg-secondary px-2 text-xs shadow-none', index > 0 && 'rounded-l-none')}
-                />
-            ))}
-            <PercentageInput value={alpha} />
-        </div>
     )
 }

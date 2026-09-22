@@ -11,9 +11,13 @@ use std::collections::{BTreeMap, HashMap};
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Encoding, Object, ObjectId, Stream, StringFormat};
 
+use crate::pdf_export::PdfPrintOptions;
+
 pub const FOOTER_MARK: &str = "SFPN";
 
 const FONT_NAME: &str = "ScrivonPN";
+/// ExtGState resource carrying the label's alpha when the colour is translucent.
+const ALPHA_GS_NAME: &str = "ScrivonPNa";
 const FALLBACK_FONT_SIZE: f32 = 9.0;
 const FALLBACK_PAD_PT: f32 = 6.0;
 const FALLBACK_BASELINE_OFFSET_PT: f32 = 8.0;
@@ -63,23 +67,34 @@ fn mm_to_pt(mm: f64) -> f32 {
     (mm * 72.0 / 25.4) as f32
 }
 
-/// Matches the `#404040` chrome text colour in the export CSS.
-const DEFAULT_LABEL_RGB: (f32, f32, f32) = (0.25, 0.25, 0.25);
+type Rgb = (f32, f32, f32);
 
-/// `#rgb`, `#rrggbb` or `#rrggbbaa` (alpha ignored) → PDF `rg` components.
-pub fn parse_hex_color(value: &str) -> Option<(f32, f32, f32)> {
+/// Matches the `#404040` chrome text colour in the export CSS.
+const DEFAULT_LABEL_RGB: Rgb = (0.25, 0.25, 0.25);
+
+/// `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` → PDF `rg` components plus alpha (1.0 when absent).
+pub fn parse_hex_color(value: &str) -> Option<(Rgb, f32)> {
     let hex = value.trim().strip_prefix('#')?;
     let digits: Vec<u32> = hex.chars().map(|c| c.to_digit(16)).collect::<Option<_>>()?;
-    let (r, g, b) = match digits.len() {
-        3 | 4 => (digits[0] * 17, digits[1] * 17, digits[2] * 17),
+    let (r, g, b, a) = match digits.len() {
+        3 => (digits[0] * 17, digits[1] * 17, digits[2] * 17, 255),
+        4 => (digits[0] * 17, digits[1] * 17, digits[2] * 17, digits[3] * 17),
         6 | 8 => (
             digits[0] * 16 + digits[1],
             digits[2] * 16 + digits[3],
             digits[4] * 16 + digits[5],
+            if digits.len() == 8 {
+                digits[6] * 16 + digits[7]
+            } else {
+                255
+            },
         ),
         _ => return None,
     };
-    Some((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0))
+    Some((
+        (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0),
+        a as f32 / 255.0,
+    ))
 }
 
 /// Helvetica advance widths (per 1000 em) from the standard AFM metrics.
@@ -479,13 +494,15 @@ fn page_resources(doc: &Document, page_id: ObjectId) -> Option<&Dictionary> {
 // Marker search
 // ---------------------------------------------------------------------------
 
+/// Where a marker (footer page-number slot or TOC page token) was drawn, so a
+/// label can be stamped right-aligned in its place.
 #[derive(Clone, Copy, Debug)]
-pub struct FooterSlot {
-    /// Right edge of the page-number slot, in page space.
+pub struct TextSlot {
+    /// Right edge of the marker, in page space.
     pub right: f32,
-    /// Text baseline of the footer text, in page space.
+    /// Text baseline of the marker, in page space.
     pub baseline: f32,
-    /// Footer font size as rendered on the page.
+    /// Font size the marker was rendered at.
     pub font_size: f32,
 }
 
@@ -504,7 +521,7 @@ struct TextState {
     tlm: Matrix,
 }
 
-fn slot_span(runs: &[Run], mark_start: usize, mark_end: usize) -> Option<FooterSlot> {
+fn slot_span(runs: &[Run], mark_start: usize, mark_end: usize) -> Option<TextSlot> {
     let mut offset = 0;
     let mut first = None;
     let mut last = None;
@@ -520,14 +537,14 @@ fn slot_span(runs: &[Run], mark_start: usize, mark_end: usize) -> Option<FooterS
         offset = run_end;
     }
     let (first, last) = (first?, last?);
-    Some(FooterSlot {
+    Some(TextSlot {
         right: last.end.0,
         baseline: first.start.1,
         font_size: first.font_size,
     })
 }
 
-fn find_marker_in_runs(runs: &[Run]) -> Option<FooterSlot> {
+fn find_marker_in_runs(runs: &[Run]) -> Option<TextSlot> {
     let joined: String = runs.iter().map(|run| run.text.as_str()).collect();
     let mark_start = joined.find(FOOTER_MARK)?;
     slot_span(runs, mark_start, mark_start + FOOTER_MARK.len())
@@ -538,7 +555,7 @@ const TOC_HEAD_PREFIX: &str = "SFH";
 const TOC_ID_DIGITS: usize = 4;
 
 /// `SFT0001` / `SFH0001` tokens inside one text block, paired by their four digits.
-fn find_toc_tokens(runs: &[Run]) -> Vec<(String, FooterSlot)> {
+fn find_toc_tokens(runs: &[Run]) -> Vec<(String, TextSlot)> {
     let joined: String = runs.iter().map(|run| run.text.as_str()).collect();
     let mut hits = Vec::new();
     for prefix in [TOC_SLOT_PREFIX, TOC_HEAD_PREFIX] {
@@ -568,8 +585,8 @@ fn find_toc_tokens(runs: &[Run]) -> Vec<(String, FooterSlot)> {
 }
 
 struct Walked {
-    footer: Option<FooterSlot>,
-    marks: Vec<(String, FooterSlot)>,
+    footer: Option<TextSlot>,
+    marks: Vec<(String, TextSlot)>,
 }
 
 fn show_text(
@@ -827,14 +844,10 @@ fn scan_page(doc: &Document, cache: &FontCache<'_>, page_id: ObjectId) -> Walked
 }
 
 /// Finds the page-number slot marker on a page, if the footer was drawn there.
-pub fn footer_slot(doc: &Document, page_id: ObjectId) -> Option<FooterSlot> {
+#[cfg(test)]
+fn footer_slot(doc: &Document, page_id: ObjectId) -> Option<TextSlot> {
     let cache = cache_for_pages(doc, &[page_id]);
     scan_page(doc, &cache, page_id).footer
-}
-
-fn page_marks(doc: &Document, page_id: ObjectId) -> Vec<(String, FooterSlot)> {
-    let cache = cache_for_pages(doc, &[page_id]);
-    scan_page(doc, &cache, page_id).marks
 }
 
 // ---------------------------------------------------------------------------
@@ -863,10 +876,14 @@ fn page_media_box(doc: &Document, page_id: ObjectId) -> Result<(f32, f32), Strin
     Ok((values[2] - values[0], values[3] - values[1]))
 }
 
-fn ensure_page_font(
+/// Registers `id` as `/category /name` in the page's resources, whether those
+/// live inline on the page or behind a shared reference.
+fn ensure_page_resource(
     doc: &mut Document,
     page_id: ObjectId,
-    font_id: ObjectId,
+    category: &str,
+    name: &str,
+    id: ObjectId,
 ) -> Result<(), String> {
     let resource_ref = {
         let page = doc.get_object(page_id).map_err(|e| e.to_string())?;
@@ -876,10 +893,12 @@ fn ensure_page_font(
             .and_then(|obj| obj.as_reference().ok())
     };
 
-    if let Some(id) = resource_ref {
-        let resources_obj = doc.get_object_mut(id).map_err(|e| e.to_string())?;
+    if let Some(resources_id) = resource_ref {
+        let resources_obj = doc
+            .get_object_mut(resources_id)
+            .map_err(|e| e.to_string())?;
         let resources_dict = resources_obj.as_dict_mut().map_err(|e| e.to_string())?;
-        insert_font(resources_dict, font_id);
+        insert_resource(resources_dict, category, name, id);
         return Ok(());
     }
 
@@ -893,17 +912,17 @@ fn ensure_page_font(
         .map_err(|e| e.to_string())?
         .as_dict_mut()
         .map_err(|e| e.to_string())?;
-    insert_font(resources_dict, font_id);
+    insert_resource(resources_dict, category, name, id);
     Ok(())
 }
 
-fn insert_font(resources: &mut Dictionary, font_id: ObjectId) {
-    match resources.get_mut(b"Font") {
-        Ok(Object::Dictionary(fonts)) => {
-            fonts.set(FONT_NAME, font_id);
+fn insert_resource(resources: &mut Dictionary, category: &str, name: &str, id: ObjectId) {
+    match resources.get_mut(category.as_bytes()) {
+        Ok(Object::Dictionary(entries)) => {
+            entries.set(name, id);
         }
         _ => {
-            resources.set("Font", dictionary! { FONT_NAME => font_id });
+            resources.set(category, dictionary! { name => id });
         }
     }
 }
@@ -945,30 +964,44 @@ fn overlay_page_content(
     Ok(())
 }
 
+/// How a stamped label is painted: colour, and whether it goes through the alpha ExtGState.
+#[derive(Clone, Copy)]
+struct LabelPaint {
+    rgb: Rgb,
+    translucent: bool,
+}
+
 fn label_operations(
     label: &str,
-    right: f32,
-    baseline: f32,
-    font_size: f32,
-    rgb: (f32, f32, f32),
+    slot: TextSlot,
+    paint: LabelPaint,
 ) -> Vec<Operation> {
-    let x = right - label_width(label, font_size);
-    vec![
+    let font_size = slot.font_size.clamp(6.0, 24.0);
+    let x = slot.right - label_width(label, font_size);
+    let mut ops = Vec::with_capacity(7);
+    if paint.translucent {
+        ops.push(Operation::new("gs", vec![ALPHA_GS_NAME.into()]));
+    }
+    ops.extend([
         Operation::new("BT", vec![]),
         Operation::new("Tf", vec![FONT_NAME.into(), font_size.into()]),
-        Operation::new("rg", vec![rgb.0.into(), rgb.1.into(), rgb.2.into()]),
-        Operation::new("Td", vec![x.into(), baseline.into()]),
+        Operation::new(
+            "rg",
+            vec![paint.rgb.0.into(), paint.rgb.1.into(), paint.rgb.2.into()],
+        ),
+        Operation::new("Td", vec![x.into(), slot.baseline.into()]),
         Operation::new(
             "Tj",
             vec![Object::String(win_ansi_bytes(label), StringFormat::Literal)],
         ),
         Operation::new("ET", vec![]),
-    ]
+    ]);
+    ops
 }
 
 struct TocEntry {
     page_id: ObjectId,
-    slot: FooterSlot,
+    slot: TextSlot,
     label: String,
 }
 
@@ -997,15 +1030,19 @@ fn toc_entries(pages: &[(u32, ObjectId)], scans: &[Walked]) -> Vec<TocEntry> {
         .collect()
 }
 
-pub fn stamp_page_numbers(
-    path: &str,
-    format: &str,
-    color: &str,
-    margin_right_mm: f64,
-    margin_bottom_mm: f64,
-) -> Result<(), String> {
+pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), String> {
+    let format = options.page_number_format.as_str();
     let want_footer = format_page_label(format, 1, 1).is_some();
-    let footer_rgb = parse_hex_color(color).unwrap_or(DEFAULT_LABEL_RGB);
+    let (footer_rgb, footer_alpha) =
+        parse_hex_color(&options.page_number_color).unwrap_or((DEFAULT_LABEL_RGB, 1.0));
+    let footer_paint = LabelPaint {
+        rgb: footer_rgb,
+        translucent: footer_alpha < 1.0,
+    };
+    let toc_paint = LabelPaint {
+        rgb: DEFAULT_LABEL_RGB,
+        translucent: false,
+    };
 
     let mut doc =
         Document::load(path).map_err(|e| format!("Could not open PDF to number pages: {e}"))?;
@@ -1033,6 +1070,13 @@ pub fn stamp_page_numbers(
         "BaseFont" => "Helvetica",
         "Encoding" => "WinAnsiEncoding",
     });
+    let alpha_gs_id = footer_paint.translucent.then(|| {
+        doc.add_object(dictionary! {
+            "Type" => "ExtGState",
+            "ca" => footer_alpha,
+            "CA" => footer_alpha,
+        })
+    });
 
     let mut operations = vec![Vec::new(); pages.len()];
     if want_footer {
@@ -1040,23 +1084,21 @@ pub fn stamp_page_numbers(
             let Some(label) = format_page_label(format, *page_index, total) else {
                 continue;
             };
-            let (right, baseline, font_size) = match scan.footer {
-                Some(slot) => (slot.right, slot.baseline, slot.font_size.clamp(6.0, 24.0)),
+            let slot = match scan.footer {
+                Some(slot) => slot,
                 // The footer was hidden on this page (title / TOC): no number.
                 None if any_footer => continue,
                 // No footer markers anywhere: number every page inside the bottom margin.
                 None => {
                     let (width, _) = page_media_box(&doc, *page_id)?;
-                    (
-                        width - mm_to_pt(margin_right_mm) - FALLBACK_PAD_PT,
-                        mm_to_pt(margin_bottom_mm) + FALLBACK_BASELINE_OFFSET_PT,
-                        FALLBACK_FONT_SIZE,
-                    )
+                    TextSlot {
+                        right: width - mm_to_pt(options.margin_right_mm) - FALLBACK_PAD_PT,
+                        baseline: mm_to_pt(options.margin_bottom_mm) + FALLBACK_BASELINE_OFFSET_PT,
+                        font_size: FALLBACK_FONT_SIZE,
+                    }
                 }
             };
-            operations[position].extend(label_operations(
-                &label, right, baseline, font_size, footer_rgb,
-            ));
+            operations[position].extend(label_operations(&label, slot, footer_paint));
         }
     }
     let page_at: HashMap<ObjectId, usize> = pages
@@ -1068,13 +1110,7 @@ pub fn stamp_page_numbers(
         let Some(position) = page_at.get(&entry.page_id).copied() else {
             continue;
         };
-        operations[position].extend(label_operations(
-            &entry.label,
-            entry.slot.right,
-            entry.slot.baseline,
-            entry.slot.font_size.clamp(6.0, 24.0),
-            DEFAULT_LABEL_RGB,
-        ));
+        operations[position].extend(label_operations(&entry.label, entry.slot, toc_paint));
     }
 
     for (position, page_ops) in operations.into_iter().enumerate() {
@@ -1082,7 +1118,10 @@ pub fn stamp_page_numbers(
             continue;
         }
         let page_id = pages[position].1;
-        ensure_page_font(&mut doc, page_id, font_id)?;
+        ensure_page_resource(&mut doc, page_id, "Font", FONT_NAME, font_id)?;
+        if let Some(gs_id) = alpha_gs_id {
+            ensure_page_resource(&mut doc, page_id, "ExtGState", ALPHA_GS_NAME, gs_id)?;
+        }
         let content = Content {
             operations: page_ops,
         };
@@ -1103,6 +1142,20 @@ mod tests {
     use super::*;
 
     const CHROMIUM_FLIP: [f32; 6] = [0.75, 0.0, 0.0, -0.75, 0.0, 842.0];
+
+    fn options(format: &str, color: &str) -> PdfPrintOptions {
+        PdfPrintOptions {
+            page_width_mm: 210.0,
+            page_height_mm: 297.0,
+            landscape: false,
+            margin_top_mm: 10.0,
+            margin_right_mm: 10.0,
+            margin_bottom_mm: 10.0,
+            margin_left_mm: 10.0,
+            page_number_format: format.into(),
+            page_number_color: color.into(),
+        }
+    }
 
     fn helvetica() -> Dictionary {
         dictionary! {
@@ -1269,11 +1322,12 @@ end";
 
     #[test]
     fn parses_hex_colours_and_rejects_junk() {
-        assert_eq!(parse_hex_color("#ffffff"), Some((1.0, 1.0, 1.0)));
-        assert_eq!(parse_hex_color(" #FFF "), Some((1.0, 1.0, 1.0)));
-        assert_eq!(parse_hex_color("#00000080"), Some((0.0, 0.0, 0.0)));
-        let (r, g, b) = parse_hex_color("#404040").unwrap();
+        assert_eq!(parse_hex_color("#ffffff"), Some(((1.0, 1.0, 1.0), 1.0)));
+        assert_eq!(parse_hex_color(" #FFF "), Some(((1.0, 1.0, 1.0), 1.0)));
+        assert_eq!(parse_hex_color("#0000"), Some(((0.0, 0.0, 0.0), 0.0)));
+        let ((r, g, b), a) = parse_hex_color("#40404080").unwrap();
         assert!((r - 0.251).abs() < 0.001 && (g - 0.251).abs() < 0.001 && (b - 0.251).abs() < 0.001);
+        assert!((a - 0.502).abs() < 0.001);
         assert_eq!(parse_hex_color(""), None);
         assert_eq!(parse_hex_color("red"), None);
         assert_eq!(parse_hex_color("#12345"), None);
@@ -1491,7 +1545,7 @@ end";
         let expected_slot = footer_slot(&doc, ids[2]).unwrap();
         let path = save_temp(&mut doc, "scrivon-page-numbers-footer.pdf");
 
-        stamp_page_numbers(path.to_str().unwrap(), "n-of-total", "", 10.0, 10.0).unwrap();
+        stamp_page_numbers(path.to_str().unwrap(), &options("n-of-total", "")).unwrap();
 
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
@@ -1543,10 +1597,7 @@ end";
 
         stamp_page_numbers(
             path.to_str().unwrap(),
-            "custom:Sheet {{page}} of {{total}} – Acme",
-            "#ff0000",
-            10.0,
-            10.0,
+            &options("custom:Sheet {{page}} of {{total}} – Acme", "#ff000080"),
         )
         .unwrap();
 
@@ -1560,6 +1611,35 @@ end";
         assert!(!flipped);
         assert!((right - expected_slot.right).abs() < 0.1);
         assert!((baseline - expected_slot.baseline).abs() < 0.1);
+
+        // A translucent colour paints through an ExtGState registered on the page.
+        let content = Content::decode(&stamped.get_page_content(page_ids[1]).unwrap()).unwrap();
+        assert!(content.operations.iter().any(|op| {
+            op.operator == "gs" && op.operands.first() == Some(&Object::Name(ALPHA_GS_NAME.into()))
+        }));
+        let resources = stamped.get_page_resources(page_ids[1]).unwrap().0.unwrap();
+        let gs = resources.get(b"ExtGState").unwrap().as_dict().unwrap();
+        let state = stamped
+            .get_object(gs.get(ALPHA_GS_NAME.as_bytes()).unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert!((state.get(b"ca").unwrap().as_float().unwrap() - 0.502).abs() < 0.001);
+    }
+
+    #[test]
+    fn opaque_colours_do_not_add_an_extgstate() {
+        let mut doc = Document::with_version("1.5");
+        build_pdf(&mut doc, vec![(vec![], dictionary! {})]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-opaque.pdf");
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "#ff0000")).unwrap();
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let page_id = *stamped.get_pages().values().next().unwrap();
+        let content = Content::decode(&stamped.get_page_content(page_id).unwrap()).unwrap();
+        assert!(!content.operations.iter().any(|op| op.operator == "gs"));
+        let resources = stamped.get_page_resources(page_id).unwrap().0.unwrap();
+        assert!(resources.get(b"ExtGState").is_err());
     }
 
     #[test]
@@ -1574,7 +1654,7 @@ end";
         build_pdf(&mut doc, vec![(page.clone(), fonts()), (page, fonts())]);
         let path = save_temp(&mut doc, "scrivon-page-numbers-fallback.pdf");
 
-        stamp_page_numbers(path.to_str().unwrap(), "page-n", "", 10.0, 10.0).unwrap();
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "")).unwrap();
 
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
@@ -1587,7 +1667,7 @@ end";
         let mut doc = Document::with_version("1.5");
         build_pdf(&mut doc, vec![(vec![], dictionary! {})]);
         let path = save_temp(&mut doc, "scrivon-page-numbers-none.pdf");
-        stamp_page_numbers(path.to_str().unwrap(), "none", "", 10.0, 10.0).unwrap();
+        stamp_page_numbers(path.to_str().unwrap(), &options("none", "")).unwrap();
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(stamped.extract_text(&[1]).unwrap().trim(), "");
@@ -1613,7 +1693,7 @@ end";
         );
         let path = save_temp(&mut doc, "scrivon-toc-pages.pdf");
 
-        stamp_page_numbers(path.to_str().unwrap(), "none", "", 10.0, 10.0).unwrap();
+        stamp_page_numbers(path.to_str().unwrap(), &options("none", "")).unwrap();
 
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
