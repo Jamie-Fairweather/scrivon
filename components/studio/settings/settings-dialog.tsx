@@ -15,6 +15,7 @@ import { AdvancedSettings } from '@/components/studio/settings/sections/advanced
 import { EditorSettings } from '@/components/studio/settings/sections/editor-settings'
 import { GeneralSettings } from '@/components/studio/settings/sections/general-settings'
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
+import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsNav } from '@/components/studio/settings/settings-nav'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,8 @@ function SettingsSectionPanel({ section }: { section: SettingsSection }) {
             return <AppearanceSettings />
         case 'editor':
             return <EditorSettings />
+        case 'pdf-export':
+            return <PdfExportSettings />
         case 'keyboard':
             return <KeyboardSettings />
         case 'advanced':
@@ -46,7 +49,7 @@ export function SettingsDialog() {
                     <DialogTitle>Settings</DialogTitle>
                 </DialogHeader>
                 <DialogPanel className="pt-0" scrollFade={false}>
-                    <div className="flex h-[28rem] min-h-0 gap-4">
+                    <div className="flex h-[min(40rem,calc(100dvh-8rem))] min-h-0 gap-4">
                         <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} />
                         <ScrollArea className="min-h-0 min-w-0 flex-1" scrollFade scrollbarGutter>
                             <SettingsSectionPanel section={activeSection} />

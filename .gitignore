@@ -68,3 +68,5 @@ Desktop.ini
 
 # Next.js
 next-env.d.ts
+
+.scratch/

@@ -1,5 +1,7 @@
+mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
+mod system_fonts;
 mod updater;
 
 use std::sync::Mutex;
@@ -29,6 +31,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
             pdf_export::export_html_to_pdf,
+            pdf_export::read_export_image,
+            system_fonts::list_system_fonts,
             updater::check_for_app_update,
             updater::install_app_update,
         ])

@@ -59,6 +59,7 @@ describe('mergeStoredSettings', () => {
         expect(merged.autosave.delayMs).toBe(900)
         expect(merged.editor.fontSize).toBe(16)
         expect(merged.editor.tabSize).toBe(createDefaultSettings(false).editor.tabSize)
+        expect(merged.pdfExport).toEqual(createDefaultSettings(false).pdfExport)
     })
 
     it('is idempotent for fully valid stored settings', () => {
