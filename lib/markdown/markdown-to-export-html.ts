@@ -1,167 +1,29 @@
 import { toHtml } from 'hast-util-to-html'
-import type { Code, Parent, Root } from 'mdast'
+import type { Code, Heading, Parent, Root, Text } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
+import { buildPdfExportCss, PDF_PAGE_NUMBER_MARK, pdfTocMark, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
+import { pdfPageNumberTemplate, resolvePdfChromeText, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { extractPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
-import { getDiagramColors, SYSTEM_LIGHT_THEME } from '@/lib/theme/catalog'
+import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
+import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-const PDF_SHIKI_THEME = 'github-light' as const
-const PDF_MERMAID_THEME = SYSTEM_LIGHT_THEME
+export type MarkdownToExportHtmlOptions = {
+    profile?: PdfExportProfile
+    tabName?: string
+    overrides?: PdfExportMetadataOverrides
+    assets?: PdfExportResolvedAssets
+}
 
-function buildExportCss(mermaidBg: string): string {
-    return `
-  *, *::before, *::after { box-sizing: border-box; }
-  html {
-    color-scheme: light only;
-  }
-  html, body {
-    margin: 0;
-    background: #ffffff;
-    color: #262626;
-  }
-  @page {
-    size: A4;
-    margin: 10mm;
-  }
-  @media print {
-    html, body {
-      background: #ffffff !important;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    .pdf-avoid-break,
-    .code-block,
-    .mermaid-export,
-    table {
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
-  }
-  .export-article {
-    width: 100%;
-    max-width: none;
-    margin: 0;
-    padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  h1 { margin: 0 0 1rem; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
-  h2 { margin: 1.5rem 0 0.75rem; font-size: 1.25rem; font-weight: 600; }
-  h3 { margin: 1.25rem 0 0.5rem; font-size: 1.125rem; font-weight: 600; }
-  h4 { margin: 1rem 0 0.5rem; font-size: 1rem; font-weight: 600; }
-  p { margin: 0 0 0.75rem; }
-  ul, ol { margin: 0 0 0.75rem; padding-left: 1.25rem; }
-  li { margin: 0.25rem 0; word-break: break-word; }
-  blockquote {
-    margin: 0 0 0.75rem;
-    padding-left: 1rem;
-    border-left: 2px solid #e5e5e5;
-    color: #525252;
-    font-style: italic;
-  }
-  hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; }
-  a { color: #262626; text-decoration: underline; }
-  .export-article :not(pre) > code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.85em;
-    padding: 0.15em 0.4em;
-    border-radius: 4px;
-    background: #f5f5f5;
-    border: 1px solid #ebebeb;
-  }
-  table {
-    width: 100%;
-    margin: 0 0 1rem;
-    border-collapse: collapse;
-    font-size: 14px;
-  }
-  thead { background: rgba(0, 0, 0, 0.04); }
-  th, td {
-    padding: 0.5rem 0.75rem;
-    border: 1px solid #e5e5e5;
-    text-align: left;
-    vertical-align: top;
-  }
-  th { font-weight: 600; }
-  .pdf-avoid-break {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-  .code-block {
-    margin: 0 0 1rem;
-  }
-  .code-block pre.shiki {
-    margin: 0;
-    padding: 12px 14px;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    overflow-x: auto;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.45;
-    white-space: pre;
-    tab-size: 2;
-  }
-  .code-block pre.shiki code {
-    display: block;
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: inherit;
-    line-height: inherit;
-    white-space: inherit;
-  }
-  .code-block pre:not(.shiki) {
-    margin: 0;
-    padding: 12px 14px;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    overflow-x: auto;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.45;
-    white-space: pre-wrap;
-    tab-size: 2;
-  }
-  .code-block pre:not(.shiki) code {
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: inherit;
-    line-height: inherit;
-    white-space: inherit;
-  }
-  .mermaid-export {
-    margin: 0 0 1rem;
-    padding: 12px;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    background: ${mermaidBg};
-    overflow: hidden;
-  }
-  .mermaid-export svg {
-    display: block;
-    max-width: 100%;
-    height: auto;
-    margin: 0 auto;
-  }
-  .export-error {
-    margin: 0 0 1rem;
-    padding: 12px;
-    border: 1px solid #fecaca;
-    border-radius: 8px;
-    background: #fef2f2;
-    color: #991b1b;
-    font-size: 12px;
-    white-space: pre-wrap;
-    font-family: ui-monospace, monospace;
-  }
-`
+const EMPTY_ASSETS: PdfExportResolvedAssets = {
+    logoDataUrl: '',
+    header: { left: '', right: '' },
+    footer: { left: '', right: '' },
 }
 
 function escapeHtml(text: string): string {
@@ -172,13 +34,29 @@ function normalizeShikiPre(html: string): string {
     return html.replace(/\s*tabindex="0"/g, '')
 }
 
-async function codeBlockToHtml(node: Code): Promise<string> {
+function applyHeadingIds(tree: Root, body: string): void {
+    const ids = extractPdfExportOutline(body, 6, false).map((item) => item.id)
+    let index = 0
+    visit(tree, 'heading', (node: Heading) => {
+        const id = ids[index]
+        index += 1
+        if (!id) return
+        node.data = {
+            ...node.data,
+            hProperties: {
+                id,
+            },
+        }
+    })
+}
+
+async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<string> {
     const text = node.value.replace(/\n$/, '')
     const lang = node.lang?.toLowerCase()
 
     if (lang === 'mermaid') {
         try {
-            const svg = renderMermaidDiagramForExport(text, PDF_MERMAID_THEME)
+            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
             return `<div class="mermaid-export pdf-avoid-break">${svg}</div>`
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -187,28 +65,23 @@ async function codeBlockToHtml(node: Code): Promise<string> {
     }
 
     try {
-        const highlighted = normalizeShikiPre(await highlightFencedCode(text, lang, PDF_SHIKI_THEME))
+        const highlighted = normalizeShikiPre(await highlightFencedCode(text, lang, profile.content.codeTheme))
         return `<div class="code-block pdf-avoid-break">${highlighted}</div>`
     } catch {
         return `<div class="code-block pdf-avoid-break"><pre><code>${escapeHtml(text)}</code></pre></div>`
     }
 }
 
-function escapeRegExp(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-async function transformCodeBlocks(tree: Root): Promise<Map<string, string>> {
+async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promise<Map<string, string>> {
     const exportId = crypto.randomUUID()
     const placeholders = new Map<string, string>()
     const replacements: { parent: Parent; index: number; promise: Promise<string> }[] = []
 
     visit(tree, 'code', (node: Code, index, parent) => {
-        if (index == null || !parent) return
         replacements.push({
-            parent,
-            index,
-            promise: codeBlockToHtml(node),
+            parent: parent as Parent,
+            index: index as number,
+            promise: codeBlockToHtml(node, profile),
         })
     })
 
@@ -218,45 +91,160 @@ async function transformCodeBlocks(tree: Root): Promise<Map<string, string>> {
         placeholders.set(key, htmlFragments[i]!)
         r.parent.children[r.index] = {
             type: 'paragraph',
-            children: [{ type: 'text', value: key }],
+            children: [{ type: 'text', value: key } satisfies Text],
         }
     })
 
     return placeholders
 }
 
-function exportStylesheet(): string {
-    return buildExportCss(getDiagramColors(PDF_MERMAID_THEME).bg)
+function renderTitlePage(metadata: PdfExportMetadata, assets: PdfExportResolvedAssets): string {
+    const logo = assets.logoDataUrl ? `<img class="pdf-logo" src="${escapeHtml(assets.logoDataUrl)}" alt="" />` : ''
+    const subtitle = metadata.subtitle ? `<p class="pdf-title-meta">${escapeHtml(metadata.subtitle)}</p>` : ''
+    const author = metadata.author ? `<p class="pdf-title-meta">${escapeHtml(metadata.author)}</p>` : ''
+    const date = metadata.date ? `<p class="pdf-title-meta">${escapeHtml(metadata.date)}</p>` : ''
+    return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1>${escapeHtml(metadata.title)}</h1>${subtitle}${author}${date}</div></section>`
 }
 
-export async function markdownToExportHtml(source: string): Promise<string> {
-    const trimmed = source.trim()
+function renderToc(items: PdfExportOutlineItem[]): string {
+    if (items.length === 0) return ''
+    const list = items
+        .map((item, index) => {
+            const level = Math.min(item.level, 4)
+            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title">${escapeHtml(item.text)}</span><span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${pdfTocMark(index, 'slot')}</span></span></a></li>`
+        })
+        .join('')
+    return `<section class="pdf-toc-page"><h1>Contents</h1><ol class="pdf-toc-list">${list}</ol></section>`
+}
+
+/** Hidden mark at each TOC heading so the PDF stamper can read which page it landed on. */
+function injectHeadingMarks(bodyHtml: string, items: PdfExportOutlineItem[]): string {
+    return items.reduce((html, item, index) => {
+        const attr = `id="${escapeHtml(item.id)}"`
+        const at = html.indexOf(attr)
+        if (at < 0) return html
+        const close = html.indexOf('>', at)
+        if (close < 0) return html
+        const mark = `<span class="pdf-heading-mark">${pdfTocMark(index, 'heading')}</span>`
+        return `${html.slice(0, close + 1)}${mark}${html.slice(close + 1)}`
+    }, bodyHtml)
+}
+
+function chromeImage(dataUrl: string): string {
+    return dataUrl ? `<img src="${escapeHtml(dataUrl)}" alt="" />` : ''
+}
+
+function chromeLabel(text: string, metadata: PdfExportMetadata): string {
+    const resolved = resolvePdfChromeText(text, metadata)
+    return resolved ? `<span>${escapeHtml(resolved)}</span>` : ''
+}
+
+/** The footer's right-hand text: a page counter slot for the stamper, or plain text. */
+function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
+    const format = profile.footer.pageNumbers
+    if (format === 'none') return ''
+    if (format === 'custom' && !pdfPageNumberTemplate(profile, metadata)) {
+        return chromeLabel(profile.footer.right.text, metadata)
+    }
+    return `<span class="pdf-page-number"><span class="pdf-page-number-mark">${PDF_PAGE_NUMBER_MARK}</span></span>`
+}
+
+/**
+ * Header/footer bar: `[image][text] … [text][image]`, so an image on either
+ * end is always the outermost item, nearest the page edge.
+ */
+function renderChromeCell(
+    kind: 'header' | 'footer',
+    profile: PdfExportProfile,
+    assets: PdfExportResolvedAssets,
+    metadata: PdfExportMetadata
+): string {
+    const chrome = kind === 'header' ? profile.header : profile.footer
+    const images = kind === 'header' ? assets.header : assets.footer
+    const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata)
+    return `<div class="pdf-chrome-bar pdf-${kind}-bar"><span class="pdf-chrome-side pdf-chrome-left">${chromeImage(images.left)}${chromeLabel(chrome.left.text, metadata)}</span><span class="pdf-chrome-side pdf-chrome-right">${rightText}${chromeImage(images.right)}</span></div>`
+}
+
+/**
+ * One table per section (title, TOC, body). The repeating header/footer rows
+ * give every page of a section its chrome and, in bleed mode, its margins,
+ * while the CSS hide rules can still switch the bars off per section.
+ */
+function chromeTable(
+    kind: 'title' | 'toc' | 'body',
+    inner: string,
+    profile: PdfExportProfile,
+    assets: PdfExportResolvedAssets,
+    metadata: PdfExportMetadata
+): string {
+    return `<table class="pdf-chrome-table pdf-${kind}-table">
+    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', profile, assets, metadata)}</td></tr></thead>
+    <tbody><tr><td>${inner}</td></tr></tbody>
+    <tfoot><tr><td>${renderChromeCell('footer', profile, assets, metadata)}</td></tr></tfoot>
+  </table>`
+}
+
+function wrapWithChrome(
+    titlePageHtml: string,
+    tocHtml: string,
+    bodyHtml: string,
+    profile: PdfExportProfile,
+    assets: PdfExportResolvedAssets,
+    metadata: PdfExportMetadata
+): string {
+    const body = `<div class="pdf-body">${bodyHtml}</div>`
+    const layout = resolvePdfExportLayout(profile)
+    // In bleed mode the repeating table rows also supply the page margins, so tables are always needed.
+    const needsChrome = layout.showHeader || layout.showFooter || layout.bleed
+    if (!needsChrome) {
+        return `<article class="export-article">${titlePageHtml}${tocHtml}${body}</article>`
+    }
+
+    const sections = [
+        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata) : '',
+        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata) : '',
+        chromeTable('body', body, profile, assets, metadata),
+    ]
+    return `<article class="export-article">
+  ${sections.filter(Boolean).join('\n  ')}
+</article>`
+}
+
+export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<string> {
+    const profile = options.profile ?? createDefaultPdfExportProfile()
+    const assets = options.assets ?? EMPTY_ASSETS
+    const { metadata, body } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
+    const trimmed = body.trim()
     if (!trimmed) {
         throw new Error('Nothing to export.')
     }
 
     const tree = unified().use(remarkParse).use(remarkGfm).parse(trimmed) as Root
-    const placeholders = await transformCodeBlocks(tree)
+    applyHeadingIds(tree, trimmed)
+    const placeholders = await transformCodeBlocks(tree, profile)
 
     const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
-        const wrappedPattern = new RegExp(`<p>${escapeRegExp(key)}</p>`, 'g')
-        bodyHtml = bodyHtml.replace(wrappedPattern, () => html)
-        const barePattern = new RegExp(escapeRegExp(key), 'g')
-        bodyHtml = bodyHtml.replace(barePattern, () => html)
+        bodyHtml = bodyHtml.split(key).join(html)
     }
+
+    const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
+    const outline = profile.frontMatter.toc ? extractPdfExportOutline(trimmed, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
+    if (outline.length > 0) bodyHtml = injectHeadingMarks(bodyHtml, outline)
+    const toc = renderToc(outline)
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="color-scheme" content="light only" />
-  <style>${exportStylesheet()}</style>
+  <title>${escapeHtml(metadata.title)}</title>
+  <style>${buildPdfExportCss(profile)}</style>
 </head>
 <body>
-  <article class="export-article">${bodyHtml}</article>
+  ${wrapWithChrome(titlePage, toc, bodyHtml, profile, assets, metadata)}
 </body>
 </html>`
 }

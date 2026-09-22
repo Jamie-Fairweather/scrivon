@@ -1,4 +1,5 @@
 import { DEFAULT_APP_THEME } from '@/lib/theme/catalog'
+import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
 export const DEFAULT_EDITOR_WIDTH = 400
@@ -57,6 +58,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
         updates: {
             checkOnLaunch: true,
         },
+        pdfExport: createDefaultPdfExportSettings(),
         keybinds: createDefaultKeybinds(isMac),
     }
 }

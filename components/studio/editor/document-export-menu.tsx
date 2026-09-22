@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
+import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
-import { exportMarkdownToPdf } from '@/lib/markdown/export-pdf'
 import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
 import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,7 @@ export function DocumentExportMenu() {
 
     const { error, isPending } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
     const [exporting, setExporting] = useState(false)
+    const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
 
     const hasMarkdown = markdownSource.trim().length > 0
     const hasDiagramSource = diagramExportSource.trim().length > 0
@@ -55,47 +56,52 @@ export function DocumentExportMenu() {
         exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
 
     return (
-        <Menu>
-            <MenuTrigger
-                render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title="Export document" disabled={triggerDisabled} />}
-            >
-                {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-            </MenuTrigger>
-            <MenuPopup align="end" className="min-w-44">
-                <MenuGroup>
-                    {isMarkdownTab ? (
-                        <MenuItem disabled={pdfDisabled} onClick={() => void runExport(() => exportMarkdownToPdf(markdownSource, tabName))}>
-                            Save PDF
-                        </MenuItem>
-                    ) : null}
-                    {showDiagramExport ? (
-                        <>
-                            <MenuItem
-                                disabled={diagramDisabled}
-                                onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, tabName))}
-                            >
-                                Save SVG
+        <>
+            <Menu>
+                <MenuTrigger
+                    render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title="Export document" disabled={triggerDisabled} />}
+                >
+                    {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                </MenuTrigger>
+                <MenuPopup align="end" className="min-w-44">
+                    <MenuGroup>
+                        {isMarkdownTab ? (
+                            <MenuItem disabled={pdfDisabled} onClick={() => setPdfDialogOpen(true)}>
+                                Save PDF
                             </MenuItem>
-                            <MenuSub>
-                                <MenuSubTrigger disabled={diagramDisabled}>Save PNG</MenuSubTrigger>
-                                <MenuSubPopup className="min-w-36">
-                                    <MenuGroup>
-                                        {PNG_SCALES.map(({ label, scale }) => (
-                                            <MenuItem
-                                                key={scale}
-                                                disabled={diagramDisabled}
-                                                onClick={() => void runExport(() => exportPng(diagramExportSource, themeId, tabName, scale))}
-                                            >
-                                                {label}
-                                            </MenuItem>
-                                        ))}
-                                    </MenuGroup>
-                                </MenuSubPopup>
-                            </MenuSub>
-                        </>
-                    ) : null}
-                </MenuGroup>
-            </MenuPopup>
-        </Menu>
+                        ) : null}
+                        {showDiagramExport ? (
+                            <>
+                                <MenuItem
+                                    disabled={diagramDisabled}
+                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, tabName))}
+                                >
+                                    Save SVG
+                                </MenuItem>
+                                <MenuSub>
+                                    <MenuSubTrigger disabled={diagramDisabled}>Save PNG</MenuSubTrigger>
+                                    <MenuSubPopup className="min-w-36">
+                                        <MenuGroup>
+                                            {PNG_SCALES.map(({ label, scale }) => (
+                                                <MenuItem
+                                                    key={scale}
+                                                    disabled={diagramDisabled}
+                                                    onClick={() => void runExport(() => exportPng(diagramExportSource, themeId, tabName, scale))}
+                                                >
+                                                    {label}
+                                                </MenuItem>
+                                            ))}
+                                        </MenuGroup>
+                                    </MenuSubPopup>
+                                </MenuSub>
+                            </>
+                        ) : null}
+                    </MenuGroup>
+                </MenuPopup>
+            </Menu>
+            {isMarkdownTab ? (
+                <PdfExportDialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen} source={markdownSource} tabName={tabName} />
+            ) : null}
+        </>
     )
 }

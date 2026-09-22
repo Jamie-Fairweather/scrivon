@@ -47,6 +47,35 @@ export async function pickWorkspaceFolder(): Promise<string | null> {
     return selected
 }
 
+export type OpenFileDialogOptions = {
+    title?: string
+    defaultPath?: string
+    filters?: DialogFilter[]
+}
+
+function parentDirectory(path: string): string {
+    const trimmed = path.replace(/[\\/]+$/, '')
+    const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+    return slash <= 0 ? trimmed : trimmed.slice(0, slash)
+}
+
+export async function pickOpenFile(options: OpenFileDialogOptions = {}): Promise<string | null> {
+    if (!isTauri()) return null
+
+    const selected = await open({
+        directory: false,
+        multiple: false,
+        title: options.title,
+        defaultPath: options.defaultPath,
+        filters: options.filters,
+    })
+
+    if (!selected || Array.isArray(selected)) return null
+
+    await allowWorkspacePath(parentDirectory(selected))
+    return selected
+}
+
 export async function showError(title: string, body: string): Promise<void> {
     if (!isTauri()) {
         console.error(title, body)

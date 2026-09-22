@@ -2,7 +2,7 @@
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
-import { Select, SelectButton, SelectItem, SelectPopup, SelectValue } from '@/components/ui/select'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -66,6 +66,11 @@ export function EditorSettings() {
             <Field>
                 <FieldLabel htmlFor="editor-word-wrap">Word wrap</FieldLabel>
                 <Select
+                    items={[
+                        { label: 'On', value: 'on' },
+                        { label: 'Off', value: 'off' },
+                        { label: 'At column', value: 'wordWrapColumn' },
+                    ]}
                     value={settings.editor.wordWrap}
                     onValueChange={(value) => {
                         if (value) {
@@ -76,9 +81,9 @@ export function EditorSettings() {
                         }
                     }}
                 >
-                    <SelectButton id="editor-word-wrap">
+                    <SelectTrigger id="editor-word-wrap">
                         <SelectValue />
-                    </SelectButton>
+                    </SelectTrigger>
                     <SelectPopup>
                         <SelectItem value="on">On</SelectItem>
                         <SelectItem value="off">Off</SelectItem>
@@ -90,6 +95,11 @@ export function EditorSettings() {
             <Field>
                 <FieldLabel htmlFor="editor-line-numbers">Line numbers</FieldLabel>
                 <Select
+                    items={[
+                        { label: 'On', value: 'on' },
+                        { label: 'Off', value: 'off' },
+                        { label: 'Relative', value: 'relative' },
+                    ]}
                     value={settings.editor.lineNumbers}
                     onValueChange={(value) => {
                         if (value) {
@@ -100,9 +110,9 @@ export function EditorSettings() {
                         }
                     }}
                 >
-                    <SelectButton id="editor-line-numbers">
+                    <SelectTrigger id="editor-line-numbers">
                         <SelectValue />
-                    </SelectButton>
+                    </SelectTrigger>
                     <SelectPopup>
                         <SelectItem value="on">On</SelectItem>
                         <SelectItem value="off">Off</SelectItem>

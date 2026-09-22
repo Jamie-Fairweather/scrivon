@@ -8,7 +8,7 @@ import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import { loadSettings, saveSettings } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindChord } from '@/lib/settings/types'
 
-export type SettingsSection = 'general' | 'appearance' | 'editor' | 'keyboard' | 'advanced'
+export type SettingsSection = 'general' | 'appearance' | 'editor' | 'pdf-export' | 'keyboard' | 'advanced'
 
 type AppSettingsContextValue = {
     settings: AppSettings

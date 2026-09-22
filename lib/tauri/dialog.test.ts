@@ -29,7 +29,7 @@ vi.mock('@/lib/tauri/scope', () => ({
     allowWorkspacePath: allowWorkspacePathMock,
 }))
 
-import { pickSavePath, pickWorkspaceFolder, showError, writeBinaryFile, writeTextFileAtPath } from './dialog'
+import { pickOpenFile, pickSavePath, pickWorkspaceFolder, showError, writeBinaryFile, writeTextFileAtPath } from './dialog'
 
 describe('pickSavePath', () => {
     beforeEach(() => {
@@ -78,6 +78,44 @@ describe('pickWorkspaceFolder', () => {
         isTauriMock.mockReturnValue(true)
         openMock.mockResolvedValue(null)
         await expect(pickWorkspaceFolder()).resolves.toBeNull()
+        expect(allowWorkspacePathMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('pickOpenFile', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('returns null outside Tauri', async () => {
+        isTauriMock.mockReturnValue(false)
+        await expect(pickOpenFile({ title: 'Choose image' })).resolves.toBeNull()
+        expect(openMock).not.toHaveBeenCalled()
+    })
+
+    it('allows the parent folder and returns the file path', async () => {
+        isTauriMock.mockReturnValue(true)
+        openMock.mockResolvedValue('C:\\brand\\logo.png')
+        await expect(pickOpenFile({ title: 'Choose image' })).resolves.toBe('C:\\brand\\logo.png')
+        expect(allowWorkspacePathMock).toHaveBeenCalledWith('C:\\brand')
+        expect(openMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                directory: false,
+                multiple: false,
+                title: 'Choose image',
+            })
+        )
+        openMock.mockResolvedValue('/tmp/logo.png')
+        await expect(pickOpenFile()).resolves.toBe('/tmp/logo.png')
+        expect(allowWorkspacePathMock).toHaveBeenCalledWith('/tmp')
+    })
+
+    it('returns null when file selection is cancelled or returns an array', async () => {
+        isTauriMock.mockReturnValue(true)
+        openMock.mockResolvedValue(null)
+        await expect(pickOpenFile({})).resolves.toBeNull()
+        openMock.mockResolvedValue(['/tmp/a.png', '/tmp/b.png'])
+        await expect(pickOpenFile({})).resolves.toBeNull()
         expect(allowWorkspacePathMock).not.toHaveBeenCalled()
     })
 })
