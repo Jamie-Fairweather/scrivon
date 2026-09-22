@@ -225,6 +225,18 @@ SHIKI_FAIL
         expect(html).not.toContain('class="pdf-toc-page"')
     })
 
+    it('does not mark a heading that never received an id', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        const { html } = await markdownToExportHtml('# Title\n\n## ![diagram](pic.png)', { profile })
+        expect(html).toContain('<h1 id="title">')
+        expect(html).toContain('pdf-heading-mark')
+        expect(html).toContain('<img')
+        expect(html).not.toMatch(/<h2[^>]*pdf-heading-mark/)
+    })
+
     it('gives setext headings ids and ignores hashes inside fenced code', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

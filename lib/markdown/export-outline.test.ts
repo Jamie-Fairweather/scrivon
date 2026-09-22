@@ -37,6 +37,11 @@ describe('collectPdfExportOutline', () => {
         ])
     })
 
+    it('skips leafless inline nodes such as images when reading heading text', () => {
+        const tree = parse('## See ![diagram](a.png) here')
+        expect(collectPdfExportOutline(tree)).toEqual([{ id: 'see-here', level: 2, text: 'See  here' }])
+    })
+
     it('uses the plain text of inline markup and slugifies punctuation-only headings', () => {
         const tree = parse('## `code` and *emphasis*\n\n## !!!\n\n##')
         expect(collectPdfExportOutline(tree)).toEqual([

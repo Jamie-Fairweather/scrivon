@@ -110,6 +110,17 @@ describe('pickOpenFile', () => {
         expect(allowWorkspacePathMock).toHaveBeenCalledWith('/tmp')
     })
 
+    it('allows a file path that has no parent directory', async () => {
+        isTauriMock.mockReturnValue(true)
+        openMock.mockResolvedValue('logo.png')
+        await expect(pickOpenFile()).resolves.toBe('logo.png')
+        expect(allowWorkspacePathMock).toHaveBeenCalledWith('logo.png')
+
+        openMock.mockResolvedValue('/logo.png')
+        await expect(pickOpenFile()).resolves.toBe('/logo.png')
+        expect(allowWorkspacePathMock).toHaveBeenCalledWith('/logo.png')
+    })
+
     it('returns null when file selection is cancelled or returns an array', async () => {
         isTauriMock.mockReturnValue(true)
         openMock.mockResolvedValue(null)

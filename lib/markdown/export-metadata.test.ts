@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fallbackPdfExportTitle, parsePdfExportFrontMatter, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { fallbackPdfExportTitle, parsePdfExportFrontMatter, pdfPageNumberTemplate, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 
 describe('parsePdfExportFrontMatter', () => {
     it('returns the full source when front matter is absent', () => {
@@ -45,6 +46,14 @@ describe('fallbackPdfExportTitle', () => {
         expect(fallbackPdfExportTitle('No heading', 'notes.md')).toBe('notes')
         expect(fallbackPdfExportTitle('No heading', '.md')).toBe('Document')
         expect(fallbackPdfExportTitle('No heading', undefined)).toBe('Document')
+    })
+})
+
+describe('pdfPageNumberTemplate', () => {
+    it('returns an empty template unless numbering is custom', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        expect(pdfPageNumberTemplate(profile, { title: 'Spec', subtitle: '', author: '', date: '' })).toBe('')
     })
 })
 

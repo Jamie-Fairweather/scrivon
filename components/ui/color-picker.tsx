@@ -49,6 +49,27 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value))
 }
 
+/** Maps a pointer inside the saturation/lightness field. No-ops when the field is not mounted. */
+export function colorSelectionFromPointer(
+    node: Pick<HTMLElement, 'getBoundingClientRect'> | null,
+    clientX: number,
+    clientY: number,
+    setSaturation: (saturation: number) => void,
+    setLightness: (lightness: number) => void
+): void {
+    if (!node) return
+    const rect = node.getBoundingClientRect()
+    const x = clamp((clientX - rect.left) / rect.width, 0, 1)
+    const y = clamp((clientY - rect.top) / rect.height, 0, 1)
+    setSaturation(x * 100)
+    const nextTopLightness = x < 0.01 ? 100 : 50 + 50 * (1 - x)
+    setLightness(nextTopLightness * (1 - y))
+}
+
+export function isEyeDropperSupported(): boolean {
+    return typeof window !== 'undefined' && 'EyeDropper' in window
+}
+
 /**
  * Accepts `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`; returns lowercase `#rrggbb`,
  * or `#rrggbbaa` when the colour is translucent. `null` for anything else.
@@ -200,14 +221,7 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
 
     const updateFromPointer = useCallback(
         (clientX: number, clientY: number) => {
-            const node = containerRef.current
-            if (!node) return
-            const rect = node.getBoundingClientRect()
-            const x = clamp((clientX - rect.left) / rect.width, 0, 1)
-            const y = clamp((clientY - rect.top) / rect.height, 0, 1)
-            setSaturation(x * 100)
-            const nextTopLightness = x < 0.01 ? 100 : 50 + 50 * (1 - x)
-            setLightness(nextTopLightness * (1 - y))
+            colorSelectionFromPointer(containerRef.current, clientX, clientY, setSaturation, setLightness)
         },
         [setSaturation, setLightness]
     )
@@ -272,10 +286,7 @@ function ColorSliderTrack({
             step={1}
             thumbAlignment="edge"
             value={[value]}
-            onValueChange={(next) => {
-                const first = Array.isArray(next) ? next[0] : next
-                if (typeof first === 'number') onValueChange(first)
-            }}
+            onValueChange={([next]) => onValueChange(next)}
         >
             <SliderPrimitive.Control className="flex h-4 w-full touch-none items-center select-none">
                 <SliderPrimitive.Track className="relative h-3 w-full grow rounded-full" data-slot="slider-track" style={style}>
@@ -344,8 +355,7 @@ type EyeDropperWindow = { EyeDropper: new () => { open: () => Promise<{ sRGBHex:
 
 export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDropperProps) {
     const { alpha, setColor } = useColorPicker()
-    // Only ever rendered inside a client-opened popover, so reading `window` in the initialiser is safe.
-    const [supported] = useState(() => typeof window !== 'undefined' && 'EyeDropper' in window)
+    const [supported] = useState(() => isEyeDropperSupported())
 
     if (!supported) return null
 
