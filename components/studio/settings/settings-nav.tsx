@@ -7,7 +7,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'editor', label: 'Editor' },
-    { id: 'pdf-export', label: 'PDF export' },
+    { id: 'pdf-export', label: 'Document export' },
     { id: 'keyboard', label: 'Keyboard' },
     { id: 'advanced', label: 'Advanced' },
 ]

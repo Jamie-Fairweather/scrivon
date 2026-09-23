@@ -1,37 +1,18 @@
 import type { Element, Root as HastRoot } from 'hast'
 import { toHtml } from 'hast-util-to-html'
 import type { Code, Parent, Root, Text } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
+import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
 import { buildPdfExportCss, PDF_PAGE_NUMBER_MARK, pdfTocMark, resolvePdfExportLayout, resolvePdfPrintOptions } from '@/lib/markdown/export-html-css'
-import { pdfPageNumberTemplate, resolvePdfChromeText, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
-import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
+import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
-import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type {
-    PdfExportDocument,
-    PdfExportMetadata,
-    PdfExportMetadataOverrides,
-    PdfExportProfile,
-    PdfExportResolvedAssets,
-} from '@/lib/settings/pdf-export-types'
+import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-export type MarkdownToExportHtmlOptions = {
-    profile?: PdfExportProfile
-    tabName?: string
-    overrides?: PdfExportMetadataOverrides
-    assets?: PdfExportResolvedAssets
-}
-
-const EMPTY_ASSETS: PdfExportResolvedAssets = {
-    logoDataUrl: '',
-    header: { left: '', right: '' },
-    footer: { left: '', right: '' },
-}
+export type MarkdownToExportHtmlOptions = BuildExportDocumentOptions
 
 function escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -213,17 +194,12 @@ function wrapWithChrome(
  * when the body is empty after front matter is removed.
  */
 export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<PdfExportDocument> {
-    const profile = options.profile ?? createDefaultPdfExportProfile()
-    const assets = options.assets ?? EMPTY_ASSETS
-    const { metadata, body } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
-    const trimmed = body.trim()
-    if (!trimmed) {
-        throw new Error('Nothing to export.')
-    }
+    return renderExportPdf(buildExportDocument(source, options))
+}
 
-    const tree = unified().use(remarkParse).use(remarkGfm).parse(trimmed) as Root
-    const outline = collectPdfExportOutline(tree)
-    const tocItems = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
+/** PDF renderer for an {@link ExportDocument}. Replaces fenced code in `tree` with HTML placeholders. */
+export async function renderExportPdf(document: ExportDocument): Promise<PdfExportDocument> {
+    const { profile, assets, metadata, tree, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
     const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot

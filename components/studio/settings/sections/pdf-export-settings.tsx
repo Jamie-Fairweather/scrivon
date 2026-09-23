@@ -247,11 +247,19 @@ export function PdfExportSettings() {
                 <NumberSetting
                     id="pdf-line-height"
                     label="Line height"
+                    description="Multiple of the font size, in both PDF and Word."
                     value={active.typography.lineHeight}
                     {...PDF_EXPORT_LIMITS.lineHeight}
                     onChange={(lineHeight) => setSection('typography', { lineHeight })}
                 />
             </div>
+
+            <SwitchSetting
+                label="Justify body text"
+                description="Normal paragraphs only. Headings, lists, tables, quotes, and code stay left aligned."
+                checked={active.typography.justify}
+                onChange={(justify) => setSection('typography', { justify })}
+            />
 
             <div className="grid gap-4 sm:grid-cols-2">
                 <Field>

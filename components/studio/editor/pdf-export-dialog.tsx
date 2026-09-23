@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { exportMarkdownToPdf } from '@/lib/markdown/export-pdf'
+import { exportMarkdown, type ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
+import type { ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
-import type { PdfExportMetadataOverrides } from '@/lib/settings/pdf-export-types'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -17,20 +17,36 @@ type PdfExportDialogProps = {
     onOpenChange: (open: boolean) => void
     source: string
     tabName: string | undefined
+    format?: ExportFormat
 }
 
-export function PdfExportDialog({ open, onOpenChange, source, tabName }: PdfExportDialogProps) {
+export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 'pdf' }: PdfExportDialogProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogPopup className="max-w-lg">
                 {/* The popup unmounts when closed, so the form's state starts fresh on every open. */}
-                <PdfExportForm source={source} tabName={tabName} onClose={() => onOpenChange(false)} />
+                <PdfExportForm key={format} source={source} tabName={tabName} initialFormat={format} onClose={() => onOpenChange(false)} />
             </DialogPopup>
         </Dialog>
     )
 }
 
-function PdfExportForm({ source, tabName, onClose }: { source: string; tabName: string | undefined; onClose: () => void }) {
+const FORMAT_OPTIONS: { label: string; value: ExportFormat }[] = [
+    { label: 'PDF', value: 'pdf' },
+    { label: 'Word', value: 'docx' },
+]
+
+function PdfExportForm({
+    source,
+    tabName,
+    initialFormat,
+    onClose,
+}: {
+    source: string
+    tabName: string | undefined
+    initialFormat: ExportFormat
+    onClose: () => void
+}) {
     const { settings } = useAppSettings()
     const pdf = settings.pdfExport
     // The choice here is for this export only; the default profile lives in Settings.
@@ -42,14 +58,15 @@ function PdfExportForm({ source, tabName, onClose }: { source: string; tabName: 
     const [subtitle, setSubtitle] = useState(defaults.subtitle)
     const [author, setAuthor] = useState(defaults.author)
     const [date, setDate] = useState(defaults.date)
+    const [format, setFormat] = useState<ExportFormat>(initialFormat)
     const [busy, setBusy] = useState(false)
 
-    const overrides: PdfExportMetadataOverrides = { title, subtitle, author, date }
+    const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
 
     const runExport = async () => {
         setBusy(true)
         try {
-            await exportMarkdownToPdf(source, tabName, { profile, overrides })
+            await exportMarkdown(source, tabName, { format, profile, overrides })
             onClose()
         } finally {
             setBusy(false)
@@ -59,10 +76,14 @@ function PdfExportForm({ source, tabName, onClose }: { source: string; tabName: 
     return (
         <>
             <DialogHeader>
-                <DialogTitle>Export PDF</DialogTitle>
-                <DialogDescription>Choose a profile and optional title metadata for this export.</DialogDescription>
+                <DialogTitle>Export document</DialogTitle>
+                <DialogDescription>Choose a format, profile, and optional title metadata for this export.</DialogDescription>
             </DialogHeader>
             <DialogPanel className="space-y-4">
+                <Field>
+                    <FieldLabel htmlFor="export-format">Format</FieldLabel>
+                    <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={setFormat} />
+                </Field>
                 <Field>
                     <FieldLabel htmlFor="export-profile">Profile</FieldLabel>
                     <OptionSelect

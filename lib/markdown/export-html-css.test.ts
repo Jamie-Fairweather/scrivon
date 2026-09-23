@@ -11,6 +11,13 @@ describe('buildPdfExportCss', () => {
         expect(css).toContain('color: #262626;')
         expect(css).not.toContain('break-before: page')
         expect(css).not.toContain('content: "DRAFT"')
+        expect(css).not.toContain('text-align: justify')
+    })
+
+    it('justifies only top-level body paragraphs', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.typography.justify = true
+        expect(buildPdfExportCss(profile)).toContain('.pdf-body > p { text-align: justify; }')
     })
 
     it('applies letter landscape, link fallback, chrome, watermark, and heading breaks', () => {
