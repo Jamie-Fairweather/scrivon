@@ -7,6 +7,7 @@ import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import type { ExportFormat } from '@/lib/markdown/export-document'
 import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
 import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ export function DocumentExportMenu() {
 
     const { error, isPending } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
     const [exporting, setExporting] = useState(false)
+    const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
 
     const hasMarkdown = markdownSource.trim().length > 0
@@ -66,9 +68,26 @@ export function DocumentExportMenu() {
                 <MenuPopup align="end" className="min-w-44">
                     <MenuGroup>
                         {isMarkdownTab ? (
-                            <MenuItem disabled={pdfDisabled} onClick={() => setPdfDialogOpen(true)}>
-                                Save PDF
-                            </MenuItem>
+                            <>
+                                <MenuItem
+                                    disabled={pdfDisabled}
+                                    onClick={() => {
+                                        setExportFormat('pdf')
+                                        setPdfDialogOpen(true)
+                                    }}
+                                >
+                                    Save PDF
+                                </MenuItem>
+                                <MenuItem
+                                    disabled={pdfDisabled}
+                                    onClick={() => {
+                                        setExportFormat('docx')
+                                        setPdfDialogOpen(true)
+                                    }}
+                                >
+                                    Save Word
+                                </MenuItem>
+                            </>
                         ) : null}
                         {showDiagramExport ? (
                             <>
@@ -100,7 +119,13 @@ export function DocumentExportMenu() {
                 </MenuPopup>
             </Menu>
             {isMarkdownTab ? (
-                <PdfExportDialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen} source={markdownSource} tabName={tabName} />
+                <PdfExportDialog
+                    open={pdfDialogOpen}
+                    onOpenChange={setPdfDialogOpen}
+                    source={markdownSource}
+                    tabName={tabName}
+                    format={exportFormat}
+                />
             ) : null}
         </>
     )

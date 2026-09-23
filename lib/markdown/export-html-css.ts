@@ -246,6 +246,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
   h3 { margin: 1.25rem 0 0.5rem; font-size: 1.125rem; font-weight: 600; }
   h4 { margin: 1rem 0 0.5rem; font-size: 1rem; font-weight: 600; }
   p { margin: 0 0 0.75rem; }
+  ${profile.typography.justify ? '.pdf-body > p { text-align: justify; }' : ''}
   ul, ol { margin: 0 0 0.75rem; padding-left: 1.25rem; }
   li { margin: 0.25rem 0; word-break: break-word; }
   blockquote {

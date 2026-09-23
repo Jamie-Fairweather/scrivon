@@ -1,17 +1,23 @@
 import { invoke } from '@tauri-apps/api/core'
+import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets } from '@/lib/markdown/export-assets'
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportDocument, PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
-import { pickSavePath, showError } from '@/lib/tauri/dialog'
-import { isWindowsTauri } from '@/lib/tauri/platform'
+import { pickSavePath, showError, writeBinaryFile } from '@/lib/tauri/dialog'
+import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const DOCX_FILTERS = [{ name: 'Word document', extensions: ['docx'] }]
 
-export type ExportMarkdownToPdfOptions = {
+export type ExportMarkdownOptions = {
+    format?: ExportFormat
     profile?: PdfExportProfile
     overrides?: PdfExportMetadataOverrides
 }
+
+export type ExportMarkdownToPdfOptions = ExportMarkdownOptions
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
@@ -79,19 +85,54 @@ async function savePdfWithWebView2(html: string, outputPath: string, options: Pd
     await invoke('export_html_to_pdf', { html, outputPath, options })
 }
 
+function triggerBrowserDownload(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+}
+
+async function saveDocx(bytes: Uint8Array, filename: string): Promise<void> {
+    if (isTauri()) {
+        const path = await pickSavePath({ title: 'Save Word document', defaultPath: filename, filters: DOCX_FILTERS })
+        if (!path) return
+        await writeBinaryFile(path, bytes)
+        return
+    }
+
+    const copy = new Uint8Array(bytes.byteLength)
+    copy.set(bytes)
+    triggerBrowserDownload(new Blob([copy], { type: DOCX_MIME }), filename)
+}
+
 /** Resolves the profile's images, then builds the document the export and preview paths share. */
 export async function buildMarkdownExportHtml(
     source: string,
     tabName: string | undefined,
-    options: ExportMarkdownToPdfOptions = {}
+    options: ExportMarkdownOptions = {}
 ): Promise<PdfExportDocument> {
     const profile = options.profile ?? createDefaultPdfExportProfile()
     const assets = await resolvePdfExportAssets(profile)
     return markdownToExportHtml(source, { profile, tabName, overrides: options.overrides, assets })
 }
 
-export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownToPdfOptions = {}): Promise<void> {
+export async function exportMarkdown(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<void> {
     try {
+        if (options.format === 'docx') {
+            const profile = options.profile ?? createDefaultPdfExportProfile()
+            const assets = await resolvePdfExportAssets(profile)
+            const document = buildExportDocument(source, { profile, tabName, overrides: options.overrides, assets })
+            const { renderExportDocx } = await import('@/lib/markdown/export-docx')
+            const bytes = await renderExportDocx(document)
+            await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
+            return
+        }
+
         const { html, print } = await buildMarkdownExportHtml(source, tabName, options)
         const filename = `${markdownExportBaseName(tabName)}.pdf`
 
@@ -107,4 +148,8 @@ export async function exportMarkdownToPdf(source: string, tabName: string | unde
         const message = err instanceof Error ? err.message : String(err)
         await showError('Export failed', message)
     }
+}
+
+export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<void> {
+    await exportMarkdown(source, tabName, options)
 }
