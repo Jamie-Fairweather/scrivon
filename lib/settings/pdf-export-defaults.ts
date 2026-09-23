@@ -31,6 +31,7 @@ export function createDefaultPdfExportProfile(overrides: Partial<Pick<PdfExportP
             monoFont: DEFAULT_PDF_MONO_FONT,
             bodySizePt: 11,
             lineHeight: 1.6,
+            justify: false,
         },
         brand: {
             accentColor: '#262626',

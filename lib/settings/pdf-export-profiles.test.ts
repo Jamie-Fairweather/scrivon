@@ -52,6 +52,7 @@ describe('normalizePdfExportSettings', () => {
         expect(normalized.profiles[0]!.page.marginsMm.right).toBe(0)
         expect(normalized.profiles[0]!.typography.bodySizePt).toBe(8)
         expect(normalized.profiles[0]!.typography.lineHeight).toBe(2.5)
+        expect(normalized.profiles[0]!.typography.justify).toBe(false)
         expect(normalized.profiles[0]!.content.codeTheme).toBe('github-light')
         expect(normalized.profiles[0]!.content.watermark).toBe('DRAFT')
         expect(normalized.profiles[0]!.frontMatter.tocDepth).toBe(3)

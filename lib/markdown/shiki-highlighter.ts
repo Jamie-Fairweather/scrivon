@@ -1,4 +1,4 @@
-import { createHighlighter, type BundledLanguage, type Highlighter } from 'shiki'
+import { createHighlighter, type BundledLanguage, type Highlighter, type SpecialLanguage } from 'shiki'
 
 const THEMES = ['github-dark', 'github-light'] as const
 
@@ -85,4 +85,17 @@ export async function highlightFencedCode(code: string, language: string | undef
         lang,
         theme,
     })
+}
+
+export type HighlightedToken = {
+    text: string
+    color?: string
+}
+
+/** Coloured runs for the same highlight {@link highlightFencedCode} draws as HTML. */
+export async function highlightFencedCodeTokens(code: string, language: string | undefined, theme: ShikiTheme): Promise<HighlightedToken[][]> {
+    const highlighter = await getHighlighter()
+    const lang = await ensureLanguage(highlighter, normalizeLanguage(language))
+    const { tokens } = highlighter.codeToTokens(code.replace(/\n$/, ''), { lang: lang as BundledLanguage | SpecialLanguage, theme })
+    return tokens.map((line) => line.map((token) => ({ text: token.content, color: token.color })))
 }

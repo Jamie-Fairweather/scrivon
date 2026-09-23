@@ -133,6 +133,7 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             monoFont: normalizeString(typography?.monoFont, fallback.typography.monoFont),
             bodySizePt: normalizeNumber(typography?.bodySizePt, fallback.typography.bodySizePt, PDF_EXPORT_LIMITS.bodySizePt),
             lineHeight: normalizeNumber(typography?.lineHeight, fallback.typography.lineHeight, PDF_EXPORT_LIMITS.lineHeight),
+            justify: normalizeBoolean(typography?.justify, fallback.typography.justify),
         },
         brand: {
             accentColor: normalizeString(brand?.accentColor, fallback.brand.accentColor),

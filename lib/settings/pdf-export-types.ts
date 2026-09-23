@@ -60,6 +60,8 @@ export type PdfExportProfile = {
         monoFont: string
         bodySizePt: number
         lineHeight: number
+        /** Justify normal paragraphs. Headings, lists, tables, quotes, and code stay left aligned. */
+        justify: boolean
     }
     brand: {
         accentColor: string

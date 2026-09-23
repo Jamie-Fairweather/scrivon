@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const invoke = vi.hoisted(() => vi.fn())
 const pickSavePath = vi.hoisted(() => vi.fn())
 const showError = vi.hoisted(() => vi.fn())
+const writeBinaryFile = vi.hoisted(() => vi.fn())
 const isWindowsTauri = vi.hoisted(() => vi.fn(() => false))
+const isTauri = vi.hoisted(() => vi.fn(() => false))
+const renderExportDocx = vi.hoisted(() => vi.fn(async () => new Uint8Array([1, 2, 3])))
 const EXPORT_DOCUMENT = vi.hoisted(() => ({
     html: '<html><body><article class="export-article">x</article></body></html>',
     metadata: { title: 'Hi', subtitle: '', author: '', date: '' },
@@ -27,10 +30,11 @@ const EMPTY_ASSETS = vi.hoisted(() => ({ logoDataUrl: '', header: { left: '', ri
 const resolvePdfExportAssets = vi.hoisted(() => vi.fn(async () => EMPTY_ASSETS))
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
-vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, showError }))
-vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri }))
+vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, showError, writeBinaryFile }))
+vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri, isTauri }))
 vi.mock('@/lib/markdown/markdown-to-export-html', () => ({ markdownToExportHtml }))
 vi.mock('@/lib/markdown/export-assets', () => ({ resolvePdfExportAssets }))
+vi.mock('@/lib/markdown/export-docx', () => ({ renderExportDocx }))
 
 describe('export-pdf helpers', () => {
     beforeEach(() => {
@@ -39,6 +43,11 @@ describe('export-pdf helpers', () => {
         pickSavePath.mockReset()
         showError.mockReset()
         isWindowsTauri.mockReturnValue(false)
+        isTauri.mockReset()
+        isTauri.mockReturnValue(false)
+        writeBinaryFile.mockReset()
+        renderExportDocx.mockReset()
+        renderExportDocx.mockResolvedValue(new Uint8Array([1, 2, 3]))
         markdownToExportHtml.mockReset()
         markdownToExportHtml.mockImplementation(async () => EXPORT_DOCUMENT)
         resolvePdfExportAssets.mockReset()
@@ -201,5 +210,43 @@ describe('export-pdf helpers', () => {
         const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
         await exportMarkdownToPdf('# Hi', 'hi.md')
         expect(showError).toHaveBeenCalledWith('Export failed', 'nope')
+    })
+
+    it('writes a word document when the save dialog returns a path', async () => {
+        isTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue('C:/out.docx')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await exportMarkdown('# Hi', 'notes.md', { format: 'docx' })
+        expect(pickSavePath).toHaveBeenCalledWith({
+            title: 'Save Word document',
+            defaultPath: 'notes.docx',
+            filters: [{ name: 'Word document', extensions: ['docx'] }],
+        })
+        expect(writeBinaryFile).toHaveBeenCalledWith('C:/out.docx', new Uint8Array([1, 2, 3]))
+        expect(renderExportDocx).toHaveBeenCalled()
+    })
+
+    it('does not write a word document when the save dialog is dismissed', async () => {
+        isTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue(null)
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await exportMarkdown('# Hi', 'notes.md', { format: 'docx' })
+        expect(writeBinaryFile).not.toHaveBeenCalled()
+    })
+
+    it('downloads a word document in the browser', async () => {
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await exportMarkdown('# Hi', 'notes.md', { format: 'docx' })
+        expect(writeBinaryFile).not.toHaveBeenCalled()
+        expect(click).toHaveBeenCalled()
+        click.mockRestore()
+    })
+
+    it('reports a word export that has nothing to write', async () => {
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await exportMarkdown('   ', 'notes.md', { format: 'docx' })
+        expect(showError).toHaveBeenCalledWith('Export failed', 'Nothing to export.')
+        expect(renderExportDocx).not.toHaveBeenCalled()
     })
 })
