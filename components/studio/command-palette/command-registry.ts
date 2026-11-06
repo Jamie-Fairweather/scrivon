@@ -41,7 +41,8 @@ function shortcut(actionId: Parameters<typeof formatKeybindForAction>[0], keybin
 
 export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPaletteItem[] {
     const hasWorkspace = Boolean(ctx.workspaceRoot)
-    const hasActiveTab = Boolean(ctx.activeTabId)
+    // Tabs are only on screen while a folder is open, so tab commands need both.
+    const hasActiveTab = Boolean(ctx.activeTabId) && hasWorkspace
     const hasWorkspaceTab = hasActiveTab && ctx.activeTabId !== null && !isExampleTabId(ctx.activeTabId)
 
     const actions: ActionPaletteItem[] = [
@@ -186,6 +187,9 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: `action:example:${example.id}`,
             searchText: `example ${example.title} ${example.category}`,
             label: `Open Example: ${example.title}`,
+            // With no folder open only the welcome screen shows, so the example tab would stay hidden.
+            disabled: !hasWorkspace,
+            disabledReason: 'Open a folder first',
             run: () => ctx.openExample(example.id),
         })
     }
