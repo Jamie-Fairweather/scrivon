@@ -41,7 +41,14 @@ class FakeModel {
     updateOptions(options: FakeModel['options']) {
         Object.assign(this.options, options)
     }
+    /** Single-line ranges are enough here. */
+    getValueInRange(range: FakeRange) {
+        const line = this.value.split('\n')[range.startLineNumber - 1] ?? ''
+        return line.slice(range.startColumn - 1, range.endColumn - 1)
+    }
 }
+
+type FakeRange = { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }
 
 class FakeEditor {
     options: Record<string, unknown>
@@ -95,15 +102,20 @@ class FakeEditor {
     }
     restoreViewState() {}
     addCommand() {}
-    selection: unknown = null
+    selection: FakeRange | null = null
     focused = false
     focus() {
         this.focused = true
     }
     revealPositionInCenter() {}
     revealRangeInCenter() {}
-    setSelection(selection: unknown) {
+    setSelection(selection: FakeRange) {
         this.selection = selection
+    }
+    getSelection() {
+        const range = this.selection
+        if (!range) return null
+        return { ...range, isEmpty: () => range.startLineNumber === range.endLineNumber && range.startColumn === range.endColumn }
     }
     onDidDispose(listener: Listener) {
         this.disposeListeners.add(listener)
@@ -184,7 +196,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 type RevealInEditor = (path: string, line: number, column: number, length?: number) => void
-const coordinatorHandlers: { revealInEditor?: RevealInEditor } = {}
+const coordinatorHandlers: { revealInEditor?: RevealInEditor; getEditorSelectedText?: () => string | null } = {}
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({
     registerCoordinatorRefs: (_refs: unknown, handlers: typeof coordinatorHandlers) => Object.assign(coordinatorHandlers, handlers),
 }))
@@ -596,6 +608,36 @@ describe('CodeEditorPanel search hits', () => {
         expect(second).not.toBe(first)
         expect(second.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
         expect(second.focused).toBe(true)
+    })
+
+    it('waits for the hidden editor to be shown before selecting the hit, so it can take focus', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'one\nsee TODO here')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        view.rerender(<Panel open={false} />)
+
+        // The palette shows the editor and jumps in one go, before the editor is showing.
+        act(() => coordinatorHandlers.revealInEditor!(a, 2, 5, 4))
+        expect(editor.selection).toBeNull()
+        expect(editor.focused).toBe(false)
+
+        view.rerender(<Panel open />)
+        expect(editor.selection).toEqual({ startLineNumber: 2, startColumn: 5, endLineNumber: 2, endColumn: 9 })
+        expect(editor.focused).toBe(true)
+    })
+
+    it('gives the palette no selected text while the editor is hidden', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'one\nsee TODO here')], activeTabId: a }
+        const { view } = await mountEditor()
+        act(() => coordinatorHandlers.revealInEditor!(a, 2, 5, 4))
+        expect(coordinatorHandlers.getEditorSelectedText!()).toBe('TODO')
+
+        view.rerender(<Panel open={false} />)
+        expect(coordinatorHandlers.getEditorSelectedText!()).toBeNull()
+
+        view.rerender(<Panel open />)
+        expect(coordinatorHandlers.getEditorSelectedText!()).toBe('TODO')
     })
 })
 

@@ -150,11 +150,15 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         activeTabRef.current = activeTab
     }, [activeTab])
 
+    // A hidden editor keeps its buffer, but can't take focus and has no visible selection.
+    const openRef = useRef(open)
+
     const revealPosition = useCallback((path: string, line: number, column: number, length?: number) => {
         const editor = editorRef.current
         const activePath = activeTabIdRef.current
 
-        if (!editor || activePath !== path) {
+        // Waits until the hit's file is the active tab and the editor is ready and showing.
+        if (!editor || !openRef.current || activePath !== path) {
             pendingRevealRef.current = { path, line, column, length }
             return
         }
@@ -163,17 +167,19 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         pendingRevealRef.current = null
     }, [])
 
-    const getEditorSelectedText = useCallback(() => readEditorSelectedText(editorRef.current), [])
+    // Fills the palette's search box, so it must be text the user can see.
+    const getEditorSelectedText = useCallback(() => (openRef.current ? readEditorSelectedText(editorRef.current) : null), [])
 
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition, getEditorSelectedText })
     }, [coordinator, revealPosition, getEditorSelectedText])
 
     useEffect(() => {
+        openRef.current = open
         const pending = pendingRevealRef.current
-        if (!pending || activeTab?.path !== pending.path || !editorRef.current) return
+        if (!pending || !open || activeTab?.path !== pending.path || !editorRef.current) return
         revealPosition(pending.path, pending.line, pending.column, pending.length)
-    }, [activeTab?.path, revealPosition])
+    }, [open, activeTab?.path, revealPosition])
 
     // Measure the row shared with the preview, so a saved width that no longer fits (smaller
     // window or monitor) is shown narrower instead of pushing the preview off-screen. The
@@ -412,7 +418,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             applyToAttachedModel()
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
-            if (pending && activeTabIdRef.current === pending.path) {
+            if (pending && openRef.current && activeTabIdRef.current === pending.path) {
                 revealMatch(editor, pending.line, pending.column, pending.length)
                 pendingRevealRef.current = null
             }
