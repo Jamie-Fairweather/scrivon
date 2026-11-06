@@ -127,7 +127,7 @@ Updates are signed with a minisign key. Every installed copy only accepts update
 A local `bun run tauri build` needs the private key, because it signs the updater files. Copy the existing key; don't generate one, and don't touch `tauri.conf.json`.
 
 1. Get the private key file (and its password, if it has one) from the password manager or the offline backup.
-2. Save it as `src-tauri/.updater/scrivon`. It is gitignored: **never commit it**.
+2. Save it as `src-tauri/.updater/scrivon`. Everything in `src-tauri/.updater/` except `.pub` files is gitignored, but **never commit it**, and keep backups of old keys outside the repository.
 3. Copy [`.env.example`](../.env.example) to `.env` and set `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (see [Local builds with signing](#local-builds-with-signing) below).
 
 #### Creating the key (new project only)

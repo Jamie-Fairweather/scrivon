@@ -30,7 +30,10 @@ out
 # Tauri / Rust
 src-tauri/target/
 src-tauri/gen/
-src-tauri/.updater/scrivon
+# Updater signing keys: ignore everything here except public keys, so a private key saved under
+# any name (scrivon, scrivon.key, a backup) can't be committed by accident
+src-tauri/.updater/*
+!src-tauri/.updater/*.pub
 
 # Testing
 coverage/
