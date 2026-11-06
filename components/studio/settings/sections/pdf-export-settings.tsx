@@ -208,20 +208,36 @@ function ProfileNameInput({ id, ref, name, onRename }: { id: string; ref?: Ref<H
 }
 
 /** Delete asks first: a profile holds a lot of hand-tuned settings and there is no undo. */
-function DeleteProfileButton({ profile, disabled, onDelete }: { profile: PdfExportProfile; disabled: boolean; onDelete: (id: string) => void }) {
+function DeleteProfileButton({
+    profile,
+    disabled,
+    fallbackFocusId,
+    onDelete,
+}: {
+    profile: PdfExportProfile
+    disabled: boolean
+    /** Gets focus after a delete leaves Delete disabled, since focus can't go back to it. */
+    fallbackFocusId: string
+    onDelete: (id: string) => void
+}) {
     // Remember the profile when the dialog opens, so the one named is the one deleted
     // (and the title doesn't switch to the next profile while the dialog closes).
     const [target, setTarget] = useState({ id: profile.id, name: profile.name })
+    const triggerRef = useRef<HTMLButtonElement>(null)
     return (
         <AlertDialog
             onOpenChange={(open) => {
                 if (open) setTarget({ id: profile.id, name: profile.name })
             }}
         >
-            <AlertDialogTrigger render={<Button type="button" variant="destructive-outline" size="sm" disabled={disabled} />}>
+            <AlertDialogTrigger ref={triggerRef} render={<Button type="button" variant="destructive-outline" size="sm" disabled={disabled} />}>
                 Delete
             </AlertDialogTrigger>
-            <AlertDialogPopup>
+            <AlertDialogPopup
+                // Deleting the second-last profile disables Delete, and focus would drop out of
+                // Settings; send it to the profile picker instead so keyboard users keep their place.
+                finalFocus={() => (triggerRef.current?.disabled ? document.getElementById(fallbackFocusId) : true)}
+            >
                 <AlertDialogHeader>
                     <AlertDialogTitle>{`Delete profile "${target.name}"?`}</AlertDialogTitle>
                     <AlertDialogDescription>
@@ -313,6 +329,7 @@ export function PdfExportSettings() {
                         <DeleteProfileButton
                             profile={active}
                             disabled={pdf.profiles.length <= 1}
+                            fallbackFocusId="pdf-profile"
                             onDelete={(id) => setPdf((current) => deletePdfExportProfile(current, id))}
                         />
                     </div>

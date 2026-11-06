@@ -281,6 +281,29 @@ describe('PdfExportSettings delete profile', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Delete profile' }))
         expect(savedNames()).toBe('Default')
     })
+
+    it('moves focus to the profile picker when Delete is disabled after deleting', async () => {
+        renderSection()
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('button', { name: 'Duplicate' }))
+        await user.click(screen.getByRole('button', { name: 'Delete' }))
+        await user.click(await screen.findByRole('button', { name: 'Delete profile' }))
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+
+        expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+        await waitFor(() => expect(screen.getByRole('combobox', { name: 'Default export profile' })).toHaveFocus())
+    })
+
+    it('still returns focus to Delete after Cancel', async () => {
+        renderSection()
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('button', { name: 'Duplicate' }))
+        const del = screen.getByRole('button', { name: 'Delete' })
+        await user.click(del)
+        await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+        await waitFor(() => expect(del).toHaveFocus())
+    })
 })
 
 describe('PdfExportSettings new and duplicate', () => {
