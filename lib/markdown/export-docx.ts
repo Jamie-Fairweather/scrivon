@@ -366,11 +366,12 @@ function fit(size: { width: number; height: number }, maxWidth: number, maxHeigh
 function decodeDataUrl(dataUrl: string): Uint8Array | null {
     const trimmed = dataUrl.trim()
     if (!trimmed) return null
-    const match = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(trimmed)
+    // Parameters such as `;charset=utf-8` may come before `;base64` and the comma.
+    const match = /^data:[^,]*?(;base64)?,([\s\S]*)$/i.exec(trimmed)
     if (!match) return null
-    const payload = match[3]!
+    const payload = match[2]!
     try {
-        if (match[2]) {
+        if (match[1]) {
             const binary = atob(payload)
             const bytes = new Uint8Array(binary.length)
             for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)

@@ -1534,8 +1534,11 @@ describe('renderExportDocx', () => {
         const svgLogo = dataUrl('image/svg+xml', new TextEncoder().encode(svgMarkup('width="200" height="50" viewBox="0 0 400 100"')))
         const svgIcon = `data:image/svg+xml,${encodeURIComponent(svgMarkup('viewBox="0 0 32 16"'))}`
         const webp = dataUrl('image/webp', WEBP)
+        // A charset parameter before the comma is common in SVG data URLs.
+        const svgUtf8 = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
+        const svgBase64Utf8 = `data:image/svg+xml;charset=utf-8;base64,${Buffer.from(svgMarkup('width="30" height="10"')).toString('base64')}`
         const { xml, names } = await render(
-            ['# Alpha', '', `![chart](${svgIcon})`].join('\n'),
+            ['# Alpha', '', `![chart](${svgIcon})`, '', `![utf8](${svgUtf8})`, '', `![utf8-base64](${svgBase64Utf8})`].join('\n'),
             (draft) => {
                 draft.frontMatter.titlePage = true
                 draft.header.enabled = true
@@ -1550,6 +1553,8 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'header left')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'footer left')).toEqual({ width: 37, height: 28 })
         expect(drawingSize(xml, 'chart')).toEqual({ width: 32, height: 16 })
+        expect(drawingSize(xml, 'utf8')).toEqual({ width: 40, height: 20 })
+        expect(drawingSize(xml, 'utf8-base64')).toEqual({ width: 30, height: 10 })
         expect(mediaFiles(names).length).toBeGreaterThanOrEqual(3)
         expect(notifyWarning).not.toHaveBeenCalled()
     })
