@@ -50,6 +50,7 @@ import type {
     FootnoteDefinition,
     Heading,
     Image,
+    ImageReference,
     Link,
     LinkReference,
     List,
@@ -378,6 +379,11 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
     visit(tree, 'image', (node: Image) => {
         urls.add(node.url.trim())
     })
+    const definitions = collectDefinitions(tree)
+    visit(tree, 'imageReference', (node: ImageReference) => {
+        const url = definitions.get(node.identifier)
+        if (url !== undefined) urls.add(url.trim())
+    })
     const converted = new Map<string, DecodedImage>()
     await Promise.all(
         [...urls]
@@ -665,11 +671,10 @@ function renderInlines(
             children.push(new TextRun({ break: 1 }))
         } else if (node.type === 'link' || node.type === 'linkReference') {
             children.push(...renderLink(state, node, marks))
-        } else if (node.type === 'image') {
-            const image = renderImage(state, node)
-            children.push(image ?? textRun(state, imageFallbackText(node.alt, node.url), marks))
-        } else if (node.type === 'imageReference') {
-            children.push(textRun(state, node.alt || node.identifier, marks))
+        } else if (node.type === 'image' || node.type === 'imageReference') {
+            const url = imageUrl(state, node)
+            const image = url === undefined ? null : renderImage(state, url, node.alt)
+            children.push(image ?? textRun(state, imageText(state, node), marks))
         } else if (node.type === 'footnoteReference') {
             // Word has no footnotes inside footnotes.
             if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
@@ -682,10 +687,11 @@ function renderInlines(
     return children
 }
 
+/** Link and image definitions by label. When a label is defined twice the first one counts, as in CommonMark and the PDF. */
 function collectDefinitions(tree: ExportDocument['tree']): Map<string, string> {
     const urls = new Map<string, string>()
     visit(tree, 'definition', (node: Definition) => {
-        urls.set(node.identifier, node.url)
+        if (!urls.has(node.identifier)) urls.set(node.identifier, node.url)
     })
     return urls
 }
@@ -707,9 +713,21 @@ function imageFallbackText(alt: string | null | undefined, url: string): string 
     return /^\s*data:/i.test(url) ? '[image]' : url
 }
 
+/** Where a picture points: its own URL, or for `![alt][ref]` its definition's, as in the PDF. */
+function imageUrl(state: RenderState, node: Image | ImageReference): string | undefined {
+    return node.type === 'image' ? node.url : state.definitions.get(node.identifier)
+}
+
+/** The text written in place of a picture that isn't embedded. */
+function imageText(state: RenderState, node: Image | ImageReference): string {
+    const url = imageUrl(state, node)
+    if (url !== undefined) return imageFallbackText(node.alt, url)
+    return node.alt || (node.type === 'imageReference' ? node.identifier : '')
+}
+
 /** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
-function renderImage(state: RenderState, node: Image): ImageRun | null {
-    return embeddedImage(decodeImage(state.images, node.url), Math.min(availablePx(state), 640), 480, node.alt || 'Picture', node.alt ?? '')
+function renderImage(state: RenderState, url: string, alt: string | null | undefined): ImageRun | null {
+    return embeddedImage(decodeImage(state.images, url), Math.min(availablePx(state), 640), 480, alt || 'Picture', alt ?? '')
 }
 
 function paragraphOptions(state: RenderState) {
@@ -1494,13 +1512,13 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     const parts: string[] = []
     const walk = (nodes: PhrasingContent[]) => {
         for (const child of nodes) {
-            if (child.type === 'image') {
+            if (child.type === 'image' || child.type === 'imageReference') {
                 // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
-                const decoded = decodeImage(state.images, child.url)
+                const url = imageUrl(state, child)
+                const decoded = url === undefined ? null : decodeImage(state.images, url)
                 if (decoded) image = Math.max(image, imageTwip(decoded, width))
-                else parts.push(imageFallbackText(child.alt, child.url))
-            } else if (child.type === 'imageReference') parts.push(child.alt || child.identifier)
-            else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
+                else parts.push(imageText(state, child))
+            } else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
             else if ('children' in child) walk(child.children)
         }
     }

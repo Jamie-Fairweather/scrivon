@@ -628,6 +628,33 @@ describe('renderExportDocx', () => {
         expect(levels.slice(2).map((level) => /<w:lvlText w:val="([^"]*)"\/>/.exec(level)![1])).toEqual(['•', '◦', '▪', '▪'])
     })
 
+    it('uses the first of two link definitions, and draws reference-style pictures', async () => {
+        const svg = `data:image/svg+xml,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
+        const source = [
+            'Read [the docs][d] and see ![logo][logo] and ![icon][icon].',
+            '',
+            '[d]: https://one.example.com',
+            `[logo]: ${dataUrl('image/png', sizedPng(64, 32))}`,
+            `[icon]: ${svg}`,
+            '',
+            'More words.',
+            '',
+            '[d]: https://two.example.com',
+        ].join('\n')
+        const plain = await render(source)
+        expect(plain.parts['word/_rels/document.xml.rels']).toContain('https://one.example.com')
+        expect(plain.xml).not.toContain('https://two.example.com')
+        expect(drawingSize(plain.xml, 'logo')).toEqual({ width: 64, height: 32 })
+        expect(plain.xml).not.toContain('>logo</w:t>')
+        // Without a canvas the SVG can't be redrawn, so its alt text stands in.
+        expect(plain.xml).toContain('>icon</w:t>')
+
+        // With one, a referenced SVG is redrawn like an inline one.
+        stubImageDecoding()
+        const redrawn = await render(source)
+        expect(drawingSize(redrawn.xml, 'icon')).toEqual({ width: 40, height: 20 })
+    })
+
     it('sizes table columns by their content and keeps pictures inside their cell', async () => {
         const notes = 'A long note that would wrap over many lines if every column had the same width. '.repeat(3)
         const { xml } = await render(
