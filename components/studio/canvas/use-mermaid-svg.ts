@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
-import { clearSvgCache, forgetDocumentSvgs, readCachedSvg, readLatestSvg, storeSvg } from '@/lib/mermaid/svg-cache'
+import { clearSvgCache, forgetDocumentSvgs, readCachedSvg, readLatestSvg, readRenderError, storeRenderError, storeSvg } from '@/lib/mermaid/svg-cache'
 
 const RENDER_DEBOUNCE_MS = 200
 
@@ -53,31 +53,41 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         const renderTrimmed = trimmedSource
         const renderThemeId = themeId
 
+        const isCurrent = () =>
+            !cancelled && documentKeyRef.current === renderForKey && sourceRef.current === renderSource && themeIdRef.current === renderThemeId
+
+        const showSvg = (svg: string) => {
+            if (!isCurrent()) return
+            setDisplay({ trimmedSource: renderTrimmed, svg, documentKey: renderForKey, themeId: renderThemeId })
+            setError(null)
+        }
+
+        const showError = (message: string) => {
+            if (!isCurrent()) return
+            setError({ message, documentKey: renderForKey, themeId: renderThemeId, trimmedSource: renderTrimmed })
+        }
+
         const timer = window.setTimeout(() => {
-            if (cancelled) return
-            if (documentKeyRef.current !== renderForKey) return
-            if (themeIdRef.current !== renderThemeId) return
+            if (!isCurrent()) return
 
-            try {
-                const svg = renderMermaidDiagram(renderTrimmed, renderThemeId)
-                if (cancelled) return
-                if (documentKeyRef.current !== renderForKey) return
-                if (sourceRef.current !== renderSource) return
-                if (themeIdRef.current !== renderThemeId) return
-
-                storeSvg(renderThemeId, renderForKey, renderTrimmed, svg)
-                setDisplay({ trimmedSource: renderTrimmed, svg, documentKey: renderForKey, themeId: renderThemeId })
-                setError(null)
-            } catch (err) {
-                if (cancelled) return
-                if (documentKeyRef.current !== renderForKey) return
-                if (sourceRef.current !== renderSource) return
-                setError({
-                    message: err instanceof Error ? err.message : String(err),
-                    documentKey: renderForKey,
-                    themeId: renderThemeId,
-                    trimmedSource: renderTrimmed,
-                })
+            // Other views of the same document (the export menu, say) render the same text on the
+            // same timer, so reuse what the first one worked out instead of laying it out again.
+            const cachedSvg = readCachedSvg(renderThemeId, renderForKey, renderTrimmed)
+            const cachedError = readRenderError(renderThemeId, renderForKey, renderTrimmed)
+            if (cachedSvg) {
+                showSvg(cachedSvg)
+            } else if (cachedError !== null) {
+                showError(cachedError)
+            } else {
+                try {
+                    const svg = renderMermaidDiagram(renderTrimmed, renderThemeId)
+                    storeSvg(renderThemeId, renderForKey, renderTrimmed, svg)
+                    showSvg(svg)
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err)
+                    storeRenderError(renderThemeId, renderForKey, renderTrimmed, message)
+                    showError(message)
+                }
             }
         }, RENDER_DEBOUNCE_MS)
 

@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearSvgCache, forgetDocumentSvgs, pruneSvgCache, readCachedSvg, readLatestSvg, storeSvg } from '@/lib/mermaid/svg-cache'
+import {
+    clearSvgCache,
+    forgetDocumentSvgs,
+    pruneSvgCache,
+    readCachedSvg,
+    readLatestSvg,
+    readRenderError,
+    storeRenderError,
+    storeSvg,
+} from '@/lib/mermaid/svg-cache'
 
 const THEME = 'scrivon-light'
 
@@ -57,13 +66,28 @@ describe('svg cache', () => {
         expect(readLatestSvg(THEME, 'one-more.mmd')).toBe('<svg/>')
     })
 
+    it('remembers the last failed text of each document', () => {
+        storeRenderError(THEME, 'a.mmd', 'bad 1', 'Parse error 1')
+        storeRenderError(THEME, 'a.mmd', 'bad 2', 'Parse error 2')
+
+        expect(readRenderError(THEME, 'a.mmd', 'bad 2')).toBe('Parse error 2')
+        expect(readRenderError(THEME, 'a.mmd', 'bad 1')).toBeNull()
+        expect(readRenderError('scrivon-dark', 'a.mmd', 'bad 2')).toBeNull()
+        expect(readRenderError(THEME, 'b.mmd', 'bad 2')).toBeNull()
+
+        clearSvgCache()
+        expect(readRenderError(THEME, 'a.mmd', 'bad 2')).toBeNull()
+    })
+
     it('forgets one document', () => {
         storeSvg(THEME, 'a.mmd', 'v', '<svg>a</svg>')
+        storeRenderError(THEME, 'a.mmd', 'bad', 'Parse error')
         storeSvg(THEME, 'b.mmd', 'v', '<svg>b</svg>')
 
         forgetDocumentSvgs('a.mmd')
 
         expect(readLatestSvg(THEME, 'a.mmd')).toBeNull()
+        expect(readRenderError(THEME, 'a.mmd', 'bad')).toBeNull()
         expect(readLatestSvg(THEME, 'b.mmd')).toBe('<svg>b</svg>')
     })
 

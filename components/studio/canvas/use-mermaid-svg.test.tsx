@@ -94,6 +94,26 @@ describe('useMermaidSvg', () => {
         expect(result.current.error).toMatch(/\S/)
     })
 
+    it('renders each edit once when two views show the same document (P03)', () => {
+        const views = renderHook(({ source }) => ({ canvas: useMermaidSvg(source, 'a.mmd'), exportMenu: useMermaidSvg(source, 'a.mmd') }), {
+            initialProps: { source: V1 },
+        })
+        waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(1)
+        expect(views.result.current.exportMenu.svgForDisplay).toBe(expectedSvg(V1))
+
+        views.rerender({ source: V2 })
+        waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        expect(views.result.current.canvas.svgForDisplay).toBe(expectedSvg(V2))
+
+        views.rerender({ source: BROKEN })
+        waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(3)
+        expect(views.result.current.canvas.error).toMatch(/\S/)
+        expect(views.result.current.exportMenu.error).toBe(views.result.current.canvas.error)
+    })
+
     it('shows the error straight away for a document that never rendered', () => {
         const { result } = renderHook(() => useMermaidSvg(BROKEN, 'b.mmd'))
         waitForRender()
