@@ -32,7 +32,7 @@ const MonacoEditor = dynamic(
     { ssr: false, loading: () => <EditorLoading /> }
 )
 
-/** Used after the app's own monospace font, and instead of it if it can't be read. */
+/** Used after the app's own monospace font (while it loads, or if it fails), and instead of it if it can't be read. */
 const FALLBACK_MONO_FONTS = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
 /**
@@ -43,7 +43,10 @@ const FALLBACK_MONO_FONTS = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Con
 function editorFontFamily(): string {
     if (typeof document === 'undefined') return FALLBACK_MONO_FONTS
     const appMono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim()
-    return appMono && !appMono.includes('var(') ? `${appMono}, ${FALLBACK_MONO_FONTS}` : FALLBACK_MONO_FONTS
+    // Only the font itself: the 'Geist Mono Fallback' next/font lists after it is a resized
+    // Arial, which is not monospaced and would put the cursor between letters.
+    const font = appMono.split(',')[0]?.trim()
+    return font && !font.includes('var(') ? `${font}, ${FALLBACK_MONO_FONTS}` : FALLBACK_MONO_FONTS
 }
 
 const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {

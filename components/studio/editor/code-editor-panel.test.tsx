@@ -584,8 +584,9 @@ describe('CodeEditorPanel font', () => {
             tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
             const { editor } = await mountEditor()
 
+            // Not next/font's proportional fallback: the system monospace fonts fill in while it loads.
             expect(editor.options.fontFamily).toBe(
-                `'Geist Mono', 'Geist Mono Fallback', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace`
+                `'Geist Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace`
             )
             expect(load).toHaveBeenCalledWith(expect.stringContaining("'Geist Mono'"))
             await waitFor(() => expect(fakeMonaco.editor.remeasureFonts).toHaveBeenCalled())
