@@ -69,6 +69,14 @@ describe('buildPdfExportCss', () => {
         expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-height: 164mm;/)
     })
 
+    it('keeps body headings with the content that follows them', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const print = css.slice(css.indexOf('@media print'))
+        expect(print).toMatch(
+            /\.pdf-body h1, \.pdf-body h2, \.pdf-body h3, \.pdf-body h4, \.pdf-body h5, \.pdf-body h6 \{\s*break-after: avoid;\s*page-break-after: avoid;/
+        )
+    })
+
     it('raises the toc leader without a transform, which bloats every pdf page', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
         const rule = css.slice(css.indexOf('.pdf-toc-leader {'), css.indexOf('}', css.indexOf('.pdf-toc-leader {')))

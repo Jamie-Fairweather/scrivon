@@ -270,6 +270,13 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
       break-inside: avoid;
       page-break-inside: avoid;
     }
+    /* A heading stays with what follows it instead of ending a page on its own. */
+    .pdf-body h1, .pdf-body h2, .pdf-body h3, .pdf-body h4, .pdf-body h5, .pdf-body h6 {
+      break-after: avoid;
+      page-break-after: avoid;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
     ${headingPageBreakCss(profile.flow.newPageFromHeading)}
   }
   .export-article {
