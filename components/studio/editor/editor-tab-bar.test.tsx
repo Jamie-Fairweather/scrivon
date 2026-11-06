@@ -91,4 +91,36 @@ describe('EditorTabBar', () => {
         fireEvent.keyDown(a!, { key: 'End' })
         expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
     })
+
+    it('scrolls the tab strip sideways with the mouse wheel when the tabs do not fit', () => {
+        tabs = Array.from({ length: 20 }, (_, i) => tab(`/w/file-${i}.md`))
+        activeTabId = tabs[0]!.id
+        render(<EditorTabBar />)
+        const strip = screen.getByRole('tablist')
+        Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 500 })
+        Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: 2000 })
+
+        const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true })
+        strip.dispatchEvent(wheel)
+        expect(strip.scrollLeft).toBe(120)
+        expect(wheel.defaultPrevented).toBe(true)
+
+        // Sideways scrolling (trackpad, tilt wheel) is left to the browser.
+        const sideways = new WheelEvent('wheel', { deltaX: 80, deltaY: 5, bubbles: true, cancelable: true })
+        strip.dispatchEvent(sideways)
+        expect(sideways.defaultPrevented).toBe(false)
+    })
+
+    it('leaves the wheel alone when every tab fits', () => {
+        tabs = [tab('/w/a.md')]
+        activeTabId = '/w/a.md'
+        render(<EditorTabBar />)
+        const strip = screen.getByRole('tablist')
+        Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 500 })
+        Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: 500 })
+
+        const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true })
+        strip.dispatchEvent(wheel)
+        expect(wheel.defaultPrevented).toBe(false)
+    })
 })

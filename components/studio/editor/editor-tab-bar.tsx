@@ -70,6 +70,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     const markdownNeedsExpand = tabKind === 'markdown' && !expanded
     const fitDisabled = !canFitToView || markdownNeedsExpand
 
+    const stripRef = useRef<HTMLDivElement>(null)
     const tabRefs = useRef(new Map<string, HTMLButtonElement>())
     // The tab reachable with Tab: the active one, or the first if none is active.
     const focusableTabId = tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null)
@@ -78,6 +79,19 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
         if (!activeTabId) return
         tabRefs.current.get(activeTabId)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     }, [activeTabId])
+
+    // The strip has no visible scrollbar (it would squash the tabs), so the mouse wheel scrolls it sideways.
+    useEffect(() => {
+        const strip = stripRef.current
+        if (!strip) return
+        const onWheel = (e: WheelEvent) => {
+            if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX) || strip.scrollWidth <= strip.clientWidth) return
+            e.preventDefault()
+            strip.scrollLeft += e.deltaY
+        }
+        strip.addEventListener('wheel', onWheel, { passive: false })
+        return () => strip.removeEventListener('wheel', onWheel)
+    }, [])
 
     const onTabListKeyDown = useCallback(
         (e: KeyboardEvent<HTMLDivElement>) => {
@@ -101,9 +115,10 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
         <div className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)} style={style}>
             <LayoutToggleButtons />
             <div
+                ref={stripRef}
                 role="tablist"
                 aria-label="Open documents"
-                className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
+                className="flex min-w-0 flex-1 [scrollbar-width:none] items-stretch overflow-x-auto"
                 onKeyDown={onTabListKeyDown}
             >
                 {tabs.map((tab) => {
@@ -114,7 +129,8 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                             <div
                                 role="presentation"
                                 className={cn(
-                                    'group/tab flex max-w-[200px] min-w-0 items-center border-r border-border',
+                                    // Tabs keep a readable width; when they don't all fit, the strip scrolls.
+                                    'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
                                     isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
                                 )}
                             >
