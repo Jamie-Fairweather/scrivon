@@ -112,7 +112,11 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     )
 
     return (
-        <div className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)} style={style}>
+        <div
+            data-slot="editor-tab-bar"
+            className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)}
+            style={style}
+        >
             <LayoutToggleButtons />
             <div
                 ref={stripRef}

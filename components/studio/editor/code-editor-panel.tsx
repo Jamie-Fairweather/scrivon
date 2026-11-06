@@ -344,6 +344,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     return (
         <div
             ref={rootRef}
+            data-slot="code-editor"
             className={cn('relative flex h-full shrink-0 flex-col border-r border-border bg-code', !open && 'hidden')}
             style={{ width: shownWidth }}
         >

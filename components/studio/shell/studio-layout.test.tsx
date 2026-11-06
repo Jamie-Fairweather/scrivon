@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -91,5 +91,70 @@ describe('StudioLayout explorer', () => {
         layout = { explorerOpen: false, editorOpen: true }
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Explorer' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout keeps keyboard focus', () => {
+    function focus(el: HTMLElement) {
+        act(() => el.focus())
+        expect(el).toHaveFocus()
+    }
+
+    it('moves focus to the new active tab when the focused tab is closed', async () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('tab', { name: 'a.md' }))
+
+        tabs = [tab('/w/b.md')]
+        activeTabId = '/w/b.md'
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'b.md' })).toHaveFocus())
+    })
+
+    it('moves focus to the active tab when the editor is hidden while typing in it', async () => {
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('textbox', { name: 'Editor' }))
+
+        layout = { explorerOpen: true, editorOpen: false }
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())
+    })
+
+    it('moves focus to the active tab when the explorer is hidden while it has focus', async () => {
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('button', { name: 'notes.md' }))
+
+        layout = { explorerOpen: false, editorOpen: true }
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())
+    })
+
+    it('moves focus to the start of the tab bar when the last tab is closed from the editor', async () => {
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('textbox', { name: 'Editor' }))
+
+        tabs = []
+        activeTabId = null
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Toggle explorer' })).toHaveFocus())
+    })
+
+    it('leaves focus alone when the focused element is still there', async () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const view = render(<StudioLayout />)
+        const editor = screen.getByRole('textbox', { name: 'Editor' })
+        focus(editor)
+
+        tabs = [tab('/w/a.md')]
+        view.rerender(<StudioLayout />)
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+
+        expect(editor).toHaveFocus()
     })
 })
