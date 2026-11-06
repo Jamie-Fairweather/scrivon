@@ -164,6 +164,30 @@ export async function loadPdfExportFontOptions(): Promise<PdfExportFontOption[]>
     return options.toSorted((a, b) => a.label.localeCompare(b.label))
 }
 
+let cachedFontOptions: PdfExportFontOption[] | null = null
+let pendingFontOptions: Promise<PdfExportFontOption[]> | null = null
+
+/** The list from the last load that found system fonts, or null before one has. */
+export function cachedPdfExportFontOptions(): PdfExportFontOption[] | null {
+    return cachedFontOptions
+}
+
+/**
+ * loadPdfExportFontOptions, shared and kept for the session, so coming back to the export
+ * settings shows the full list straight away instead of swapping it in while you type.
+ * A load that found no system fonts (outside Tauri, or the command failed) isn't kept,
+ * so the next call tries again.
+ */
+export function loadPdfExportFontOptionsOnce(): Promise<PdfExportFontOption[]> {
+    if (cachedFontOptions) return Promise.resolve(cachedFontOptions)
+    pendingFontOptions ??= loadPdfExportFontOptions().then((options) => {
+        pendingFontOptions = null
+        if (options.some((option) => option.system)) cachedFontOptions = options
+        return options
+    })
+    return pendingFontOptions
+}
+
 export type PdfExportFontGroup = { value: string; items: PdfExportFontOption[] }
 
 /** Curated stacks first, then the fonts found on this computer; empty groups are left out. */

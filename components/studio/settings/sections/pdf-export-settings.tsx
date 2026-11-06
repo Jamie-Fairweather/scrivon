@@ -16,11 +16,12 @@ import {
 } from '@/lib/settings/pdf-export-profiles'
 import { PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
 import {
+    cachedPdfExportFontOptions,
     ensureFontOption,
     fontOptionsForSlot,
     groupFontOptions,
     isSymbolFont,
-    loadPdfExportFontOptions,
+    loadPdfExportFontOptionsOnce,
     matchFontOption,
     PDF_EXPORT_FONT_OPTIONS,
     type PdfExportFontGroup,
@@ -131,11 +132,20 @@ function FontSelect({
     options: PdfExportFontOption[]
     onChange: (value: string) => void
 }) {
-    const items = useMemo(() => ensureFontOption(fontOptionsForSlot(options, slot), value), [options, slot, value])
+    // A new list (the system fonts finishing loading) gives every option a new identity, and
+    // the combobox then puts the saved font's name back in the box, over what was being
+    // typed. So while the box is in use it keeps the list it had; the new one comes after.
+    const [open, setOpen] = useState(false)
+    const [focused, setFocused] = useState(false)
+    const [shownOptions, setShownOptions] = useState(options)
+    if (!open && !focused && shownOptions !== options) setShownOptions(options)
+    const slotOptions = useMemo(() => fontOptionsForSlot(shownOptions, slot), [shownOptions, slot])
+    const items = useMemo(() => ensureFontOption(slotOptions, value), [slotOptions, value])
     const groups = useMemo(() => groupFontOptions(items), [items])
     return (
         <Combobox
             items={groups}
+            onOpenChange={setOpen}
             value={matchFontOption(items, value) ?? null}
             onValueChange={(option) => {
                 if (option) onChange(option.value)
@@ -144,7 +154,7 @@ function FontSelect({
             itemToStringValue={(option) => option.value}
             isItemEqualToValue={(option, selected) => option.value === selected.value}
         >
-            <ComboboxInput id={id} placeholder="Search fonts" />
+            <ComboboxInput id={id} placeholder="Search fonts" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
             <ComboboxPopup>
                 <ComboboxEmpty>No matching fonts.</ComboboxEmpty>
                 <ComboboxList>
@@ -259,11 +269,11 @@ export function PdfExportSettings() {
     const { settings, updateSettings } = useAppSettings()
     const pdf = settings.pdfExport
     const active = getActivePdfExportProfile(pdf)
-    const [fontOptions, setFontOptions] = useState<PdfExportFontOption[]>(PDF_EXPORT_FONT_OPTIONS)
+    const [fontOptions, setFontOptions] = useState<PdfExportFontOption[]>(() => cachedPdfExportFontOptions() ?? PDF_EXPORT_FONT_OPTIONS)
 
     useEffect(() => {
         let cancelled = false
-        void loadPdfExportFontOptions().then((options) => {
+        void loadPdfExportFontOptionsOnce().then((options) => {
             if (!cancelled) setFontOptions(options)
         })
         return () => {

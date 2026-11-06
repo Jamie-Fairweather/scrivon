@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
@@ -6,6 +7,7 @@ import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-exp
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { getActivePdfExportProfile, updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
+import { isTauri } from '@/lib/tauri/platform'
 
 type UpdateSettings = ReturnType<typeof useAppSettings>['updateSettings']
 let updateSettings: UpdateSettings
@@ -206,8 +208,6 @@ describe('PdfExportSettings fonts', () => {
         renderWithProfile(withMonoFont('"Fira Code", monospace'))
         const user = userEvent.setup()
         const input = screen.getByRole('combobox', { name: 'Monospace font' })
-        // Let the font list finish loading; a new list puts the saved name back in the box.
-        await act(async () => {})
         await user.clear(input)
         await user.type(input, 'cons')
         const listbox = await screen.findByRole('listbox')
@@ -221,6 +221,34 @@ describe('PdfExportSettings fonts', () => {
         await user.click(within(listbox).getByRole('option', { name: 'Consolas' }))
         expect(input).toHaveValue('Consolas')
         expect(screen.getByTestId('saved-mono-font')).toHaveTextContent('Consolas, "Courier New", monospace')
+    })
+
+    it('keeps what you typed when the installed fonts finish loading', async () => {
+        let finishLoading: (families: string[]) => void = () => {}
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(invoke).mockImplementation((command) =>
+            command === 'list_system_fonts'
+                ? new Promise((resolve) => {
+                      finishLoading = resolve
+                  })
+                : Promise.resolve(undefined)
+        )
+        try {
+            renderWithProfile(withMonoFont('"Fira Code", monospace'))
+            const user = userEvent.setup()
+            const input = screen.getByRole('combobox', { name: 'Monospace font' })
+            await user.clear(input)
+            await user.type(input, 'cons')
+
+            // No installed fonts, so nothing is kept for later tests, but the list still changes.
+            await act(async () => finishLoading([]))
+            expect(input).toHaveValue('cons')
+            const options = within(await screen.findByRole('listbox')).getAllByRole('option')
+            expect(options.map((option) => option.textContent)).toEqual(['Consolas'])
+        } finally {
+            vi.mocked(isTauri).mockReturnValue(false)
+            vi.mocked(invoke).mockImplementation(async () => undefined)
+        }
     })
 })
 

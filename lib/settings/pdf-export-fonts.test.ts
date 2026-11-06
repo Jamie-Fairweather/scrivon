@@ -82,6 +82,32 @@ describe('pdf export fonts', () => {
         expect(values).toContain('"Odd \\"Quote\\" \\\\ Font"')
     })
 
+    it('loads the system fonts once and shares the list', async () => {
+        vi.resetModules()
+        isTauri.mockReturnValue(true)
+        invoke.mockResolvedValue(['Calibri'])
+        const { cachedPdfExportFontOptions, loadPdfExportFontOptionsOnce } = await import('@/lib/settings/pdf-export-fonts')
+        expect(cachedPdfExportFontOptions()).toBeNull()
+
+        const [first, second] = await Promise.all([loadPdfExportFontOptionsOnce(), loadPdfExportFontOptionsOnce()])
+        expect(second).toBe(first)
+        expect(await loadPdfExportFontOptionsOnce()).toBe(first)
+        expect(cachedPdfExportFontOptions()).toBe(first)
+        expect(invoke).toHaveBeenCalledTimes(1)
+    })
+
+    it('tries again next time when no system fonts came back', async () => {
+        vi.resetModules()
+        isTauri.mockReturnValue(true)
+        invoke.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(['Calibri'])
+        const { cachedPdfExportFontOptions, loadPdfExportFontOptionsOnce } = await import('@/lib/settings/pdf-export-fonts')
+        expect((await loadPdfExportFontOptionsOnce()).some((option) => option.system)).toBe(false)
+        expect(cachedPdfExportFontOptions()).toBeNull()
+
+        expect((await loadPdfExportFontOptionsOnce()).map((option) => option.label)).toContain('Calibri')
+        expect(invoke).toHaveBeenCalledTimes(2)
+    })
+
     it('falls back to curated fonts when the Tauri command fails', async () => {
         isTauri.mockReturnValue(true)
         invoke.mockRejectedValue(new Error('boom'))
