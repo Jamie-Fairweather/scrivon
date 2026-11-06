@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { getActivePdfExportProfile, updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -324,7 +324,7 @@ describe('PdfExportSettings profile name', () => {
         expect(savedNames()).toBe('Client Report')
     })
 
-    it('lets the box be cleared and puts the last good name back on blur', () => {
+    it('lets the box be cleared, and leaving it empty puts the starting name back', () => {
         renderSection()
         const input = screen.getByLabelText('Profile name')
         fireEvent.focus(input)
@@ -335,6 +335,46 @@ describe('PdfExportSettings profile name', () => {
         expect(savedNames()).toBe('Brand')
 
         fireEvent.blur(input)
-        expect(input).toHaveValue('Brand')
+        expect(input).toHaveValue('Default')
+        expect(savedNames()).toBe('Default')
+    })
+
+    it('puts the starting name back after backspacing it away and leaving the box', async () => {
+        renderSection()
+        const input = screen.getByLabelText('Profile name')
+        const user = userEvent.setup()
+        await user.click(input)
+        await user.keyboard('{End}' + '{Backspace}'.repeat('Default'.length))
+        expect(input).toHaveValue('')
+        // Each keystroke saved a shorter name, down to the first letter.
+        expect(savedNames()).toBe('D')
+
+        await user.tab()
+        expect(input).toHaveValue('Default')
+        expect(savedNames()).toBe('Default')
+    })
+
+    it('Escape cancels the rename, and only then lets Settings close', async () => {
+        renderSection()
+        const input = screen.getByLabelText('Profile name')
+        const user = userEvent.setup()
+        await user.click(input)
+        await user.keyboard('{End} Brand')
+        expect(savedNames()).toBe('Default Brand')
+
+        const onDocumentEscape = vi.fn()
+        document.addEventListener('keydown', onDocumentEscape)
+        try {
+            await user.keyboard('{Escape}')
+            expect(input).toHaveValue('Default')
+            expect(savedNames()).toBe('Default')
+            expect(input).toHaveFocus()
+            expect(onDocumentEscape).not.toHaveBeenCalled()
+
+            await user.keyboard('{Escape}')
+            expect(onDocumentEscape).toHaveBeenCalledTimes(1)
+        } finally {
+            document.removeEventListener('keydown', onDocumentEscape)
+        }
     })
 })

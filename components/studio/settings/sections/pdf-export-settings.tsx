@@ -168,24 +168,39 @@ function FontSelect({
 
 /**
  * Shows exactly what is typed while editing (trailing spaces, an empty box) and saves
- * each non-empty value; the saved name is trimmed. Leaving the box shows the saved
- * name again, so a cleared box falls back to the last good name.
+ * each non-empty value; the saved name is trimmed. Leaving the box empty puts back the
+ * name it had when you started, and Escape cancels the rename the same way.
  */
 function ProfileNameInput({ id, ref, name, onRename }: { id: string; ref?: Ref<HTMLInputElement>; name: string; onRename: (name: string) => void }) {
     const [draft, setDraft] = useState<string | null>(null)
+    // The name when the box got focus. Every non-empty keystroke is saved, so after
+    // backspacing to nothing the saved name is the first letter, not the original.
+    const nameAtFocus = useRef(name)
     return (
         <Input
             id={id}
             ref={ref}
             value={draft ?? name}
+            onFocus={() => {
+                nameAtFocus.current = name
+            }}
             onChange={(event) => {
                 const next = event.target.value
                 setDraft(next)
                 if (next.trim()) onRename(next)
             }}
-            onBlur={() => setDraft(null)}
+            onBlur={() => {
+                if (draft !== null && !draft.trim()) onRename(nameAtFocus.current)
+                setDraft(null)
+            }}
             onKeyDown={(event) => {
                 if (event.key === 'Enter') event.currentTarget.blur()
+                if (event.key === 'Escape' && draft !== null) {
+                    // Cancel just the rename and stay in the box; a second Escape closes Settings as usual.
+                    event.stopPropagation()
+                    onRename(nameAtFocus.current)
+                    setDraft(null)
+                }
             }}
         />
     )
