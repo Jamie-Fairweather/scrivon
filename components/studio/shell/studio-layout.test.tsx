@@ -33,6 +33,7 @@ vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({ MermaidCanvas: () 
 vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({ MarkdownDocumentViewer: () => <div>Markdown preview</div> }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
+vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
 vi.mock('@/components/studio/editor/use-editor-panel-layout', () => ({
     useEditorPanelLayout: () => ({ width: 400, hydrated: true, onWidthChange: () => {}, resetEditorWidth: () => {} }),
 }))
