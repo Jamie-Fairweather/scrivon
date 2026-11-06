@@ -412,6 +412,33 @@ describe('usePaletteSearch commands next to text hits', () => {
     })
 })
 
+describe('usePaletteSearch recent folders', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = null
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('finds a folder whose name was stored the macOS way, typed on a Windows keyboard', () => {
+        const korean = 'C:\\work\\한글'.normalize('NFD')
+        state.session.recentWorkspaces = ['C:\\work\\notes', korean]
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('한글'))
+        expect(groupPaths(result.current.groups, 'workspaces')).toEqual([korean])
+    })
+
+    it('finds a folder with a Turkish İ in its name', () => {
+        state.session.recentWorkspaces = ['C:\\work\\notes', 'C:\\work\\İstanbul']
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('istanbul'))
+        expect(groupPaths(result.current.groups, 'workspaces')).toEqual(['C:\\work\\İstanbul'])
+    })
+})
+
 describe('usePaletteSearch theme toggle', () => {
     beforeEach(() => {
         vi.clearAllMocks()

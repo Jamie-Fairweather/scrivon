@@ -8,6 +8,7 @@ import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { buildCommandRegistry, themeToggleTarget, type ThemeToggle } from '@/components/studio/command-palette/command-registry'
+import { foldText } from '@/components/studio/command-palette/fold-text'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
 import { matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import {
@@ -31,6 +32,8 @@ import {
 } from '@/components/studio/workspace/workspace-provider'
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
+    // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
+    const foldedQuery = foldText(query)
     const filtered = recentWorkspaces
         .map((path) => ({
             kind: 'workspace' as const,
@@ -39,7 +42,7 @@ function buildWorkspaceItems(recentWorkspaces: string[], query: string): Palette
             path,
             name: getBaseName(path),
         }))
-        .filter((item) => !query || item.searchText.toLowerCase().includes(query.toLowerCase()))
+        .filter((item) => !query || foldText(item.searchText).includes(foldedQuery))
 
     if (filtered.length === 0) return null
     return { id: 'workspaces', label: 'Workspaces', items: filtered }
