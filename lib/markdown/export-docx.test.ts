@@ -754,6 +754,24 @@ describe('renderExportDocx', () => {
         expect(levels.slice(2).map((level) => /<w:lvlText w:val="([^"]*)"\/>/.exec(level)![1])).toEqual(['•', '◦', '▪', '▪'])
     })
 
+    it('shares one numbering between bullet lists, so long documents stay quick to export', async () => {
+        const lists = Array.from({ length: 40 }, (_, index) => [`- dot ${index}`, '    - sub ' + index, '', `Text ${index}.`, '']).flat()
+        const { parts } = await render([...lists, '> - quoted dot', '', '1. first', '', 'Gap.', '', '1. second'].join('\n'))
+        const body = parts['word/document.xml']!
+        const numId = (text: string) => /<w:numId w:val="(\d+)"\/>/.exec(blockWith(body, text))?.[1]
+        // docx rewrites the whole file once per numbering, so one per bullet list made export time grow with the square of the size.
+        // Now there is docx's own default, one each for top-level, nested, and quoted bullets, and one per numbered list.
+        expect(parts['word/numbering.xml']!.match(/<w:num w:numId=/g)).toHaveLength(1 + 3 + 2)
+        expect(numId('dot 39')).toBe(numId('dot 0'))
+        expect(numId('sub 39')).toBe(numId('sub 0'))
+        expect(numId('sub 0')).not.toBe(numId('dot 0'))
+        // A quoted list is indented further, so it keeps a numbering of its own.
+        expect(numId('quoted dot')).not.toBe(numId('dot 0'))
+        expect(blockWith(body, 'quoted dot')).toContain('<w:ind w:left="600" w:hanging="360"/>')
+        // Numbered lists still restart.
+        expect(numId('second')).not.toBe(numId('first'))
+    })
+
     it('uses the first of two link definitions, and draws reference-style pictures', async () => {
         const svg = `data:image/svg+xml,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
         const source = [

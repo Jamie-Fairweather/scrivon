@@ -587,6 +587,8 @@ type RenderState = {
     logo: DecodedImage | null
     numbering: { reference: string; levels: ILevelsOptions[] }[]
     nextList: number
+    /** The numbering each bullet list shares, by depth and indent. Bullets never restart, so one each is enough. */
+    bulletLists: Map<string, string>
     footnotes: Record<number, { children: Paragraph[] }>
     definitions: Map<string, string>
     footnoteIds: Map<string, number>
@@ -628,6 +630,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         logo: decodeImage(images, document.assets.logoDataUrl),
         numbering: [],
         nextList: 1,
+        bulletLists: new Map(),
         footnotes: {},
         definitions: collectDefinitions(document.tree),
         footnoteIds: new Map(),
@@ -859,9 +862,18 @@ function listIndent(state: RenderState, depth: number, hang: boolean): { left: n
 /** The PDF's bullets: a disc at the top level, a circle one list in, and a square from there on. */
 const BULLETS = ['•', '◦', '▪'] as const
 
+/**
+ * The numbering a list's items use. Each numbered list gets its own, so it starts at its own number. Bullet lists
+ * at the same depth and indent share one: docx rewrites the whole document once per numbering, so one per list
+ * made long documents take seconds to export.
+ */
 function listNumbering(state: RenderState, ordered: boolean, depth: number, start: number): string {
+    const bulletKey = ordered ? null : `${depth}:${state.extraLeft}`
+    const shared = bulletKey === null ? undefined : state.bulletLists.get(bulletKey)
+    if (shared) return shared
     const reference = `list-${state.nextList}`
     state.nextList += 1
+    if (bulletKey !== null) state.bulletLists.set(bulletKey, reference)
     state.numbering.push({
         reference,
         levels: [
