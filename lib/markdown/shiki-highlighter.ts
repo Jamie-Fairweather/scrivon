@@ -21,16 +21,32 @@ const LANG_ALIASES: Record<string, BundledLanguage | 'text'> = {
 
 export type ShikiTheme = (typeof THEMES)[number]
 
+/**
+ * Longest block {@link highlightFencedCodeNow} highlights. Shiki takes about 3 ms per 1,000 characters, so this
+ * keeps a keystroke in a code block to about a frame; longer blocks wait for a pause in typing instead.
+ */
+const MAX_HIGHLIGHT_NOW_CHARS = 4_000
+
 let highlighterPromise: Promise<Highlighter> | null = null
+/** The highlighter once it has started, for highlighting without waiting. */
+let readyHighlighter: Highlighter | null = null
+/** Languages Shiki doesn't have. They show as plain text, without trying to load them again on every keystroke. */
+const unavailableLanguages = new Set<string>()
 
 function getHighlighter(): Promise<Highlighter> {
     if (!highlighterPromise) {
         // No grammars up front: ensureLanguage loads each one the first time a block uses it, so a document with
         // one bash snippet doesn't load two dozen grammars. A failed start is forgotten so the next block retries.
-        highlighterPromise = createHighlighter({ themes: [...THEMES], langs: [] }).catch((err: unknown) => {
-            highlighterPromise = null
-            throw err
-        })
+        highlighterPromise = createHighlighter({ themes: [...THEMES], langs: [] }).then(
+            (highlighter) => {
+                readyHighlighter = highlighter
+                return highlighter
+            },
+            (err: unknown) => {
+                highlighterPromise = null
+                throw err
+            }
+        )
     }
     return highlighterPromise
 }
@@ -41,14 +57,20 @@ function normalizeLanguage(lang: string | undefined): string {
     return LANG_ALIASES[key] ?? key
 }
 
+/** The grammar to highlight with if it's ready now: `lang`, 'text' for a language Shiki doesn't have, or null. */
+function loadedLanguage(highlighter: Highlighter, lang: string): string | null {
+    if (lang === 'text' || unavailableLanguages.has(lang)) return 'text'
+    return highlighter.getLoadedLanguages().includes(lang) ? lang : null
+}
+
 async function ensureLanguage(highlighter: Highlighter, lang: string): Promise<string> {
-    if (lang === 'text') return 'text'
-    const loaded = highlighter.getLoadedLanguages()
-    if (loaded.includes(lang)) return lang
+    const loaded = loadedLanguage(highlighter, lang)
+    if (loaded) return loaded
     try {
         await highlighter.loadLanguage(lang as BundledLanguage)
         return lang
     } catch {
+        unavailableLanguages.add(lang)
         return 'text'
     }
 }
@@ -60,6 +82,22 @@ export async function highlightFencedCode(code: string, language: string | undef
         lang,
         theme,
     })
+}
+
+/**
+ * The HTML {@link highlightFencedCode} would give, without waiting, or null when it can't be had straight away:
+ * Shiki hasn't started, the block's grammar isn't loaded yet, or the block is too long to highlight per keystroke.
+ */
+export function highlightFencedCodeNow(code: string, language: string | undefined, theme: ShikiTheme): string | null {
+    const highlighter = readyHighlighter
+    if (!highlighter || code.length > MAX_HIGHLIGHT_NOW_CHARS) return null
+    const lang = loadedLanguage(highlighter, normalizeLanguage(language))
+    if (!lang) return null
+    try {
+        return highlighter.codeToHtml(code.replace(/\n$/, ''), { lang, theme })
+    } catch {
+        return null
+    }
 }
 
 export type HighlightedToken = {

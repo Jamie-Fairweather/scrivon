@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
-import { highlightFencedCode, type ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import { highlightFencedCode, highlightFencedCodeNow, type ShikiTheme } from '@/lib/markdown/shiki-highlighter'
 import { cn } from '@/lib/utils'
 
 const HIGHLIGHT_IDLE_MS = 400
@@ -54,6 +54,13 @@ function resolveHighlightHtml(code: string, language: string | undefined, theme:
     return null
 }
 
+/** Highlights on the spot when Shiki is ready for it, so a block keeps its colours while it's being typed in. */
+function highlightNow(code: string, language: string | undefined, theme: ShikiTheme): string | null {
+    const html = highlightFencedCodeNow(code, language, theme)
+    if (html) setBoundedHighlightCache(highlightCacheKey(theme, language, code), html)
+    return html
+}
+
 function writePlainCode(container: HTMLDivElement, code: string): void {
     if (container.dataset.mode === 'plain') {
         const codeEl = container.querySelector('pre > code')
@@ -86,6 +93,8 @@ function writeHighlightedHtml(container: HTMLDivElement, html: string): void {
 
 export function FencedCodeBlock({ code, language, className }: FencedCodeBlockProps) {
     const containerRef = useRef<HTMLDivElement>(null)
+    /** The code the container shows in colour, or null while it shows plain text. */
+    const highlightedCodeRef = useRef<string | null>(null)
     const { isLight } = useAppTheme()
     const theme: ShikiTheme = isLight ? 'github-light' : 'github-dark'
     const [idleHighlight, setIdleHighlight] = useState<IdleHighlight | null>(() => {
@@ -97,9 +106,16 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
         const container = containerRef.current
         if (!container) return
 
-        const html = resolveHighlightHtml(code, language, theme, idleHighlight)
-        if (html) writeHighlightedHtml(container, html)
-        else writePlainCode(container, code)
+        const html = resolveHighlightHtml(code, language, theme, idleHighlight) ?? highlightNow(code, language, theme)
+        if (html) {
+            writeHighlightedHtml(container, html)
+            highlightedCodeRef.current = code
+        } else if (highlightedCodeRef.current !== code) {
+            // New code that can't be coloured yet shows as plain text, rather than the old code staying on screen.
+            writePlainCode(container, code)
+            highlightedCodeRef.current = null
+        }
+        // Otherwise the same code stays in its old colours (another theme or language) until the new ones are ready.
     }, [code, language, theme, idleHighlight])
 
     useEffect(() => {
