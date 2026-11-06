@@ -65,17 +65,17 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
                 if (result.notes?.trim()) return
 
+                // The update is already found and shown, so finish loading its notes even if the
+                // "check on launch" setting is switched off meanwhile (that only stops new checks).
                 setNotesLoading(true)
                 const notes = await fetchReleaseNotes(result.version)
-                if (cancelled) return
-
                 if (notes) {
                     setUpdate((current) => (current ? { ...current, notes } : null))
                 }
             } catch (error) {
                 console.warn('Update check failed:', error)
             } finally {
-                if (!cancelled) setNotesLoading(false)
+                setNotesLoading(false)
             }
         }, UPDATE_CHECK_DELAY_MS)
 

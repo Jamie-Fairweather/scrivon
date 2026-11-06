@@ -9,6 +9,7 @@ import { useDocumentSave, useWorkspaceCoordinator } from '@/components/studio/wo
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
+import { fetchReleaseNotes } from '@/lib/updater/release-notes'
 import { AppUpdateProvider, useAppUpdate } from './app-update-provider'
 
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn(async () => undefined) }))
@@ -144,5 +145,35 @@ describe('AppUpdateProvider installUpdate', () => {
         await user.click(screen.getByRole('button', { name: 'Install anyway' }))
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('install_app_update'))
+    })
+})
+
+describe('AppUpdateProvider release notes', () => {
+    it('finishes loading release notes when the launch-check setting is turned off mid-fetch', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === 'check_for_app_update' ? { version: '9.9.9', notes: null } : undefined))
+        let resolveNotes: (notes: string | null) => void = () => {}
+        vi.mocked(fetchReleaseNotes).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveNotes = resolve
+                })
+        )
+
+        const { result, rerender } = renderHook(() => useAppUpdate(), { wrapper })
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4_000)
+        })
+        expect(result.current.notesLoading).toBe(true)
+
+        mockSettings(false)
+        rerender()
+        await act(async () => {
+            resolveNotes('## Fixes')
+        })
+
+        expect(result.current.notesLoading).toBe(false)
+        expect(result.current.update?.notes).toBe('## Fixes')
     })
 })
