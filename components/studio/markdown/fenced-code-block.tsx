@@ -48,18 +48,11 @@ function resolveHighlightHtml(code: string, language: string | undefined, theme:
     const exact = globalHighlightCache.get(highlightCacheKey(theme, language, code))
     if (exact) return exact
 
-    if (idleHighlight && idleHighlight.code === code && idleHighlight.language === language && idleHighlight.theme === theme) {
-        return idleHighlight.html
-    }
-
-    return null
+    return isHighlightOf(idleHighlight, code, language, theme) ? idleHighlight.html : null
 }
 
-/** Highlights on the spot when Shiki is ready for it, so a block keeps its colours while it's being typed in. */
-function highlightNow(code: string, language: string | undefined, theme: BundledTheme): string | null {
-    const html = highlightFencedCodeNow(code, language, theme)
-    if (html) setBoundedHighlightCache(highlightCacheKey(theme, language, code), html)
-    return html
+function isHighlightOf(highlight: IdleHighlight | null, code: string, language: string | undefined, theme: BundledTheme): highlight is IdleHighlight {
+    return highlight !== null && highlight.code === code && highlight.language === language && highlight.theme === theme
 }
 
 function writePlainCode(container: HTMLDivElement, code: string): void {
@@ -96,6 +89,11 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
     const containerRef = useRef<HTMLDivElement>(null)
     /** The code the container shows in colour, or null while it shows plain text. */
     const highlightedCodeRef = useRef<string | null>(null)
+    /**
+     * Colours highlighted on the spot as the block is typed in. They stay with the block until typing pauses, so a
+     * burst of keystrokes doesn't push every other block's colours out of the shared cache.
+     */
+    const nowHighlightRef = useRef<IdleHighlight | null>(null)
     const { themeId, isLight } = useAppTheme()
     const theme = previewCodeTheme(themeId, isLight)
     const [idleHighlight, setIdleHighlight] = useState<IdleHighlight | null>(() => {
@@ -107,7 +105,12 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
         const container = containerRef.current
         if (!container) return
 
-        const html = resolveHighlightHtml(code, language, theme, idleHighlight) ?? highlightNow(code, language, theme)
+        let html = resolveHighlightHtml(code, language, theme, idleHighlight)
+        if (!html) {
+            // Highlighted on the spot when Shiki is ready for it, so the block keeps its colours while typed in.
+            html = highlightFencedCodeNow(code, language, theme)
+            if (html) nowHighlightRef.current = { code, language, theme, html }
+        }
         if (html) {
             writeHighlightedHtml(container, html)
             highlightedCodeRef.current = code
@@ -120,8 +123,16 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
     }, [code, language, theme, idleHighlight])
 
     useEffect(() => {
-        if (globalHighlightCache.has(highlightCacheKey(theme, language, code))) {
+        const key = highlightCacheKey(theme, language, code)
+        if (globalHighlightCache.has(key)) {
             return
+        }
+
+        const now = nowHighlightRef.current
+        if (isHighlightOf(now, code, language, theme)) {
+            // Already in colour: shared once typing pauses.
+            const timer = window.setTimeout(() => setBoundedHighlightCache(key, now.html), HIGHLIGHT_IDLE_MS)
+            return () => window.clearTimeout(timer)
         }
 
         let cancelled = false
@@ -131,7 +142,7 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
             void highlightFencedCode(code, language, theme)
                 .then((html) => {
                     if (cancelled) return
-                    setBoundedHighlightCache(highlightCacheKey(theme, language, code), html)
+                    setBoundedHighlightCache(key, html)
                     setIdleHighlight({ code, language, theme, html })
                 })
                 .catch(() => {

@@ -15,18 +15,25 @@ const DIAGRAM_PADDING_Y = 56
 const MAX_BOUNDS_CACHE_ENTRIES = 100
 
 /**
- * Tight bounds measured for each SVG, so a diagram that mounts again (switching back to its tab) is laid out at
- * its measured size straight away, instead of at its padded size until its iframe loads and is measured again.
+ * The tight bounds last measured for each block, and the SVG they were measured for, so a diagram that mounts
+ * again (switching back to its tab) is laid out at its measured size straight away, instead of at its padded size
+ * until its iframe loads and is measured again. One entry per block: editing a diagram replaces its own entry
+ * rather than pushing other diagrams out.
  */
-const measuredBoundsBySvg = new Map<string, SvgContentBounds>()
+const measuredBoundsByBlock = new Map<string, { svg: string; bounds: SvgContentBounds }>()
 
-function rememberMeasuredBounds(svg: string, bounds: SvgContentBounds): void {
-    measuredBoundsBySvg.delete(svg)
-    measuredBoundsBySvg.set(svg, bounds)
-    if (measuredBoundsBySvg.size > MAX_BOUNDS_CACHE_ENTRIES) {
-        const oldest = measuredBoundsBySvg.keys().next().value
-        if (oldest !== undefined) measuredBoundsBySvg.delete(oldest)
+function rememberMeasuredBounds(blockId: string, svg: string, bounds: SvgContentBounds): void {
+    measuredBoundsByBlock.delete(blockId)
+    measuredBoundsByBlock.set(blockId, { svg, bounds })
+    if (measuredBoundsByBlock.size > MAX_BOUNDS_CACHE_ENTRIES) {
+        const oldest = measuredBoundsByBlock.keys().next().value
+        if (oldest !== undefined) measuredBoundsByBlock.delete(oldest)
     }
+}
+
+function rememberedBounds(blockId: string, svg: string): SvgContentBounds | null {
+    const remembered = measuredBoundsByBlock.get(blockId)
+    return remembered?.svg === svg ? remembered.bounds : null
 }
 
 type EmbeddedMermaidBlockProps = {
@@ -98,15 +105,18 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
         return () => observer.disconnect()
     }, [blockId])
 
-    const onBoundsMeasured = useCallback((bounds: SvgContentBounds, measuredForSvg: string) => {
-        rememberMeasuredBounds(measuredForSvg, bounds)
-        if (measuredForSvg === displayedSvgRef.current) {
-            setContentBounds(bounds)
-            setBoundsForSvg(measuredForSvg)
-        }
-    }, [])
+    const onBoundsMeasured = useCallback(
+        (bounds: SvgContentBounds, measuredForSvg: string) => {
+            rememberMeasuredBounds(blockId, measuredForSvg, bounds)
+            if (measuredForSvg === displayedSvgRef.current) {
+                setContentBounds(bounds)
+                setBoundsForSvg(measuredForSvg)
+            }
+        },
+        [blockId]
+    )
 
-    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : svgForDisplay ? (measuredBoundsBySvg.get(svgForDisplay) ?? null) : null
+    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : svgForDisplay ? rememberedBounds(blockId, svgForDisplay) : null
     const fitWidth = effectiveBounds?.width ?? dimensions?.width
     const fitHeight = effectiveBounds?.height ?? dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)

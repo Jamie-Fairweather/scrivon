@@ -91,6 +91,23 @@ describe('FencedCodeBlock', () => {
         expect(shown(container)).toEqual({ text: code, mode: 'highlight', theme: 'dracula' })
     })
 
+    it('keeps other blocks’ colours remembered while one block is typed in', () => {
+        const other = `const kept${uniqueCode} = 1`
+        const first = render(<FencedCodeBlock code={other} language="ts" />)
+        act(() => vi.advanceTimersByTime(400))
+        first.unmount()
+
+        const typed = `let typed${uniqueCode} = `
+        const typing = render(<FencedCodeBlock code={typed} language="ts" />)
+        for (let key = 0; key < 250; key++) typing.rerender(<FencedCodeBlock code={`${typed}${key}`} language="ts" />)
+        typing.unmount()
+
+        // Back to the first block at a moment its colours can't be made on the spot.
+        shiki.readyThemes.clear()
+        const { container } = render(<FencedCodeBlock code={other} language="ts" />)
+        expect(shown(container)).toEqual({ text: other, mode: 'highlight', theme: 'github-dark' })
+    })
+
     it('shows new code as plain text when it can’t be coloured yet, rather than the old code', () => {
         const code = `var c${uniqueCode} = 3`
         const { container, rerender } = render(<FencedCodeBlock code={code} language="ts" />)

@@ -39,8 +39,16 @@ vi.mock('@/lib/mermaid/svg-iframe', () => ({
     },
 }))
 
-function block() {
-    return <EmbeddedMermaidBlock source="flowchart LR\n  A --> B" blockId="doc.md:0:mermaid" ordinal={0} tabId="doc.md" onExpand={() => {}} />
+function block(ordinal = 0) {
+    return (
+        <EmbeddedMermaidBlock
+            source="flowchart LR\n  A --> B"
+            blockId={`doc.md:${ordinal}:mermaid`}
+            ordinal={ordinal}
+            tabId="doc.md"
+            onExpand={() => {}}
+        />
+    )
 }
 
 let width = 532
@@ -87,5 +95,27 @@ describe('EmbeddedMermaidBlock', () => {
 
         render(block())
         expect(seen.firstBounds).toEqual([null, measured])
+    })
+
+    it('still knows a diagram’s size after another diagram was edited for a long time', () => {
+        diagram.svg = '<svg data-test="kept"></svg>'
+        const measured: SvgContentBounds = { width: 900, height: 300, offsetX: 50, offsetY: 50 }
+        const first = render(block(0))
+        act(() => seen.measure?.(measured, diagram.svg))
+        first.unmount()
+
+        // Every keystroke in the other diagram draws, and measures, a new SVG.
+        const editing = render(block(1))
+        for (let key = 0; key < 150; key++) {
+            diagram.svg = `<svg data-test="edit-${key}"></svg>`
+            editing.rerender(block(1))
+            act(() => seen.measure?.({ width: 800 + key, height: 200, offsetX: 0, offsetY: 0 }, diagram.svg))
+        }
+        editing.unmount()
+
+        diagram.svg = '<svg data-test="kept"></svg>'
+        seen.firstBounds = []
+        render(block(0))
+        expect(seen.firstBounds).toEqual([measured])
     })
 })
