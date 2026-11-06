@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
+import { SYSTEM_DARK_THEME } from './catalog'
 import { getThemeBootScript, jsonForInlineScript } from './theme-boot-script'
 
 describe('jsonForInlineScript', () => {
@@ -73,5 +74,14 @@ describe('getThemeBootScript at runtime', () => {
 
         expect(document.documentElement.classList.contains('dark')).toBe(false)
         expect(document.documentElement.style.colorScheme).toBe('light')
+    })
+
+    it.each(['constructor', 'toString', '__proto__'])('falls back to the system theme when the saved id is the object key %s', (id) => {
+        vi.stubGlobal('matchMedia', () => ({ matches: true }))
+        runBootScript(id)
+
+        const root = document.documentElement
+        expect(root.dataset.appTheme).toBe(SYSTEM_DARK_THEME)
+        expect(root.style.getPropertyValue('--background')).not.toBe('')
     })
 })
