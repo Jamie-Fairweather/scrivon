@@ -11,6 +11,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
+use std::path::Path;
 
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Encoding, Object, ObjectId, Stream, StringFormat};
@@ -1402,7 +1403,46 @@ fn toc_entries(pages: &[(u32, ObjectId)], scans: &[Walked]) -> Vec<TocEntry> {
         .collect()
 }
 
+/// Numbers the pages of the PDF at `input` and writes the numbered copy to
+/// `output` (which may be the same file). The copy goes to a temporary file
+/// that is then swapped in, so a failed write never leaves a cut-off PDF.
+/// Returns false, leaving `output` alone, when there was nothing to stamp.
+pub fn stamp_page_numbers_to(
+    input: &Path,
+    output: &Path,
+    options: &PdfPrintOptions,
+) -> Result<bool, String> {
+    let mut doc =
+        Document::load(input).map_err(|e| format!("Could not open PDF to number pages: {e}"))?;
+    if !stamp_document(&mut doc, options)? {
+        return Ok(false);
+    }
+    save_replacing(&mut doc, output)?;
+    Ok(true)
+}
+
+#[cfg(test)]
 pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), String> {
+    let path = Path::new(path);
+    stamp_page_numbers_to(path, path, options).map(|_| ())
+}
+
+/// Writes `doc` next to `output` and then renames it over `output`.
+fn save_replacing(doc: &mut Document, output: &Path) -> Result<(), String> {
+    let temp = crate::pdf_export::temp_sibling(output);
+    let saved = doc
+        .save(&temp)
+        .and_then(|file| file.sync_all())
+        .and_then(|()| std::fs::rename(&temp, output));
+    saved.map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        format!("Could not save numbered PDF: {e}")
+    })
+}
+
+/// Stamps the page numbers into `doc` and cuts the markers out. Returns false
+/// when there was nothing to do.
+fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool, String> {
     let format = options.page_number_format.as_str();
     let want_footer = format_page_label(format, 1, 1).is_some();
     let (footer_rgb, footer_alpha) =
@@ -1416,24 +1456,22 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
         translucent: false,
     };
 
-    let mut doc =
-        Document::load(path).map_err(|e| format!("Could not open PDF to number pages: {e}"))?;
     let pages: Vec<(u32, ObjectId)> = doc.get_pages().into_iter().collect();
     let total = pages.len() as u32;
     if total == 0 {
-        return Ok(());
+        return Ok(false);
     }
 
-    let cache = cache_for_pages(&doc, &pages.iter().map(|(_, id)| *id).collect::<Vec<_>>());
+    let cache = cache_for_pages(doc, &pages.iter().map(|(_, id)| *id).collect::<Vec<_>>());
     let mut scans: Vec<Walked> = pages
         .iter()
-        .map(|(_, id)| scan_page(&doc, &cache, *id))
+        .map(|(_, id)| scan_page(doc, &cache, *id))
         .collect();
     keep_real_markers(&mut scans);
     let toc = toc_entries(&pages, &scans);
     let has_markers = scans.iter().any(|scan| scan.hits().next().is_some());
     if !want_footer && toc.is_empty() && !has_markers {
-        return Ok(());
+        return Ok(false);
     }
 
     // The export only hides the footer on the title and TOC pages, which always
@@ -1441,7 +1479,7 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
     // it on purpose, but one after it lost its slot to the layout (content wider
     // than the page pushes it off the edge) and still needs a number.
     let first_footer = scans.iter().position(|scan| !scan.footers.is_empty());
-    let footer_template = footer_template(&doc, &pages, &scans);
+    let footer_template = footer_template(doc, &pages, &scans);
 
     let font_id = doc.add_object(dictionary! {
         "Type" => "Font",
@@ -1468,7 +1506,7 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
                 // The footer was hidden on this page (title / TOC): no number.
                 None if first_footer.is_some_and(|first| position < first) => continue,
                 None => {
-                    let size = page_media_box(&doc, *page_id);
+                    let size = page_media_box(doc, *page_id);
                     match footer_template {
                         // The footer slot was lost to the layout: number the page
                         // where the other pages' footers put theirs.
@@ -1520,30 +1558,24 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
 
     // Cut the markers out first: the overlay below splits each page's content
     // into several streams.
-    blank_markers(&mut doc, scans);
+    blank_markers(doc, scans);
 
     for (position, page_ops) in operations.into_iter().enumerate() {
         if page_ops.is_empty() {
             continue;
         }
         let page_id = pages[position].1;
-        ensure_page_resource(&mut doc, page_id, "Font", FONT_NAME, font_id)?;
+        ensure_page_resource(doc, page_id, "Font", FONT_NAME, font_id)?;
         if let Some(gs_id) = alpha_gs_id {
-            ensure_page_resource(&mut doc, page_id, "ExtGState", ALPHA_GS_NAME, gs_id)?;
+            ensure_page_resource(doc, page_id, "ExtGState", ALPHA_GS_NAME, gs_id)?;
         }
         let content = Content {
             operations: page_ops,
         };
-        overlay_page_content(
-            &mut doc,
-            page_id,
-            content.encode().map_err(|e| e.to_string())?,
-        )?;
+        overlay_page_content(doc, page_id, content.encode().map_err(|e| e.to_string())?)?;
     }
 
-    doc.save(path)
-        .map_err(|e| format!("Could not save numbered PDF: {e}"))?;
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]

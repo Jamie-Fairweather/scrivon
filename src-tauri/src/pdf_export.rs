@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use serde::Deserialize;
@@ -29,7 +29,7 @@ async fn export_html_to_pdf_impl(
     html: String,
     output_path: String,
     options: PdfPrintOptions,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     use std::time::Duration;
 
     use tauri::utils::config::WebviewUrl;
@@ -59,7 +59,11 @@ async fn export_html_to_pdf_impl(
 
     tokio::time::sleep(Duration::from_millis(1200)).await;
 
-    let path = output_path.clone();
+    // Print next to the chosen file, not over it: the page numbers are added to
+    // a copy, and the chosen file is only replaced once there's a whole PDF.
+    let printed = temp_sibling(Path::new(&output_path));
+    let path_h = HSTRING::from(printed.as_path());
+    let could_not_save = could_not_save_message(&output_path);
     let print = options.clone();
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
@@ -75,9 +79,6 @@ async fn export_html_to_pdf_impl(
                         .map_err(|_| {
                             "WebView2 on this system does not support PDF export.".to_string()
                         })?;
-
-                    let path_h = HSTRING::from(&path);
-                    let could_not_save = could_not_save_message(&path);
 
                     let print_settings = webview
                         .environment()
@@ -152,8 +153,51 @@ async fn export_html_to_pdf_impl(
 
     window.close().ok();
 
-    result?;
-    crate::page_numbers::stamp_page_numbers(&output_path, &options)
+    if let Err(err) = result {
+        let _ = std::fs::remove_file(&printed);
+        return Err(err);
+    }
+    let output = PathBuf::from(output_path);
+    // Stamping parses the whole PDF: keep it off the async runtime's threads.
+    tauri::async_runtime::spawn_blocking(move || save_printed_pdf(&printed, &output, &options))
+        .await
+        .map_err(|_| "PDF export failed.".to_string())?
+}
+
+/// A temporary file next to `path`, so it can be renamed over it.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn temp_sibling(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    path.with_file_name(format!("{stem}.scrivon-{}.tmp.pdf", &id[..8]))
+}
+
+/// Numbers the pages of the freshly printed PDF and puts it at `output`. If
+/// the numbers can't be added, the PDF is saved without them and the returned
+/// warning says why, instead of the whole export failing.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn save_printed_pdf(
+    printed: &Path,
+    output: &Path,
+    options: &PdfPrintOptions,
+) -> Result<Option<String>, String> {
+    let (numbered, warning) =
+        match crate::page_numbers::stamp_page_numbers_to(printed, output, options) {
+            Ok(numbered) => (numbered, None),
+            Err(err) => (false, Some(err)),
+        };
+    if !numbered {
+        if let Err(err) = std::fs::rename(printed, output) {
+            let _ = std::fs::remove_file(printed);
+            eprintln!("Could not move the printed PDF into place: {err}");
+            return Err(could_not_save_message(&output.to_string_lossy()));
+        }
+    }
+    let _ = std::fs::remove_file(printed);
+    Ok(warning)
 }
 
 /// Plain text for a WebView2 print error (its `Display` is the raw `Debug` form).
@@ -230,7 +274,7 @@ async fn export_html_to_pdf_impl(
     _html: String,
     _output_path: String,
     _options: PdfPrintOptions,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     Err("Direct PDF save is only available on Windows.".into())
 }
 
@@ -259,7 +303,7 @@ pub async fn export_html_to_pdf(
     html: String,
     output_path: String,
     options: PdfPrintOptions,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let scope = app.fs_scope();
     check_output_path(&output_path, |path| scope.is_allowed(path))?;
     check_output_writable(&output_path)?;
@@ -341,7 +385,7 @@ pub fn read_export_image(path: String) -> Result<String, String> {
 mod tests {
     use super::{
         check_output_path, check_output_writable, could_not_save_message, mime_from_path,
-        read_export_image, PdfPrintOptions,
+        read_export_image, save_printed_pdf, temp_sibling, PdfPrintOptions,
     };
 
     #[test]
@@ -483,5 +527,154 @@ mod tests {
         let message = result.unwrap_err();
         assert!(message.contains("is open in another program"), "{message}");
         assert!(message.contains("open-in-viewer.pdf"), "{message}");
+    }
+
+    fn print_options(format: &str) -> PdfPrintOptions {
+        PdfPrintOptions {
+            page_width_mm: 210.0,
+            page_height_mm: 297.0,
+            landscape: false,
+            margin_top_mm: 10.0,
+            margin_right_mm: 10.0,
+            margin_bottom_mm: 10.0,
+            margin_left_mm: 10.0,
+            page_number_format: format.into(),
+            page_number_color: String::new(),
+        }
+    }
+
+    /// A one-page PDF like PrintToPdf's output (no footer markers).
+    fn write_printed_pdf(path: &std::path::Path) {
+        use lopdf::{dictionary, Document, Object, Stream};
+
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let content_id = doc.add_object(Stream::new(dictionary! {}, Vec::new()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+            "Contents" => content_id,
+            "Resources" => dictionary! {},
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(
+                dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 },
+            ),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(path).unwrap();
+    }
+
+    fn temp_folder() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("scrivon-export-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn files_in(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn prints_to_a_temporary_file_next_to_the_chosen_one() {
+        let chosen = std::env::temp_dir().join("Report.pdf");
+        let temp = temp_sibling(&chosen);
+        assert_eq!(temp.parent(), chosen.parent());
+        let name = temp.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            name.starts_with("Report.scrivon-") && name.ends_with(".tmp.pdf"),
+            "{name}"
+        );
+        assert_ne!(temp, temp_sibling(&chosen));
+    }
+
+    #[test]
+    fn replaces_the_chosen_file_with_the_numbered_pdf() {
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        std::fs::write(&output, b"%PDF-1.7 last week's export").unwrap();
+        let printed = temp_sibling(&output);
+        write_printed_pdf(&printed);
+
+        let warning = save_printed_pdf(&printed, &output, &print_options("page-n")).unwrap();
+
+        let saved = lopdf::Document::load(&output).unwrap();
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(warning, None);
+        assert!(saved.extract_text(&[1]).unwrap().contains("Page 1"));
+        assert_eq!(names, ["Report.pdf"], "temporary files were left behind");
+    }
+
+    #[test]
+    fn saves_the_pdf_as_printed_when_there_are_no_numbers_to_add() {
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        let printed = temp_sibling(&output);
+        write_printed_pdf(&printed);
+        let printed_bytes = std::fs::read(&printed).unwrap();
+
+        let warning = save_printed_pdf(&printed, &output, &print_options("none")).unwrap();
+
+        let saved = std::fs::read(&output).unwrap();
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(warning, None);
+        assert_eq!(saved, printed_bytes);
+        assert_eq!(names, ["Report.pdf"]);
+    }
+
+    #[test]
+    fn keeps_the_unnumbered_pdf_with_a_warning_when_numbering_fails() {
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        let printed = temp_sibling(&output);
+        // Something the stamper can't read.
+        std::fs::write(&printed, b"%PDF-1.7 not really a pdf").unwrap();
+
+        let warning = save_printed_pdf(&printed, &output, &print_options("page-n")).unwrap();
+
+        let saved = std::fs::read(&output).unwrap();
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(warning.is_some_and(|w| w.contains("number pages")));
+        assert_eq!(saved, b"%PDF-1.7 not really a pdf");
+        assert_eq!(names, ["Report.pdf"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn leaves_the_old_file_whole_when_it_cannot_be_replaced() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        std::fs::write(&output, b"%PDF-1.7 last week's export").unwrap();
+        let printed = temp_sibling(&output);
+        write_printed_pdf(&printed);
+        // A viewer that opened the file after the up-front check, blocking the swap.
+        let viewer = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ
+            .open(&output)
+            .unwrap();
+
+        let result = save_printed_pdf(&printed, &output, &print_options("page-n"));
+
+        drop(viewer);
+        let saved = std::fs::read(&output).unwrap();
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.unwrap_err().contains("Couldn't save \"Report.pdf\""));
+        assert_eq!(saved, b"%PDF-1.7 last week's export");
+        assert_eq!(names, ["Report.pdf"], "temporary files were left behind");
     }
 }

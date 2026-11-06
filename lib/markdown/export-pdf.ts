@@ -1,3 +1,4 @@
+import { notifySavedWithoutPageNumbers } from '@/lib/markdown/pdf-page-number-warning'
 import { invoke } from '@tauri-apps/api/core'
 import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets } from '@/lib/markdown/export-assets'
@@ -82,7 +83,9 @@ async function printExportHtml(html: string): Promise<void> {
 }
 
 async function savePdfWithWebView2(html: string, outputPath: string, options: PdfPrintOptions): Promise<void> {
-    await invoke('export_html_to_pdf', { html, outputPath, options })
+    // Comes back with the reason when the PDF was saved but its page numbers couldn't be added.
+    const pageNumberProblem = await invoke<string | null>('export_html_to_pdf', { html, outputPath, options })
+    if (pageNumberProblem) notifySavedWithoutPageNumbers(pageNumberProblem)
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string): void {
