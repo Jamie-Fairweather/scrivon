@@ -49,6 +49,45 @@ describe('useGlobalKeybinds', () => {
         expect(event.defaultPrevented).toBe(false)
     })
 
+    it('lets palette shortcuts switch the command palette while it is the only modal open', () => {
+        const toggleExplorer = vi.fn()
+        const openPalette = vi.fn()
+        const openFiles = vi.fn()
+        renderHook(() =>
+            useGlobalKeybinds(
+                bindings,
+                { 'view.toggleExplorer': toggleExplorer, 'palette.open': openPalette, 'palette.openFiles': openFiles },
+                { hasWorkspace: true }
+            )
+        )
+        const palette = addElement({ role: 'dialog', 'data-open': '', 'data-slot': 'command-dialog-popup' })
+        const list = document.createElement('div')
+        palette.appendChild(list)
+        const input = document.createElement('input')
+        palette.appendChild(input)
+
+        const f1 = press('F1', {}, input)
+        press('n', { ctrlKey: true, shiftKey: true }, list)
+        const ctrlB = press('b', { ctrlKey: true }, list)
+
+        expect(openPalette).toHaveBeenCalledTimes(1)
+        expect(f1.defaultPrevented).toBe(true)
+        expect(openFiles).toHaveBeenCalledTimes(1)
+        expect(toggleExplorer).not.toHaveBeenCalled()
+        expect(ctrlB.defaultPrevented).toBe(false)
+    })
+
+    it('keeps palette shortcuts off when another modal is open with the palette', () => {
+        const openPalette = vi.fn()
+        renderHook(() => useGlobalKeybinds(bindings, { 'palette.open': openPalette }))
+        addElement({ role: 'dialog', 'data-open': '', 'data-slot': 'command-dialog-popup' })
+        addElement({ role: 'alertdialog', 'data-open': '' })
+
+        press('F1')
+
+        expect(openPalette).not.toHaveBeenCalled()
+    })
+
     it('does nothing while an alert dialog is open', () => {
         const save = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'document.save': save }))

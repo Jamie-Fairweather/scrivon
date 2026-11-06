@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { matchKeybind } from '@/lib/settings/match-keybind'
 import type { KeybindActionId, KeybindBindings } from '@/lib/settings/types'
 
@@ -13,9 +14,18 @@ const OPEN_MODAL_SELECTOR = [
     '[role="alertdialog"][data-open]:not([aria-modal="false"])',
 ].join(', ')
 
-/** App shortcuts must not act behind a modal (Settings, confirmations, prompts, the palette). */
-function isModalDialogOpen(): boolean {
-    return typeof document !== 'undefined' && document.querySelector(OPEN_MODAL_SELECTOR) !== null
+const COMMAND_PALETTE_SELECTOR = '[data-slot="command-dialog-popup"]'
+
+/**
+ * Which modal is open. App shortcuts must not act behind one (Settings, confirmations, prompts),
+ * but palette shortcuts still work while only the command palette is open, so F1 can switch it
+ * back to all commands.
+ */
+function openModal(): 'none' | 'palette' | 'other' {
+    if (typeof document === 'undefined') return 'none'
+    const open = [...document.querySelectorAll(OPEN_MODAL_SELECTOR)]
+    if (open.length === 0) return 'none'
+    return open.every((element) => element.matches(COMMAND_PALETTE_SELECTOR)) ? 'palette' : 'other'
 }
 
 export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHandlers, options: { enabled?: boolean; hasWorkspace?: boolean } = {}) {
@@ -30,10 +40,13 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
         if (!enabled) return
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.defaultPrevented || isModalDialogOpen()) return
+            if (event.defaultPrevented) return
+            const modal = openModal()
+            if (modal === 'other') return
 
             const actionId = matchKeybind(event, bindings, { hasWorkspace })
             if (!actionId) return
+            if (modal === 'palette' && !getKeybindActionMeta(actionId)?.allowInPalette) return
 
             const handler = handlersRef.current[actionId]
             if (!handler) return
