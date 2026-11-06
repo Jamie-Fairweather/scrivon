@@ -13,7 +13,7 @@ import {
     resolvePdfExportLayout,
     resolvePdfPrintOptions,
 } from '@/lib/markdown/export-html-css'
-import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import { pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
@@ -137,16 +137,23 @@ function chromeLabel(text: string, metadata: PdfExportMetadata): string {
     return resolved ? `<span>${escapeHtml(resolved)}</span>` : ''
 }
 
-/** The footer's right-hand text: a page counter slot for the stamper, or plain text. */
+function plainLabel(text: string): string {
+    return text ? `<span>${escapeHtml(text)}</span>` : ''
+}
+
+/**
+ * The footer's right-hand text: a page counter slot for the stamper, or plain text.
+ * Custom text the stamper's font can't draw sits either side of the slot as plain text.
+ */
 function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata, stamped: boolean): string {
     const format = profile.footer.pageNumbers
     if (format === 'none') return ''
-    if (format === 'custom' && !pdfPageNumberTemplate(profile, metadata)) {
-        return chromeLabel(profile.footer.right.text, metadata)
-    }
+    const parts = format === 'custom' ? pdfPageNumberParts(profile, metadata) : null
+    if (format === 'custom' && !parts) return chromeLabel(profile.footer.right.text, metadata)
     // With no stamper the number is a CSS page counter in the page margin instead.
     if (!stamped) return ''
-    return `<span class="pdf-page-number"><span class="pdf-page-number-mark">${PDF_PAGE_NUMBER_MARK}</span></span>`
+    const slot = `<span class="pdf-page-number"><span class="pdf-page-number-mark">${PDF_PAGE_NUMBER_MARK}</span></span>`
+    return `${plainLabel(parts?.before ?? '')}${slot}${plainLabel(parts?.after ?? '')}`
 }
 
 /**
@@ -258,7 +265,8 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
 
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
     const toc = renderToc(tocItems, stamped)
-    const css = stamped ? buildPdfExportCss(profile) : `${buildPdfExportCss(profile)}\n  ${printDialogPageNumberCss(profile, metadata)}`
+    const baseCss = buildPdfExportCss(profile, metadata)
+    const css = stamped ? baseCss : `${baseCss}\n  ${printDialogPageNumberCss(profile, metadata)}`
 
     const html = `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">

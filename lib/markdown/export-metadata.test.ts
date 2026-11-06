@@ -3,6 +3,8 @@ import {
     fallbackPdfExportTitle,
     guessDocumentLanguage,
     parsePdfExportFrontMatter,
+    pdfPageNumberFormat,
+    pdfPageNumberParts,
     pdfPageNumberTemplate,
     resolvePdfExportMetadata,
 } from '@/lib/markdown/export-metadata'
@@ -127,6 +129,41 @@ describe('pdfPageNumberTemplate', () => {
         const profile = createDefaultPdfExportProfile()
         profile.footer.pageNumbers = 'number'
         expect(pdfPageNumberTemplate(profile, { title: 'Spec', subtitle: '', author: '', date: '' })).toBe('')
+    })
+})
+
+describe('pdfPageNumberParts', () => {
+    const meta = (title: string) => ({ title, subtitle: '', author: '', date: '' })
+    const custom = (text: string) => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = text
+        return profile
+    }
+
+    it('gives the stamper the whole text when its font can draw it', () => {
+        const profile = custom('{{title}} – {{page}}/{{total}} … Acme™ €')
+        expect(pdfPageNumberParts(profile, meta('Café Spec'))).toEqual({ before: '', counter: 'Café Spec – {{page}}/{{total}} … Acme™ €', after: '' })
+        expect(pdfPageNumberFormat(profile, meta('Café Spec'))).toBe('custom:Café Spec – {{page}}/{{total}} … Acme™ €')
+    })
+
+    it('keeps text the stamper would print as ? out of what it draws', () => {
+        const profile = custom('{{title}} · {{page}}/{{total}}')
+        expect(pdfPageNumberParts(profile, meta('Отчёт о продажах'))).toEqual({
+            before: 'Отчёт о продажах ·',
+            counter: '{{page}}/{{total}}',
+            after: '',
+        })
+        expect(pdfPageNumberFormat(profile, meta('Отчёт о продажах'))).toBe('custom:{{page}}/{{total}}')
+
+        const around = custom('Strona {{ page }} z {{total}} · Zażółć')
+        expect(pdfPageNumberParts(around, meta(''))).toEqual({ before: 'Strona', counter: '{{ page }} z {{total}}', after: '· Zażółć' })
+        expect(pdfPageNumberParts(custom('{{page}} 東京'), meta(''))).toEqual({ before: '', counter: '{{page}}', after: '東京' })
+    })
+
+    it('is null when the custom text counts nothing', () => {
+        expect(pdfPageNumberParts(custom('{{title}}'), meta('Отчёт'))).toBeNull()
+        expect(pdfPageNumberFormat(custom('{{title}}'), meta('Отчёт'))).toBe('none')
     })
 })
 

@@ -25,6 +25,34 @@ export function pdfPageNumberTemplate(profile: PdfExportProfile, metadata: PdfEx
     return PAGE_PLACEHOLDER.test(template) ? template : ''
 }
 
+const PAGE_PLACEHOLDERS = new RegExp(PAGE_PLACEHOLDER.source, 'g')
+
+/**
+ * Text the stamper's font can draw: it writes in Helvetica with WinAnsi encoding, so anything
+ * else (Cyrillic, CJK, emoji, `ę`) prints as `?`. Must match `win_ansi_bytes` in `page_numbers.rs`.
+ */
+const STAMPER_TEXT = /^[ -~\u00a0-\u00ff\u20ac\u2026\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u2122]*$/
+
+/** A custom page-number text split into the part the stamper draws and the plain text around it. */
+export type PdfPageNumberParts = { before: string; counter: string; after: string }
+
+/**
+ * The custom footer text as the PDF draws it. The stamper draws the whole text when its font
+ * can (`before`/`after` empty). Otherwise it only gets the counting part, from the first
+ * `{{page}}`/`{{total}}` to the last, and the text either side is laid out as ordinary footer
+ * text, so a Cyrillic or CJK title prints in the document's font. `null` when nothing counts.
+ */
+export function pdfPageNumberParts(profile: PdfExportProfile, metadata: PdfExportMetadata): PdfPageNumberParts | null {
+    const template = pdfPageNumberTemplate(profile, metadata)
+    if (!template) return null
+    if (STAMPER_TEXT.test(template)) return { before: '', counter: template, after: '' }
+    const placeholders = [...template.matchAll(PAGE_PLACEHOLDERS)]
+    const start = placeholders[0]!.index
+    const last = placeholders.at(-1)!
+    const end = last.index + last[0].length
+    return { before: template.slice(0, start).trim(), counter: template.slice(start, end), after: template.slice(end).trim() }
+}
+
 /**
  * Format string for the page-number stamper: a preset name, `custom:<template>`
  * (the stamper fills `{{page}}` / `{{total}}`), or `none`.
@@ -32,8 +60,8 @@ export function pdfPageNumberTemplate(profile: PdfExportProfile, metadata: PdfEx
 export function pdfPageNumberFormat(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
     const format = profile.footer.pageNumbers
     if (format !== 'custom') return format
-    const template = pdfPageNumberTemplate(profile, metadata)
-    return template ? `custom:${template}` : 'none'
+    const parts = pdfPageNumberParts(profile, metadata)
+    return parts ? `custom:${parts.counter}` : 'none'
 }
 
 function stripQuotes(value: string): string {

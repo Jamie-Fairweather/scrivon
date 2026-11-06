@@ -263,6 +263,26 @@ SHIKI_FAIL
         expect(empty).not.toContain('class="pdf-chrome-table')
     })
 
+    it('lays out custom footer text the stamper font cannot draw as html beside the counter', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = '{{title}} · {{page}}/{{total}} · <b>'
+        profile.footer.hideOnFirstPages = 'none'
+        const source = '---\ntitle: Отчёт о продажах\n---\n# Only'
+
+        const { html, print } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain(
+            '<span class="pdf-chrome-side pdf-chrome-right"><span>Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark">SFPN</span></span><span>· &lt;b&gt;</span></span>'
+        )
+        // Only the counting part goes to the stamper, which draws in a Latin-only font.
+        expect(print.pageNumberFormat).toBe('custom:{{page}}/{{total}}')
+
+        // The print dialog's page counter is drawn by the browser, so it keeps the whole text.
+        const { html: dialog } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(dialog).toContain('content: "Отчёт о продажах · " counter(page) "/" counter(pages) " · \\3c b>";')
+    })
+
     it('keeps an indented code block that opens the document, with or without front matter', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const code = '    const a = 1\n    const b = 2\n\nAfter'

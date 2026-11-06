@@ -360,6 +360,13 @@ describe('buildPdfExportCss', () => {
         // "Page 000 of 000 —" = 17 chars × 0.55em
         expect(buildPdfExportCss(profile)).toContain('.pdf-page-number { min-width: 9.4em;')
 
+        // The filled-in title is part of the stamped label, so it needs room too: "Quarterly Report · 000/000" = 26 chars.
+        profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
+        const meta = (title: string) => ({ title, subtitle: '', author: '', date: '' })
+        expect(buildPdfExportCss(profile, meta('Quarterly Report'))).toContain('.pdf-page-number { min-width: 14.3em;')
+        // A title the stamper can't draw is ordinary footer text beside the slot, which then only holds "000/000".
+        expect(buildPdfExportCss(profile, meta('Отчёт о продажах'))).toContain('.pdf-page-number { min-width: 3.9em;')
+
         // Blank custom text means there is nothing to show, so no footer is forced on.
         profile.footer.right.text = ' '
         expect(resolvePdfExportLayout(profile).showFooter).toBe(false)

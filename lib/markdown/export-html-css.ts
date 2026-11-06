@@ -1,4 +1,4 @@
-import { pdfPageNumberFormat } from '@/lib/markdown/export-metadata'
+import { pdfPageNumberFormat, pdfPageNumberTemplate } from '@/lib/markdown/export-metadata'
 import type { PdfExportMetadata, PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { getDiagramColors } from '@/lib/theme/catalog'
 
@@ -195,16 +195,17 @@ function headingPageBreakCss(level: PdfNewPageFromHeading): string {
 
 /**
  * Reserves room for the stamped label, which the PDF stage draws right-aligned to
- * this slot and which can therefore only grow leftwards into the bar.
+ * this slot and which can therefore only grow leftwards into the bar. Sized from
+ * exactly what the stamper draws, the filled-in title included.
  */
-function pageNumberCss(footer: PdfExportProfile['footer']): string {
-    if (!pdfFooterHasPageText(footer)) return ''
-    const sample =
-        footer.pageNumbers === 'custom'
-            ? footer.right.text.replace(/\{\{\s*(page|total)\s*\}\}/g, '000').replace(/\{\{[^}]*\}\}/g, '')
-            : footer.pageNumbers === 'n-of-total'
-              ? '000 / 000'
-              : 'Page 000'
+function pageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
+    if (!pdfFooterHasPageText(profile.footer)) return ''
+    const format = pdfPageNumberFormat(profile, metadata)
+    const sample = format.startsWith('custom:')
+        ? format.slice('custom:'.length).replace(/\{\{\s*(page|total)\s*\}\}/g, '000')
+        : format === 'n-of-total'
+          ? '000 / 000'
+          : 'Page 000'
     const widthEm = Math.max(3.5, sample.trim().length * 0.55)
     return `.pdf-page-number { min-width: ${widthEm.toFixed(1)}em; text-align: right; white-space: nowrap; }
     .pdf-page-number-mark { color: rgba(64, 64, 64, 0.01); }`
@@ -249,7 +250,10 @@ const NO_FOOTER_PAGE = 'pdf-no-footer'
  * colour, since it sits on bare paper. Nothing when the sheet has no bottom margin to draw in.
  */
 export function printDialogPageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
-    const content = pageCounterContent(pdfPageNumberFormat(profile, metadata))
+    // The browser draws any script, so the margin box gets the whole custom text, not just the stamper's part.
+    const template = pdfPageNumberTemplate(profile, metadata)
+    const format = profile.footer.pageNumbers === 'custom' ? (template ? `custom:${template}` : 'none') : profile.footer.pageNumbers
+    const content = pageCounterContent(format)
     if (!content || pdfPrintMarginsMm(profile).bottom <= 0) return ''
     const hidden = hiddenChromeSections(profile.footer.hideOnFirstPages)
     const skip =
@@ -322,7 +326,10 @@ function bodyImageMaxHeightMm(profile: PdfExportProfile, layout: PdfExportLayout
 /** Room the diagram box's padding and border take around its SVG. */
 const MERMAID_BOX_MM = 8
 
-export function buildPdfExportCss(profile: PdfExportProfile): string {
+const NO_METADATA: PdfExportMetadata = { title: '', subtitle: '', author: '', date: '' }
+
+/** The export stylesheet. `metadata` fills the placeholders the page-number slot is sized for. */
+export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExportMetadata = NO_METADATA): string {
     const mermaidBg = getDiagramColors(profile.content.mermaidThemeId).bg
     const accent = profile.brand.accentColor
     const links = linkColor(profile)
@@ -683,7 +690,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     display: ${showFooter ? 'flex' : 'none'};
   }
   ${bleedLayoutCss(profile, layout, margins)}
-  ${pageNumberCss(profile.footer)}
+  ${pageNumberCss(profile, metadata)}
   ${chromeHideCss(profile.header.hideOnFirstPages, '.pdf-header-bar')}
   ${chromeHideCss(profile.footer.hideOnFirstPages, '.pdf-footer-bar')}
   ${
