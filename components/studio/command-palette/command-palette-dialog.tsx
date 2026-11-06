@@ -2,6 +2,7 @@
 
 import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon } from 'lucide-react'
 import { Fragment, useCallback } from 'react'
+import { MAX_HITS } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup, PaletteItem } from '@/components/studio/command-palette/types'
 import {
     Command,
@@ -195,7 +196,7 @@ export function CommandPaletteDialog({
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {textCapped ? <span className="text-muted-foreground/80">More matches exist — refine query</span> : null}
+                            {textCapped ? <span className="text-muted-foreground/80">Showing first {MAX_HITS} matches — refine query</span> : null}
                             <Kbd>Esc</Kbd>
                             <span>Close</span>
                         </div>

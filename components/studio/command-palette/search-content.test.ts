@@ -51,7 +51,6 @@ describe('searchWorkspaceContent', () => {
             readFile,
             signal: new AbortController().signal,
             maxHits: 10,
-            maxFilesScanned: 10,
             concurrency: 2,
         })
 
@@ -143,19 +142,39 @@ describe('searchWorkspaceContent', () => {
         expect(result.hits).toHaveLength(0)
     })
 
-    it('reports capped when more disk paths remain unscanned', async () => {
+    it('searches every disk file, not just the first 50', async () => {
+        const paths = Array.from({ length: 60 }, (_, i) => `/workspace/docs/note-${i}.md`)
+        paths.push('/workspace/README.md')
+        const read: string[] = []
+
+        const result = await searchWorkspaceContent({
+            query: 'roadmap',
+            paths,
+            openBuffers: new Map(),
+            readFile: async (path) => {
+                read.push(path)
+                return path === '/workspace/README.md' ? 'Our roadmap for 2027' : 'nothing here'
+            },
+            signal: new AbortController().signal,
+        })
+
+        expect(read).toHaveLength(61)
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/workspace/README.md'])
+        expect(result.capped).toBe(false)
+    })
+
+    it('does not report capped when every file was searched without reaching the hit limit', async () => {
         const result = await searchWorkspaceContent({
             query: 'hit',
             paths: ['/one.md', '/two.md', '/three.md'],
             openBuffers: new Map(),
             readFile: async (path) => (path === '/one.md' ? 'hit' : ''),
             signal: new AbortController().signal,
-            maxFilesScanned: 1,
             concurrency: 1,
         })
 
         expect(result.hits).toHaveLength(1)
-        expect(result.capped).toBe(true)
+        expect(result.capped).toBe(false)
     })
 
     it('finds multiple matches on one line', async () => {
@@ -208,7 +227,6 @@ describe('searchWorkspaceContent', () => {
             readFile: async () => 'hit',
             signal: new AbortController().signal,
             maxHits: 1,
-            maxFilesScanned: 2,
             concurrency: 2,
         })
 
@@ -277,7 +295,6 @@ describe('searchWorkspaceContent', () => {
             },
             signal: controller.signal,
             concurrency: 2,
-            maxFilesScanned: 2,
         })
 
         expect(result.hits).toEqual([])

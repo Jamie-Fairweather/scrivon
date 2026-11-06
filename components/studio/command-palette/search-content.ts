@@ -4,7 +4,6 @@ import type { TextSearchHit } from '@/components/studio/command-palette/types'
 export const MIN_QUERY_LENGTH = 2
 export const DEBOUNCE_MS = 250
 export const MAX_HITS = 100
-export const MAX_FILES_SCANNED = 50
 export const MAX_FILE_BYTES = 1_048_576
 export const READ_CONCURRENCY = 8
 export const PREVIEW_MAX_CHARS = 100
@@ -57,21 +56,19 @@ function searchInContent(content: string, query: string, path: string, source: '
 async function scanDiskPaths(
     paths: string[],
     concurrency: number,
-    maxFilesScanned: number,
     maxHits: number,
     scanPath: (path: string) => Promise<TextSearchHit[]>,
     signal: AbortSignal
-): Promise<{ hits: TextSearchHit[]; filesScanned: number }> {
+): Promise<TextSearchHit[]> {
     const hits: TextSearchHit[] = []
     let index = 0
-    let filesScanned = 0
 
+    // Every path is scanned until the hit limit is reached or the search is cancelled.
     async function worker(): Promise<void> {
-        while (!signal.aborted && hits.length < maxHits && filesScanned < maxFilesScanned) {
+        while (!signal.aborted && hits.length < maxHits) {
             const currentIndex = index++
             if (currentIndex >= paths.length) return
 
-            filesScanned++
             const pathHits = await scanPath(paths[currentIndex]!)
             if (signal.aborted) return
 
@@ -84,7 +81,7 @@ async function scanDiskPaths(
 
     const workers = Array.from({ length: Math.min(concurrency, paths.length) }, () => worker())
     await Promise.all(workers)
-    return { hits, filesScanned }
+    return hits
 }
 
 export type SearchWorkspaceContentOptions = {
@@ -96,12 +93,12 @@ export type SearchWorkspaceContentOptions = {
     signal: AbortSignal
     maxHits?: number
     maxFileBytes?: number
-    maxFilesScanned?: number
     concurrency?: number
 }
 
 export type SearchWorkspaceContentResult = {
     hits: TextSearchHit[]
+    /** True when the hit limit was reached, so there may be more matches than returned. */
     capped: boolean
 }
 
@@ -115,7 +112,6 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         signal,
         maxHits = MAX_HITS,
         maxFileBytes = MAX_FILE_BYTES,
-        maxFilesScanned = MAX_FILES_SCANNED,
         concurrency = READ_CONCURRENCY,
     } = opts
 
@@ -146,12 +142,10 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         return searchInContent(content, query, path, 'disk', maxHits)
     }
 
-    const diskResult = await scanDiskPaths(diskPaths, concurrency, maxFilesScanned, maxHits - hits.length, scanDiskPath, signal)
-    hits.push(...diskResult.hits)
+    const diskHits = await scanDiskPaths(diskPaths, concurrency, maxHits - hits.length, scanDiskPath, signal)
+    hits.push(...diskHits)
 
-    const hasMoreOnDisk = diskPaths.length > diskResult.filesScanned
-    const capped = hits.length >= maxHits || hasMoreOnDisk
-    return { hits: hits.slice(0, maxHits), capped }
+    return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits }
 }
 
 export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/studio/command-palette/types').TextPaletteItem {
