@@ -77,6 +77,7 @@ async fn export_html_to_pdf_impl(
                         })?;
 
                     let path_h = HSTRING::from(&path);
+                    let could_not_save = could_not_save_message(&path);
 
                     let print_settings = webview
                         .environment()
@@ -125,19 +126,21 @@ async fn export_html_to_pdf_impl(
                             core.PrintToPdf(&path_h, &print_settings, &handler)
                                 .map_err(webview2_com::Error::WindowsError)
                         }),
+                        // Nothing can cancel this print, so a failure means the
+                        // file couldn't be written (often: it's open elsewhere).
                         Box::new(move |hr, success| {
                             hr?;
                             if success {
                                 Ok(())
                             } else {
                                 Err(windows_core::Error::new(
-                                    windows_core::HRESULT(0x80004004u32 as i32),
-                                    "PDF export was cancelled.",
+                                    windows_core::HRESULT(0x80004005u32 as i32),
+                                    could_not_save,
                                 ))
                             }
                         }),
                     )
-                    .map_err(|e| e.to_string())
+                    .map_err(print_error_message)
                 }
             })();
 
@@ -151,6 +154,74 @@ async fn export_html_to_pdf_impl(
 
     result?;
     crate::page_numbers::stamp_page_numbers(&output_path, &options)
+}
+
+/// Plain text for a WebView2 print error (its `Display` is the raw `Debug` form).
+#[cfg(windows)]
+fn print_error_message(err: webview2_com::Error) -> String {
+    match err {
+        webview2_com::Error::WindowsError(err) => {
+            let message = err.message();
+            let message = message.trim();
+            if message.is_empty() {
+                format!("PDF export failed ({}).", err.code())
+            } else {
+                message.to_string()
+            }
+        }
+        _ => "PDF export failed.".into(),
+    }
+}
+
+/// The file name of a PDF path, for messages.
+fn display_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// WebView2 doesn't say why it couldn't write the PDF; the usual reason is the
+/// old copy still being open in a PDF viewer.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn could_not_save_message(path: &str) -> String {
+    format!(
+        "Couldn't save \"{}\". If it's open in another program, close it and try again, \
+         or save it somewhere else.",
+        display_name(Path::new(path))
+    )
+}
+
+/// Checks that the PDF can be written before it's rendered, so a file held
+/// open by a PDF viewer gets a message that says what to do. An existing file
+/// is only opened, never changed.
+fn check_output_writable(path: &str) -> Result<(), String> {
+    use std::io::ErrorKind;
+
+    let output = Path::new(path);
+    let name = display_name(output);
+    match std::fs::OpenOptions::new().write(true).open(output) {
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            if output.parent().is_some_and(Path::is_dir) {
+                Ok(())
+            } else {
+                Err("The folder for this PDF no longer exists. Choose another location.".into())
+            }
+        }
+        // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION: another program has it open.
+        #[cfg(windows)]
+        Err(err) if matches!(err.raw_os_error(), Some(32 | 33)) => Err(format!(
+            "\"{name}\" is open in another program. Close it there and export again, \
+             or save under a different name."
+        )),
+        Err(err) if err.kind() == ErrorKind::PermissionDenied => Err(format!(
+            "Scrivon isn't allowed to change \"{name}\". Save under a different name \
+             or in another folder."
+        )),
+        // Anything else is left for the export itself to report.
+        Err(_) => Ok(()),
+    }
 }
 
 #[cfg(not(windows))]
@@ -191,6 +262,7 @@ pub async fn export_html_to_pdf(
 ) -> Result<(), String> {
     let scope = app.fs_scope();
     check_output_path(&output_path, |path| scope.is_allowed(path))?;
+    check_output_writable(&output_path)?;
     export_html_to_pdf_impl(app, html, output_path, options).await
 }
 
@@ -267,7 +339,10 @@ pub fn read_export_image(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_output_path, mime_from_path, read_export_image, PdfPrintOptions};
+    use super::{
+        check_output_path, check_output_writable, could_not_save_message, mime_from_path,
+        read_export_image, PdfPrintOptions,
+    };
 
     #[test]
     fn deserializes_camel_case_options_from_the_frontend() {
@@ -350,5 +425,63 @@ mod tests {
             .unwrap_err()
             .contains(".pdf"));
         assert!(check_output_path("relative.pdf", |_| true).is_err());
+    }
+
+    #[test]
+    fn write_failures_name_the_file_instead_of_saying_cancelled() {
+        let path = std::env::temp_dir().join("Report.pdf");
+        let message = could_not_save_message(&path.to_string_lossy());
+        assert!(message.contains("\"Report.pdf\""), "{message}");
+        assert!(message.contains("open in another program"), "{message}");
+        assert!(!message.to_lowercase().contains("cancel"), "{message}");
+    }
+
+    #[test]
+    fn checks_the_pdf_can_be_written_without_changing_it() {
+        let new_file = std::env::temp_dir().join(format!("scrivon-{}.pdf", uuid::Uuid::new_v4()));
+        let new_file = new_file.to_string_lossy().into_owned();
+        assert!(check_output_writable(&new_file).is_ok());
+        assert!(!std::path::Path::new(&new_file).exists());
+
+        let missing_folder = std::env::temp_dir()
+            .join(format!("scrivon-gone-{}", uuid::Uuid::new_v4()))
+            .join("Report.pdf");
+        assert!(check_output_writable(&missing_folder.to_string_lossy())
+            .unwrap_err()
+            .contains("folder"));
+
+        let existing = temp_file("existing.pdf", b"%PDF-1.7 old export");
+        let existing_path = existing.to_string_lossy().into_owned();
+        assert!(check_output_writable(&existing_path).is_ok());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"%PDF-1.7 old export");
+
+        let writable = std::fs::metadata(&existing).unwrap().permissions();
+        let mut read_only = writable.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&existing, read_only).unwrap();
+        let result = check_output_writable(&existing_path);
+        std::fs::set_permissions(&existing, writable).unwrap();
+        let _ = std::fs::remove_file(&existing);
+        assert!(result.unwrap_err().contains("isn't allowed"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reports_a_pdf_that_another_program_has_open() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let path = temp_file("open-in-viewer.pdf", b"%PDF-1.7");
+        // A PDF viewer such as Acrobat keeps the file open and blocks writes.
+        let viewer = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ
+            .open(&path)
+            .unwrap();
+        let result = check_output_writable(&path.to_string_lossy());
+        drop(viewer);
+        let _ = std::fs::remove_file(&path);
+        let message = result.unwrap_err();
+        assert!(message.contains("is open in another program"), "{message}");
+        assert!(message.contains("open-in-viewer.pdf"), "{message}");
     }
 }
