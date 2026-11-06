@@ -73,3 +73,33 @@ describe('release workflow outputs (exec successCmd)', () => {
         expect(readFileSync(outputFile, 'utf8')).toBe('')
     })
 })
+
+describe('semantic-release plugins', () => {
+    it('lists every plugin as a name or a [name, options] pair', () => {
+        for (const plugin of plugins) {
+            const valid =
+                typeof plugin === 'string' ||
+                (Array.isArray(plugin) && plugin.length === 2 && typeof plugin[0] === 'string' && typeof plugin[1] === 'object' && plugin[1] !== null)
+            expect(valid, JSON.stringify(plugin)).toBe(true)
+        }
+    })
+
+    it('treats a `feat!:` commit as a major release', async () => {
+        type AnalyzerPlugin = {
+            analyzeCommits: (config: PluginOptions, context: Record<string, unknown>) => Promise<string | null>
+        }
+        const { analyzeCommits } = await importPlugin<AnalyzerPlugin>('@semantic-release/commit-analyzer')
+        const analyze = (...messages: string[]) =>
+            analyzeCommits(pluginOptions('@semantic-release/commit-analyzer'), {
+                cwd: repoRoot,
+                logger: silentLogger,
+                commits: messages.map((message, i) => ({ hash: `${i}`, message })),
+            })
+
+        expect(await analyze('feat!: remove legacy file format support')).toBe('major')
+        expect(await analyze('fix: keep unsaved tabs', 'feat!: remove legacy file format support')).toBe('major')
+        expect(await analyze('feat: add diagram export')).toBe('minor')
+        expect(await analyze('fix: prevent canvas flash on theme change')).toBe('patch')
+        expect(await analyze('docs: update readme')).toBeNull()
+    })
+})

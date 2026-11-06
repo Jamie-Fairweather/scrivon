@@ -52,8 +52,9 @@ const changelog = ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md
 
 const releaseConfig = {
     branches: [{ name: 'main' }, { name: 'rc', prerelease: 'rc' }],
+    // Each entry is a name or a [name, options] pair; never spread a pair into this list.
     plugins: [
-        ...analyzer,
+        analyzer,
         releaseNotes,
         npm,
         exec,
