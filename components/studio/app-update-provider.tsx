@@ -1,5 +1,6 @@
 'use client'
 
+import { reportLastUpdateAttempt } from '@/lib/updater/update-attempt'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { UpdateAvailableDialog, type AppUpdateInfo } from '@/components/studio/dialogs/update-available-dialog'
 import { fetchReleaseNotes } from '@/lib/updater/release-notes'
@@ -37,6 +38,11 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     const [notesLoading, setNotesLoading] = useState(false)
     const [installing, setInstalling] = useState(false)
     const [dialogOpen, setDialogOpen] = useState(false)
+
+    // The installer runs after the app has closed, so say on the next launch how it went.
+    useEffect(() => {
+        void reportLastUpdateAttempt()
+    }, [])
 
     useEffect(() => {
         if (!isTauri() || !settings.updates.checkOnLaunch) return

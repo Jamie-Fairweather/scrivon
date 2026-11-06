@@ -51,6 +51,7 @@ pub fn run() {
             system_fonts::list_system_fonts,
             updater::check_for_app_update,
             updater::install_app_update,
+            updater::take_update_attempt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,11 +1,18 @@
 use std::future::Future;
+use std::path::Path;
 use std::sync::Mutex;
 
-use tauri::{AppHandle, State, Url};
+use tauri::{AppHandle, Manager, State, Url};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const STABLE_MANIFEST: &str =
     "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json";
+
+/// Written to the app data folder just before the installer starts. On Windows
+/// the app exits as soon as it has launched the installer, so it can't tell
+/// whether the install worked (a declined permission prompt, a blocked
+/// installer). The next launch reads it to say how the update went.
+const ATTEMPT_FILE: &str = "update-attempt.json";
 
 pub struct PendingUpdate(pub Mutex<Option<Update>>);
 
@@ -14,6 +21,22 @@ pub struct PendingUpdate(pub Mutex<Option<Update>>);
 pub struct UpdateInfo {
     pub version: String,
     pub notes: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AttemptRecord {
+    from: String,
+    to: String,
+}
+
+/// How the last in-app update went, for the first launch after it.
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAttempt {
+    /// The version the update was going to install.
+    pub version: String,
+    /// False when the app is still on the version it had before the update.
+    pub installed: bool,
 }
 
 fn is_prerelease_build(version: &str) -> bool {
@@ -26,8 +49,74 @@ mod tests {
     use std::sync::Mutex;
 
     use super::{
-        count_other_instances, install_error_message, install_pending, is_prerelease_build,
+        count_other_instances, install_error_message, install_pending, install_with_record,
+        is_prerelease_build, take_attempt, UpdateAttempt,
     };
+
+    fn temp_data_dir() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("scrivon-update-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn the_next_launch_hears_that_an_update_never_installed() {
+        // The installer was started (the app exits), but permission was declined.
+        let dir = temp_data_dir();
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+
+        assert_eq!(
+            take_attempt(&dir, "1.4.2"),
+            Some(UpdateAttempt {
+                version: "1.5.0".into(),
+                installed: false,
+            })
+        );
+        // Only once.
+        assert_eq!(take_attempt(&dir, "1.4.2"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_next_launch_hears_that_an_update_installed() {
+        let dir = temp_data_dir();
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+
+        assert_eq!(
+            take_attempt(&dir, "1.5.0"),
+            Some(UpdateAttempt {
+                version: "1.5.0".into(),
+                installed: true,
+            })
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_install_error_shown_right_away_leaves_no_record() {
+        let dir = temp_data_dir();
+        let result = install_with_record(Some(&dir), "1.4.2", "1.5.0", || {
+            Err("The update couldn't be unpacked.".into())
+        });
+
+        assert!(result.is_err());
+        assert_eq!(take_attempt(&dir, "1.4.2"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installs_even_when_the_record_cannot_be_written() {
+        let blocker = temp_data_dir();
+        std::fs::write(&blocker, b"not a folder").unwrap();
+        let mut installed = false;
+
+        let result = install_with_record(Some(&blocker), "1.4.2", "1.5.0", || {
+            installed = true;
+            Ok(())
+        });
+
+        let _ = std::fs::remove_file(&blocker);
+        assert!(result.is_ok());
+        assert!(installed);
+    }
 
     #[test]
     fn prerelease_versions_contain_hyphen() {
@@ -250,8 +339,57 @@ async fn ensure_no_other_instances() -> Result<(), String> {
     Ok(())
 }
 
+fn record_attempt(dir: &Path, from: &str, to: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let record = AttemptRecord {
+        from: from.into(),
+        to: to.into(),
+    };
+    std::fs::write(dir.join(ATTEMPT_FILE), serde_json::to_vec(&record)?)
+}
+
+/// Runs `install` with a record of the attempt left in `dir` for the next
+/// launch. The record is removed again if `install` fails here, because then
+/// the error is shown straight away. On Windows a working `install` never
+/// returns: the plugin starts the installer and exits the app.
+fn install_with_record(
+    dir: Option<&Path>,
+    from: &str,
+    to: &str,
+    install: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(dir) = dir {
+        if let Err(err) = record_attempt(dir, from, to) {
+            eprintln!("Could not record the update attempt: {err}");
+        }
+    }
+    let result = install();
+    if result.is_err() {
+        if let Some(dir) = dir {
+            let _ = std::fs::remove_file(dir.join(ATTEMPT_FILE));
+        }
+    }
+    result
+}
+
+/// Reads and removes the record of the last update attempt, if there is one.
+fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
+    let file = dir.join(ATTEMPT_FILE);
+    let bytes = std::fs::read(&file).ok()?;
+    let _ = std::fs::remove_file(&file);
+    let record: AttemptRecord = serde_json::from_slice(&bytes).ok()?;
+    Some(UpdateAttempt {
+        installed: record.from != current_version,
+        version: record.to,
+    })
+}
+
 #[tauri::command]
-pub async fn install_app_update(pending: State<'_, PendingUpdate>) -> Result<(), String> {
+pub async fn install_app_update(
+    app: AppHandle,
+    pending: State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    let data_dir = app.path().app_data_dir().ok();
     install_pending(&pending.0, |update: Update| async move {
         ensure_no_other_instances().await?;
         let bytes = update
@@ -260,7 +398,20 @@ pub async fn install_app_update(pending: State<'_, PendingUpdate>) -> Result<(),
             .map_err(|e| install_error_message(&e))?;
         // Again, in case another window was opened during the download.
         ensure_no_other_instances().await?;
-        update.install(bytes).map_err(|e| install_error_message(&e))
+        install_with_record(
+            data_dir.as_deref(),
+            &update.current_version,
+            &update.version,
+            || update.install(bytes).map_err(|e| install_error_message(&e)),
+        )
     })
     .await
+}
+
+/// How the last in-app update went (once: the record is removed). The frontend
+/// asks on launch, so a failed install doesn't just look like the app vanished.
+#[tauri::command]
+pub fn take_update_attempt(app: AppHandle) -> Option<UpdateAttempt> {
+    let dir = app.path().app_data_dir().ok()?;
+    take_attempt(&dir, &app.package_info().version.to_string())
 }
