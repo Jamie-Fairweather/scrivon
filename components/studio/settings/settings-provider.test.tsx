@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
+import { SettingsProvider, useAppSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -100,29 +100,29 @@ describe('SettingsProvider persistence', () => {
 
     it('refuses shortcuts that would break typing, and in-use shortcuts', () => {
         const { result } = renderSettings()
-        let message: string | null = null
+        let refusal: KeybindRefusal | null = null
 
         act(() => {
-            message = result.current.setKeybindChords('view.toggleEditor', [{ key: 'Tab' }])
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'Tab' }])
         })
-        expect(message).toMatch(/can't be used in shortcuts/)
+        expect(refusal).toEqual({ message: expect.stringMatching(/can't be used in shortcuts/) })
 
         act(() => {
-            message = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true }])
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true }])
         })
-        expect(message).toBe('Already assigned to Toggle explorer')
+        expect(refusal).toEqual({ message: 'Ctrl+B is already assigned to Toggle explorer', reassign: [{ key: 'b', ctrl: true }] })
 
         act(() => {
-            message = result.current.setKeybindChords('view.toggleEditor', [{ key: 'd', ctrl: true }])
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'd', ctrl: true }])
         })
-        expect(message).toBe('Ctrl+D is used by the editor')
+        expect(refusal).toEqual({ message: 'Ctrl+D is used by the editor' })
 
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
     it('does not reset a shortcut to a default another action now uses', () => {
         const { result } = renderSettings()
-        let message: string | null = null
+        let refusal: KeybindRefusal | null = null
 
         act(() => {
             result.current.setKeybindChords('document.save', [])
@@ -131,10 +131,10 @@ describe('SettingsProvider persistence', () => {
             result.current.setKeybindChords('settings.open', [{ key: 's', ctrl: true }])
         })
         act(() => {
-            message = result.current.resetKeybind('document.save')
+            refusal = result.current.resetKeybind('document.save')
         })
 
-        expect(message).toBe('Ctrl+S is already assigned to Open settings')
+        expect(refusal).toEqual({ message: 'Ctrl+S is already assigned to Open settings', reassign: [{ key: 's', ctrl: true }] })
         expect(result.current.settings.keybinds['document.save']).toEqual([])
         expect(result.current.settings.keybinds['settings.open']).toEqual([{ key: 's', ctrl: true }])
 
@@ -142,10 +142,31 @@ describe('SettingsProvider persistence', () => {
             result.current.resetKeybind('settings.open')
         })
         act(() => {
-            message = result.current.resetKeybind('document.save')
+            refusal = result.current.resetKeybind('document.save')
         })
-        expect(message).toBeNull()
+        expect(refusal).toBeNull()
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('moves a shortcut from the action that has it when reassigned', () => {
+        const { result } = renderSettings()
+        let refusal: KeybindRefusal | null = null
+
+        act(() => {
+            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'b', ctrl: true }])
+        })
+
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([])
+        expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+        expect(stored().keybinds['view.toggleExplorer']).toEqual([])
+
+        act(() => {
+            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'c', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+C is used by the editor' })
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
     })
 
     it('keeps export profiles when restoring defaults', () => {

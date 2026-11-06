@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { chordListsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { findKeybindConflicts } from '@/lib/settings/conflicts'
+import { createDefaultKeybinds } from '@/lib/settings/defaults'
+import { formatChord } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 import { KeybindCapture, KeybindDisplay } from '@/components/studio/settings/keybind-capture'
-import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { useAppSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -19,15 +22,16 @@ import {
 import { Button } from '@/components/ui/button'
 
 export function KeyboardSettings() {
-    const { settings, setKeybindChords, resetKeybind, resetAllKeybinds } = useAppSettings()
+    const { settings, setKeybindChords, resetKeybind, reassignKeybind, resetAllKeybinds } = useAppSettings()
     const [editingId, setEditingId] = useState<KeybindActionId | null>(null)
     // Follows editingId straight away, so a late cancel (the recorder losing focus as it goes away) is ignored.
     const editingRef = useRef<KeybindActionId | null>(null)
     // Shown in the row it belongs to.
-    const [error, setError] = useState<{ actionId: KeybindActionId; message: string } | null>(null)
+    const [error, setError] = useState<(KeybindRefusal & { actionId: KeybindActionId }) | null>(null)
     const editButtons = useRef(new Map<KeybindActionId, HTMLButtonElement>())
     const returnFocusTo = useRef<KeybindActionId | null>(null)
     const conflicts = useMemo(() => findKeybindConflicts(settings.keybinds), [settings.keybinds])
+    const defaults = useMemo(() => createDefaultKeybinds(isMacPlatform()), [])
 
     /** Labels of the other actions that share a chord with this one. */
     const sharedWith = (actionId: KeybindActionId): string[] =>
@@ -44,9 +48,11 @@ export function KeyboardSettings() {
         if (actionId) editButtons.current.get(actionId)?.focus()
     }, [editingId])
 
-    const showError = (actionId: KeybindActionId, message: string | null) => {
-        setError(message ? { actionId, message } : null)
+    const showError = (actionId: KeybindActionId, refusal: KeybindRefusal | null) => {
+        setError(refusal ? { ...refusal, actionId } : null)
     }
+
+    const focusEdit = (actionId: KeybindActionId) => editButtons.current.get(actionId)?.focus()
 
     const startRecording = (actionId: KeybindActionId) => {
         setError(null)
@@ -79,7 +85,25 @@ export function KeyboardSettings() {
         editingRef.current = null
         setEditingId(null)
         // The Clear button goes away, so keep focus in this row.
-        editButtons.current.get(actionId)?.focus()
+        focusEdit(actionId)
+    }
+
+    const handleReset = (actionId: KeybindActionId) => {
+        const refusal = resetKeybind(actionId)
+        showError(actionId, refusal)
+        // Reset is turned off once the row is back to its default, so keep focus in this row.
+        if (!refusal) focusEdit(actionId)
+    }
+
+    // Moves the shortcut here from the action that has it, which is left without one.
+    const handleReassign = (actionId: KeybindActionId, chords: KeybindChord[]) => {
+        showError(actionId, reassignKeybind(actionId, chords))
+        focusEdit(actionId)
+    }
+
+    const handleDismiss = (actionId: KeybindActionId) => {
+        setError(null)
+        focusEdit(actionId)
     }
 
     const handleResetAll = () => {
@@ -114,22 +138,45 @@ export function KeyboardSettings() {
                 {KEYBIND_ACTIONS.map((action) => {
                     const chords = settings.keybinds[action.id] ?? []
                     const isEditing = editingId === action.id
+                    const isDefault = chordListsEqual(chords, defaults[action.id] ?? [])
                     const clashes = sharedWith(action.id)
+                    const rowError = error?.actionId === action.id ? error : null
 
                     return (
                         <div key={action.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
                             <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium">{action.label}</p>
-                                <p className="text-xs text-muted-foreground">{action.category}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {action.category}
+                                    {isDefault ? null : <span className="text-foreground"> · Changed</span>}
+                                </p>
                                 {clashes.length > 0 ? (
                                     <p className="text-xs text-warning-foreground">
                                         Same shortcut as {clashes.join(', ')}. Only one of them will run.
                                     </p>
                                 ) : null}
-                                {error?.actionId === action.id ? (
-                                    <p role="alert" className="text-xs text-destructive-foreground">
-                                        {error.message}
-                                    </p>
+                                {rowError ? (
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        <p role="alert" className="text-xs text-destructive-foreground">
+                                            {rowError.message}
+                                        </p>
+                                        {rowError.reassign ? (
+                                            <>
+                                                <Button
+                                                    type="button"
+                                                    size="xs"
+                                                    variant="outline"
+                                                    aria-label={`Reassign ${rowError.reassign.map((chord) => formatChord(chord)).join(', ')} to ${action.label}`}
+                                                    onClick={() => handleReassign(action.id, rowError.reassign ?? [])}
+                                                >
+                                                    Reassign
+                                                </Button>
+                                                <Button type="button" size="xs" variant="ghost" onClick={() => handleDismiss(action.id)}>
+                                                    Cancel
+                                                </Button>
+                                            </>
+                                        ) : null}
+                                    </div>
                                 ) : null}
                             </div>
 
@@ -140,7 +187,7 @@ export function KeyboardSettings() {
                                         label={action.label}
                                         onCapture={(chord) => handleCapture(action.id, chord)}
                                         onCancel={(refocus) => handleCancel(action.id, refocus)}
-                                        onReject={(message) => showError(action.id, message)}
+                                        onReject={(message) => showError(action.id, { message })}
                                     />
                                 ) : (
                                     <KeybindDisplay chords={chords} />
@@ -177,7 +224,8 @@ export function KeyboardSettings() {
                                             size="sm"
                                             variant="ghost"
                                             aria-label={`Reset ${action.label} to default`}
-                                            onClick={() => showError(action.id, resetKeybind(action.id))}
+                                            disabled={isDefault}
+                                            onClick={() => handleReset(action.id)}
                                         >
                                             Reset
                                         </Button>

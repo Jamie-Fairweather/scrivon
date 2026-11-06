@@ -4,11 +4,18 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
-import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { chordsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
 import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindChord } from '@/lib/settings/types'
+
+/** Why a shortcut change was refused. */
+export type KeybindRefusal = {
+    message: string
+    /** Set when other actions already use these chords: reassignKeybind can move them here instead. */
+    reassign?: KeybindChord[]
+}
 
 export type SettingsSection = 'general' | 'appearance' | 'editor' | 'pdf-export' | 'keyboard' | 'advanced'
 
@@ -27,9 +34,11 @@ type AppSettingsContextValue = {
     setLayoutEditorOpen: (open: boolean) => void
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
-    setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => string | null
+    setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
     /** Puts the default back; returns why it can't when another action uses that chord. */
-    resetKeybind: (actionId: KeybindActionId) => string | null
+    resetKeybind: (actionId: KeybindActionId) => KeybindRefusal | null
+    /** Gives these chords to actionId and takes them off every other action. */
+    reassignKeybind: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
     resetAllKeybinds: () => void
     resetAllSettings: () => void
 }
@@ -43,6 +52,15 @@ function actionLabel(actionId: KeybindActionId): string {
 const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {
     backup: 'The last working copy was restored, so your most recent changes may be missing.',
     reset: 'Most settings were reset to their defaults. Your theme and layout were kept.',
+}
+
+/** Why one of these chords can't be an app shortcut at all, whatever else uses it. */
+function describeUnusableChords(chords: KeybindChord[]): string | null {
+    for (const chord of chords) {
+        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord)
+        if (problem) return problem
+    }
+    return null
 }
 
 function clampAutosaveDelay(delayMs: number): number {
@@ -144,13 +162,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }, [updateSettings])
 
     const setKeybindChords = useCallback(
-        (actionId: KeybindActionId, chords: KeybindChord[]): string | null => {
-            for (const chord of chords) {
-                const disallowed = describeDisallowedChord(chord) ?? describeEditorChordClash(chord)
-                if (disallowed) return disallowed
+        (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
+            const unusable = describeUnusableChords(chords)
+            if (unusable) return { message: unusable }
 
+            for (const chord of chords) {
                 const conflict = wouldChordConflict(settingsRef.current.keybinds, actionId, chord)
-                if (conflict) return `Already assigned to ${actionLabel(conflict)}`
+                if (conflict) return { message: `${formatChord(chord)} is already assigned to ${actionLabel(conflict)}`, reassign: chords }
             }
 
             updateSettings((current) => ({
@@ -163,18 +181,37 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     )
 
     const resetKeybind = useCallback(
-        (actionId: KeybindActionId): string | null => {
+        (actionId: KeybindActionId): KeybindRefusal | null => {
             const defaults = createDefaultKeybinds(isMacPlatform())[actionId] ?? []
             // Never put a default back on top of a chord another action now uses.
             for (const chord of defaults) {
                 const conflict = wouldChordConflict(settingsRef.current.keybinds, actionId, chord)
-                if (conflict) return `${formatChord(chord)} is already assigned to ${actionLabel(conflict)}`
+                if (conflict) return { message: `${formatChord(chord)} is already assigned to ${actionLabel(conflict)}`, reassign: defaults }
             }
 
             updateSettings((current) => ({
                 ...current,
                 keybinds: { ...current.keybinds, [actionId]: defaults },
             }))
+            return null
+        },
+        [updateSettings]
+    )
+
+    const reassignKeybind = useCallback(
+        (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
+            const unusable = describeUnusableChords(chords)
+            if (unusable) return { message: unusable }
+
+            updateSettings((current) => {
+                const keybinds = { ...current.keybinds }
+                for (const id of Object.keys(keybinds) as KeybindActionId[]) {
+                    if (id !== actionId && keybinds[id])
+                        keybinds[id] = keybinds[id].filter((existing) => !chords.some((chord) => chordsEqual(existing, chord)))
+                }
+                keybinds[actionId] = chords
+                return { ...current, keybinds }
+            })
             return null
         },
         [updateSettings]
@@ -210,6 +247,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             resetEditorWidth,
             setKeybindChords,
             resetKeybind,
+            reassignKeybind,
             resetAllKeybinds,
             resetAllSettings,
         }),
@@ -229,6 +267,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             resetEditorWidth,
             setKeybindChords,
             resetKeybind,
+            reassignKeybind,
             resetAllKeybinds,
             resetAllSettings,
         ]
