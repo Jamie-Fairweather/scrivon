@@ -4,6 +4,8 @@ import { isTauri } from '@/lib/tauri/platform'
 export type PdfExportFontOption = {
     label: string
     value: string
+    /** Found on this computer, rather than one of the curated stacks below. */
+    system?: boolean
 }
 
 /** Curated stacks that work without querying the OS font list. */
@@ -77,11 +79,15 @@ function splitFontStack(stack: string): string[] {
     return parts.filter(Boolean)
 }
 
+/** One family from a stack as plain text: quotes and escapes removed, spaces collapsed. */
+function familyName(part: string): string {
+    const quoted = QUOTED_FAMILY.exec(part)
+    return (quoted ? quoted[2]!.replace(/\\([\s\S])/g, '$1') : part.replace(/\s+/g, ' ')).trim()
+}
+
 /** One family, unquoted and lower-cased, so different spellings of the same name compare equal. */
 function familyKey(part: string): string {
-    const quoted = QUOTED_FAMILY.exec(part)
-    const name = quoted ? quoted[2]!.replace(/\\([\s\S])/g, '$1') : part.replace(/\s+/g, ' ')
-    return name.trim().toLowerCase()
+    return familyName(part).toLowerCase()
 }
 
 function firstFamilyKey(stack: string): string {
@@ -139,10 +145,28 @@ export async function loadPdfExportFontOptions(): Promise<PdfExportFontOption[]>
         const key = familyKey(trimmed)
         if (!key || taken.has(key)) continue
         taken.add(key)
-        options.push({ label: trimmed, value: quoteFontFamily(trimmed) })
+        options.push({ label: trimmed, value: quoteFontFamily(trimmed), system: true })
     }
 
     return options.toSorted((a, b) => a.label.localeCompare(b.label))
+}
+
+export type PdfExportFontGroup = { value: string; items: PdfExportFontOption[] }
+
+/** Curated stacks first, then the fonts found on this computer; empty groups are left out. */
+export function groupFontOptions(options: PdfExportFontOption[]): PdfExportFontGroup[] {
+    const groups: PdfExportFontGroup[] = [
+        { value: 'Common fonts', items: options.filter((option) => !option.system) },
+        { value: 'Installed fonts', items: options.filter((option) => option.system) },
+    ]
+    return groups.filter((group) => group.items.length > 0)
+}
+
+const SYMBOL_FONT = /^(?:wingdings|webdings|marlett|symbol|segoe mdl2 assets|segoe fluent icons|holoLens mdl2 assets|bookshelf symbol|mt extra)\b/i
+
+/** Fonts made of icons rather than letters, whose name would be unreadable drawn in the font itself. */
+export function isSymbolFont(label: string): boolean {
+    return SYMBOL_FONT.test(label.trim())
 }
 
 /** The options one picker offers: any stack without a generic family gets the slot's one. */
@@ -159,7 +183,14 @@ export function matchFontOption(options: PdfExportFontOption[], value: string): 
     return options.find((option) => option.value === value) ?? (key ? options.find((option) => firstFamilyKey(option.value) === key) : undefined)
 }
 
+/**
+ * `options` with the saved `value` added at the top when no option matches it, so the picker
+ * can still show it. It is labelled by its first family, plus "(not installed)" once the
+ * system font list has loaded and that family is not on it.
+ */
 export function ensureFontOption(options: PdfExportFontOption[], value: string): PdfExportFontOption[] {
     if (!value.trim() || matchFontOption(options, value)) return options
-    return [{ label: 'Current', value }, ...options]
+    const name = familyName(splitFontStack(value)[0] ?? '') || value.trim()
+    const knownMissing = options.some((option) => option.system) && !GENERIC_FAMILIES.has(name.toLowerCase())
+    return [{ label: knownMissing ? `${name} (not installed)` : name, value }, ...options]
 }

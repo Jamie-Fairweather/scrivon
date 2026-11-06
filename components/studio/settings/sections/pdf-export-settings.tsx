@@ -17,9 +17,12 @@ import { PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
 import {
     ensureFontOption,
     fontOptionsForSlot,
+    groupFontOptions,
+    isSymbolFont,
     loadPdfExportFontOptions,
     matchFontOption,
     PDF_EXPORT_FONT_OPTIONS,
+    type PdfExportFontGroup,
     type PdfExportFontOption,
     type PdfExportFontSlot,
 } from '@/lib/settings/pdf-export-fonts'
@@ -54,6 +57,17 @@ import {
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import {
+    Combobox,
+    ComboboxCollection,
+    ComboboxEmpty,
+    ComboboxGroup,
+    ComboboxGroupLabel,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxPopup,
+} from '@/components/ui/combobox'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Fieldset, FieldsetLegend } from '@/components/ui/fieldset'
 import { Input } from '@/components/ui/input'
@@ -117,14 +131,38 @@ function FontSelect({
     onChange: (value: string) => void
 }) {
     const items = useMemo(() => ensureFontOption(fontOptionsForSlot(options, slot), value), [options, slot, value])
+    const groups = useMemo(() => groupFontOptions(items), [items])
     return (
-        <OptionSelect
-            id={id}
-            value={matchFontOption(items, value)?.value ?? value}
-            options={items}
-            onChange={onChange}
-            renderOption={(option) => <span style={{ fontFamily: option.value }}>{option.label}</span>}
-        />
+        <Combobox
+            items={groups}
+            value={matchFontOption(items, value) ?? null}
+            onValueChange={(option) => {
+                if (option) onChange(option.value)
+            }}
+            itemToStringLabel={(option) => option.label}
+            itemToStringValue={(option) => option.value}
+            isItemEqualToValue={(option, selected) => option.value === selected.value}
+        >
+            <ComboboxInput id={id} placeholder="Search fonts" />
+            <ComboboxPopup>
+                <ComboboxEmpty>No matching fonts.</ComboboxEmpty>
+                <ComboboxList>
+                    {(group: PdfExportFontGroup) => (
+                        <ComboboxGroup key={group.value} items={group.items}>
+                            <ComboboxGroupLabel>{group.value}</ComboboxGroupLabel>
+                            <ComboboxCollection>
+                                {(option: PdfExportFontOption) => (
+                                    <ComboboxItem key={option.value} value={option}>
+                                        {/* Each font previews itself, except icon fonts, whose names would be unreadable. */}
+                                        <span style={isSymbolFont(option.label) ? undefined : { fontFamily: option.value }}>{option.label}</span>
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxCollection>
+                        </ComboboxGroup>
+                    )}
+                </ComboboxList>
+            </ComboboxPopup>
+        </Combobox>
     )
 }
 

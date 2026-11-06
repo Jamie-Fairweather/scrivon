@@ -12,14 +12,36 @@ describe('pdf export fonts', () => {
         isTauri.mockReturnValue(false)
     })
 
-    it('ensures the current value appears in the option list', async () => {
+    it('ensures the current value appears in the option list, named after its font', async () => {
         const { PDF_EXPORT_FONT_OPTIONS, ensureFontOption } = await import('@/lib/settings/pdf-export-fonts')
         expect(ensureFontOption(PDF_EXPORT_FONT_OPTIONS, PDF_EXPORT_FONT_OPTIONS[0]!.value)).toEqual(PDF_EXPORT_FONT_OPTIONS)
-        expect(ensureFontOption(PDF_EXPORT_FONT_OPTIONS, 'CustomFont, sans-serif')[0]).toEqual({
-            label: 'Current',
-            value: 'CustomFont, sans-serif',
+        // Without a system font list nothing says the font is missing.
+        expect(ensureFontOption(PDF_EXPORT_FONT_OPTIONS, '"Custom Font", sans-serif')[0]).toEqual({
+            label: 'Custom Font',
+            value: '"Custom Font", sans-serif',
         })
         expect(ensureFontOption(PDF_EXPORT_FONT_OPTIONS, '   ')).toEqual(PDF_EXPORT_FONT_OPTIONS)
+
+        const withSystem = [...PDF_EXPORT_FONT_OPTIONS, { label: 'Calibri', value: '"Calibri"', system: true }]
+        expect(ensureFontOption(withSystem, 'CustomFont, sans-serif')[0]).toEqual({
+            label: 'CustomFont (not installed)',
+            value: 'CustomFont, sans-serif',
+        })
+        expect(ensureFontOption(withSystem, 'monospace')[0]).toEqual({ label: 'monospace', value: 'monospace' })
+    })
+
+    it('groups common stacks before installed fonts and spots icon fonts', async () => {
+        const { groupFontOptions, isSymbolFont } = await import('@/lib/settings/pdf-export-fonts')
+        const arial = { label: 'Arial', value: 'Arial, Helvetica, sans-serif' }
+        const calibri = { label: 'Calibri', value: '"Calibri"', system: true }
+        expect(groupFontOptions([calibri, arial])).toEqual([
+            { value: 'Common fonts', items: [arial] },
+            { value: 'Installed fonts', items: [calibri] },
+        ])
+        expect(groupFontOptions([arial])).toEqual([{ value: 'Common fonts', items: [arial] }])
+
+        expect(['Wingdings 2', 'Webdings', 'Segoe MDL2 Assets', 'Symbol'].every(isSymbolFont)).toBe(true)
+        expect(['Segoe UI Symbol', 'Arial', 'Symbola'].some(isSymbolFont)).toBe(false)
     })
 
     it('returns curated fonts when not running in Tauri', async () => {
@@ -47,7 +69,7 @@ describe('pdf export fonts', () => {
         const { loadPdfExportFontOptions, PDF_EXPORT_FONT_OPTIONS } = await import('@/lib/settings/pdf-export-fonts')
         const options = await loadPdfExportFontOptions()
         expect(options).toHaveLength(PDF_EXPORT_FONT_OPTIONS.length + 1)
-        expect(options.filter((option) => option.label.toLowerCase() === 'calibri')).toEqual([{ label: 'Calibri', value: '"Calibri"' }])
+        expect(options.filter((option) => option.label.toLowerCase() === 'calibri')).toEqual([{ label: 'Calibri', value: '"Calibri"', system: true }])
     })
 
     it('quotes system font names so ones like 0xProto stay valid CSS', async () => {

@@ -1,22 +1,28 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
-import { updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import { getActivePdfExportProfile, updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
 type UpdateSettings = ReturnType<typeof useAppSettings>['updateSettings']
 let updateSettings: UpdateSettings
 
-/** Shows the saved profile names so tests can check what actually got stored. */
+/** Shows the saved profile names (and mono font) so tests can check what actually got stored. */
 function SavedNames() {
     const { settings, updateSettings: update } = useAppSettings()
     useEffect(() => {
         updateSettings = update
     }, [update])
-    return <output data-testid="saved-names">{settings.pdfExport.profiles.map((profile) => profile.name).join('|')}</output>
+    const { profiles } = settings.pdfExport
+    return (
+        <>
+            <output data-testid="saved-names">{profiles.map((profile) => profile.name).join('|')}</output>
+            <output data-testid="saved-mono-font">{getActivePdfExportProfile(settings.pdfExport).typography.monoFont}</output>
+        </>
+    )
 }
 
 function renderSection() {
@@ -40,6 +46,13 @@ function renderWithProfile(change: (profile: PdfExportProfile) => PdfExportProfi
 }
 
 const savedNames = () => screen.getByTestId('saved-names').textContent
+
+beforeAll(() => {
+    // happy-dom has no Web Animations API, which the scroll area in the font list asks for.
+    if (!('getAnimations' in Element.prototype)) {
+        Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] })
+    }
+})
 
 beforeEach(() => {
     // Start each test from default settings (the provider reads and writes localStorage).
@@ -158,9 +171,37 @@ describe('PdfExportSettings table of contents', () => {
 })
 
 describe('PdfExportSettings fonts', () => {
+    const withMonoFont = (monoFont: string) => (profile: PdfExportProfile) => ({ ...profile, typography: { ...profile.typography, monoFont } })
+
     it('shows a font saved by an older build under its own name', () => {
         renderWithProfile((profile) => ({ ...profile, typography: { ...profile.typography, bodyFont: 'Arial, sans-serif' } }))
-        expect(screen.getByRole('combobox', { name: 'Body font' })).toHaveTextContent('Arial')
+        expect(screen.getByRole('combobox', { name: 'Body font' })).toHaveValue('Arial')
+    })
+
+    it('names a saved font that is not in the list instead of calling it "Current"', () => {
+        renderWithProfile(withMonoFont('"Fira Code", monospace'))
+        expect(screen.getByRole('combobox', { name: 'Monospace font' })).toHaveValue('Fira Code')
+    })
+
+    it('filters the list as you type and saves the font picked', async () => {
+        renderWithProfile(withMonoFont('"Fira Code", monospace'))
+        const user = userEvent.setup()
+        const input = screen.getByRole('combobox', { name: 'Monospace font' })
+        // Let the font list finish loading; a new list puts the saved name back in the box.
+        await act(async () => {})
+        await user.clear(input)
+        await user.type(input, 'cons')
+        const listbox = await screen.findByRole('listbox')
+        expect(
+            within(listbox)
+                .getAllByRole('option')
+                .map((option) => option.textContent)
+        ).toEqual(['Consolas'])
+        expect(within(listbox).getByText('Common fonts')).toBeInTheDocument()
+
+        await user.click(within(listbox).getByRole('option', { name: 'Consolas' }))
+        expect(input).toHaveValue('Consolas')
+        expect(screen.getByTestId('saved-mono-font')).toHaveTextContent('Consolas, "Courier New", monospace')
     })
 })
 
