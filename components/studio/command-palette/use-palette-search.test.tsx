@@ -4,6 +4,7 @@ import { readTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { isTauri } from '@/lib/tauri/platform'
+import { getRecentFiles } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
 import { searchWorkspaceContent } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup } from '@/components/studio/command-palette/types'
@@ -103,5 +104,31 @@ describe('usePaletteSearch text search', () => {
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(result.current.groups.find((group) => group.id === 'text')).toBeUndefined()
         expect(notifyError).toHaveBeenCalledWith("Couldn't search file contents", expect.any(Error), { id: 'palette-text-search' })
+    })
+})
+
+describe('usePaletteSearch recent files', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/kept.md'), file('/ws/new-name.md')]
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('leaves out recent files that were deleted or renamed', async () => {
+        vi.mocked(getRecentFiles).mockResolvedValueOnce(['/ws/deleted.md', '/ws/kept.md', '/ws/old-name.md'])
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        await waitFor(() => expect(groupPaths(result.current.groups, 'recent')).toEqual(['/ws/kept.md']))
+    })
+
+    it('shows no recent files when the store cannot be read', async () => {
+        vi.mocked(getRecentFiles).mockRejectedValueOnce(new Error('store unavailable'))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        await waitFor(() => expect(getRecentFiles).toHaveBeenCalled())
+        await waitFor(() => expect(groupPaths(result.current.groups, 'files')).toEqual(['/ws/kept.md', '/ws/new-name.md']))
+        expect(groupPaths(result.current.groups, 'recent')).toEqual([])
     })
 })

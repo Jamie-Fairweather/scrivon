@@ -69,6 +69,20 @@ export function searchFiles(paths: string[], workspaceRoot: string, query: strin
     return ranked.slice(0, MAX_FILE_RESULTS).map(({ item }) => toFileItem(item, workspaceRoot))
 }
 
+/**
+ * Keeps only the recent paths that are still in the workspace tree (so deleted or renamed
+ * files drop out), spelled the way the tree spells them, without duplicates.
+ */
+export function resolveRecentFiles(recentPaths: string[], workspacePaths: string[]): string[] {
+    const treePathByKey = new Map(workspacePaths.map((path) => [pathKey(path), path]))
+    const resolved = new Set<string>()
+    for (const recent of recentPaths) {
+        const treePath = treePathByKey.get(pathKey(recent))
+        if (treePath) resolved.add(treePath)
+    }
+    return [...resolved]
+}
+
 export function searchRecentFiles(recentPaths: string[], workspaceRoot: string, query: string, openTabPaths: Set<string>): RecentPaletteItem[] {
     const filtered = recentPaths.filter((path) => !openTabPaths.has(path))
     const ranked = fuzzyRank(filtered, query, (path) => {

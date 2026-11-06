@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
+import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 
 describe('searchFiles', () => {
     const root = '/workspace'
@@ -125,5 +125,20 @@ describe('searchRecentFiles', () => {
         expect(results).toHaveLength(1)
         expect(results[0]?.kind).toBe('recent')
         expect(results[0]?.value).toBe('recent:C:\\workspace\\notes.md')
+    })
+})
+
+describe('resolveRecentFiles', () => {
+    it('drops recent files that are no longer in the workspace', () => {
+        expect(resolveRecentFiles(['/ws/kept.md', '/ws/deleted.md', '/ws/old-name.md'], ['/ws/kept.md', '/ws/new-name.md'])).toEqual(['/ws/kept.md'])
+    })
+
+    it('uses the tree spelling of a path and removes duplicates', () => {
+        const tree = ['C:\\ws/sub/notes.md']
+        expect(resolveRecentFiles(['C:\\ws\\sub\\notes.md', 'c:\\WS/sub/notes.md'], tree)).toEqual(['C:\\ws/sub/notes.md'])
+    })
+
+    it('keeps the recent order', () => {
+        expect(resolveRecentFiles(['/ws/b.md', '/ws/a.md'], ['/ws/a.md', '/ws/b.md'])).toEqual(['/ws/b.md', '/ws/a.md'])
     })
 })

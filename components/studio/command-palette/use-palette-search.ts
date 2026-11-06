@@ -17,7 +17,7 @@ import {
     textHitToPaletteItem,
     type SearchWorkspaceContentResult,
 } from '@/components/studio/command-palette/search-content'
-import { searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
+import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -70,7 +70,9 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
 
     useEffect(() => {
         if (!enabled || !workspaceRoot) return
-        void getRecentFiles(workspaceRoot).then((paths) => setRecentFilesState({ root: workspaceRoot, paths }))
+        void getRecentFiles(workspaceRoot)
+            .then((paths) => setRecentFilesState({ root: workspaceRoot, paths }))
+            .catch(() => setRecentFilesState({ root: workspaceRoot, paths: [] }))
     }, [enabled, workspaceRoot])
 
     const resetSearch = useCallback(() => {
@@ -145,6 +147,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     )
 
     const filePaths = useMemo(() => (workspaceRoot ? flattenSupportedFilePaths(tree) : []), [workspaceRoot, tree])
+    const liveRecentFiles = useMemo(() => resolveRecentFiles(recentFiles, filePaths), [recentFiles, filePaths])
 
     const groups = useMemo((): PaletteGroup[] => {
         const { actionsOnly, query: parsedQuery } = parsedQueryState
@@ -172,7 +175,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
 
             if (!parsedQuery || parsedQuery.length < MIN_QUERY_LENGTH) {
                 const openPaths = new Set(tabs.filter((t) => !isExampleTabId(t.id)).map((t) => t.path))
-                const recentItems = searchRecentFiles(recentFiles, workspaceRoot, parsedQuery, openPaths)
+                const recentItems = searchRecentFiles(liveRecentFiles, workspaceRoot, parsedQuery, openPaths)
                 if (recentItems.length > 0) {
                     result.push({ id: 'recent', label: 'Recent Files', items: recentItems })
                 }
@@ -189,7 +192,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         }
 
         return result
-    }, [parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, recentFiles, filePaths, textItems, mode, shouldSearchText])
+    }, [parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, shouldSearchText])
 
     useEffect(() => {
         if (!shouldSearchText) {
