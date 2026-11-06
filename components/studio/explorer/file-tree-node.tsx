@@ -50,7 +50,7 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                     // The full name for names cut off by the narrow sidebar, plus why an unsupported file won't open.
                     title={isUnsupported ? `${node.name}\nScrivon supports .md, .mmd and .mermaid files only` : node.name}
                     className={cn(
-                        `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none
+                        `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none select-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,
                         isActive && 'font-medium',
                         isUnsupported && 'text-muted-foreground/60'
