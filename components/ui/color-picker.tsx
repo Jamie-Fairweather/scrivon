@@ -49,21 +49,48 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value))
 }
 
-/** Maps a pointer inside the saturation/lightness field. No-ops when the field is not mounted. */
+/** A point in the selection square, each axis 0–1 from the top-left corner. */
+export type SelectionPoint = { x: number; y: number }
+
+/**
+ * The square is drawn as an HSV field (x = HSV saturation, y = 1 − value), so a
+ * point in it converts HSV → HSL. Returns HSL saturation and lightness, 0–100.
+ */
+export function hslFromSelection(x: number, y: number): { saturation: number; lightness: number } {
+    const hsvSaturation = clamp(x, 0, 1)
+    const value = 1 - clamp(y, 0, 1)
+    const lightness = value * (1 - hsvSaturation / 2)
+    const saturation = lightness <= 0 || lightness >= 1 ? 0 : (value - lightness) / Math.min(lightness, 1 - lightness)
+    return { saturation: saturation * 100, lightness: lightness * 100 }
+}
+
+/** Where an HSL colour sits in the selection square (the inverse of `hslFromSelection`). */
+export function selectionFromHsl(saturation: number, lightness: number): SelectionPoint {
+    const s = clamp(saturation, 0, 100) / 100
+    const l = clamp(lightness, 0, 100) / 100
+    const value = l + s * Math.min(l, 1 - l)
+    return { x: value === 0 ? 0 : 2 * (1 - l / value), y: 1 - value }
+}
+
+/**
+ * Maps a pointer inside the saturation/lightness field and returns the clamped point.
+ * No-ops (returns `null`) when the field is not mounted.
+ */
 export function colorSelectionFromPointer(
     node: Pick<HTMLElement, 'getBoundingClientRect'> | null,
     clientX: number,
     clientY: number,
     setSaturation: (saturation: number) => void,
     setLightness: (lightness: number) => void
-): void {
-    if (!node) return
+): SelectionPoint | null {
+    if (!node) return null
     const rect = node.getBoundingClientRect()
     const x = clamp((clientX - rect.left) / rect.width, 0, 1)
     const y = clamp((clientY - rect.top) / rect.height, 0, 1)
-    setSaturation(x * 100)
-    const nextTopLightness = x < 0.01 ? 100 : 50 + 50 * (1 - x)
-    setLightness(nextTopLightness * (1 - y))
+    const next = hslFromSelection(x, y)
+    setSaturation(next.saturation)
+    setLightness(next.lightness)
+    return { x, y }
 }
 
 export function isEyeDropperSupported(): boolean {
@@ -206,10 +233,11 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
     const containerRef = useRef<HTMLDivElement>(null)
     const [isDragging, setIsDragging] = useState(false)
     const { hue, saturation, lightness, setSaturation, setLightness } = useColorPicker()
+    // The last point the user picked. Along the black bottom row (and at white) HSL drops the
+    // HSV saturation, so rebuilding the thumb from the colour alone would jump it to the left edge.
+    const [picked, setPicked] = useState<(SelectionPoint & { saturation: number; lightness: number }) | null>(null)
 
-    const positionX = saturation / 100
-    const topLightness = positionX < 0.01 ? 100 : 50 + 50 * (1 - positionX)
-    const positionY = topLightness <= 0 ? 0 : 1 - lightness / topLightness
+    const position = picked && picked.saturation === saturation && picked.lightness === lightness ? picked : selectionFromHsl(saturation, lightness)
 
     const backgroundGradient = useMemo(
         () =>
@@ -221,7 +249,8 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
 
     const updateFromPointer = useCallback(
         (clientX: number, clientY: number) => {
-            colorSelectionFromPointer(containerRef.current, clientX, clientY, setSaturation, setLightness)
+            const point = colorSelectionFromPointer(containerRef.current, clientX, clientY, setSaturation, setLightness)
+            if (point) setPicked({ ...point, ...hslFromSelection(point.x, point.y) })
         },
         [setSaturation, setLightness]
     )
@@ -253,8 +282,8 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
             <div
                 className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
                 style={{
-                    left: `${positionX * 100}%`,
-                    top: `${clamp(positionY, 0, 1) * 100}%`,
+                    left: `${clamp(position.x, 0, 1) * 100}%`,
+                    top: `${clamp(position.y, 0, 1) * 100}%`,
                     boxShadow: '0 0 0 1px rgba(0,0,0,0.5)',
                 }}
             />

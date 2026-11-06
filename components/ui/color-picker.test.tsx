@@ -89,6 +89,29 @@ describe('ColorPicker', () => {
         expect(screen.getByTestId('hsl')).toBeInTheDocument()
     })
 
+    it('places the thumb on the colour and keeps it under the pointer along the black row', () => {
+        const onChange = vi.fn()
+        const { container } = render(
+            <ColorPicker value="#ff8080" onChange={onChange}>
+                <ColorPickerSelection />
+            </ColorPicker>
+        )
+        // #ff8080 is half-saturated (HSV) at full value: the middle of the top edge, not the top-right corner.
+        expect(Number.parseFloat(dot(container).style.left)).toBeCloseTo(50, 0)
+        expect(Number.parseFloat(dot(container).style.top)).toBeCloseTo(0, 0)
+
+        const field = container.querySelector('.cursor-crosshair')
+        if (!(field instanceof HTMLElement)) throw new Error('missing selection field')
+        field.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) })
+        fireEvent.pointerDown(field, { clientX: 25, clientY: 0 })
+        expect(onChange).toHaveBeenLastCalledWith('#ffbfbf')
+
+        fireEvent.pointerMove(window, { clientX: 60, clientY: 100 })
+        fireEvent.pointerUp(window)
+        expect(onChange).toHaveBeenLastCalledWith('#000000')
+        expect(dot(container)).toHaveStyle({ left: '60%', top: '100%' })
+    })
+
     it('emits hue and alpha changes from the sliders', () => {
         const onChange = vi.fn()
         render(
