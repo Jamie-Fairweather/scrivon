@@ -9,7 +9,7 @@
 //! turn up when the PDF's text is copied, searched or read by a screen reader.
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 use std::path::Path;
 
@@ -1181,16 +1181,26 @@ fn footer_slot(doc: &Document, page_id: ObjectId) -> Option<TextSlot> {
 // Stamping
 // ---------------------------------------------------------------------------
 
+/// A page attribute that the page may inherit from its parents in the page
+/// tree (`/Resources`, `/MediaBox`, `/CropBox`).
+fn inherited_attr(doc: &Document, page_id: ObjectId, key: &[u8]) -> Option<Object> {
+    let mut seen = HashSet::new();
+    let mut node_id = page_id;
+    while seen.insert(node_id) {
+        let node = doc.get_dictionary(node_id).ok()?;
+        if let Ok(value) = node.get(key) {
+            return Some(value.clone());
+        }
+        node_id = node.get(b"Parent").and_then(Object::as_reference).ok()?;
+    }
+    None
+}
+
 fn page_media_box(doc: &Document, page_id: ObjectId) -> Result<(f32, f32), String> {
-    let page = doc
-        .get_object(page_id)
-        .and_then(Object::as_dict)
-        .map_err(|e| e.to_string())?;
-    let box_obj = page
-        .get(b"MediaBox")
-        .or_else(|_| page.get(b"CropBox"))
-        .map_err(|e| e.to_string())?;
-    let values = match deref(doc, box_obj) {
+    let box_obj = inherited_attr(doc, page_id, b"MediaBox")
+        .or_else(|| inherited_attr(doc, page_id, b"CropBox"))
+        .ok_or_else(|| "Page is missing a media box.".to_string())?;
+    let values = match deref(doc, &box_obj) {
         Object::Array(items) => items
             .iter()
             .map(|item| operand_f32(deref(doc, item)))
@@ -1224,7 +1234,8 @@ fn footer_template(
 }
 
 /// Registers `id` as `/category /name` in the page's resources, whether those
-/// live inline on the page or behind a shared reference.
+/// live inline on the page or behind a shared reference, without losing any
+/// of the resources the page already uses.
 fn ensure_page_resource(
     doc: &mut Document,
     page_id: ObjectId,
@@ -1232,46 +1243,74 @@ fn ensure_page_resource(
     name: &str,
     id: ObjectId,
 ) -> Result<(), String> {
-    let resource_ref = {
-        let page = doc.get_object(page_id).map_err(|e| e.to_string())?;
-        let dict = page.as_dict().map_err(|e| e.to_string())?;
-        dict.get(b"Resources")
-            .ok()
-            .and_then(|obj| obj.as_reference().ok())
+    let own = doc
+        .get_dictionary(page_id)
+        .map_err(|e| e.to_string())?
+        .get(b"Resources")
+        .ok()
+        .cloned();
+    let shared_id = match own {
+        Some(Object::Reference(resources_id)) => Some(resources_id),
+        Some(_) => None,
+        None => {
+            // Inherited from the page tree: copy them onto the page, so the new
+            // entry doesn't hide the fonts and images the page already uses.
+            let inherited = match inherited_attr(doc, page_id, b"Resources") {
+                Some(Object::Reference(resources_id)) => {
+                    doc.get_dictionary(resources_id).ok().cloned()
+                }
+                Some(Object::Dictionary(resources)) => Some(resources),
+                _ => None,
+            };
+            doc.get_dictionary_mut(page_id)
+                .map_err(|e| e.to_string())?
+                .set("Resources", inherited.unwrap_or_default());
+            None
+        }
     };
 
-    if let Some(resources_id) = resource_ref {
-        let resources_obj = doc
-            .get_object_mut(resources_id)
-            .map_err(|e| e.to_string())?;
-        let resources_dict = resources_obj.as_dict_mut().map_err(|e| e.to_string())?;
-        insert_resource(resources_dict, category, name, id);
-        return Ok(());
+    // The category (`/Font`, `/ExtGState`) can itself be a reference, often
+    // shared with other pages: add to a copy of it rather than replacing it.
+    let replacement = match page_resources_mut(doc, page_id, shared_id)?.get(category.as_bytes()) {
+        Ok(Object::Dictionary(_)) => None,
+        Ok(Object::Reference(entries_id)) => {
+            let entries_id = *entries_id;
+            Some(
+                doc.get_dictionary(entries_id)
+                    .ok()
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+        }
+        _ => Some(Dictionary::new()),
+    };
+    let resources = page_resources_mut(doc, page_id, shared_id)?;
+    if let Some(entries) = replacement {
+        resources.set(category, entries);
     }
-
-    let page = doc.get_object_mut(page_id).map_err(|e| e.to_string())?;
-    let dict = page.as_dict_mut().map_err(|e| e.to_string())?;
-    if dict.get(b"Resources").is_err() {
-        dict.set("Resources", dictionary! {});
-    }
-    let resources_dict = dict
-        .get_mut(b"Resources")
+    resources
+        .get_mut(category.as_bytes())
+        .and_then(Object::as_dict_mut)
         .map_err(|e| e.to_string())?
-        .as_dict_mut()
-        .map_err(|e| e.to_string())?;
-    insert_resource(resources_dict, category, name, id);
+        .set(name, id);
     Ok(())
 }
 
-fn insert_resource(resources: &mut Dictionary, category: &str, name: &str, id: ObjectId) {
-    match resources.get_mut(category.as_bytes()) {
-        Ok(Object::Dictionary(entries)) => {
-            entries.set(name, id);
-        }
-        _ => {
-            resources.set(category, dictionary! { name => id });
-        }
+/// The page's own resources dictionary: `shared_id` when it's behind a
+/// reference, otherwise the one inline on the page.
+fn page_resources_mut(
+    doc: &mut Document,
+    page_id: ObjectId,
+    shared_id: Option<ObjectId>,
+) -> Result<&mut Dictionary, String> {
+    match shared_id {
+        Some(resources_id) => doc.get_dictionary_mut(resources_id),
+        None => doc
+            .get_dictionary_mut(page_id)
+            .and_then(|page| page.get_mut(b"Resources"))
+            .and_then(Object::as_dict_mut),
     }
+    .map_err(|e| e.to_string())
 }
 
 /// Appends `bytes` as a new content stream that starts from the page's default
@@ -2608,6 +2647,129 @@ end";
             properties.get(b"Type").unwrap().as_name().unwrap(),
             b"Pagination"
         );
+    }
+
+    /// Like `build_pdf`, but the `/Pages` node carries `inherited` (attributes
+    /// its pages inherit) and each page dict only has the entries given.
+    fn build_tree(
+        doc: &mut Document,
+        inherited: Dictionary,
+        pages: Vec<(Vec<Operation>, Dictionary)>,
+    ) -> Vec<ObjectId> {
+        let pages_id = doc.new_object_id();
+        let mut kids = Vec::new();
+        let mut ids = Vec::new();
+        for (operations, mut page) in pages {
+            let content_id = doc.add_object(Stream::new(
+                dictionary! {},
+                Content { operations }.encode().unwrap(),
+            ));
+            page.set("Type", "Page");
+            page.set("Parent", pages_id);
+            page.set("Contents", content_id);
+            let page_id = doc.add_object(page);
+            kids.push(page_id.into());
+            ids.push(page_id);
+        }
+        let mut node = inherited;
+        node.set("Type", "Pages");
+        node.set("Count", kids.len() as i64);
+        node.set("Kids", kids);
+        doc.objects.insert(pages_id, Object::Dictionary(node));
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        ids
+    }
+
+    fn a4() -> Object {
+        vec![0.into(), 0.into(), 595.into(), 842.into()].into()
+    }
+
+    fn body_text() -> Vec<Operation> {
+        [
+            vec![flip()],
+            text("F1", 10.0, 100.0, 300.0, Object::string_literal("Body")),
+        ]
+        .concat()
+    }
+
+    /// The fonts listed in the page's own `/Resources`.
+    fn own_fonts(doc: &Document, page_number: u32) -> Dictionary {
+        let page = doc.get_dictionary(doc.get_pages()[&page_number]).unwrap();
+        let resources = match page.get(b"Resources").unwrap() {
+            Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+            other => other.as_dict().unwrap(),
+        };
+        match resources.get(b"Font").unwrap() {
+            Object::Reference(id) => doc.get_dictionary(*id).unwrap().clone(),
+            other => other.as_dict().unwrap().clone(),
+        }
+    }
+
+    #[test]
+    fn keeps_the_fonts_a_page_inherits_from_the_page_tree() {
+        let mut doc = Document::with_version("1.5");
+        build_tree(
+            &mut doc,
+            dictionary! { "Resources" => dictionary! { "Font" => dictionary! { "F1" => helvetica() } } },
+            vec![(body_text(), dictionary! { "MediaBox" => a4() })],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-inherited-resources.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "#ff000080")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let fonts = own_fonts(&stamped, 1);
+        assert!(fonts.has(b"F1"), "the page lost the font its text uses");
+        assert!(fonts.has(FONT_NAME.as_bytes()));
+        let text = stamped.extract_text(&[1]).unwrap();
+        assert!(text.contains("Body") && text.contains("Page 1"), "{text}");
+    }
+
+    #[test]
+    fn adds_to_a_shared_font_dictionary_without_dropping_its_fonts() {
+        let mut doc = Document::with_version("1.5");
+        let shared_fonts = doc.add_object(dictionary! { "F1" => helvetica() });
+        build_pdf(
+            &mut doc,
+            vec![
+                (body_text(), dictionary! { "Font" => shared_fonts }),
+                (body_text(), dictionary! { "Font" => shared_fonts }),
+            ],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-shared-fonts.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        for page in [1, 2] {
+            let fonts = own_fonts(&stamped, page);
+            assert!(fonts.has(b"F1"), "page {page} lost the font its text uses");
+            assert!(fonts.has(FONT_NAME.as_bytes()));
+            assert!(stamped.extract_text(&[page]).unwrap().contains("Body"));
+        }
+    }
+
+    #[test]
+    fn numbers_pages_that_inherit_their_media_box() {
+        let mut doc = Document::with_version("1.5");
+        build_tree(
+            &mut doc,
+            dictionary! { "MediaBox" => a4() },
+            vec![(
+                body_text(),
+                dictionary! { "Resources" => dictionary! { "Font" => dictionary! { "F1" => helvetica() } } },
+            )],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-inherited-media-box.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(stamped.extract_text(&[1]).unwrap().contains("Page 1"));
     }
 
     /// Device-space right edge, baseline and flip state of the stamped label on a page.
