@@ -94,15 +94,52 @@ function resolvedTokenColor(id: (typeof APP_THEME_IDS)[number], token: string): 
     return String(tokenTheme.getColorMap()[foregroundId]).toLowerCase()
 }
 
+/** WCAG 2.x contrast ratio, computed here independently of the theme code. */
+function contrast(a: string, b: string): number {
+    const luminance = (hex: string) => {
+        const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.replace('#', '').slice(i - 1, i + 1), 16) / 255)
+        const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * linear(r!) + 0.7152 * linear(g!) + 0.0722 * linear(b!)
+    }
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+    return (hi! + 0.05) / (lo! + 0.05)
+}
+
 describe('Markdown syntax colours in the editor', () => {
-    it.each(APP_THEME_IDS)('come only from the %s palette', (id) => {
+    it.each(APP_THEME_IDS)('come only from the %s theme, not VS Code defaults', (id) => {
         const tokens = resolveThemeTokensForId(id)
-        const palette = new Set(
-            [tokens.fg, tokens.accent, tokens.textSecondary, hexColorMix(tokens.accent, tokens.fg, 50)].map((c) => c.toLowerCase())
-        )
+        const theme = buildMonacoDiagramTheme(tokens, isLightTheme(id))
+        const ours = new Set([tokens.fg, ...theme.rules.flatMap((r) => (r.foreground ? [r.foreground] : []))].map((c) => c.toLowerCase()))
         for (const token of MARKDOWN_TOKENS) {
-            expect(palette, token).toContain(resolvedTokenColor(id, token))
+            expect(ours, token).toContain(resolvedTokenColor(id, token))
         }
+    })
+
+    it.each(APP_THEME_IDS)('are readable in %s, also on the current line', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+        for (const token of MARKDOWN_TOKENS) {
+            const color = resolvedTokenColor(id, token)
+            // Body text is the palette's own text colour.
+            if (color === tokens.fg.toLowerCase()) continue
+            for (const background of [tokens.bg, tokens.surface]) {
+                expect(contrast(color, background), `${token} ${color} on ${background}`).toBeGreaterThanOrEqual(4.5)
+            }
+        }
+    })
+
+    it('keeps the palette colours where they are already readable, and softer text softer than body text', () => {
+        const tokens = resolveThemeTokensForId('nord')
+        const theme = buildMonacoDiagramTheme(tokens, false)
+        const rule = (token: string) => theme.rules.find((r) => r.token === token)
+        expect(rule('keyword')?.foreground).toBe(tokens.accent)
+        expect(rule('string')?.foreground).toBe(hexColorMix(tokens.accent, tokens.fg, 50))
+
+        // One Dark's secondary text is too faint (about 3.3:1), so it is moved toward the body text.
+        const oneDark = resolveThemeTokensForId('one-dark')
+        const comment = buildMonacoDiagramTheme(oneDark, false).rules.find((r) => r.token === 'comment')!.foreground!
+        expect(comment).not.toBe(oneDark.textSecondary)
+        expect(contrast(comment, oneDark.bg)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(comment, oneDark.bg)).toBeLessThan(contrast(oneDark.fg, oneDark.bg))
     })
 })
 

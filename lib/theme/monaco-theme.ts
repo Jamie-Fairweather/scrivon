@@ -1,8 +1,50 @@
 import type { editor } from 'monaco-editor'
-import { hexColorMix } from '@/lib/theme/color-mix'
+import { hexColorMix, parseHexColor } from '@/lib/theme/color-mix'
 import type { ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
 
 export const MONACO_DIAGRAM_THEME_ID = 'scrivon-diagram'
+
+/** WCAG AA for normal text. The editor's 13px text, bold headings included, is not large text. */
+const MIN_TEXT_CONTRAST = 4.5
+
+/** WCAG 2.x relative luminance (0 = black, 1 = white). */
+function relativeLuminance(hex: string): number {
+    const rgb = parseHexColor(hex)
+    if (!rgb) return 0
+    const linear = (channel: number) => {
+        const c = channel / 255
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
+}
+
+/** WCAG 2.x contrast ratio between two colours (1-21). */
+function contrastRatio(a: string, b: string): number {
+    const la = relativeLuminance(a)
+    const lb = relativeLuminance(b)
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+/**
+ * `color` if it reaches `min` contrast on every background. Otherwise it is stepped toward
+ * `toward` (the text colour, to keep the palette's feel), then on toward black or white, and
+ * the first colour that passes is used.
+ */
+function ensureContrast(color: string, toward: string, backgrounds: readonly string[], min: number): string {
+    const passes = (candidate: string) => backgrounds.every((bg) => contrastRatio(candidate, bg) >= min)
+    if (passes(color)) return color
+    for (let percent = 1; percent <= 100; percent++) {
+        const candidate = hexColorMix(toward, color, percent)
+        if (passes(candidate)) return candidate
+    }
+    const first = backgrounds[0] ?? color
+    const extreme = contrastRatio('#000000', first) >= contrastRatio('#ffffff', first) ? '#000000' : '#ffffff'
+    for (let percent = 1; percent <= 100; percent++) {
+        const candidate = hexColorMix(extreme, toward, percent)
+        if (passes(candidate)) return candidate
+    }
+    return extreme
+}
 
 function editorSelectionColors(tokens: ResolvedThemeTokens, isLight: boolean) {
     const activeMix = isLight ? 22 : 30
@@ -27,27 +69,31 @@ function withAlpha(hex: string, alpha: number): string {
  * palette so headings, links and code don't fall back to VS Code's blues, reds and greens.
  */
 function tokenRules(tokens: ResolvedThemeTokens): editor.ITokenThemeRule[] {
-    const code = hexColorMix(tokens.accent, tokens.fg, 50)
+    // Readable on the editor background and on the current line's highlight, in every palette.
+    const readable = (color: string) => ensureContrast(color, tokens.fg, [tokens.bg, tokens.surface], MIN_TEXT_CONTRAST)
+    const accent = readable(tokens.accent)
+    const secondary = readable(tokens.textSecondary)
+    const code = readable(hexColorMix(tokens.accent, tokens.fg, 50))
     return [
         // Headings, list markers and table pipes.
-        { token: 'keyword', foreground: tokens.accent, fontStyle: 'bold' },
-        { token: 'meta.separator', foreground: tokens.textSecondary },
-        { token: 'string.link', foreground: tokens.accent },
-        { token: 'string.target', foreground: tokens.accent },
-        { token: 'string.escape', foreground: tokens.textSecondary },
-        { token: 'escape', foreground: tokens.textSecondary },
+        { token: 'keyword', foreground: accent, fontStyle: 'bold' },
+        { token: 'meta.separator', foreground: secondary },
+        { token: 'string.link', foreground: accent },
+        { token: 'string.target', foreground: accent },
+        { token: 'string.escape', foreground: secondary },
+        { token: 'escape', foreground: secondary },
         // Code fences, indented code, inline code and fenced code.
         { token: 'string', foreground: code },
         { token: 'variable', foreground: code },
         { token: 'variable.source', foreground: code },
         // Block quote markers and HTML comments.
-        { token: 'comment', foreground: tokens.textSecondary, fontStyle: 'italic' },
-        { token: 'comment.content', foreground: tokens.textSecondary, fontStyle: 'italic' },
+        { token: 'comment', foreground: secondary, fontStyle: 'italic' },
+        { token: 'comment.content', foreground: secondary, fontStyle: 'italic' },
         // Inline HTML.
         { token: 'tag', foreground: code },
-        { token: 'attribute.name', foreground: tokens.textSecondary },
+        { token: 'attribute.name', foreground: secondary },
         { token: 'string.html', foreground: code },
-        { token: 'delimiter.html', foreground: tokens.textSecondary },
+        { token: 'delimiter.html', foreground: secondary },
         { token: 'strong', fontStyle: 'bold' },
         { token: 'emphasis', fontStyle: 'italic' },
     ]
