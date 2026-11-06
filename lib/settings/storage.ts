@@ -136,8 +136,19 @@ export function loadSettingsWithRecovery(): LoadedSettings {
     return { settings: migrated, recovery: raw === null ? null : 'reset' }
 }
 
+/**
+ * Reads the saved settings without changing anything: no backup, no copies, no save. For code
+ * that only needs a current value (the recent-folders limit); the app loads settings once, at
+ * startup, with loadSettingsWithRecovery. Falls back the same way: the backup when the saved
+ * copy can't be read, then the old pre-settings keys.
+ */
 export function loadSettings(): AppSettings {
-    return loadSettingsWithRecovery().settings
+    if (typeof window === 'undefined') return createDefaultSettings(false)
+
+    const isMac = isMacPlatform()
+    const raw = readItem(SETTINGS_STORAGE_KEY)
+    const stored = readStored(raw, isMac) ?? (raw === null ? null : readStored(readItem(SETTINGS_BACKUP_KEY), isMac))
+    return stored?.settings ?? migrateLegacySettings(readItem, isMac)
 }
 
 function isEqual(a: unknown, b: unknown): boolean {

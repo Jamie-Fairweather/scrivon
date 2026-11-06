@@ -59,10 +59,31 @@ describe('loadSettings and saveSettings with localStorage', () => {
         store.set(STORAGE_LAYOUT_EDITOR, 'true')
         store.set(STORAGE_KEY_WIDTH, '480')
 
-        const loaded = loadSettings()
+        const loaded = loadSettingsWithRecovery().settings
 
         expect(loaded.theme.id).toBe('scrivon-light')
         expect(store.has(SETTINGS_STORAGE_KEY)).toBe(true)
+    })
+
+    it('reads settings without writing anything, falling back the same way as the startup load', () => {
+        // First launch: the old keys are read, and nothing is saved yet.
+        store.set(STORAGE_MERMAID_THEME, 'scrivon-light')
+        expect(loadSettings().theme.id).toBe('scrivon-light')
+        expect(store.has(SETTINGS_STORAGE_KEY)).toBe(false)
+
+        // Readable settings: no backup is written.
+        const settings = createDefaultSettings(false)
+        settings.workspace.maxRecentFolders = 4
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+        expect(loadSettings().workspace.maxRecentFolders).toBe(4)
+        expect(store.has(SETTINGS_BACKUP_KEY)).toBe(false)
+
+        // Unreadable settings: the backup is read, and nothing is copied, restored or saved.
+        store.set(SETTINGS_BACKUP_KEY, JSON.stringify(settings))
+        store.set(SETTINGS_STORAGE_KEY, 'undefined')
+        const before = new Map(store)
+        expect(loadSettings().workspace.maxRecentFolders).toBe(4)
+        expect(store).toEqual(before)
     })
 
     it('falls back to migration when stored blob is invalid json', () => {
@@ -106,7 +127,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
 
     it('follows the OS light or dark setting on first launch, and saves it', () => {
         vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
-        expect(loadSettings().theme.id).toBe('scrivon-light')
+        expect(loadSettingsWithRecovery().settings.theme.id).toBe('scrivon-light')
         expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}').theme.id).toBe('scrivon-light')
 
         store.clear()
@@ -200,7 +221,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
             const text = JSON.stringify(newerSettings())
             store.set(SETTINGS_STORAGE_KEY, text)
 
-            const loaded = loadSettings()
+            const loaded = loadSettingsWithRecovery().settings
             expect(loaded.theme.id).toBe(createDefaultSettings(false).theme.id)
             expect(loaded.pdfExport.profiles[0]!.page.size).toBe('a4')
 
