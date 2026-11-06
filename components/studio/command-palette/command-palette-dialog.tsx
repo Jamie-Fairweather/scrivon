@@ -154,9 +154,9 @@ const MODE_INPUT_LABELS: Record<PaletteMode, string> = {
 
 /** What the screen-reader status announces: the search progress, then how many results there are. */
 function statusMessageFor(groups: PaletteGroup[], isSearchingText: boolean): string {
-    if (isSearchingText) return 'Searching file contents…'
     const count = groups.reduce((total, group) => total + group.items.length, 0)
-    if (count === 0) return '' // The empty message announces itself.
+    if (count === 0) return '' // The empty message announces itself, searching included.
+    if (isSearchingText) return 'Searching file contents…'
     return count === 1 ? '1 result' : `${count} results`
 }
 
@@ -167,16 +167,19 @@ const MODE_FILTER_LABELS: Record<PaletteMode, string | null> = {
     text: 'Text',
 }
 
-function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string): string {
-    if (!hasWorkspace) return 'No results. Open a folder to search files, or type > for commands.'
-
+function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string, isSearchingText: boolean): string {
     const parsed = parsePaletteQuery(query)
-    if (!parsed.actionsOnly && mode === 'files') return 'No file names match. Remove the Files filter to search file contents too.'
-    if (!parsed.actionsOnly && mode === 'text') {
+    if (parsed.actionsOnly) return 'No matching commands.'
+    if (!hasWorkspace) return 'No results. Open a folder to search files, or type > for commands.'
+    // Not "no results" yet: file contents are still being searched.
+    if (isSearchingText) return 'Searching file contents…'
+    if (mode === 'files') return 'No file names match. Remove the Files filter to search file contents too.'
+    if (mode === 'text') {
         if (parsed.query.length < MIN_QUERY_LENGTH) return `Type at least ${MIN_QUERY_LENGTH} characters to search file contents.`
         return 'No text matches. Remove the Text filter to search file names too.'
     }
-    return 'No results found. Try a shorter query or type > for commands.'
+    // Matching commands already show here, so '>' wouldn't find more.
+    return 'No results found. Try a shorter query.'
 }
 
 function paletteItemToStringValue(itemValue: unknown): string {
@@ -243,7 +246,7 @@ export function CommandPaletteDialog({
         [mode, onModeChange]
     )
 
-    const emptyMessage = emptyMessageFor(hasWorkspace, mode, query)
+    const emptyMessage = emptyMessageFor(hasWorkspace, mode, query, isSearchingText)
     // Point to the '>' prefix until the user is already in commands.
     const showCommandsHint = !parsePaletteQuery(query).actionsOnly
     const statusMessage = statusMessageFor(groups, isSearchingText)

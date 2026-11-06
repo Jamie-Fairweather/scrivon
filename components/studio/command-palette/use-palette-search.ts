@@ -88,7 +88,10 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const parsedQueryState = useMemo(() => parsePaletteQuery(query), [query])
     const shouldSearchText =
         enabled && Boolean(workspaceRoot) && !parsedQueryState.actionsOnly && mode !== 'files' && parsedQueryState.query.length >= MIN_QUERY_LENGTH
-    const isSearchingText = shouldSearchText && lastResolvedTextQuery !== parsedQueryState.query
+    // Text results (and their footer notes) only count for the query they were found for, so
+    // hits for something the user has typed past are never shown or opened by a quick Enter.
+    const textResolved = shouldSearchText && lastResolvedTextQuery === parsedQueryState.query
+    const isSearchingText = shouldSearchText && !textResolved
 
     const recentFiles = useMemo(() => (recentFilesState?.root === workspaceRoot ? recentFilesState.paths : []), [recentFilesState, workspaceRoot])
 
@@ -227,12 +230,12 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
 
         if (commandGroup && !commandsFirst) result.push(commandGroup)
 
-        if (shouldSearchText && textItems && (mode === 'all' || mode === 'text')) {
+        if (textResolved && textItems && (mode === 'all' || mode === 'text')) {
             result.push(textItems)
         }
 
         return result
-    }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, shouldSearchText])
+    }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, textResolved])
 
     useEffect(() => {
         if (!shouldSearchText) {
@@ -318,9 +321,9 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         resetSearch,
         groups,
         isSearchingText,
-        textCapped: shouldSearchText && textCapped,
-        textUnreadableFiles: shouldSearchText ? textUnreadableFiles : 0,
-        textTruncatedFiles: shouldSearchText ? textTruncatedFiles : 0,
+        textCapped: textResolved && textCapped,
+        textUnreadableFiles: textResolved ? textUnreadableFiles : 0,
+        textTruncatedFiles: textResolved ? textTruncatedFiles : 0,
         runItem,
         hasWorkspace: Boolean(workspaceRoot),
     }

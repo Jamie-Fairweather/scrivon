@@ -77,6 +77,27 @@ describe('CommandPaletteDialog modes', () => {
         expect(screen.getByText(/^Type at least 2 characters to search file contents\./)).toBeInTheDocument()
     })
 
+    it('says commands are what found nothing in > mode', () => {
+        renderDialog({ query: '>zzz' })
+        expect(screen.getByText(/^No matching commands\./)).toBeInTheDocument()
+    })
+
+    it('says commands found nothing in > mode even with no folder open', () => {
+        renderDialog({ query: '>zzz', hasWorkspace: false })
+        expect(screen.getByText(/^No matching commands\./)).toBeInTheDocument()
+    })
+
+    it('says file contents are still being searched instead of "no results"', () => {
+        renderDialog({ mode: 'all', query: 'xy', isSearchingText: true })
+        expect(screen.getByText(/^Searching file contents…/)).toBeInTheDocument()
+        expect(screen.queryByText(/No results/)).toBeNull()
+    })
+
+    it('does not suggest > when commands are already part of the results', () => {
+        renderDialog({ mode: 'all', query: 'zzzz' })
+        expect(screen.getByText(/^No results found\. Try a shorter query\./)).toBeInTheDocument()
+    })
+
     it('explains that results are filtered when nothing matches in a narrowed mode', () => {
         renderDialog({ mode: 'text', query: 'readme' })
         expect(screen.getByText(/^No text matches\. Remove the Text filter to search file names too\./)).toBeInTheDocument()
@@ -176,7 +197,12 @@ describe('CommandPaletteDialog accessibility', () => {
     })
 
     it('announces when file contents are still being searched', () => {
-        renderDialog({ mode: 'text', query: 'oauth', isSearchingText: true })
+        renderDialog({ mode: 'all', query: 'notes', isSearchingText: true, groups: [{ id: 'tabs', label: 'Open Editors', items: [dirtyTab] }] })
         expect(screen.getByText('Searching file contents…')).toBeInTheDocument()
+    })
+
+    it('announces searching only once while nothing has matched yet', () => {
+        renderDialog({ mode: 'text', query: 'oauth', isSearchingText: true })
+        expect(screen.getAllByText(/^Searching file contents…/)).toHaveLength(1)
     })
 })
