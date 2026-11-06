@@ -77,6 +77,28 @@ describe('buildPdfExportCss', () => {
         }
     })
 
+    it('fixes an every-page footer to the page bottom and hides its table copy', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).toContain('.pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }')
+        expect(css).toContain('.pdf-footer-spacer { visibility: hidden; }')
+        // Printer margins already place the page bottom; nothing to emulate.
+        expect(css).not.toMatch(/\.pdf-fixed-footer \{ (padding|min-height)/)
+    })
+
+    it('puts the fixed footer in the emulated bottom margin when printing edge to edge', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page.marginsMm = { top: 12, right: 15, bottom: 14, left: 13 }
+        profile.header.enabled = true
+        profile.header.ignoreMargins = true
+        profile.footer.pageNumbers = 'number'
+        expect(buildPdfExportCss(profile)).toContain('.pdf-fixed-footer { padding: 0 15mm 14mm 13mm; }')
+
+        profile.footer.ignoreMargins = true
+        expect(buildPdfExportCss(profile)).toContain(
+            '.pdf-fixed-footer { min-height: 14mm; display: flex; flex-direction: column; justify-content: flex-end; }'
+        )
+    })
+
     it('justifies only top-level body paragraphs', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true

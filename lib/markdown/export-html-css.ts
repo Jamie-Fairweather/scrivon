@@ -122,12 +122,17 @@ function bleedLayoutCss(profile: PdfExportProfile, layout: PdfExportLayout, marg
     const { top, right, bottom, left } = margins
     const headCell = layout.headerBleeds ? `padding: 0; height: ${top}mm;` : `padding: ${top}mm ${right}mm 0 ${left}mm;`
     const footCell = layout.footerBleeds ? `padding: 0; height: ${bottom}mm;` : `padding: 0 ${right}mm ${bottom}mm ${left}mm;`
+    // The fixed footer sits where the footer cell would: in the bottom margin band, bar at its foot.
+    const fixedFoot = layout.footerBleeds
+        ? `min-height: ${bottom}mm; display: flex; flex-direction: column; justify-content: flex-end;`
+        : `padding: 0 ${right}mm ${bottom}mm ${left}mm;`
     // With a header on the cover the image simply follows it (and its gap); without one the
     // top margin spacer goes too, so the image reaches the page edge.
     const headerOnCover = layout.showHeader && profile.header.hideOnFirstPages === 'none'
     return `.pdf-chrome-table > thead > tr > td { ${headCell} vertical-align: top; }
   .pdf-chrome-table > tbody > tr > td { padding: 0 ${right}mm 0 ${left}mm; }
   .pdf-chrome-table > tfoot > tr > td { ${footCell} vertical-align: bottom; }
+  .pdf-fixed-footer { ${fixedFoot} }
   ${
       layout.logoBleeds
           ? `${headerOnCover ? '' : '.pdf-title-table > thead > tr > td { padding: 0; height: auto; }'}
@@ -502,6 +507,13 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
   }
   .pdf-chrome-table > thead { display: table-header-group; }
   .pdf-chrome-table > tfoot { display: table-footer-group; }
+  /*
+   * A footer shown on every page is drawn once, fixed, and Chromium repeats it at the
+   * bottom of each page. A table footer row would float up under the text on the last
+   * page of a section, so it is kept only as an invisible copy that reserves the room.
+   */
+  .pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }
+  .pdf-footer-spacer { visibility: hidden; }
   /* Slack from a stretched section goes below the content; the title page keeps the cell's centring. */
   .pdf-toc-table > tbody > tr > td,
   .pdf-body-table > tbody > tr > td { vertical-align: top; }

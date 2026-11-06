@@ -144,21 +144,38 @@ function renderChromeCell(
 }
 
 /**
+ * Whether the footer shows on every page of this document. Then it is drawn once,
+ * fixed to the page bottom, which Chromium repeats on every page, the last page of
+ * a section included. A fixed element can't skip pages, so when the title page or
+ * TOC hide the footer, the repeating table footer row draws it instead.
+ */
+function footerOnEveryPage(profile: PdfExportProfile, hasTitlePage: boolean, hasToc: boolean): boolean {
+    if (!resolvePdfExportLayout(profile).showFooter) return false
+    const hidden = profile.footer.hideOnFirstPages
+    if (hidden === 'none') return true
+    return !hasTitlePage && (hidden === 'title' || !hasToc)
+}
+
+/**
  * One table per section (title, TOC, body). The repeating header/footer rows
  * give every page of a section its chrome and, in bleed mode, its margins,
  * while the CSS hide rules can still switch the bars off per section.
+ * With a fixed footer, the footer row is an invisible copy that only keeps
+ * the body clear of it.
  */
 function chromeTable(
     kind: 'title' | 'toc' | 'body',
     inner: string,
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
-    metadata: PdfExportMetadata
+    metadata: PdfExportMetadata,
+    fixedFooter: boolean
 ): string {
+    const footClass = fixedFooter ? ' class="pdf-footer-spacer" aria-hidden="true"' : ''
     return `<table class="pdf-chrome-table pdf-${kind}-table">
     <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', profile, assets, metadata)}</td></tr></thead>
     <tbody><tr><td>${inner}</td></tr></tbody>
-    <tfoot><tr><td>${renderChromeCell('footer', profile, assets, metadata)}</td></tr></tfoot>
+    <tfoot${footClass}><tr><td>${renderChromeCell('footer', profile, assets, metadata)}</td></tr></tfoot>
   </table>`
 }
 
@@ -178,13 +195,15 @@ function wrapWithChrome(
         return `<article class="export-article">${titlePageHtml}${tocHtml}${body}</article>`
     }
 
+    const fixedFooter = footerOnEveryPage(profile, Boolean(titlePageHtml), Boolean(tocHtml))
     const sections = [
-        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata) : '',
-        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata) : '',
-        chromeTable('body', body, profile, assets, metadata),
+        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata, fixedFooter) : '',
+        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata, fixedFooter) : '',
+        chromeTable('body', body, profile, assets, metadata, fixedFooter),
     ]
+    const footer = fixedFooter ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', profile, assets, metadata)}</div>` : ''
     return `<article class="export-article">
-  ${sections.filter(Boolean).join('\n  ')}
+  ${sections.filter(Boolean).join('\n  ')}${footer}
 </article>`
 }
 

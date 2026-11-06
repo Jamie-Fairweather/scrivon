@@ -151,6 +151,46 @@ SHIKI_FAIL
         expect(html).not.toContain('counter(page)')
     })
 
+    it('pins a footer shown on every page to the page bottom instead of a table row', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+
+        // No title page, so the default "hide on title page" hides nothing: one fixed footer for every page.
+        const { html } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
+        expect(html.match(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
+        // The table rows stay as invisible copies so the body never runs under the footer.
+        expect(html.match(/<tfoot class="pdf-footer-spacer" aria-hidden="true">/g)).toHaveLength(2)
+        expect(html.match(/<tfoot>/g)).toBeNull()
+
+        // A footer hidden on the title page can't be a fixed element, which would repeat there too.
+        profile.frontMatter.titlePage = true
+        const { html: withTitle } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
+        expect(withTitle).not.toContain('<div class="pdf-fixed-footer">')
+        expect(withTitle).not.toContain('<tfoot class="pdf-footer-spacer"')
+        expect(withTitle.match(/<tfoot>/g)).toHaveLength(3)
+
+        profile.footer.hideOnFirstPages = 'none'
+        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
+
+        profile.frontMatter.titlePage = false
+        profile.footer.hideOnFirstPages = 'title+toc'
+        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).not.toContain('<div class="pdf-fixed-footer">')
+        profile.frontMatter.toc = false
+        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
+    })
+
+    it('keeps footer rows when only the header shows', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.header.enabled = true
+        const { html } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(html).not.toContain('<div class="pdf-fixed-footer">')
+        expect(html).toContain('<tfoot>')
+    })
+
     it('renders a footer bar without the page-number slot when numbering is off', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
