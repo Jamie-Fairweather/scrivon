@@ -7,7 +7,12 @@ import { applyTauriSigningFromEnv, loadDotEnv, projectRoot } from './load-dotenv
 const tauriBin = join(projectRoot, 'node_modules', '@tauri-apps', 'cli', 'tauri.js')
 
 loadDotEnv()
-applyTauriSigningFromEnv()
+try {
+    applyTauriSigningFromEnv()
+} catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exit(1)
+}
 
 const args = process.argv.slice(2)
 if (args.length === 0) {

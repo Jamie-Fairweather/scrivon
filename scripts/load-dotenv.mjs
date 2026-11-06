@@ -1,9 +1,21 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const projectRoot = join(__dirname, '..')
+
+/** @param {string} raw */
+function parseValue(raw) {
+    const quote = raw[0]
+    if (quote === '"' || quote === "'") {
+        const end = raw.indexOf(quote, 1)
+        if (end !== -1) return raw.slice(1, end)
+    }
+    // Unquoted values end at an inline ` # comment`.
+    return raw.replace(/\s+#.*$/, '')
+}
 
 /** @param {string} [envPath] */
 export function loadDotEnv(envPath = join(projectRoot, '.env')) {
@@ -20,26 +32,41 @@ export function loadDotEnv(envPath = join(projectRoot, '.env')) {
         const key = trimmed.slice(0, separator).trim()
         if (!key || process.env[key] !== undefined) continue
 
-        let value = trimmed.slice(separator + 1).trim()
-        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1)
-        }
-
-        process.env[key] = value
+        process.env[key] = parseValue(trimmed.slice(separator + 1).trim())
     }
 }
 
-export function applyTauriSigningFromEnv() {
+/**
+ * Resolves a key path from .env: `~` means the home folder, a relative path is
+ * relative to the repo, and an absolute path is used as is.
+ * @param {string} keyPath
+ * @param {{ root?: string, home?: string }} [options]
+ */
+export function resolveKeyPath(keyPath, { root = projectRoot, home = homedir() } = {}) {
+    const expanded = keyPath === '~' || /^~[\\/]/.test(keyPath) ? join(home, keyPath.slice(1)) : keyPath
+    return resolve(root, expanded)
+}
+
+/** @param {{ root?: string, home?: string }} [options] */
+export function applyTauriSigningFromEnv({ root = projectRoot, home = homedir() } = {}) {
+    if (process.env.TAURI_SIGNING_PRIVATE_KEY) return
+
     const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH
-    if (!process.env.TAURI_SIGNING_PRIVATE_KEY && keyPath) {
-        const resolved = join(projectRoot, keyPath)
-        if (existsSync(resolved)) {
-            process.env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(resolved, 'utf8').trim()
+    if (keyPath) {
+        const resolved = resolveKeyPath(keyPath, { root, home })
+        // Never fall back to another key when a path was set: that could sign updates with the wrong key.
+        if (!existsSync(resolved)) {
+            throw new Error(
+                `TAURI_SIGNING_PRIVATE_KEY_PATH points to a file that doesn't exist: ${resolved}\n` +
+                    'Fix the path (in .env or your environment), or remove it to use src-tauri/.updater/scrivon.'
+            )
         }
+        process.env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(resolved, 'utf8').trim()
+        return
     }
 
-    const defaultKeyPath = join(projectRoot, 'src-tauri', '.updater', 'scrivon')
-    if (!process.env.TAURI_SIGNING_PRIVATE_KEY && existsSync(defaultKeyPath)) {
+    const defaultKeyPath = join(root, 'src-tauri', '.updater', 'scrivon')
+    if (existsSync(defaultKeyPath)) {
         process.env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(defaultKeyPath, 'utf8').trim()
     }
 }

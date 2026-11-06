@@ -171,6 +171,8 @@ The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tau
 
 If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If neither key variable is set but `src-tauri/.updater/scrivon` exists, that file is used automatically.
 
+`TAURI_SIGNING_PRIVATE_KEY_PATH` can be relative to the repo, absolute (`C:\Users\me\.tauri\scrivon.key`), or start with `~` for your home folder. If the file isn't there, the command stops with an error instead of quietly using a different key.
+
 ### Windows code signing
 
 The installers and `scrivon.exe` are **not** code-signed (Authenticode) yet. The `TAURI_SIGNING_*` secrets above only sign updates for the in-app updater, and Windows ignores that signature. Until releases are signed:
