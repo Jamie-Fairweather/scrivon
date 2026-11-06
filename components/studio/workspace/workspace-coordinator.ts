@@ -13,6 +13,12 @@ export type WorkspaceCoordinatorRefs = {
     cancelScheduledSave: MutableRefObject<(id: string) => void>
     /** Tabs whose file was renamed or moved: their pending saves and copies of unsaved text follow them. */
     tabsMoved: MutableRefObject<(moves: ReadonlyArray<{ from: string; to: string }>) => void>
+    /**
+     * Before renaming or deleting `path` (and, for a folder, everything in it): waits for saves already
+     * writing those files, and makes any save asked for meanwhile wait. Resolves to `release`, called once
+     * the disk change is done and the tabs are updated; `whereNow` gives each tab's new id (null if closed).
+     */
+    holdSaves: MutableRefObject<(path: string, isDirectory: boolean) => Promise<(whereNow: (id: string) => string | null) => void>>
     getAutosaveEnabled: MutableRefObject<() => boolean>
     /** The error from the tab's last failed save, if its last save failed. */
     getSaveError: MutableRefObject<(id: string) => string | undefined>
@@ -45,6 +51,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         scheduleBackup: { current: () => {} },
         cancelScheduledSave: { current: () => {} },
         tabsMoved: { current: () => {} },
+        holdSaves: { current: async () => () => {} },
         getAutosaveEnabled: { current: () => true },
         getSaveError: { current: () => undefined },
         isAskingUser: { current: () => false },

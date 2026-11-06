@@ -1171,3 +1171,116 @@ describe('opening folders one after another', () => {
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\other.md')
     })
 })
+
+describe('saves around rename and delete', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // A short delay, so the autosave comes due while the rename or delete is still going on.
+        settingsState.autosave = { enabled: true, delayMs: 50 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'v1' })
+        mountDisk(disk)
+    })
+
+    const pause = (ms: number) =>
+        act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, ms))
+        })
+
+    /** From now on, reading the file list waits until the test lets it finish (a big folder). */
+    function slowListing() {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            await done
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        return finish
+    }
+
+    async function openAndType(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'edited'))
+    }
+
+    it('never brings back a deleted file when its autosave comes due during the delete', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndType(result)
+        const finishListing = slowListing()
+
+        let deleting!: Promise<void>
+        act(() => {
+            deleting = result.current.session.deleteEntry('C:\\ws\\notes.md', false)
+        })
+        await pause(150)
+        await act(async () => {
+            finishListing()
+            await deleting
+        })
+        await pause(100)
+
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(result.current.tabs.tabs).toEqual([])
+        // Not even a question about putting it back.
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('saves a pending autosave under the new name and never writes the old one again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndType(result)
+        const finishListing = slowListing()
+
+        let renaming!: Promise<void>
+        act(() => {
+            renaming = result.current.session.renameEntry('C:\\ws\\notes.md', 'renamed.md', false)
+        })
+        await pause(150)
+        await act(async () => {
+            finishListing()
+            await renaming
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ id: 'C:\\ws\\renamed.md', isDirty: false, isSaving: false }))
+        expect(await disk.read('C:\\ws\\renamed.md')).toBe('edited')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('lets a save that is already writing finish before the file is renamed', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndType(result)
+        let finishWrite!: () => void
+        const written = new Promise<void>((resolve) => (finishWrite = resolve))
+        vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+            await written
+            return disk.writeBytes(path, data as Uint8Array, options)
+        })
+
+        let saving!: Promise<boolean>
+        let renaming!: Promise<void>
+        act(() => {
+            saving = coordinatorOut.current!.flushSave.current('C:\\ws\\notes.md')
+            renaming = result.current.session.renameEntry('C:\\ws\\notes.md', 'renamed.md', false)
+        })
+        await pause(20)
+        expect(await disk.exists('C:\\ws\\renamed.md')).toBe(false)
+
+        await act(async () => {
+            finishWrite()
+            await Promise.all([saving, renaming])
+        })
+
+        expect(await disk.read('C:\\ws\\renamed.md')).toBe('edited')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(result.current.tabs.tabs[0]).toMatchObject({ id: 'C:\\ws\\renamed.md', isDirty: false, isSaving: false })
+    })
+})

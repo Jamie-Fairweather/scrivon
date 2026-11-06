@@ -7,6 +7,7 @@ import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
 import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
 import { confirmOverwriteDiskChange, type DiskChange } from '@/lib/tauri/dialog'
 import { DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
+import { tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileStamp } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -208,8 +209,16 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
         [askToOverwrite, clearBackup, coordinator, setTabs, tabsRef]
     )
 
+    // Tabs whose file is being renamed or deleted. A save asked for meanwhile waits, then goes to wherever
+    // the tab is afterwards, so it can never bring back the old file or be dropped.
+    const holds = useRef(new Map<string, { whereNow: Promise<string | null>; wantsSave: boolean }>())
+    const flushSaveRef = useRef<(id: string, options?: { silent?: boolean }) => Promise<boolean>>(async () => true)
+
     const flushSave = useCallback(
         (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
+            const hold = holds.current.get(id)
+            if (hold) return hold.whereNow.then((next) => (next ? flushSaveRef.current(next, { silent }) : true))
+
             const timer = saveTimers.current.get(id)
             if (timer) {
                 clearTimeout(timer)
@@ -228,6 +237,10 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
         [writeTab]
     )
 
+    useEffect(() => {
+        flushSaveRef.current = flushSave
+    }, [flushSave])
+
     const flushAllSaves = useCallback(async (): Promise<boolean> => {
         const ids = new Set([...tabsRef.current.filter((t) => t.isDirty).map((t) => t.id), ...inFlightSaves.current.keys()])
         const results = await Promise.all([...ids].map((id) => flushSave(id)))
@@ -240,6 +253,11 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
             const tab = tabsRef.current.find((t) => t.id === id)
             // A tab whose file changed elsewhere waits for the user (Try Again on its notice, or closing it).
             if (tab?.readOnly || tab?.disk?.conflict) return
+            const hold = holds.current.get(id)
+            if (hold) {
+                hold.wantsSave = true
+                return
+            }
 
             const existing = saveTimers.current.get(id)
             if (existing) clearTimeout(existing)
@@ -276,9 +294,40 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                 // The copy is kept under the file's path, so it moves with the file.
                 clearBackup(from, from)
                 scheduleBackup(to)
+                // The notice named the old file. The tab keeps its error mark, and a new failure gets a new notice.
+                if (saveErrors.current.delete(from)) dismissNotification(saveErrorToastId(from))
             }
         },
         [clearBackup, scheduleBackup]
+    )
+
+    const holdSaves = useCallback(
+        async (path: string, isDirectory: boolean) => {
+            const ids = tabsToCloseOnDelete(tabsRef.current, path, isDirectory).map((t) => t.id)
+            let release!: (whereNow: (id: string) => string | null) => void
+            const released = new Promise<(id: string) => string | null>((resolve) => (release = resolve))
+            for (const id of ids) {
+                const timer = saveTimers.current.get(id)
+                if (timer) {
+                    clearTimeout(timer)
+                    saveTimers.current.delete(id)
+                }
+                holds.current.set(id, { whereNow: released.then((whereNow) => whereNow(id)), wantsSave: timer !== undefined })
+            }
+            // Writes already running finish first, so none lands on the old path after the file has moved or gone.
+            await Promise.all(ids.map((id) => inFlightSaves.current.get(id)))
+            return (whereNow: (id: string) => string | null) => {
+                const wanted = ids.filter((id) => holds.current.get(id)?.wantsSave)
+                for (const id of ids) holds.current.delete(id)
+                release(whereNow)
+                // An autosave that was due (or asked for meanwhile) is scheduled again, for the tab's new id.
+                for (const id of wanted) {
+                    const next = whereNow(id)
+                    if (next) scheduleSave(next)
+                }
+            }
+        },
+        [scheduleSave, tabsRef]
     )
 
     const flushSaveOnTabLeave = useCallback(
@@ -298,11 +347,12 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
             scheduleBackup,
             cancelScheduledSave,
             tabsMoved,
+            holdSaves,
             getAutosaveEnabled: () => autosaveEnabledRef.current,
             getSaveError: (id) => saveErrors.current.get(id),
             isAskingUser: () => openDiskQuestions.current > 0,
         })
-    }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, scheduleBackup, cancelScheduledSave, tabsMoved])
+    }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, scheduleBackup, cancelScheduledSave, tabsMoved, holdSaves])
 
     useEffect(() => {
         const timers = backupTimers.current

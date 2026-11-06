@@ -29,6 +29,7 @@ import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
+import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
@@ -450,32 +451,42 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 return
             }
             const newPath = joinPath(parent, newName)
+            // Saves of the files being renamed wait until their tabs have moved too, so none writes to the old
+            // path (bringing the old file back next to the new one) and none is dropped.
+            const release = await coordinator.holdSaves.current(oldPath, isDirectory)
+            let whereNow = (id: string): string | null => id
             try {
                 await renameWorkspacePath(oldPath, newPath)
+                // The tabs follow straight away; reading the file list again can take a while.
+                coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
+                whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
             } catch (err) {
                 notifyError(failed, err)
-                await refreshTree()
-                return
+            } finally {
+                release(whereNow)
             }
             await refreshTree()
-            coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
         },
         [getNameError, refreshTree, coordinator]
     )
 
     const deleteEntry = useCallback(
         async (path: string, isDirectory: boolean) => {
+            // A save due for a file being deleted must not write it back, so saves wait until its tabs are closed.
+            const release = await coordinator.holdSaves.current(path, isDirectory)
+            let whereNow = (id: string): string | null => id
             try {
                 // The user confirmed deleting the folder and everything in it; without recursive a folder that isn't empty is refused.
                 await removeWorkspacePath(path, { recursive: isDirectory })
+                coordinator.closeTabsForDelete.current(path, isDirectory)
+                whereNow = () => null
             } catch (err) {
                 // Its tabs stay open: the file (or some of the folder) may still be there.
                 notifyError(`Couldn't delete ${getBaseName(path)}`, err)
-                await refreshTree()
-                return
+            } finally {
+                release(whereNow)
             }
             await refreshTree()
-            coordinator.closeTabsForDelete.current(path, isDirectory)
         },
         [refreshTree, coordinator]
     )
