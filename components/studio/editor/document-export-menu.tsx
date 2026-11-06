@@ -36,6 +36,9 @@ export function DocumentExportMenu() {
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+    // The dialog only exists for a Markdown tab. Switching away drops it, so drop its open flag too;
+    // otherwise it would pop open by itself the next time a Markdown tab is active.
+    if (pdfDialogOpen && !isMarkdownTab) setPdfDialogOpen(false)
 
     const hasMarkdown = markdownSource.trim().length > 0
     const hasDiagramSource = diagramExportSource.trim().length > 0

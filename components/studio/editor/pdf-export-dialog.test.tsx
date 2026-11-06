@@ -7,8 +7,10 @@ import { PdfExportDialog } from './pdf-export-dialog'
 
 const exportMarkdown = vi.hoisted(() => vi.fn<() => Promise<ExportResult>>())
 const notifyExportSaved = vi.hoisted(() => vi.fn())
+const notifyError = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/markdown/export-pdf', () => ({ exportMarkdown, notifyExportSaved }))
+vi.mock('@/lib/notify', () => ({ notifyError }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { pdfExport: createDefaultPdfExportSettings() } }),
 }))
@@ -51,6 +53,7 @@ describe('PdfExportDialog', () => {
     beforeEach(() => {
         exportMarkdown.mockReset()
         notifyExportSaved.mockReset()
+        notifyError.mockReset()
     })
 
     it('stays open with the edited fields when the save picker is cancelled', async () => {
@@ -124,7 +127,7 @@ describe('PdfExportDialog', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false)
     })
 
-    it('keeps the export busy across a remount and never lets it close the newer dialog', async () => {
+    it('keeps the export busy across a remount and closes the dialog once that export saves', async () => {
         let finish: (result: ExportResult) => void = () => undefined
         exportMarkdown.mockReturnValue(new Promise<ExportResult>((resolve) => (finish = resolve)))
         const { onOpenChange, view } = renderDialog()
@@ -145,8 +148,23 @@ describe('PdfExportDialog', () => {
         finish({ status: 'saved', path: 'C:/out/report.pdf' })
         await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
         expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
-        expect(onOpenChange).not.toHaveBeenCalled()
+        // The save finished, so the dialog closes, even though the form that started it is gone.
+        expect(onOpenChange).toHaveBeenCalledWith(false)
         expect(exportMarkdown).toHaveBeenCalledTimes(1)
-        expect(screen.getByLabelText('Title')).not.toBeDisabled()
+    })
+
+    it('reports a failure as a toast when the dialog went away mid-export', async () => {
+        let finish: (result: ExportResult) => void = () => undefined
+        exportMarkdown.mockReturnValue(new Promise<ExportResult>((resolve) => (finish = resolve)))
+        const { onOpenChange, view } = renderDialog()
+        await screen.findByLabelText('Title')
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+        await waitFor(() => expect(screen.getByText('Exporting…')).toBeInTheDocument())
+
+        view.rerender(<Owner shown={false} onOpenChange={onOpenChange} />)
+        finish({ status: 'failed', message: 'Disk is full.' })
+        await waitFor(() => expect(screen.getByText('Menu idle')).toBeInTheDocument())
+        expect(notifyError).toHaveBeenCalledWith('Export failed', undefined, { description: 'Disk is full.' })
+        expect(onOpenChange).not.toHaveBeenCalled()
     })
 })

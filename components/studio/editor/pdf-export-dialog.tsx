@@ -101,7 +101,7 @@ function PdfExportForm({
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
 
-    // Whether this form is still on screen, so an export that outlives it never closes a newer dialog.
+    // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
     useEffect(() => {
         mounted.current = true
@@ -115,17 +115,17 @@ function PdfExportForm({
         setError('')
         try {
             const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath })
-            if (!mounted.current) {
-                // The dialog went away mid-export: still say how it ended, but leave whatever is open now alone.
-                if (result.status === 'saved') notifyExportSaved(result.path, result.missingImages)
-                else if (result.status === 'failed') notifyError('Export failed', undefined, { description: result.message })
-                return
-            }
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
                 notifyExportSaved(result.path, result.missingImages)
+                // Safe even if this form went away mid-export: the export button stays disabled while
+                // an export runs, so no newer dialog can have been opened since.
                 onClose()
-            } else if (result.status === 'failed') setError(result.message)
+            } else if (result.status === 'failed') {
+                // A form that went away mid-export has nowhere to show the error, so say it in a toast.
+                if (mounted.current) setError(result.message)
+                else notifyError('Export failed', undefined, { description: result.message })
+            }
         } finally {
             onBusyChange(false)
         }
