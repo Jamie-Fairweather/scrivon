@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { notifyInfo } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
-import type { DocumentTab } from '@/lib/workspace/types'
+import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
 
@@ -13,12 +13,13 @@ const workspace = vi.hoisted(() => ({
         void path
     }),
     workspaceRoot: 'C:\\notes' as string | null,
+    tree: [] as FileNode[],
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useCanvasFit: () => ({ canvasFitRequestId: 0, requestCanvasFit: () => {} }),
     useDocumentTabs: () => ({ tabs: workspace.tabs, openFile: workspace.openFile }),
-    useWorkspaceSession: () => ({ workspaceRoot: workspace.workspaceRoot }),
+    useWorkspaceSession: () => ({ workspaceRoot: workspace.workspaceRoot, tree: workspace.tree }),
 }))
 
 vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
@@ -63,6 +64,10 @@ function fileTab(path: string, content = ''): DocumentTab {
     return { id: path, path, name: path.split(/[/\\]/).pop()!, content, isDirty: false, isSaving: false }
 }
 
+function fileNode(path: string): FileNode {
+    return { kind: 'file', name: path.split(/[/\\]/).pop()!, path }
+}
+
 function viewer(tabId: string, source: string) {
     return (
         <MarkdownExpandProvider tabId={tabId}>
@@ -83,6 +88,7 @@ describe('MarkdownDocumentViewer', () => {
         if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
         workspace.tabs = [fileTab(DOC_A)]
         workspace.workspaceRoot = 'C:\\notes'
+        workspace.tree = []
         scrollIntoView = vi.fn()
         Element.prototype.scrollIntoView = scrollIntoView as unknown as Element['scrollIntoView']
     })
@@ -273,10 +279,33 @@ describe('MarkdownDocumentViewer', () => {
             expect(container.querySelector('a[target]')).toBeNull()
         })
 
-        it('opens absolute Windows path links', () => {
+        it('opens absolute Windows path links inside the open folder, under the explorer’s path for the file', () => {
+            workspace.tree = [{ kind: 'directory', name: 'docs', path: 'C:\\notes/docs', children: [fileNode('C:\\notes/docs/Other.md')] }]
+            render(viewer(DOC_A, String.raw`[spec](C:\\NOTES\\docs\\other.md) and [new](C:\\notes\\docs\\sub\\new.md)`))
+            fireEvent.click(screen.getByRole('link', { name: 'spec' }))
+            expect(workspace.openFile).toHaveBeenLastCalledWith('C:\\notes/docs/Other.md')
+
+            // Not listed (yet): the explorer's form of its path.
+            fireEvent.click(screen.getByRole('link', { name: 'new' }))
+            expect(workspace.openFile).toHaveBeenLastCalledWith('C:\\notes/docs/sub/new.md')
+        })
+
+        it('opens a relative link written in other letter case in the file’s own tab', () => {
+            workspace.tree = [fileNode('C:\\notes/setup.md')]
+            render(viewer(DOC_A, '[setup](Setup.MD)'))
+            fireEvent.click(screen.getByRole('link', { name: 'setup' }))
+            expect(workspace.openFile).toHaveBeenCalledWith('C:\\notes/setup.md')
+        })
+
+        it('explains a link to a document outside the open folder, and offers to show it', () => {
             render(viewer(DOC_A, source))
             fireEvent.click(screen.getByRole('link', { name: 'spec' }))
-            expect(workspace.openFile).toHaveBeenCalledWith('C:\\specs\\a.md')
+            expect(workspace.openFile).not.toHaveBeenCalled()
+            expect(notifyInfo).toHaveBeenCalledWith('That file is outside the open folder', expect.objectContaining({ action: expect.anything() }))
+
+            const [, options] = vi.mocked(notifyInfo).mock.calls[0]!
+            options?.action?.onClick()
+            expect(revealItemInDir).toHaveBeenCalledWith('C:\\specs\\a.md')
         })
 
         it('scrolls to #anchors and footnotes inside the preview', () => {

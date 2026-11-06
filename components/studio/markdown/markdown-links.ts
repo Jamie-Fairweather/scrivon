@@ -1,4 +1,5 @@
 import { defaultUrlTransform } from 'react-markdown'
+import type { FileNode } from '@/lib/workspace/types'
 
 /** Where a link in the Markdown preview points. */
 export type MarkdownLinkTarget =
@@ -155,4 +156,52 @@ export function resolveMarkdownLink(href: string | undefined, context: MarkdownL
     if (!path) return { kind: 'unresolved' }
     if (!isReachable(path, context)) return { kind: 'network' }
     return { kind: 'file', path, fragment }
+}
+
+/** Paths on Windows compare without regard to letter case. */
+function isWindowsPath(path: string): boolean {
+    return /^[a-zA-Z]:/.test(path) || NETWORK_PATH.test(path)
+}
+
+function comparablePath(path: string, windows: boolean): string {
+    const forward = path.replace(/\\/g, '/')
+    return windows ? forward.toLowerCase() : forward
+}
+
+/** Same file, allowing for mixed `/` and `\` separators (and letter case on Windows). */
+export function isSamePath(a: string, b: string): boolean {
+    if (a === b) return true
+    const windows = isWindowsPath(a)
+    return comparablePath(a, windows) === comparablePath(b, windows)
+}
+
+/** Whether `path` (with `.` and `..` already resolved, as links are) is somewhere inside `folder`. */
+export function isPathInside(path: string, folder: string): boolean {
+    const windows = isWindowsPath(folder)
+    const root = comparablePath(folder, windows).replace(/\/+$/, '')
+    return comparablePath(path, windows).startsWith(`${root}/`)
+}
+
+function findInTree(nodes: readonly FileNode[], path: string): string | null {
+    for (const node of nodes) {
+        if (node.kind === 'file' && isSamePath(node.path, path)) return node.path
+        if (node.kind === 'directory') {
+            const found = findInTree(node.children, path)
+            if (found) return found
+        }
+    }
+    return null
+}
+
+/**
+ * The path the explorer has for a file inside the open folder, so a linked file opens in the same tab whether it
+ * is opened from a link or from the explorer, however the link spells it. A file the explorer doesn't list gets
+ * the explorer's form of the path: the folder as written, then `/` between names.
+ */
+export function workspaceFilePath(path: string, workspaceRoot: string, tree: readonly FileNode[]): string {
+    const listed = findInTree(tree, path)
+    if (listed) return listed
+    const root = workspaceRoot.replace(/[/\\]+$/, '')
+    const names = path.slice(root.length + 1).split(/[/\\]+/)
+    return `${root}/${names.join('/')}`
 }

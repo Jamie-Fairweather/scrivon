@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
-import { resolveMarkdownLink } from '@/components/studio/markdown/markdown-links'
+import { isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
@@ -47,17 +47,6 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
     return looseMatch
 }
 
-/** Same file, allowing for mixed `/` and `\` separators (and letter case on Windows). */
-function isSamePath(a: string, b: string): boolean {
-    if (a === b) return true
-    const windows = /^[a-zA-Z]:|^\\\\/.test(a)
-    const normalise = (path: string) => {
-        const forward = path.replace(/\\/g, '/')
-        return windows ? forward.toLowerCase() : forward
-    }
-    return normalise(a) === normalise(b)
-}
-
 /** The Expand button of a block, found again if the element that had focus was replaced. */
 function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElement | null {
     if (!root) return null
@@ -72,7 +61,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const { expanded, setExpanded } = useMarkdownExpand()
     const { requestCanvasFit } = useCanvasFit()
     const { tabs, openFile } = useDocumentTabs()
-    const { workspaceRoot } = useWorkspaceSession()
+    const { workspaceRoot, tree } = useWorkspaceSession()
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const expandedKey = expanded?.canvasKey ?? null
     /** Last preview scroll position per tab. The viewer stays mounted across tab switches, so it keeps them. */
@@ -201,11 +190,25 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                         if (target.fragment) scrollToAnchor(target.fragment)
                         return
                     }
-                    if (!isSupportedDocument(target.path)) {
+                    const reveal = () => {
                         revealItemInDir(target.path).catch((err: unknown) => notifyError("Couldn't show the linked file", err))
+                    }
+                    if (!isSupportedDocument(target.path)) {
+                        reveal()
                         return
                     }
-                    const openPath = tabs.find((t) => isSamePath(t.path, target.path))?.path ?? target.path
+                    // The path its tab or the explorer already uses, so the file never ends up open in two tabs.
+                    const openPath =
+                        tabs.find((t) => isSamePath(t.path, target.path))?.path ??
+                        (workspaceRoot && isPathInside(target.path, workspaceRoot) ? workspaceFilePath(target.path, workspaceRoot, tree) : null)
+                    if (!openPath) {
+                        // Scrivon can only read files in the open folder, so opening it would fail with a vague error.
+                        notifyInfo('That file is outside the open folder', {
+                            description: 'Scrivon can only open files inside the folder you have open.',
+                            action: { label: 'Show in folder', onClick: reveal },
+                        })
+                        return
+                    }
                     pendingAnchorRef.current = target.fragment ? { tabId: openPath, id: target.fragment } : null
                     void openFile(openPath)
                     return

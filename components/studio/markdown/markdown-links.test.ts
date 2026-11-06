@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { markdownUrlTransform, resolveMarkdownLink, type MarkdownLinkContext } from './markdown-links'
+import type { FileNode } from '@/lib/workspace/types'
+import { isPathInside, isSamePath, markdownUrlTransform, resolveMarkdownLink, workspaceFilePath, type MarkdownLinkContext } from './markdown-links'
 
 const inWorkspace: MarkdownLinkContext = { documentPath: 'C:\\notes/docs/guide.md', workspaceRoot: 'C:\\notes' }
 
@@ -125,6 +126,40 @@ describe('resolveMarkdownLink', () => {
 
     it('leaves malformed percent escapes as written', () => {
         expect(resolveMarkdownLink('100%.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:\\notes/docs/100%.md', fragment: null })
+    })
+})
+
+describe('paths', () => {
+    it('treats Windows paths as the same whatever their separators and letter case', () => {
+        expect(isSamePath('C:\\notes/docs/a.md', 'c:\\NOTES\\docs\\A.md')).toBe(true)
+        expect(isSamePath('\\\\nas\\team\\a.md', '//NAS/team/a.md')).toBe(true)
+        expect(isSamePath('/home/me/a.md', '/home/me/A.md')).toBe(false)
+        expect(isSamePath('C:\\notes\\a.md', 'C:\\notes\\b.md')).toBe(false)
+    })
+
+    it('knows whether a path is inside the open folder', () => {
+        expect(isPathInside('C:\\NOTES\\docs\\a.md', 'C:\\notes')).toBe(true)
+        expect(isPathInside('C:\\notes/a.md', 'C:\\notes\\')).toBe(true)
+        expect(isPathInside('C:\\notes-old\\a.md', 'C:\\notes')).toBe(false)
+        expect(isPathInside('C:\\notes', 'C:\\notes')).toBe(false)
+        expect(isPathInside('D:\\a.md', 'C:\\')).toBe(false)
+        expect(isPathInside('C:\\a.md', 'C:\\')).toBe(true)
+        expect(isPathInside('/home/me/notes/a.md', '/home/me/notes')).toBe(true)
+        expect(isPathInside('/home/me/Notes/a.md', '/home/me/notes')).toBe(false)
+    })
+
+    it('uses the explorer’s path for a linked file, or the explorer’s form of it', () => {
+        const tree: FileNode[] = [
+            {
+                kind: 'directory',
+                name: 'docs',
+                path: 'C:\\notes/docs',
+                children: [{ kind: 'file', name: 'Setup.md', path: 'C:\\notes/docs/Setup.md' }],
+            },
+        ]
+        expect(workspaceFilePath('c:\\notes\\DOCS\\setup.md', 'C:\\notes', tree)).toBe('C:\\notes/docs/Setup.md')
+        expect(workspaceFilePath('C:\\notes\\docs\\new\\b.md', 'C:\\notes', tree)).toBe('C:\\notes/docs/new/b.md')
+        expect(workspaceFilePath('C:\\b.md', 'C:\\', [])).toBe('C:/b.md')
     })
 })
 
