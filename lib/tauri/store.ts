@@ -37,7 +37,8 @@ export async function getRecentWorkspaces(): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
     const value = await s.get<string[]>(RECENT_KEY)
-    return Array.isArray(value) ? value : []
+    // A hand-edited or damaged workspace.json can hold non-strings, which would crash the welcome screen on every launch.
+    return Array.isArray(value) ? value.filter((p): p is string => typeof p === 'string') : []
 }
 
 export async function addRecentWorkspace(path: string): Promise<string[]> {
