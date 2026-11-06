@@ -30,9 +30,13 @@ function decimalsOf(step: number): number {
 /** Enough for any value a person typed; past this it's floating-point noise (1.7000000000000002). */
 const MAX_SHOWN_DECIMALS = 6
 
-/** Commit what was typed: blurring runs the field's own parsing, then focus comes straight back. */
-function commitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== 'Enter') return
+/**
+ * Commit what was typed on Enter, and on Esc before it closes Settings (the field may be gone
+ * before it could see a blur). Blurring runs the field's own parsing, then focus comes straight
+ * back. The key is left to carry on, so Esc still closes the dialog.
+ */
+function commitOnKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
     const input = event.currentTarget
     input.blur()
     input.focus()
@@ -40,7 +44,7 @@ function commitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
 
 /**
  * Labelled stepper for a bounded numeric setting. Steps (arrow keys, the +/- buttons) apply at
- * once; typed text applies when you leave the field or press Enter, so a half-typed number never
+ * once; typed text applies when you leave the field or press Enter or Esc, so a half-typed number never
  * does. Values are kept within min and max and rounded to the step's decimal places. Cleared
  * input is ignored and the previous value stays. A saved value with more decimals than the step
  * (a 12.7 mm margin from an older version) is shown as it is and kept until it's changed.
@@ -81,7 +85,7 @@ export function NumberSetting({ id, label, description, value, min, max, step, d
             >
                 <NumberFieldGroup>
                     <NumberFieldDecrement />
-                    <NumberFieldInput onKeyDown={commitOnEnter} />
+                    <NumberFieldInput onKeyDown={commitOnKey} />
                     <NumberFieldIncrement />
                 </NumberFieldGroup>
             </NumberField>
