@@ -61,6 +61,7 @@ import type {
     Text,
 } from 'mdast'
 import { visit } from 'unist-util-visit'
+import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
@@ -255,13 +256,122 @@ function decodeDataUrl(dataUrl: string): Uint8Array | null {
     }
 }
 
-function embeddedImage(dataUrl: string, maxWidth: number, maxHeight: number, name: string): ImageRun | null {
+/** Image bytes Word can embed, and the size the PDF shows the picture at (null when the file doesn't say). */
+type DecodedImage = { kind: ImageKind; bytes: Uint8Array; size: { width: number; height: number } | null }
+
+/** A data URL as Word-ready bytes: as is for PNG/JPEG/GIF/BMP, else the PNG {@link convertImages} made from it. */
+function decodeImage(converted: Map<string, DecodedImage>, dataUrl: string): DecodedImage | null {
+    const redrawn = converted.get(dataUrl.trim())
+    if (redrawn) return redrawn
     const bytes = decodeDataUrl(dataUrl)
-    if (!bytes) return null
-    const kind = imageKind(bytes)
-    if (!kind) return null
-    const size = fit(imageSize(kind, bytes) ?? { width: maxWidth, height: maxHeight }, maxWidth, maxHeight)
-    return new ImageRun({ type: kind, data: bytes, transformation: size, altText: { name, description: name } })
+    const kind = bytes ? imageKind(bytes) : null
+    return bytes && kind ? { kind, bytes, size: imageSize(kind, bytes) } : null
+}
+
+function embeddedImage(image: DecodedImage | null, maxWidth: number, maxHeight: number, name: string): ImageRun | null {
+    if (!image) return null
+    const size = fit(image.size ?? { width: maxWidth, height: maxHeight }, maxWidth, maxHeight)
+    return new ImageRun({ type: image.kind, data: image.bytes, transformation: size, altText: { name, description: name } })
+}
+
+/** Longest side a redrawn image gets, well inside browser canvas limits. */
+const MAX_REDRAW_SIDE = 4096
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        // `Image` alone is the mdast type here.
+        const img = new globalThis.Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('Image could not be read.'))
+        img.src = src
+    })
+}
+
+/** The size an SVG shows at in an `<img>`: its width and height, else its viewBox. */
+function svgSize(markup: string): { width: number; height: number } | null {
+    const tag = /<svg\b[^>]*>/i.exec(markup)?.[0]
+    if (!tag) return null
+    const attribute = (name: string) => new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(tag)?.[1]?.trim() ?? ''
+    const length = (value: string) => (/^\d*\.?\d+(px)?$/i.test(value) ? parseFloat(value) : 0)
+    const width = length(attribute('width'))
+    const height = length(attribute('height'))
+    if (width > 0 && height > 0) return { width, height }
+    const box = attribute('viewBox')
+        .split(/[\s,]+/)
+        .map(Number)
+    const boxWidth = box.length === 4 ? box[2]! : 0
+    const boxHeight = box.length === 4 ? box[3]! : 0
+    if (!(boxWidth > 0 && boxHeight > 0)) return null
+    if (width > 0) return { width, height: (width * boxHeight) / boxWidth }
+    if (height > 0) return { width: (height * boxWidth) / boxHeight, height }
+    return { width: boxWidth, height: boxHeight }
+}
+
+/** Draws an image Word can't take (SVG, WebP…) as a PNG, the way the PDF's `<img>` shows it. Null where that fails. */
+async function redrawAsPng(dataUrl: string): Promise<DecodedImage | null> {
+    if (typeof document === 'undefined' || typeof globalThis.Image === 'undefined') return null
+    const bytes = decodeDataUrl(dataUrl)
+    if (!bytes || imageKind(bytes)) return null
+    try {
+        const img = await loadImage(dataUrl)
+        const svg = /^data:image\/svg\+xml[;,]/i.test(dataUrl)
+        const natural = img.naturalWidth > 0 && img.naturalHeight > 0 ? { width: img.naturalWidth, height: img.naturalHeight } : null
+        const size = (svg ? svgSize(new TextDecoder().decode(bytes)) : null) ?? natural
+        if (!size) return null
+        // Vector art is drawn at 2x so it stays sharp; pictures keep their own pixels.
+        const scale = Math.min(svg ? 2 : 1, MAX_REDRAW_SIDE / Math.max(size.width, size.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(size.width * scale))
+        canvas.height = Math.max(1, Math.round(size.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return null
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/png'))
+        if (!blob) return null
+        return { kind: 'png', bytes: new Uint8Array(await blob.arrayBuffer()), size }
+    } catch {
+        return null
+    }
+}
+
+/** Redraws, once each, every logo, bar and body image that Word can't embed as it is. */
+async function convertImages(exportDocument: ExportDocument): Promise<Map<string, DecodedImage>> {
+    const { assets, tree } = exportDocument
+    const urls = new Set(
+        [assets.logoDataUrl, assets.header.left, assets.header.right, assets.footer.left, assets.footer.right].map((url) => url.trim())
+    )
+    visit(tree, 'image', (node: Image) => {
+        urls.add(node.url.trim())
+    })
+    const converted = new Map<string, DecodedImage>()
+    await Promise.all(
+        [...urls]
+            .filter((url) => url.startsWith('data:'))
+            .map(async (url) => {
+                const image = await redrawAsPng(url)
+                if (image) converted.set(url, image)
+            })
+    )
+    return converted
+}
+
+/** The logo and bar images come from Settings and have no alt text to fall back to, so say when one is left out. */
+function warnAboutDroppedImages(state: RenderState) {
+    const { profile, assets } = state.document
+    const layout = resolvePdfExportLayout(profile)
+    const slots: [used: boolean, dataUrl: string, label: string][] = [
+        [profile.frontMatter.titlePage, assets.logoDataUrl, 'title-page logo'],
+        [layout.showHeader, assets.header.left, 'header image'],
+        [layout.showHeader, assets.header.right, 'header image'],
+        [layout.showFooter, assets.footer.left, 'footer image'],
+        [layout.showFooter, assets.footer.right, 'footer image'],
+    ]
+    const dropped = [
+        ...new Set(slots.filter(([used, url]) => used && url.trim() !== '' && !decodeImage(state.images, url)).map(([, , label]) => label)),
+    ]
+    if (dropped.length === 0) return
+    const list = dropped.length === 1 ? dropped[0] : `${dropped.slice(0, -1).join(', ')} and ${dropped[dropped.length - 1]}`
+    notifyWarning("Some images aren't in the Word file", { description: `Couldn't add the ${list}. Try a PNG or JPEG file instead.` })
 }
 
 function mmToPx(mm: number): number {
@@ -353,6 +463,10 @@ function plainText(node: { value?: string; children?: unknown[] }): string {
 type RenderState = {
     document: ExportDocument
     prepared: Map<Code, PreparedCode>
+    /** PNGs redrawn from images Word can't take, keyed by their data URL. */
+    images: Map<string, DecodedImage>
+    /** The cover logo, decoded once. Null when there is none or it can't be embedded. */
+    logo: DecodedImage | null
     numbering: { reference: string; levels: ILevelsOptions[] }[]
     nextList: number
     footnotes: Record<number, { children: Paragraph[] }>
@@ -373,7 +487,7 @@ type RenderState = {
     insetRight: number
 }
 
-function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>): RenderState {
+function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
     const { profile } = document
     const portrait = pdfPageSizeMm(profile)
     const landscape = profile.page.orientation === 'landscape'
@@ -386,6 +500,8 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     return {
         document,
         prepared,
+        images,
+        logo: decodeImage(images, document.assets.logoDataUrl),
         numbering: [],
         nextList: 1,
         footnotes: {},
@@ -503,7 +619,7 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
 }
 
 function renderImage(state: RenderState, node: Image): ImageRun | null {
-    return embeddedImage(node.url, Math.min(state.contentPx, 640), 480, node.alt || 'image')
+    return embeddedImage(decodeImage(state.images, node.url), Math.min(state.contentPx, 640), 480, node.alt || 'image')
 }
 
 function paragraphOptions(state: RenderState, marks: Marks = {}) {
@@ -823,8 +939,8 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
     const fill = chrome.backgroundColor.trim() ? hexColor(chrome.backgroundColor, 'FFFFFF') : undefined
     const color = hexColor(chrome.textColor, CHROME_TEXT_COLOR, fill)
     const maxHeight = chrome.heightMm > 0 ? mmToPx(chrome.heightMm) : 28
-    const leftImage = embeddedImage(images.left, 160, maxHeight, `${kind} left`)
-    const rightImage = embeddedImage(images.right, 160, maxHeight, `${kind} right`)
+    const leftImage = embeddedImage(decodeImage(state.images, images.left), 160, maxHeight, `${kind} left`)
+    const rightImage = embeddedImage(decodeImage(state.images, images.right), 160, maxHeight, `${kind} right`)
     const leftText = resolvePdfChromeText(chrome.left.text, metadata)
     const rightRuns = kind === 'footer' ? pageNumberRuns(state, color) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
     const leftChildren = [...(leftImage ? [leftImage] : []), ...textRuns(state, leftText, color)]
@@ -902,10 +1018,10 @@ function headerShowsOnTitle(profile: PdfExportProfile): boolean {
     return layout.showHeader && profile.header.hideOnFirstPages === 'none'
 }
 
-/** A cover image that should run to the paper edge. The PDF keys this off the logo path; here the resolved image is what gets drawn. */
+/** A cover image that should run to the paper edge. The PDF keys this off the logo path; here the image that actually gets drawn decides. */
 function logoHasBleed(state: RenderState): boolean {
-    const { profile, assets } = state.document
-    return profile.frontMatter.titlePage && profile.brand.logoIgnoreMargins && assets.logoDataUrl.trim() !== ''
+    const { profile } = state.document
+    return profile.frontMatter.titlePage && profile.brand.logoIgnoreMargins && state.logo !== null
 }
 
 /**
@@ -972,12 +1088,9 @@ async function cropCover(
 }
 
 async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx: number } | null> {
-    const { profile, assets } = state.document
-    const bytes = decodeDataUrl(assets.logoDataUrl)
-    if (!bytes) return null
-    const kind = imageKind(bytes)
-    if (!kind) return null
-    const intrinsic = imageSize(kind, bytes)
+    const { profile } = state.document
+    if (!state.logo) return null
+    const { bytes, kind, size: intrinsic } = state.logo
     const bleed = profile.brand.logoIgnoreMargins
     const inline = coverIsInline(state)
     // Stay a hair inside the sheet. Rounding millimetres up to pixels makes the image wider than the page, and Word then wraps it.
@@ -1126,9 +1239,7 @@ function textBlockTwip(state: RenderState, text: string, halfPoints: number, wid
 }
 
 function imageTwip(state: RenderState, dataUrl: string): number {
-    const bytes = decodeDataUrl(dataUrl)
-    const kind = bytes ? imageKind(bytes) : null
-    const size = bytes && kind ? imageSize(kind, bytes) : null
+    const size = decodeImage(state.images, dataUrl)?.size
     const fitted = fit(size ?? { width: Math.min(state.contentPx, 640), height: 200 }, Math.min(state.contentPx, 640), 480)
     return pxToTwip(fitted.height)
 }
@@ -1396,7 +1507,7 @@ export async function renderExportDocx(document: ExportDocument): Promise<Uint8A
     })
     const preparedList = await Promise.all(codes.map((node) => prepareCode(node, document.profile)))
     const prepared = new Map(codes.map((node, index) => [node, preparedList[index]!]))
-    const state = createState(document, prepared)
+    const state = createState(document, prepared, await convertImages(document))
     const body = await renderBlocks(state, document.tree.children, true)
     const groups: { id: FrontGroup; children: Block[] }[] = []
     if (document.profile.frontMatter.titlePage) groups.push({ id: 'title', children: await titleBlocks(state) })
@@ -1430,5 +1541,6 @@ export async function renderExportDocx(document: ExportDocument): Promise<Uint8A
     })
 
     const buffer = await Packer.toBuffer(doc, undefined, [{ path: 'word/fontTable.xml', data: fontTableXml(state.monoFont) }])
+    warnAboutDroppedImages(state)
     return new Uint8Array(buffer)
 }

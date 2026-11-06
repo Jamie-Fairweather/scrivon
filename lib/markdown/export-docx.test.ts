@@ -34,7 +34,10 @@ const highlightFencedCodeTokens = vi.hoisted(() =>
 
 vi.mock('@/lib/mermaid/render', () => ({ renderMermaidDiagramForExport }))
 vi.mock('@/lib/mermaid/export', () => ({ svgToPngBlob }))
+const notifyWarning = vi.hoisted(() => vi.fn())
+
 vi.mock('@/lib/markdown/shiki-highlighter', () => ({ highlightFencedCodeTokens }))
+vi.mock('@/lib/notify', () => ({ notifyWarning }))
 
 const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'))
 const GIF = Uint8Array.from(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'))
@@ -113,6 +116,14 @@ function runWith(xml: string, text: string): string {
     const end = xml.indexOf(`>${text}</w:t>`)
     if (end < 0) return ''
     return xml.slice(xml.lastIndexOf('<w:r>', end), end)
+}
+
+/** Display size, in pixels, of the drawing whose alt text is `descr`. */
+function drawingSize(xml: string, descr: string): { width: number; height: number } | null {
+    const at = xml.indexOf(`descr="${descr}"`)
+    if (at < 0) return null
+    const extent = [...xml.slice(0, at).matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/g)].pop()
+    return extent ? { width: Number(extent[1]) / 9525, height: Number(extent[2]) / 9525 } : null
 }
 
 function profile(edit?: (draft: PdfExportProfile) => void): PdfExportProfile {
@@ -234,6 +245,7 @@ const RICH = [
 describe('renderExportDocx', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
+        notifyWarning.mockClear()
     })
 
     it('writes the body: marks, links, images, lists, tables, code, diagrams, and notes', async () => {
@@ -695,6 +707,70 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('b')
     })
 
+    it('redraws SVG and WebP logos, bar images, and body images as PNG for Word', async () => {
+        const canvases = stubImageDecoding()
+        const svgLogo = dataUrl('image/svg+xml', new TextEncoder().encode(svgMarkup('width="200" height="50" viewBox="0 0 400 100"')))
+        const svgIcon = `data:image/svg+xml,${encodeURIComponent(svgMarkup('viewBox="0 0 32 16"'))}`
+        const webp = dataUrl('image/webp', WEBP)
+        const { xml, names } = await render(
+            ['# Alpha', '', `![chart](${svgIcon})`].join('\n'),
+            (draft) => {
+                draft.frontMatter.titlePage = true
+                draft.header.enabled = true
+                draft.footer.enabled = true
+            },
+            { logoDataUrl: svgLogo, header: { left: svgIcon, right: '' }, footer: { left: webp, right: '' } }
+        )
+        // The logo keeps its own 200×50 size; it is drawn at 2x so it stays sharp.
+        expect(canvases).toContainEqual({ width: 400, height: 100 })
+        expect(drawingSize(xml, 'Logo')).toEqual({ width: 200, height: 50 })
+        // The header icon is sized from its viewBox, the WebP from its pixels, both fitted into the bar.
+        expect(drawingSize(xml, 'header left')).toEqual({ width: 32, height: 16 })
+        expect(drawingSize(xml, 'footer left')).toEqual({ width: 37, height: 28 })
+        expect(drawingSize(xml, 'chart')).toEqual({ width: 32, height: 16 })
+        expect(names.filter((name) => name.startsWith('word/media/')).length).toBeGreaterThanOrEqual(3)
+        expect(notifyWarning).not.toHaveBeenCalled()
+    })
+
+    it('says which Settings images were left out when they cannot be redrawn', async () => {
+        const svgLogo = dataUrl('image/svg+xml', new TextEncoder().encode(svgMarkup('width="200" height="50"')))
+        // No canvas here, so nothing can be redrawn.
+        const { xml } = await render(
+            '# Alpha',
+            (draft) => {
+                draft.frontMatter.titlePage = true
+                draft.brand.logoIgnoreMargins = true
+                draft.header.enabled = true
+            },
+            { logoDataUrl: svgLogo, header: { left: svgLogo, right: svgLogo }, footer: { left: svgLogo, right: '' } }
+        )
+        expect(notifyWarning).toHaveBeenCalledTimes(1)
+        expect(notifyWarning).toHaveBeenCalledWith("Some images aren't in the Word file", {
+            description: "Couldn't add the title-page logo and header image. Try a PNG or JPEG file instead.",
+        })
+        // No cover image to run to the edge, so the title page keeps its margins and is centred.
+        expect(xml).toContain('<w:vAlign w:val="center"/>')
+        expect(xml).not.toContain('descr="Logo"')
+
+        stubImageDecoding()
+        await render(
+            '# Alpha',
+            (draft) => {
+                draft.frontMatter.titlePage = true
+                draft.header.enabled = true
+                draft.footer.enabled = true
+            },
+            {
+                logoDataUrl: 'data:image/webp;base64,broken',
+                header: { left: '', right: '' },
+                footer: { left: '', right: 'data:image/webp;base64,broken' },
+            }
+        )
+        expect(notifyWarning).toHaveBeenLastCalledWith("Some images aren't in the Word file", {
+            description: "Couldn't add the title-page logo and footer image. Try a PNG or JPEG file instead.",
+        })
+    })
+
     it('places a bleeding cover against the paper when the bars change', async () => {
         const cover = (source: string, edit: (draft: PdfExportProfile) => void, logo = PNG_URL) =>
             render(source, edit, { logoDataUrl: logo, header: { left: '', right: '' }, footer: { left: '', right: '' } })
@@ -780,6 +856,47 @@ describe('renderExportDocx', () => {
         }
     })
 })
+
+const WEBP = Uint8Array.from([...new TextEncoder().encode('RIFF'), 0, 0, 0, 0, ...new TextEncoder().encode('WEBPVP8 ')])
+
+function svgMarkup(attributes: string): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}><rect width="10" height="10"/></svg>`
+}
+
+/** Fake `<img>` and canvas. Every picture is 640×480; `broken` data fails to load. Each canvas hands back a PNG of its own size. */
+function stubImageDecoding() {
+    const canvases: { width: number; height: number }[] = []
+    class FakeImage {
+        naturalWidth = 0
+        naturalHeight = 0
+        onload: (() => void) | null = null
+        onerror: (() => void) | null = null
+        set src(value: string) {
+            queueMicrotask(() => {
+                if (value.includes('broken')) return this.onerror?.()
+                this.naturalWidth = 640
+                this.naturalHeight = 480
+                this.onload?.()
+            })
+        }
+    }
+    vi.stubGlobal('Image', FakeImage)
+    vi.stubGlobal('document', {
+        createElement() {
+            const canvas = {
+                width: 0,
+                height: 0,
+                getContext: () => ({ drawImage() {} }),
+                toBlob(callback: (blob: Blob | null) => void) {
+                    canvases.push({ width: canvas.width, height: canvas.height })
+                    callback(new Blob([Uint8Array.from(sizedPng(canvas.width, canvas.height))]))
+                },
+            }
+            return canvas
+        },
+    })
+    return canvases
+}
 
 function stubCoverCanvas(mode: 'ok' | 'no-context' | 'no-blob' | 'throw') {
     vi.stubGlobal('createImageBitmap', async () => {
