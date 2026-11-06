@@ -125,6 +125,8 @@ export function DocumentExportMenu() {
                     source={markdownSource}
                     tabName={tabName}
                     format={exportFormat}
+                    exporting={exporting}
+                    onExportingChange={setExporting}
                 />
             ) : null}
         </>

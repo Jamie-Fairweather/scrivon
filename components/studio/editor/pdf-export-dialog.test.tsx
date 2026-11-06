@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
 import type { ExportResult } from '@/lib/markdown/export-pdf'
@@ -15,10 +16,26 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 // happy-dom has no Web Animations API; the dialog's scroll area asks for running animations.
 if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
 
+/** Stands in for the export menu, which owns the export state; `shown` mimics a tab switch unmounting the dialog. */
+function Owner({ shown = true, onOpenChange }: { shown?: boolean; onOpenChange: (open: boolean) => void }) {
+    const [exporting, setExporting] = useState(false)
+    if (!shown) return <p>{exporting ? 'Menu busy' : 'Menu idle'}</p>
+    return (
+        <PdfExportDialog
+            open
+            onOpenChange={onOpenChange}
+            source={'# Report\n\nBody'}
+            tabName="report.md"
+            exporting={exporting}
+            onExportingChange={setExporting}
+        />
+    )
+}
+
 function renderDialog() {
     const onOpenChange = vi.fn()
-    render(<PdfExportDialog open onOpenChange={onOpenChange} source={'# Report\n\nBody'} tabName="report.md" />)
-    return { onOpenChange }
+    const view = render(<Owner onOpenChange={onOpenChange} />)
+    return { onOpenChange, view }
 }
 
 async function exportWithTitle(title: string) {
@@ -99,5 +116,31 @@ describe('PdfExportDialog', () => {
         expect(title).not.toBeDisabled()
         fireEvent.click(screen.getByRole('button', { name: 'Close' }))
         expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('keeps the export busy across a remount and never lets it close the newer dialog', async () => {
+        let finish: (result: ExportResult) => void = () => undefined
+        exportMarkdown.mockReturnValue(new Promise<ExportResult>((resolve) => (finish = resolve)))
+        const { onOpenChange, view } = renderDialog()
+        await screen.findByLabelText('Title')
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+        await waitFor(() => expect(screen.getByText('Exporting…')).toBeInTheDocument())
+
+        // A tab switch unmounts the dialog mid-export; the owner still knows an export is running.
+        view.rerender(<Owner shown={false} onOpenChange={onOpenChange} />)
+        expect(screen.getByText('Menu busy')).toBeInTheDocument()
+
+        // The dialog comes back while the first export runs: it is locked, so no second export can start.
+        view.rerender(<Owner onOpenChange={onOpenChange} />)
+        const title = await screen.findByLabelText('Title')
+        expect(screen.getByText('Exporting…')).toBeInTheDocument()
+        expect(title).toBeDisabled()
+
+        finish({ status: 'saved', path: 'C:/out/report.pdf' })
+        await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
+        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
+        expect(onOpenChange).not.toHaveBeenCalled()
+        expect(exportMarkdown).toHaveBeenCalledTimes(1)
+        expect(screen.getByLabelText('Title')).not.toBeDisabled()
     })
 })

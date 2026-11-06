@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { exportMarkdown, notifyExportSaved, type ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { notifyError } from '@/lib/notify'
 import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
@@ -18,13 +19,18 @@ type PdfExportDialogProps = {
     source: string
     tabName: string | undefined
     format?: ExportFormat
+    /**
+     * Whether an export is running. Kept by the owner, not the dialog, so it outlives the dialog
+     * (a tab switch can unmount it mid-export) and a second export can't start alongside the first.
+     */
+    exporting: boolean
+    onExportingChange: (exporting: boolean) => void
 }
 
-export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 'pdf' }: PdfExportDialogProps) {
-    const [busy, setBusy] = useState(false)
+export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 'pdf', exporting, onExportingChange }: PdfExportDialogProps) {
     // Closing mid-export would leave the save picker popping up later with no dialog behind it.
     const handleOpenChange = (next: boolean) => {
-        if (!next && busy) return
+        if (!next && exporting) return
         onOpenChange(next)
     }
     return (
@@ -36,8 +42,8 @@ export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 
                     source={source}
                     tabName={tabName}
                     initialFormat={format}
-                    busy={busy}
-                    onBusyChange={setBusy}
+                    busy={exporting}
+                    onBusyChange={onExportingChange}
                     onClose={() => onOpenChange(false)}
                 />
             </DialogPopup>
@@ -81,11 +87,26 @@ function PdfExportForm({
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
 
+    // Whether this form is still on screen, so an export that outlives it never closes a newer dialog.
+    const mounted = useRef(false)
+    useEffect(() => {
+        mounted.current = true
+        return () => {
+            mounted.current = false
+        }
+    }, [])
+
     const runExport = async () => {
         onBusyChange(true)
         setError('')
         try {
             const result = await exportMarkdown(source, tabName, { format, profile, overrides })
+            if (!mounted.current) {
+                // The dialog went away mid-export: still say how it ended, but leave whatever is open now alone.
+                if (result.status === 'saved') notifyExportSaved(result.path, result.missingImages)
+                else if (result.status === 'failed') notifyError('Export failed', undefined, { description: result.message })
+                return
+            }
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
                 notifyExportSaved(result.path, result.missingImages)
