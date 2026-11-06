@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Maximize2 } from 'lucide-react'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,22 @@ import { cn } from '@/lib/utils'
 const DIAGRAM_PADDING_X = 32
 /** Top padding (pt-10) plus bottom padding (pb-4): the top strip keeps the Expand button off the diagram. */
 const DIAGRAM_PADDING_Y = 56
+const MAX_BOUNDS_CACHE_ENTRIES = 100
+
+/**
+ * Tight bounds measured for each SVG, so a diagram that mounts again (switching back to its tab) is laid out at
+ * its measured size straight away, instead of at its padded size until its iframe loads and is measured again.
+ */
+const measuredBoundsBySvg = new Map<string, SvgContentBounds>()
+
+function rememberMeasuredBounds(svg: string, bounds: SvgContentBounds): void {
+    measuredBoundsBySvg.delete(svg)
+    measuredBoundsBySvg.set(svg, bounds)
+    if (measuredBoundsBySvg.size > MAX_BOUNDS_CACHE_ENTRIES) {
+        const oldest = measuredBoundsBySvg.keys().next().value
+        if (oldest !== undefined) measuredBoundsBySvg.delete(oldest)
+    }
+}
 
 type EmbeddedMermaidBlockProps = {
     source: string
@@ -69,7 +85,8 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
         }
     }, [svgForDisplay])
 
-    useEffect(() => {
+    // Measured before the browser paints, so a cached diagram's first frame is already scaled to fit.
+    useLayoutEffect(() => {
         const el = containerRef.current
         if (!el) return
 
@@ -82,13 +99,14 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
     }, [blockId])
 
     const onBoundsMeasured = useCallback((bounds: SvgContentBounds, measuredForSvg: string) => {
+        rememberMeasuredBounds(measuredForSvg, bounds)
         if (measuredForSvg === displayedSvgRef.current) {
             setContentBounds(bounds)
             setBoundsForSvg(measuredForSvg)
         }
     }, [])
 
-    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : null
+    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : svgForDisplay ? (measuredBoundsBySvg.get(svgForDisplay) ?? null) : null
     const fitWidth = effectiveBounds?.width ?? dimensions?.width
     const fitHeight = effectiveBounds?.height ?? dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)
@@ -96,8 +114,11 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
     const layoutWidth = fitWidth ? fitWidth * scale : undefined
     const layoutHeight = fitHeight ? fitHeight * scale : undefined
 
-    const showDiagram = trimmed.length > 0 && Boolean(svgForDisplay) && !error && fitWidth != null && fitHeight != null
-    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0)
+    const diagramReady = trimmed.length > 0 && Boolean(svgForDisplay) && !error && fitWidth != null && fitHeight != null
+    // Without a width (not measured yet, or the preview is hidden) the diagram would draw at full size, so the
+    // placeholder holds its place instead.
+    const showDiagram = diagramReady && containerWidth > 0
+    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0 || diagramReady)
 
     return (
         <div className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
