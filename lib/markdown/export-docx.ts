@@ -90,6 +90,8 @@ type Marks = {
 
 const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-monospace', 'ui-serif', 'ui-sans-serif'])
 const SKIP_FONTS = new Set(['blinkmacsystemfont', 'sfmono-regular'])
+/** Fonts only Macs have. Windows has no substitute for them, so a later name in the stack wins when there is one. */
+const MAC_ONLY_FONTS = new Set(['menlo', 'monaco', 'sf mono', 'helvetica neue', 'lucida grande', 'geneva', 'apple color emoji'])
 const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 const GRID_BORDER = { style: BorderStyle.SINGLE, size: 4, color: 'E5E5E5' }
 /** Same cap the PDF cover uses (`max-height: 150mm`). */
@@ -119,12 +121,28 @@ const HEADING_LEVELS = [
 ] as const
 
 function wordFont(stack: string, fallback: string): string {
-    for (const part of stack.split(',')) {
-        const name = part.trim().replace(/^["']|["']$/g, '')
-        if (!name || name.startsWith('-') || GENERIC_FONTS.has(name) || SKIP_FONTS.has(name.toLowerCase())) continue
-        return name
-    }
-    return fallback
+    const names = stack
+        .split(',')
+        .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+        .filter((name) => name && !name.startsWith('-') && !GENERIC_FONTS.has(name.toLowerCase()) && !SKIP_FONTS.has(name.toLowerCase()))
+    return names.find((name) => !MAC_ONLY_FONTS.has(name.toLowerCase())) ?? names[0] ?? fallback
+}
+
+function escapeXml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+}
+
+/**
+ * docx only lists embedded fonts, so Word gets no hint about the code font.
+ * Marking it fixed-pitch makes Word swap in another monospace font when it isn't installed.
+ */
+function fontTableXml(monoFont: string): string {
+    return [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+        `<w:font w:name="${escapeXml(monoFont)}"><w:family w:val="modern"/><w:pitch w:val="fixed"/></w:font>`,
+        '</w:fonts>',
+    ].join('')
 }
 
 function hexColor(value: string, fallback: string): string {
@@ -1358,6 +1376,6 @@ export async function renderExportDocx(document: ExportDocument): Promise<Uint8A
         sections: buildSections(state, groups, watermark),
     })
 
-    const buffer = await Packer.toBuffer(doc)
+    const buffer = await Packer.toBuffer(doc, undefined, [{ path: 'word/fontTable.xml', data: fontTableXml(state.monoFont) }])
     return new Uint8Array(buffer)
 }

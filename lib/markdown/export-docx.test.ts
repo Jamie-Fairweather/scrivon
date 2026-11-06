@@ -256,7 +256,9 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('block')
         expect(xml).toContain('raw')
         expect(xml).toContain('Segoe UI')
-        expect(xml).toContain('Menlo')
+        // The default mono stack starts with Mac-only fonts. Windows has neither, so Word gets Consolas.
+        expect(xml).toContain('w:ascii="Consolas"')
+        expect(xml).not.toContain('Menlo')
         expect(xml).toContain('F6F8FA')
         // Heading runs carry their own size. A body-sized run was flattening every level.
         expect(xml).toMatch(/w:val="Heading1"[\s\S]{0,800}w:val="36"/)
@@ -276,6 +278,27 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('w:lineRule="atLeast"')
         expect(xml).toContain('w:line="352"')
         expect(xml).toMatch(/w:val="Heading1"[\s\S]{0,250}w:line="576"/)
+    })
+
+    it('picks a code font Windows has and marks it fixed-pitch for Word', async () => {
+        const monaco = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = 'Monaco, Consolas, monospace'
+        })
+        expect(monaco.xml).toContain('w:ascii="Consolas"')
+        expect(monaco.xml).not.toContain('Monaco')
+        expect(monaco.xml).toContain('<w:font w:name="Consolas"><w:family w:val="modern"/><w:pitch w:val="fixed"/></w:font>')
+
+        // Only Mac fonts named: keep the choice, and the fixed-pitch hint lets Word pick a monospace stand-in.
+        const menlo = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = 'Menlo, Monospace'
+        })
+        expect(menlo.xml).toContain('w:ascii="Menlo"')
+        expect(menlo.xml).toContain('<w:font w:name="Menlo"><w:family w:val="modern"/><w:pitch w:val="fixed"/></w:font>')
+
+        const escaped = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = '"A&B Mono"'
+        })
+        expect(escaped.xml).toContain('<w:font w:name="A&amp;B Mono">')
     })
 
     it('justifies body paragraphs and leaves headings, lists, quotes, and tables left aligned', async () => {
