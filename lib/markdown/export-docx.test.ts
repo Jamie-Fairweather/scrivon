@@ -490,6 +490,21 @@ describe('renderExportDocx', () => {
         expect(xml).not.toContain('TOC \\h \\o')
     })
 
+    it('centres the title page on its own page with the default profile', async () => {
+        const { xml } = await render('# Hello\n\n## World', (draft) => {
+            draft.frontMatter.titlePage = true
+            draft.frontMatter.toc = true
+        })
+        const sections = xml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/g) ?? []
+        expect(sections).toHaveLength(2)
+        // The cover's section is the first one written, and the only one centred.
+        expect(sections[0]).toContain('<w:vAlign w:val="center"/>')
+        expect(sections[1]).not.toContain('w:vAlign')
+        expect(sections[1]).toContain('w:val="nextPage"')
+        // The page count is unchanged: cover, contents, then the body on page 3.
+        expect(tocPage(xml, 'world')).toBe(3)
+    })
+
     it('puts a bleeding cover image and both bars on the paper edge', async () => {
         const { xml } = await render(
             '# Alpha\n\n## Beta',

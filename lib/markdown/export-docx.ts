@@ -1582,7 +1582,10 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         const showFooter = chromeVisible(profile, 'footer', group.id)
         const key = `${showHeader}:${showFooter}`
         const previous = merged[merged.length - 1]
-        if (previous && previous.key === key) {
+        // A cover with no bleeding image is centred on its page, which only works in a section of its own.
+        // A bleeding cover stays merged: its spacing assumes it shares the next page's margins.
+        const keepTitleAlone = previous?.titleOnly === true && !logoHasBleed(state)
+        if (previous && previous.key === key && !keepTitleAlone) {
             previous.titleOnly = false
             previous.children.push(new Paragraph({ children: [new PageBreak()] }), ...group.children)
         } else {
