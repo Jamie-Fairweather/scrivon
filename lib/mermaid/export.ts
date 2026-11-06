@@ -149,11 +149,14 @@ async function saveText(content: string, filename: string, documentPath: string 
 
 /**
  * Chromium can't draw a canvas wider or taller than 32,767 px or bigger than about 268 million
- * pixels, and fails without saying why. Stay well inside that so big exports also don't run the
- * app out of memory (100 million pixels is about 400 MB).
+ * pixels, and fails without saying why. Keep to the side limit, so long thin diagrams still fit,
+ * but stay well inside the area limit so big exports don't run the app out of memory (100 million
+ * pixels is about 400 MB).
  */
-const MAX_CANVAS_SIDE = 16_384
+const MAX_CANVAS_SIDE = 32_767
 const MAX_CANVAS_AREA = 100_000_000
+/** Below half size the labels get too small to read, and SVG is the better choice. */
+const MIN_PNG_SCALE = 0.5
 
 const PNG_TOO_LARGE_MESSAGE = 'This diagram is too big to save as a PNG. Save it as SVG instead.'
 const PNG_FAILED_MESSAGE = "Couldn't create the PNG. Try a smaller size, or save as SVG."
@@ -246,9 +249,9 @@ export async function exportPng(source: string, themeId: AppThemeId, target: Dia
             throw new Error('Could not determine diagram dimensions.')
         }
 
-        // Shrink to fit rather than fail, but not below 1x: smaller than that, SVG is the better choice.
+        // Shrink to fit rather than fail, but not so far that the labels can't be read.
         const drawScale = fitPngScale(dims, scale)
-        if (drawScale < 1) {
+        if (drawScale < MIN_PNG_SCALE) {
             throw new Error(PNG_TOO_LARGE_MESSAGE)
         }
 

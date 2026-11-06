@@ -161,9 +161,9 @@ describe('PNG size limits (B106)', () => {
         expect(fitPngScale({ width: 800, height: 600 }, 4)).toBe(4)
     })
 
-    it('shrinks the scale so neither side passes 16,384 px', () => {
-        const scale = fitPngScale({ width: 8312, height: 200 }, 4)
-        expect(8312 * scale).toBeCloseTo(16_384, 6)
+    it('shrinks the scale so neither side passes 32,767 px', () => {
+        const scale = fitPngScale({ width: 10_000, height: 200 }, 4)
+        expect(10_000 * scale).toBeCloseTo(32_767, 6)
     })
 
     it('shrinks the scale so the image stays under 100 million pixels', () => {
@@ -191,23 +191,52 @@ describe('PNG size limits (B106)', () => {
     }
 
     it('saves a smaller PNG and says so when 4x is too big', async () => {
-        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8000 400" width="8000" height="400"></svg>'
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10000 400" width="10000" height="400"></svg>'
         const canvas = stubCanvas()
         dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\wide.png')
 
         await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'wide.mmd' }, 4)
 
         expect(notify.notifyError).not.toHaveBeenCalled()
-        expect(canvas.width).toBe(16_384)
-        expect(canvas.height).toBe(819)
+        expect(canvas.width).toBe(32_767)
+        expect(canvas.height).toBe(1311)
         expect(dialog.writeBinaryFile).toHaveBeenCalled()
         expect(notify.notifyWarning).toHaveBeenCalledWith('Saved a smaller PNG', {
-            description: 'This diagram is too big for 4×, so it was saved at 16384 × 819 px.',
+            description: 'This diagram is too big for 4×, so it was saved at 32767 × 1311 px.',
         })
     })
 
-    it('says to use SVG when even 1x is too big, instead of a vague canvas error', async () => {
-        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42000 300" width="42000" height="300"></svg>'
+    it('still saves a long thin diagram at 1x, as it could before the size limits (B106 review)', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20000 400" width="20000" height="400"></svg>'
+        const canvas = stubCanvas()
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\chain.png')
+
+        await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'chain.mmd' }, 1)
+
+        expect(notify.notifyError).not.toHaveBeenCalled()
+        expect(canvas.width).toBe(20_000)
+        expect(canvas.height).toBe(400)
+        expect(dialog.writeBinaryFile).toHaveBeenCalled()
+        expect(notify.notifyWarning).not.toHaveBeenCalled()
+    })
+
+    it('saves below 1x, and says so, when even 1x is too big (B106 review)', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40000 300" width="40000" height="300"></svg>'
+        const canvas = stubCanvas()
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\chain.png')
+
+        await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'chain.mmd' }, 1)
+
+        expect(notify.notifyError).not.toHaveBeenCalled()
+        expect(canvas.width).toBe(32_767)
+        expect(canvas.height).toBe(246)
+        expect(notify.notifyWarning).toHaveBeenCalledWith('Saved a smaller PNG', {
+            description: 'This diagram is too big for 1×, so it was saved at 32767 × 246 px.',
+        })
+    })
+
+    it('says to use SVG when even half size is too big, instead of a vague canvas error', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 70000 300" width="70000" height="300"></svg>'
         stubCanvas()
 
         await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'huge.mmd' }, 1)
@@ -220,7 +249,7 @@ describe('PNG size limits (B106)', () => {
     })
 
     it('does not warn when the user cancels the save dialog', async () => {
-        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8000 400" width="8000" height="400"></svg>'
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10000 400" width="10000" height="400"></svg>'
         stubCanvas()
 
         await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'wide.mmd' }, 4)
