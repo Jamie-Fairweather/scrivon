@@ -6,10 +6,10 @@ use tauri_plugin_prevent_default::{Builder, Flags};
 fn blocked_shortcuts() -> Flags {
     let flags = Flags::all().difference(Flags::FOCUS_MOVE);
 
-    // Keep devtools and reload available while developing (see also
-    // `with_platform_options`).
+    // Keep devtools, reload and the right-click Inspect item available while
+    // developing (see also `with_platform_options`).
     #[cfg(debug_assertions)]
-    let flags = flags.difference(Flags::DEV_TOOLS | Flags::RELOAD);
+    let flags = flags.difference(Flags::DEV_TOOLS | Flags::RELOAD | Flags::CONTEXT_MENU);
 
     flags
 }
@@ -44,6 +44,16 @@ mod tests {
     #[test]
     fn shift_tab_still_moves_focus_backwards() {
         assert!(!blocked_shortcuts().contains(Flags::FOCUS_MOVE));
-        assert!(blocked_shortcuts().contains(Flags::FIND | Flags::PRINT | Flags::CONTEXT_MENU));
+        assert!(blocked_shortcuts().contains(Flags::FIND | Flags::PRINT));
+    }
+
+    #[test]
+    fn only_release_builds_turn_off_the_browser_menu_and_devtools() {
+        let developer_tools = Flags::DEV_TOOLS | Flags::RELOAD | Flags::CONTEXT_MENU;
+        if cfg!(debug_assertions) {
+            assert!(!blocked_shortcuts().intersects(developer_tools));
+        } else {
+            assert!(blocked_shortcuts().contains(developer_tools));
+        }
     }
 }
