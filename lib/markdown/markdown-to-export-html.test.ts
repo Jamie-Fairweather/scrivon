@@ -263,6 +263,22 @@ SHIKI_FAIL
         expect(empty).not.toContain('class="pdf-chrome-table')
     })
 
+    it('keeps a watermark or other profile text from ending the stylesheet early', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.content.watermark = 'DRAFT</style><h1>oops'
+        const { html } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain('content: "DRAFT\\3c /style>\\3c h1>oops";')
+        expect(html.match(/<\/style>/gi)).toHaveLength(1)
+        expect(html).not.toContain('<h1>oops')
+
+        // A value written into the CSS raw is caught before it reaches the page too.
+        profile.typography.bodyFont = 'Arial</STYLE><h1>font'
+        const { html: font } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(font.match(/<\/style>/gi)).toHaveLength(1)
+        expect(font).toContain('Arial<\\/STYLE><h1>font')
+    })
+
     it('lays out custom footer text the stamper font cannot draw as html beside the counter', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

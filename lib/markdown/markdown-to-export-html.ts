@@ -266,7 +266,9 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
     const toc = renderToc(tocItems, stamped)
     const baseCss = buildPdfExportCss(profile, metadata)
-    const css = stamped ? baseCss : `${baseCss}\n  ${printDialogPageNumberCss(profile, metadata)}`
+    const stylesheet = stamped ? baseCss : `${baseCss}\n  ${printDialogPageNumberCss(profile, metadata)}`
+    // Backstop for any profile value written into the CSS raw: `</style` would end the stylesheet and start markup.
+    const css = stylesheet.replace(/<\/(style)/gi, '<\\/$1')
 
     const html = `<!DOCTYPE html>
 <html lang="${escapeHtml(lang)}">
