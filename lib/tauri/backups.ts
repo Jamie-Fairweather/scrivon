@@ -88,6 +88,16 @@ export function deleteUnsavedBackup(path: string): Promise<void> {
     }, undefined)
 }
 
+/**
+ * Waits until every change asked for so far has reached the disk, for at most `timeoutMs`. Closing the
+ * window or a folder waits for this, so a copy removed just before can't come back on the next launch.
+ */
+export function settleUnsavedBackups(timeoutMs: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<void>((resolve) => (timer = setTimeout(resolve, timeoutMs)))
+    return Promise.race([queue.then(() => undefined), timeout]).finally(() => clearTimeout(timer))
+}
+
 /** Every copy of unsaved text still kept, newest first. */
 export function listUnsavedBackups(): Promise<UnsavedBackup[]> {
     return run(async (s) => {

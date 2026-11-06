@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { isTauri } from '@/lib/tauri/platform'
-import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from './backups'
+import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, settleUnsavedBackups, type UnsavedBackup } from './backups'
 
 const fake = vi.hoisted(() => ({
     data: new Map<string, unknown>(),
     saves: 0,
     options: undefined as unknown,
+    /** When set, writing the store to disk waits for it. */
+    saveGate: null as Promise<void> | null,
 }))
 
 vi.mock('@tauri-apps/plugin-store', () => ({
@@ -24,6 +26,7 @@ vi.mock('@tauri-apps/plugin-store', () => ({
             return [...fake.data.values()]
         }
         async save() {
+            if (fake.saveGate) await fake.saveGate
             fake.saves += 1
         }
     },
@@ -73,6 +76,29 @@ describe('unsaved-change backups', () => {
 
         expect(await listUnsavedBackups()).toEqual([])
         expect(fake.saves).toBe(1)
+    })
+
+    it('lets closing wait until a removal has reached the disk, but never for long', async () => {
+        await saveUnsavedBackup(backup('C:\\ws\\a.md'))
+        let openGate!: () => void
+        fake.saveGate = new Promise<void>((resolve) => (openGate = resolve))
+        try {
+            void deleteUnsavedBackup('C:\\ws\\a.md')
+            let settled = false
+            const settling = settleUnsavedBackups(1000).then(() => (settled = true))
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            expect(settled).toBe(false)
+            openGate()
+            await settling
+            expect(fake.saves).toBe(2)
+
+            // A store that never answers doesn't keep the window open.
+            fake.saveGate = new Promise<void>(() => {})
+            void saveUnsavedBackup(backup('C:\\ws\\b.md'))
+            await expect(settleUnsavedBackups(10)).resolves.toBeUndefined()
+        } finally {
+            fake.saveGate = null
+        }
     })
 
     it('does nothing outside the desktop app', async () => {

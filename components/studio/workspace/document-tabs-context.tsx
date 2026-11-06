@@ -16,6 +16,7 @@ import {
 import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
 import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { dismissNotification, notifyError, notifyWarning } from '@/lib/notify'
+import { settleUnsavedBackups } from '@/lib/tauri/backups'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { getBaseName, getWorkspaceFileSize, isSupportedDocument, normalizePath, readWorkspaceTextFile, samePath } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
@@ -43,6 +44,9 @@ const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
 
 /** How long closing waits for a save before treating it as failed (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
+
+/** How long closing waits for copies of unsaved text to be removed; they are only a safety net. */
+const BACKUP_SETTLE_TIMEOUT_MS = 1_000
 
 /** Time spent waiting for the user to answer a question during the save doesn't count. */
 function saveWithin(save: Promise<boolean>, ms: number, isAskingUser: () => boolean): Promise<boolean | 'timeout'> {
@@ -399,6 +403,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 coordinator.cancelScheduledSave.current(tab.id)
                 dismissNotification(readOnlyNoticeId(tab.id))
             }
+            // The copies of these tabs' unsaved text are gone from disk before the window or folder closes, so
+            // text that was saved, or that the user chose not to save, isn't offered back on the next launch.
+            await settleUnsavedBackups(BACKUP_SETTLE_TIMEOUT_MS)
             return true
         },
         [coordinator]

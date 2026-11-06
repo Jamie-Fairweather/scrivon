@@ -3,7 +3,7 @@ import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { rename, writeFile } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
-import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
+import { deleteUnsavedBackup, saveUnsavedBackup, settleUnsavedBackups } from '@/lib/tauri/backups'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -33,6 +33,7 @@ vi.mock('@/lib/tauri/backups', () => ({
     saveUnsavedBackup: vi.fn(async () => undefined),
     deleteUnsavedBackup: vi.fn(async () => undefined),
     listUnsavedBackups: vi.fn(async () => []),
+    settleUnsavedBackups: vi.fn(async () => undefined),
 }))
 
 function tab(id: string, overrides: Partial<DocumentTab> = {}): DocumentTab {
@@ -347,6 +348,10 @@ describe('copies of unsaved text', () => {
         expect(result.current.tabs.tabs).toEqual([])
         expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
         expect(writeFile).not.toHaveBeenCalled()
+        // Closing waits for the removal to reach the disk, so the window can't close before it does.
+        expect(vi.mocked(settleUnsavedBackups).mock.invocationCallOrder[0]).toBeGreaterThan(
+            vi.mocked(deleteUnsavedBackup).mock.invocationCallOrder[0]!
+        )
     })
 
     it('never copies text the user did not type, such as a read-only file', async () => {

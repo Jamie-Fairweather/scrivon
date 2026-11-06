@@ -33,6 +33,7 @@ vi.mock('@/lib/tauri/backups', () => ({
     saveUnsavedBackup: vi.fn(async () => undefined),
     deleteUnsavedBackup: vi.fn(async () => undefined),
     listUnsavedBackups: vi.fn(async () => []),
+    settleUnsavedBackups: vi.fn(async () => undefined),
 }))
 
 vi.mock('@/lib/notify', async (importOriginal) => ({
