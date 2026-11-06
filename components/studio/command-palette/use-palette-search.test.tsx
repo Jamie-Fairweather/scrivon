@@ -151,6 +151,36 @@ describe('usePaletteSearch file cache', () => {
     })
 })
 
+describe('usePaletteSearch while closed', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/a.md'), file('/ws/b.md')]
+        state.tabs.tabs = [{ id: '/ws/a.md', path: '/ws/a.md', name: 'a.md', content: 'a', isDirty: false }]
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('builds no results while the palette is closed, even as the editor changes', () => {
+        const { result, rerender } = renderHook(() => usePaletteSearch('all', false))
+        const closedGroups = result.current.groups
+        expect(closedGroups).toEqual([])
+
+        // Typing in the editor gives a new tabs array on every keystroke.
+        state.tabs.tabs = [{ ...state.tabs.tabs[0]!, content: 'ab', isDirty: true }]
+        rerender()
+        expect(result.current.groups).toBe(closedGroups)
+    })
+
+    it('builds results once the palette opens', () => {
+        let enabled = false
+        const { result, rerender } = renderHook(() => usePaletteSearch('all', enabled))
+        enabled = true
+        rerender()
+        expect(groupPaths(result.current.groups, 'tabs')).toEqual(['/ws/a.md'])
+    })
+})
+
 describe('usePaletteSearch recent files', () => {
     beforeEach(() => {
         vi.clearAllMocks()

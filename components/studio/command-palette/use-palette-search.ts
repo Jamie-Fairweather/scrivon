@@ -45,6 +45,9 @@ function buildWorkspaceItems(recentWorkspaces: string[], query: string): Palette
     return { id: 'workspaces', label: 'Workspaces', items: filtered }
 }
 
+/** What a closed palette shows: nothing, so editor keystrokes don't re-rank every file. */
+const NO_GROUPS: PaletteGroup[] = []
+
 /** How many commands the default (no '>') results show next to files. */
 export const MAX_MIXED_COMMANDS = 5
 
@@ -177,6 +180,8 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const liveRecentFiles = useMemo(() => resolveRecentFiles(recentFiles, filePaths), [recentFiles, filePaths])
 
     const groups = useMemo((): PaletteGroup[] => {
+        // `enabled` stays true until the close animation ends, so the fading list keeps its results.
+        if (!enabled) return NO_GROUPS
         const { actionsOnly, query: parsedQuery } = parsedQueryState
         const result: PaletteGroup[] = []
 
@@ -227,7 +232,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         }
 
         return result
-    }, [parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, shouldSearchText])
+    }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, shouldSearchText])
 
     useEffect(() => {
         if (!shouldSearchText) {
