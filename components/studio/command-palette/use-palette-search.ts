@@ -165,7 +165,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         }
 
         if (mode === 'all' || mode === 'files') {
-            const tabItems = searchOpenTabs(tabs, parsedQuery, isExampleTabId)
+            const tabItems = searchOpenTabs(tabs, workspaceRoot, parsedQuery, isExampleTabId)
             if (tabItems.length > 0) {
                 result.push({ id: 'tabs', label: 'Open Editors', items: tabItems })
             }

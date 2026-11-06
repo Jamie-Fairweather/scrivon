@@ -68,6 +68,7 @@ describe('searchOpenTabs', () => {
                 { id: 'example:demo', path: 'example:demo', name: 'demo.mmd', isDirty: false },
                 { id: '/workspace/a.md', path: '/workspace/a.md', name: 'a.md', isDirty: true },
             ],
+            '/workspace',
             '',
             (id) => id.startsWith('example:')
         )
@@ -82,12 +83,34 @@ describe('searchOpenTabs', () => {
                 { id: '/workspace/a.md', path: '/workspace/a.md', name: 'a.md', isDirty: false },
                 { id: '/workspace/b.md', path: '/workspace/b.md', name: 'b.md', isDirty: false },
             ],
+            '/workspace',
             'b.md',
             () => false
         )
 
         expect(results).toHaveLength(1)
         expect(results[0]?.path).toBe('/workspace/b.md')
+    })
+
+    it('does not match tabs on letters in the workspace root path', () => {
+        const root = 'C:\\Users\\jamie\\Documents'
+        const tabs = [
+            { id: `${root}/a.mmd`, path: `${root}/a.mmd`, name: 'a.mmd', isDirty: false },
+            { id: `${root}/b.mmd`, path: `${root}/b.mmd`, name: 'b.mmd', isDirty: false },
+        ]
+
+        expect(searchOpenTabs(tabs, root, 'sum', () => false)).toEqual([])
+        expect(searchOpenTabs(tabs, root, 'jamie', () => false)).toEqual([])
+        expect(searchOpenTabs(tabs, root, 'b.mmd', () => false).map((item) => item.name)).toEqual(['b.mmd'])
+    })
+
+    it('matches tabs on their folder inside the workspace', () => {
+        const tabs = [
+            { id: '/workspace/api/flow.mmd', path: '/workspace/api/flow.mmd', name: 'flow.mmd', isDirty: false },
+            { id: '/workspace/flow.mmd', path: '/workspace/flow.mmd', name: 'flow.mmd', isDirty: false },
+        ]
+
+        expect(searchOpenTabs(tabs, '/workspace', 'api flow', () => false).map((item) => item.path)).toEqual(['/workspace/api/flow.mmd'])
     })
 })
 

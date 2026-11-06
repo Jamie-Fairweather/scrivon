@@ -42,15 +42,18 @@ function toFileItem(path: string, workspaceRoot: string): FilePaletteItem {
 
 export function searchOpenTabs(
     tabs: Array<{ id: string; path: string; name: string; isDirty: boolean }>,
+    workspaceRoot: string,
     query: string,
     isExample: (id: string) => boolean
 ): TabPaletteItem[] {
     const workspaceTabs = tabs.filter((t) => !isExample(t.id))
-    const ranked = fuzzyRank(workspaceTabs, query, (t) => `${t.name} ${t.path}`)
+    // Match on the workspace-relative path, like Files, so letters in the root folder don't match every tab.
+    const searchText = (t: { name: string; path: string }) => `${t.name} ${relativePath(workspaceRoot, t.path)}`
+    const ranked = fuzzyRank(workspaceTabs, query, searchText)
     return ranked.slice(0, MAX_TAB_RESULTS).map(({ item }) => ({
         kind: 'tab',
         value: `tab:${item.path}`,
-        searchText: `${item.name} ${item.path}`,
+        searchText: searchText(item),
         path: item.path,
         name: item.name,
         isDirty: item.isDirty,
