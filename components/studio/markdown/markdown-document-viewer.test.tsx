@@ -141,6 +141,49 @@ describe('MarkdownDocumentViewer', () => {
         expect(scroller.scrollTop).toBe(300)
     })
 
+    describe('web images', () => {
+        const withImages = [
+            '![Tracker](https://tracker.example/pixel.png?id=1)',
+            '',
+            '[![Build badge](//badges.example/build.svg)](https://ci.example)',
+            '',
+            '![Local](./diagram.png)',
+        ].join('\n')
+
+        it('blocks web images until asked, and keeps local ones', () => {
+            const { container } = render(viewer(DOC_A, withImages))
+
+            expect(container.querySelector('img[src^="https:"], img[src^="//"]')).toBeNull()
+            expect(screen.getByRole('img', { name: 'Blocked web image: Tracker' })).toHaveAttribute('title', 'https://tracker.example/pixel.png?id=1')
+            expect(screen.getByRole('link', { name: 'Blocked web image: Build badge' })).toHaveAttribute('href', 'https://ci.example')
+            expect(container.querySelector('img[src="./diagram.png"]')).not.toBeNull()
+
+            fireEvent.click(screen.getByRole('button', { name: 'Load images' }))
+
+            expect(container.querySelector('img[src="https://tracker.example/pixel.png?id=1"]')).toHaveAttribute('referrerpolicy', 'no-referrer')
+            expect(container.querySelector('img[src="//badges.example/build.svg"]')).not.toBeNull()
+            expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+
+        it('shows the notice only for documents that have blocked web images', () => {
+            render(viewer(DOC_A, '![Local](./diagram.png)'))
+            expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+
+        it('remembers the choice for each document', () => {
+            const { container, rerender } = render(viewer(DOC_A, withImages))
+            fireEvent.click(screen.getByRole('button', { name: 'Load images' }))
+
+            rerender(viewer(DOC_OTHER, withImages))
+            expect(container.querySelector('img[src^="https:"]')).toBeNull()
+            expect(screen.getByRole('button', { name: 'Load images' })).toBeInTheDocument()
+
+            rerender(viewer(DOC_A, withImages))
+            expect(container.querySelector('img[src^="https:"]')).not.toBeNull()
+            expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+    })
+
     describe('expanded diagram', () => {
         const twoDiagrams = [
             '# Diagrams',

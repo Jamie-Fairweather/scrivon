@@ -22,9 +22,10 @@ vi.mock('react-markdown', async (importOriginal) => {
 })
 
 const noop = () => {}
+const callbacks = { onExpandBlock: noop, onLinkClick: noop, loadRemoteImages: false, onRemoteImageBlocked: () => noop }
 
 function preview(source: string) {
-    return render(<MarkdownPreview source={source} tabId="doc.md" onExpandBlock={noop} onLinkClick={noop} />)
+    return render(<MarkdownPreview source={source} tabId="doc.md" {...callbacks} />)
 }
 
 describe('MarkdownPreview', () => {
@@ -32,10 +33,10 @@ describe('MarkdownPreview', () => {
         const { rerender } = preview('# One')
         const parses = markdownParses.count
 
-        rerender(<MarkdownPreview source="# One" tabId="doc.md" onExpandBlock={noop} onLinkClick={noop} />)
+        rerender(<MarkdownPreview source="# One" tabId="doc.md" {...callbacks} />)
         expect(markdownParses.count).toBe(parses)
 
-        rerender(<MarkdownPreview source="# Two" tabId="doc.md" onExpandBlock={noop} onLinkClick={noop} />)
+        rerender(<MarkdownPreview source="# Two" tabId="doc.md" {...callbacks} />)
         expect(markdownParses.count).toBe(parses + 1)
     })
 

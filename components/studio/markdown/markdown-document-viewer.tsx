@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from 'react'
-import { X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { resolveMarkdownLink } from '@/components/studio/markdown/markdown-links'
@@ -119,6 +119,21 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     )
 
     const onCloseExpanded = useCallback(() => setExpanded(null), [setExpanded])
+
+    /** Documents whose web images the user chose to load. Remembered until the app closes. */
+    const [remoteImageTabs, setRemoteImageTabs] = useState<ReadonlySet<string>>(() => new Set())
+    const loadRemoteImages = tabId !== null && remoteImageTabs.has(tabId)
+    /** How many blocked web images the preview shows now, so the notice offering to load them shows only then. */
+    const [blockedImageCount, setBlockedImageCount] = useState(0)
+
+    const onRemoteImageBlocked = useCallback(() => {
+        setBlockedImageCount((count) => count + 1)
+        return () => setBlockedImageCount((count) => count - 1)
+    }, [])
+
+    const onLoadRemoteImages = useCallback(() => {
+        if (tabId) setRemoteImageTabs((tabs) => new Set(tabs).add(tabId))
+    }, [tabId])
 
     const expandedOrdinal = expanded?.ordinal ?? null
     /** The document's Mermaid sources, only worked out while a diagram is expanded. */
@@ -270,8 +285,30 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     return (
         <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background', className)}>
             <div ref={scrollAreaRef} className="flex min-h-0 min-w-0 flex-1 flex-col" inert={expanded ? true : undefined}>
-                <ScrollArea className="size-full min-h-0" scrollbarGutter>
-                    <MarkdownPreview source={previewSource} tabId={tabId} onExpandBlock={onExpandBlock} onLinkClick={onLinkClick} />
+                {blockedImageCount > 0 ? (
+                    <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+                        <ImageOff className="size-3.5 shrink-0" aria-hidden />
+                        <p className="min-w-0 flex-1">Images from the web are blocked to protect your privacy.</p>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            onClick={onLoadRemoteImages}
+                            title="Load this document's web images until Scrivon closes. Their sites can see when you open it."
+                        >
+                            Load images
+                        </Button>
+                    </div>
+                ) : null}
+                <ScrollArea className="min-h-0 w-full flex-1" scrollbarGutter>
+                    <MarkdownPreview
+                        source={previewSource}
+                        tabId={tabId}
+                        onExpandBlock={onExpandBlock}
+                        onLinkClick={onLinkClick}
+                        loadRemoteImages={loadRemoteImages}
+                        onRemoteImageBlocked={onRemoteImageBlocked}
+                    />
                 </ScrollArea>
             </div>
             {expanded ? (

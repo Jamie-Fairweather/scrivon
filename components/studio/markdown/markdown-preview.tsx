@@ -1,8 +1,9 @@
 'use client'
 
-import { memo, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { nextFencedCodeBlockOrdinal, nextMermaidBlockOrdinal, resetMarkdownBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import type { Element } from 'hast'
+import { ImageOff } from 'lucide-react'
 import type { Root } from 'mdast'
 import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
@@ -21,6 +22,10 @@ type MarkdownPreviewProps = {
     onExpandBlock: (blockId: string, ordinal: number, source: string) => void
     /** Called with the link's href when a link is clicked. The webview's own navigation is always prevented. */
     onLinkClick: (href: string) => void
+    /** Whether images from the web are loaded. When not, each one shows as a placeholder with its alt text. */
+    loadRemoteImages: boolean
+    /** Called when a blocked web image appears; the function it returns is called when that image goes away. */
+    onRemoteImageBlocked: () => () => void
     className?: string
 }
 
@@ -65,6 +70,33 @@ type TableCellProps = {
 function cellAlignStyle(align: string | null | undefined): CSSProperties | undefined {
     if (align === 'center' || align === 'right' || align === 'left') return { textAlign: align }
     return undefined
+}
+
+/** `https://`, `http://` and `//host/` (which the webview fetches over http): loading one contacts another site. */
+const REMOTE_IMAGE_URL = /^(?:https?:)?\/\//i
+
+type BlockedRemoteImageProps = {
+    src: string
+    alt?: string
+    onBlocked: () => () => void
+}
+
+/** Stands in for a web image, so opening a document doesn't tell the image's site that it was opened. */
+function BlockedRemoteImage({ src, alt, onBlocked }: BlockedRemoteImageProps) {
+    useEffect(() => onBlocked(), [onBlocked])
+    const label = alt?.trim() || 'Image'
+    return (
+        <span
+            role="img"
+            aria-label={`Blocked web image: ${label}`}
+            title={src}
+            className="inline-flex max-w-full items-center gap-1 rounded-md border border-dashed border-border px-1.5 py-0.5 align-middle text-xs
+                text-muted-foreground"
+        >
+            <ImageOff className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{label}</span>
+        </span>
+    )
 }
 
 export function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
@@ -141,7 +173,15 @@ const staticMarkdownComponents: Components = {
  * (before the preview text catches up), on autosave and while the splitter is dragged, and none of those change
  * what the preview shows. Callers keep the callback props stable.
  */
-export const MarkdownPreview = memo(function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, className }: MarkdownPreviewProps) {
+export const MarkdownPreview = memo(function MarkdownPreview({
+    source,
+    tabId,
+    onExpandBlock,
+    onLinkClick,
+    loadRemoteImages,
+    onRemoteImageBlocked,
+    className,
+}: MarkdownPreviewProps) {
     resetMarkdownBlockOrdinals()
 
     const components = useMemo((): Components => {
@@ -156,6 +196,13 @@ export const MarkdownPreview = memo(function MarkdownPreview({ source, tabId, on
                     if (href) onLinkClick(href)
                 }
                 return <a {...rest} href={href} onClick={onClick} className={cn(inlineLinkClassName, linkClassName)} />
+            },
+            img(props) {
+                const { src, alt, ...rest } = withoutNode(props)
+                const remote = typeof src === 'string' && REMOTE_IMAGE_URL.test(src)
+                if (remote && !loadRemoteImages) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onRemoteImageBlocked} />
+                // eslint-disable-next-line @next/next/no-img-element -- a document's own images, in a static export
+                return <img {...rest} src={src} alt={alt} referrerPolicy={remote ? 'no-referrer' : undefined} />
             },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children } = props
@@ -187,7 +234,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({ source, tabId, on
                 return <FencedCodeBlock key={blockId} code={text.replace(/\n$/, '')} language={lang} />
             },
         }
-    }, [onExpandBlock, onLinkClick, tabId])
+    }, [loadRemoteImages, onExpandBlock, onLinkClick, onRemoteImageBlocked, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
 
