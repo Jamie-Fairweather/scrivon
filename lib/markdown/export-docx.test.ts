@@ -587,6 +587,47 @@ describe('renderExportDocx', () => {
         expect(table).not.toContain('>4</w:t>')
     })
 
+    it('keeps numbers on numbered task lists, lists that start at 0, and nested bullet shapes', async () => {
+        const { xml, parts } = await render(
+            [
+                '1. [ ] first task',
+                '2. [x] second task',
+                '3. plain step',
+                '',
+                '---',
+                '',
+                '0. zero',
+                '1. one',
+                '',
+                '---',
+                '',
+                '- [ ] loose task',
+                '- disc',
+                '    - circle',
+                '        - square',
+                '            - still square',
+            ].join('\n')
+        )
+        // A numbered task keeps its number, with the box after it, so the next item is still "3.".
+        const numId = (text: string) => /<w:numId w:val="(\d+)"\/>/.exec(blockWith(xml, text))?.[1]
+        expect(numId('first task')).toBeDefined()
+        expect(numId('second task')).toBe(numId('first task'))
+        expect(numId('plain step')).toBe(numId('first task'))
+        expect(blockWith(xml, 'first task')).toContain('>☐ </w:t>')
+        // A bulleted task still shows only its box.
+        expect(blockWith(xml, 'loose task')).not.toContain('<w:numId')
+        const numbering = parts['word/numbering.xml']!
+        // The export's own lists, in order; docx adds a nine-level default of its own.
+        const levels = [...numbering.matchAll(/<w:abstractNum [\s\S]*?<\/w:abstractNum>/g)]
+            .map((match) => match[0])
+            .filter((level) => level.match(/<w:lvl /g)?.length === 1)
+        expect(levels).toHaveLength(6)
+        expect(levels[0]).toContain('<w:start w:val="1"/>')
+        expect(levels[1]).toContain('<w:start w:val="0"/>')
+        // Disc, circle, then square from the third level on, as in the PDF.
+        expect(levels.slice(2).map((level) => /<w:lvlText w:val="([^"]*)"\/>/.exec(level)![1])).toEqual(['•', '◦', '▪', '▪'])
+    })
+
     it('sizes table columns by their content and keeps pictures inside their cell', async () => {
         const notes = 'A long note that would wrap over many lines if every column had the same width. '.repeat(3)
         const { xml } = await render(

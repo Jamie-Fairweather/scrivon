@@ -758,6 +758,9 @@ function listIndent(state: RenderState, depth: number, hang: boolean): { left: n
     return { left: state.extraLeft + LIST_STEP * (depth + 1), hanging: hang ? LIST_STEP : 0 }
 }
 
+/** The PDF's bullets: a disc at the top level, a circle one list in, and a square from there on. */
+const BULLETS = ['•', '◦', '▪'] as const
+
 function listNumbering(state: RenderState, ordered: boolean, depth: number, start: number): string {
     const reference = `list-${state.nextList}`
     state.nextList += 1
@@ -767,7 +770,7 @@ function listNumbering(state: RenderState, ordered: boolean, depth: number, star
             {
                 level: 0,
                 format: ordered ? LevelFormat.DECIMAL : LevelFormat.BULLET,
-                text: ordered ? '%1.' : '•',
+                text: ordered ? '%1.' : BULLETS[Math.min(depth, BULLETS.length - 1)],
                 alignment: AlignmentType.START,
                 start,
                 style: { paragraph: { indent: listIndent(state, depth, true) } },
@@ -779,16 +782,19 @@ function listNumbering(state: RenderState, ordered: boolean, depth: number, star
 
 async function renderList(state: RenderState, list: List, depth: number): Promise<Block[]> {
     const ordered = list.ordered === true
-    const reference = listNumbering(state, ordered, depth, ordered && list.start && list.start > 1 ? list.start : 1)
+    // A list may start at 0, as the PDF's <ol start="0"> does.
+    const reference = listNumbering(state, ordered, depth, ordered ? (list.start ?? 1) : 1)
     const blocks: Block[] = []
-    for (const item of list.children) blocks.push(...(await renderListItem(state, item, reference, depth)))
+    for (const item of list.children) blocks.push(...(await renderListItem(state, item, reference, depth, ordered)))
     return blocks
 }
 
-async function renderListItem(state: RenderState, item: ListItem, reference: string, depth: number): Promise<Block[]> {
+async function renderListItem(state: RenderState, item: ListItem, reference: string, depth: number, ordered: boolean): Promise<Block[]> {
     const blocks: Block[] = []
     let markerPlaced = false
     const task = item.checked === true || item.checked === false
+    // The checkbox stands in for a bullet, but a numbered task keeps its number, with the box after it.
+    const bare = task && !ordered
     const prefix = item.checked === true ? '☑ ' : item.checked === false ? '☐ ' : ''
     for (const child of item.children) {
         if (child.type === 'paragraph') {
@@ -797,9 +803,9 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
             blocks.push(
                 new Paragraph({
                     spacing: { after: 60, ...bodyLineSpacing(state) },
-                    indent: listIndent(state, depth, !task && !markerPlaced),
+                    indent: listIndent(state, depth, !bare && !markerPlaced),
                     border: quoteBorder(state),
-                    numbering: task || markerPlaced ? undefined : { reference, level: 0 },
+                    numbering: bare || markerPlaced ? undefined : { reference, level: 0 },
                     children: inlines,
                 })
             )
