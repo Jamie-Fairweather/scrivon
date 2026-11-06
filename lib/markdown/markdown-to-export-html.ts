@@ -58,9 +58,33 @@ function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
     })
 }
 
+/**
+ * Code blocks up to this many lines, and tables up to this many rows, are kept on one page
+ * (about half a page at the default size). Anything longer splits between lines or rows, as
+ * moving it whole to the next page would leave most of the page before it blank, and it would
+ * still split there.
+ */
+const PDF_KEEP_TOGETHER_MAX_CODE_LINES = 25
+const PDF_KEEP_TOGETHER_MAX_TABLE_ROWS = 15
+
+/** Keeps short tables on one page; see {@link PDF_KEEP_TOGETHER_MAX_TABLE_ROWS}. */
+function markShortTables(hast: HastRoot): void {
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName !== 'table') return
+        let rows = 0
+        visit(node, 'element', (child: Element) => {
+            if (child.tagName === 'tr') rows += 1
+        })
+        if (rows > PDF_KEEP_TOGETHER_MAX_TABLE_ROWS) return
+        const classes = Array.isArray(node.properties.className) ? node.properties.className : []
+        node.properties.className = [...classes, 'pdf-avoid-break']
+    })
+}
+
 async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<string> {
     const text = node.value.replace(/\n$/, '')
     const lang = node.lang?.toLowerCase()
+    const blockClass = text.split('\n').length <= PDF_KEEP_TOGETHER_MAX_CODE_LINES ? 'code-block pdf-avoid-break' : 'code-block'
 
     if (lang === 'mermaid') {
         try {
@@ -74,9 +98,9 @@ async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<s
 
     try {
         const highlighted = normalizeShikiPre(await highlightFencedCode(text, lang, profile.content.codeTheme))
-        return `<div class="code-block pdf-avoid-break">${highlighted}</div>`
+        return `<div class="${blockClass}">${highlighted}</div>`
     } catch {
-        return `<div class="code-block pdf-avoid-break"><pre><code>${escapeHtml(text)}</code></pre></div>`
+        return `<div class="${blockClass}"><pre><code>${escapeHtml(text)}</code></pre></div>`
     }
 }
 
@@ -263,6 +287,7 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
     const placeholders = await transformCodeBlocks(tree, profile)
 
     const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
+    markShortTables(hast)
     if (stamped) addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 

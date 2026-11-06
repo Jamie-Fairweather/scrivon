@@ -370,10 +370,9 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    /* Only short code blocks and tables get .pdf-avoid-break: a long one splits rather than leaving a mostly blank page. */
     .pdf-avoid-break,
-    .code-block,
-    .mermaid-export,
-    table:not(.pdf-chrome-table) {
+    .mermaid-export {
       break-inside: avoid;
       page-break-inside: avoid;
     }

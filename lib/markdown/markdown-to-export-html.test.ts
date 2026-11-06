@@ -136,6 +136,21 @@ SHIKI_FAIL
         expect(html).toContain('#abc123')
     })
 
+    it('keeps only short code blocks and tables on one page, so long ones split instead of leaving a blank page', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const code = (lines: number) => ['```js', ...Array.from({ length: lines }, (_, i) => `line ${i}`), '```'].join('\n')
+        const table = (rows: number) => ['| A | B |', '|---|---|', ...Array.from({ length: rows }, (_, i) => `| ${i} | x |`)].join('\n')
+
+        const { html } = await markdownToExportHtml(`# A\n\n${code(25)}\n\n${code(26)}\n\n${table(14)}\n\n${table(15)}`, { assets: EMPTY_ASSETS })
+        // 25 lines and 15 rows (header row included) still fit on half a page.
+        expect(html.match(/<div class="code-block pdf-avoid-break">/g)).toHaveLength(1)
+        expect(html.match(/<div class="code-block">/g)).toHaveLength(1)
+        expect(html.match(/<table class="pdf-avoid-break">/g)).toHaveLength(1)
+        expect(html.match(/<table>/g)).toHaveLength(1)
+        expect(html.indexOf('<div class="code-block pdf-avoid-break">')).toBeLessThan(html.indexOf('<div class="code-block">'))
+        expect(html.indexOf('<table class="pdf-avoid-break">')).toBeLessThan(html.indexOf('<table>'))
+    })
+
     it('puts code blocks and diagrams in place of their paragraph, never inside a <p>', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'

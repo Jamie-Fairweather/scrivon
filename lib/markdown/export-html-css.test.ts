@@ -103,6 +103,14 @@ describe('buildPdfExportCss', () => {
         expect(titleRule(buildPdfExportCss(profile))).toMatch(/max-height: 233mm;/)
     })
 
+    it('only keeps marked blocks and diagrams whole, not every code block and table', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const print = css.slice(css.indexOf('@media print'), css.indexOf('.export-article {'))
+        expect(print).toMatch(/\.pdf-avoid-break,\s*\.mermaid-export \{\s*break-inside: avoid;/)
+        expect(print).not.toMatch(/\.code-block[,\s{]/)
+        expect(print).not.toContain('table:not(.pdf-chrome-table)')
+    })
+
     it('keeps body headings with the content that follows them', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
         const print = css.slice(css.indexOf('@media print'))
