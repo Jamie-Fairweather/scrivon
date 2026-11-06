@@ -104,13 +104,27 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             const activeId = snapshot?.activeTabId ?? activeTabIdRef.current
             const resolvedActiveId =
                 activeId && !isExampleTabId(activeId) && workspaceTabs.some((t) => t.id === activeId) ? activeId : (workspaceTabs[0]?.id ?? null)
-            await setWorkspaceTabSession(workspaceRoot, {
-                // One entry per file, even if a tab was ever doubled up, so a double never comes back on restart.
-                tabIds: [...new Set(workspaceTabs.map((t) => t.id))],
-                activeTabId: resolvedActiveId,
-            })
+            // Remembering the open tabs is a convenience: a failure (reported by the store) never stops what the user did.
+            try {
+                await setWorkspaceTabSession(workspaceRoot, {
+                    // One entry per file, even if a tab was ever doubled up, so a double never comes back on restart.
+                    tabIds: [...new Set(workspaceTabs.map((t) => t.id))],
+                    activeTabId: resolvedActiveId,
+                })
+            } catch (err) {
+                console.warn("Couldn't remember the open tabs", err)
+            }
         },
         [workspaceRoot, tabsRef]
+    )
+
+    /** Adds a file to the folder's recent files for the palette; best-effort, like the tab session. */
+    const recordRecentFile = useCallback(
+        (path: string) => {
+            if (!workspaceRoot) return
+            void addRecentFile(workspaceRoot, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
+        },
+        [workspaceRoot]
     )
 
     useEffect(() => {
@@ -261,7 +275,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 lastRequestedRef.current = existing.id
                 setActiveTabId(existing.id)
                 void persistTabSession({ tabs: tabsRef.current, activeTabId: existing.id })
-                if (workspaceRoot) void addRecentFile(workspaceRoot, existing.id)
+                recordRecentFile(existing.id)
                 if (previousId && previousId !== existing.id) coordinator.flushSaveOnTabLeave.current(previousId)
                 return
             }
@@ -272,36 +286,39 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
 
             const open = (async () => {
+                // Only reading the file can make the open fail; remembering it afterwards is best-effort.
+                let read: DocumentTab
                 try {
                     // A huge file can make the app stop responding for a while, so the user decides before it is read.
                     const size = await getWorkspaceFileSize(path)
                     if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
-                    const read = tabFromFile(path, await readWorkspaceTextFile(path))
-                    // Restoring a folder's tabs may have opened it meanwhile; that tab is kept, never a second copy.
-                    const alreadyOpen = tabsRef.current.find((t) => samePath(t.path, path))
-                    const tab = alreadyOpen ?? read
-                    if (!alreadyOpen) {
-                        tabsRef.current = [...tabsRef.current, tab]
-                        setTabs((prev) => (prev.some((t) => samePath(t.path, tab.path)) ? prev : [...prev, tab]))
-                        explainReadOnlyFile(tab)
-                    }
-                    const isLatest = lastRequestedRef.current !== null && samePath(lastRequestedRef.current, path)
-                    if (isLatest) {
-                        activeTabIdRef.current = tab.id
-                        setActiveTabId(tab.id)
-                        coordinator.requestCanvasFit.current()
-                    }
-                    await persistTabSession({ tabs: tabsRef.current, activeTabId: activeTabIdRef.current })
-                    if (isLatest && workspaceRoot) void addRecentFile(workspaceRoot, tab.id)
+                    read = tabFromFile(path, await readWorkspaceTextFile(path))
                 } catch (err) {
                     await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
+                    return
                 }
+                // Restoring a folder's tabs may have opened it meanwhile; that tab is kept, never a second copy.
+                const alreadyOpen = tabsRef.current.find((t) => samePath(t.path, path))
+                const tab = alreadyOpen ?? read
+                if (!alreadyOpen) {
+                    tabsRef.current = [...tabsRef.current, tab]
+                    setTabs((prev) => (prev.some((t) => samePath(t.path, tab.path)) ? prev : [...prev, tab]))
+                    explainReadOnlyFile(tab)
+                }
+                const isLatest = lastRequestedRef.current !== null && samePath(lastRequestedRef.current, path)
+                if (isLatest) {
+                    activeTabIdRef.current = tab.id
+                    setActiveTabId(tab.id)
+                    coordinator.requestCanvasFit.current()
+                }
+                await persistTabSession({ tabs: tabsRef.current, activeTabId: activeTabIdRef.current })
+                if (isLatest) recordRecentFile(tab.id)
             })()
             pendingOpens.current.set(path, open)
             void open.finally(() => pendingOpens.current.delete(path))
             return open
         },
-        [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, workspaceRoot, explainReadOnlyFile]
+        [coordinator, persistTabSession, recordRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
     )
 
     const openExample = useCallback(
@@ -341,11 +358,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setActiveTabId(id)
             if (!isExampleTabId(id)) {
                 void persistTabSession({ tabs: tabsRef.current, activeTabId: id })
-                if (workspaceRoot) void addRecentFile(workspaceRoot, id)
+                recordRecentFile(id)
             }
             if (previousId) coordinator.flushSaveOnTabLeave.current(previousId)
         },
-        [coordinator, persistTabSession, setActiveTabId, tabsRef, workspaceRoot]
+        [coordinator, persistTabSession, recordRecentFile, setActiveTabId, tabsRef]
     )
 
     const updateTabContent = useCallback(

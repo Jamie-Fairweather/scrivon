@@ -417,6 +417,44 @@ describe('DocumentTabsProvider', () => {
         expect(showError).toHaveBeenCalledWith('Open failed', 'Permission denied')
     })
 
+    it('opens the file without an error when remembering the open tabs fails', async () => {
+        vi.mocked(setWorkspaceTabSession).mockRejectedValue('The process cannot access the file. (os error 32)')
+        vi.mocked(addRecentFile).mockRejectedValue('The process cannot access the file. (os error 32)')
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const unhandled = vi.fn()
+        process.on('unhandledRejection', unhandled)
+        try {
+            const { result } = renderHook(() => useDocumentTabs(), {
+                wrapper: createTabsWrapper({ workspaceRoot: '/ws' }),
+            })
+
+            await act(async () => {
+                await result.current.openFile('/ws/a.mmd')
+            })
+            await act(async () => {
+                await result.current.openFile('/ws/b.mmd')
+            })
+            await act(async () => {
+                await result.current.setActiveTab('/ws/a.mmd')
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(showError).not.toHaveBeenCalled()
+            expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/a.mmd', '/ws/b.mmd'])
+            expect(result.current.activeTabId).toBe('/ws/a.mmd')
+            expect(unhandled).not.toHaveBeenCalled()
+        } finally {
+            process.off('unhandledRejection', unhandled)
+            warn.mockRestore()
+            vi.mocked(setWorkspaceTabSession)
+                .mockReset()
+                .mockImplementation(async () => undefined)
+            vi.mocked(addRecentFile)
+                .mockReset()
+                .mockImplementation(async () => [])
+        }
+    })
+
     it('switches active tabs and flushes save on leave', async () => {
         const initial = {
             tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],
