@@ -4,6 +4,7 @@ import {
     flattenSupportedFilePaths,
     focusTargetAfterChange,
     treeKeyAction,
+    typeAheadMatch,
     visibleTreeRows,
     type VisibleTreeRow,
 } from '@/lib/workspace/flatten-file-tree'
@@ -128,5 +129,32 @@ describe('focusTargetAfterChange', () => {
 
     it('has nothing to focus in an empty tree', () => {
         expect(focusTargetAfterChange([], ['/ws/top.mmd'], 0)).toBeNull()
+    })
+})
+
+describe('typeAheadMatch', () => {
+    // docs, deep, a.md, b.md, empty, top.mmd
+    const rows = visibleTreeRows(tree, () => true)
+
+    it('moves to the next row starting with a letter, ignoring case, and wraps round', () => {
+        expect(typeAheadMatch(rows, '/ws/docs', 'b')).toBe('/ws/docs/b.md')
+        expect(typeAheadMatch(rows, '/ws/docs/b.md', 'D')).toBe('/ws/docs')
+    })
+
+    it('steps through the rows starting with a letter typed again and again', () => {
+        expect(typeAheadMatch(rows, '/ws/docs', 'd')).toBe('/ws/docs/deep')
+        expect(typeAheadMatch(rows, '/ws/docs/deep', 'dd')).toBe('/ws/docs')
+    })
+
+    it('stays on the focused row while a longer word still matches it', () => {
+        expect(typeAheadMatch(rows, '/ws/docs/deep', 'de')).toBe('/ws/docs/deep')
+        expect(typeAheadMatch(rows, '/ws/docs/deep', 'do')).toBe('/ws/docs')
+        expect(typeAheadMatch(rows, '/ws/docs', 'top.')).toBe('/ws/top.mmd')
+    })
+
+    it('finds nothing when no name matches', () => {
+        expect(typeAheadMatch(rows, '/ws/docs', 'z')).toBeNull()
+        expect(typeAheadMatch(rows, '/ws/docs', '')).toBeNull()
+        expect(typeAheadMatch([], '/ws/docs', 'd')).toBeNull()
     })
 })

@@ -86,3 +86,23 @@ export function focusTargetAfterChange(rows: VisibleTreeRow[], paths: string[], 
     if (rows.length === 0) return null
     return rows[Math.min(Math.max(index, 0), rows.length - 1)]!.node.path
 }
+
+/**
+ * Type-ahead: the row to focus for the letters typed in quick succession. That is the next row after `fromPath`
+ * whose name starts with them (ignoring case), wrapping round to the top. Typing one letter again and again
+ * ("ddd") steps through the rows that start with it; a longer word can stay on the focused row while it still
+ * matches. Null when no row matches.
+ */
+export function typeAheadMatch(rows: VisibleTreeRow[], fromPath: string, typed: string): string | null {
+    if (!typed || rows.length === 0) return null
+    const query = typed.toLocaleLowerCase()
+    const oneLetter = [...query].every((char) => char === query[0])
+    const prefix = oneLetter ? query[0]! : query
+    const from = rows.findIndex((row) => row.node.path === fromPath)
+    const start = oneLetter ? from + 1 : Math.max(from, 0)
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[(start + i) % rows.length]!
+        if (row.node.name.toLocaleLowerCase().startsWith(prefix)) return row.node.path
+    }
+    return null
+}

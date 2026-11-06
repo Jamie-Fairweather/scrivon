@@ -5,11 +5,14 @@ import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
 import { TreeEntryActionsProvider, useFileTreeEntryActions, type FileTreeEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { isSupportedDocument } from '@/lib/tauri/fs'
-import { focusTargetAfterChange, treeKeyAction, visibleTreeRows } from '@/lib/workspace/flatten-file-tree'
+import { focusTargetAfterChange, treeKeyAction, typeAheadMatch, visibleTreeRows } from '@/lib/workspace/flatten-file-tree'
 import type { FileNode } from '@/lib/workspace/types'
 
 /** Folders in the first two levels start open. */
 const openByDefault = (level: number) => level <= 2
+
+/** A pause this long (ms) between letters starts a new type-ahead search. */
+const TYPE_AHEAD_PAUSE_MS = 500
 
 /** Where focus goes once a rename or delete is done; see focusTargetAfterChange. */
 type FocusAfterChange = { fromPath: string; paths: string[]; index: number }
@@ -27,7 +30,7 @@ function canRefocus(active: Element | null, fromPath: string): boolean {
 
 /**
  * The workspace files as an ARIA tree: one Tab stop, arrow keys to move and open folders, Enter to open,
- * F2 to rename, Delete to delete, and Shift+F10 or the menu key for the row menu.
+ * F2 to rename, Delete to delete, Shift+F10 or the menu key for the row menu, and typing a name to jump to it.
  */
 export function FileTree({ tree }: { tree: FileNode[] }) {
     const { activeTabId, openFile } = useDocumentTabs()
@@ -97,6 +100,9 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         if (canRefocus(document.activeElement, request.fromPath)) focusRow(target)
     }, [rows, focusAfterChangeCount, focusRow])
 
+    // What was typed for type-ahead, and when the last key came.
+    const typeAheadRef = useRef({ typed: '', at: 0 })
+
     const { renameWithPrompt, deleteWithConfirm } = entryActions
     const treeEntryActions = useMemo<FileTreeEntryActions>(
         () => ({
@@ -122,9 +128,23 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
             const target = e.target as HTMLElement
             // Keys typed in a row's open menu also arrive here through the portal; only rows are handled.
             if (target.getAttribute('role') !== 'treeitem' || !e.currentTarget.contains(target)) return
-            if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+            if (e.altKey || e.ctrlKey || e.metaKey) return
             const row = rows.find((r) => r.node.path === target.dataset.path)
             if (!row) return
+
+            // Type-ahead: letters typed in quick succession jump to the next row whose name starts with them.
+            // Shift is allowed here, for capitals and characters such as '_'. Space still opens the row.
+            if (e.key.length === 1 && e.key !== ' ') {
+                const now = Date.now()
+                const previous = typeAheadRef.current
+                const typed = now - previous.at < TYPE_AHEAD_PAUSE_MS ? previous.typed + e.key : e.key
+                typeAheadRef.current = { typed, at: now }
+                const match = typeAheadMatch(rows, row.node.path, typed)
+                if (match) focusRow(match)
+                e.preventDefault()
+                return
+            }
+            if (e.shiftKey) return
 
             if (e.key === 'F2') {
                 void treeEntryActions.renameWithPrompt(row.node)

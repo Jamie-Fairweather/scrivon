@@ -117,6 +117,32 @@ describe('FileTree', () => {
         expect(item('docs')).toHaveFocus()
     })
 
+    it('jumps to a row by typing the start of its name', () => {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        try {
+            render(<FileTree tree={tree} />)
+            item('docs').focus()
+
+            press('docs', 'n')
+            expect(item('notes.md')).toHaveFocus()
+
+            vi.advanceTimersByTime(1000)
+            press('notes.md', 'P', { shiftKey: true })
+            expect(item('photo.png')).toHaveFocus()
+
+            // Letters typed in quick succession make one word; a word nothing starts with leaves focus where it is.
+            vi.advanceTimersByTime(1000)
+            press('photo.png', 'f')
+            press('flow.mmd', 'l')
+            expect(item('flow.mmd')).toHaveFocus()
+            press('flow.mmd', 'x')
+            expect(item('flow.mmd')).toHaveFocus()
+            expect(tabs.openFile).not.toHaveBeenCalled()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('closes and opens folders with Left and Right, and with Enter', () => {
         render(<FileTree tree={tree} />)
 
