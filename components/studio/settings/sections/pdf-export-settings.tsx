@@ -104,6 +104,30 @@ function FontSelect({
     )
 }
 
+/**
+ * Shows exactly what is typed while editing (trailing spaces, an empty box) and saves
+ * each non-empty value; the saved name is trimmed. Leaving the box shows the saved
+ * name again, so a cleared box falls back to the last good name.
+ */
+function ProfileNameInput({ id, name, onRename }: { id: string; name: string; onRename: (name: string) => void }) {
+    const [draft, setDraft] = useState<string | null>(null)
+    return (
+        <Input
+            id={id}
+            value={draft ?? name}
+            onChange={(event) => {
+                const next = event.target.value
+                setDraft(next)
+                if (next.trim()) onRename(next)
+            }}
+            onBlur={() => setDraft(null)}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+        />
+    )
+}
+
 export function PdfExportSettings() {
     const { settings, updateSettings } = useAppSettings()
     const pdf = settings.pdfExport
@@ -165,10 +189,10 @@ export function PdfExportSettings() {
 
             <Field>
                 <FieldLabel htmlFor="pdf-profile-name">Profile name</FieldLabel>
-                <Input
+                <ProfileNameInput
                     id="pdf-profile-name"
-                    value={active.name}
-                    onChange={(event) => setPdf((current) => renamePdfExportProfile(current, active.id, event.target.value))}
+                    name={active.name}
+                    onRename={(name) => setPdf((current) => renamePdfExportProfile(current, active.id, name))}
                 />
             </Field>
 
