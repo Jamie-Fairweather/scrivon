@@ -134,6 +134,17 @@ SHIKI_FAIL
         expect(html).toContain('#abc123')
     })
 
+    it('puts code blocks and diagrams in place of their paragraph, never inside a <p>', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
+        const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+        expect(html).toContain('<div class="mermaid-export pdf-avoid-break"><svg')
+        expect(html).toContain('<li><div class="code-block pdf-avoid-break">')
+        expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
+        expect(html).not.toContain('<p></p>')
+        expect(html).not.toContain('__SCRIVON_')
+    })
+
     it('renders enabled chrome without optional images or text', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

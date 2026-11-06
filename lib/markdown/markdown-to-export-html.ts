@@ -226,7 +226,8 @@ export async function renderExportPdf(document: ExportDocument): Promise<PdfExpo
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
-        bodyHtml = bodyHtml.split(key).join(html)
+        // The block replaces its whole placeholder paragraph: a <div> inside a <p> is invalid and leaves stray empty paragraphs.
+        bodyHtml = bodyHtml.split(`<p>${key}</p>`).join(html).split(key).join(html)
     }
 
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''

@@ -51,6 +51,17 @@ describe('buildPdfExportCss', () => {
         expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
     })
 
+    it('shrinks a diagram taller than a page to fit on one page', () => {
+        const profile = createDefaultPdfExportProfile()
+        // The body image room (271mm on A4 portrait), less the diagram box's padding and border.
+        expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-width: 100%;\s*max-height: 263mm;\s*width: auto;\s*height: auto;/)
+
+        // Landscape A4 with a page-number footer: 210 - 10 - 10 - 12 (auto bar) - 6 - 8.
+        profile.page.orientation = 'landscape'
+        profile.footer.pageNumbers = 'number'
+        expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-height: 164mm;/)
+    })
+
     it('sizes headings, the title and code relative to the body size', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.bodySizePt = 16

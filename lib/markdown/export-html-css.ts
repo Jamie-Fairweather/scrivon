@@ -210,6 +210,9 @@ function bodyImageMaxHeightMm(profile: PdfExportProfile, layout: PdfExportLayout
     return Math.max(40, Math.floor(pageHeight - top - bottom - chrome - 6))
 }
 
+/** Room the diagram box's padding and border take around its SVG. */
+const MERMAID_BOX_MM = 8
+
 export function buildPdfExportCss(profile: PdfExportProfile): string {
     const mermaidBg = getDiagramColors(profile.content.mermaidThemeId).bg
     const accent = profile.brand.accentColor
@@ -369,9 +372,12 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     background: ${mermaidBg};
     overflow: hidden;
   }
+  /* A diagram taller than a page shrinks to fit one: an SVG can't split, so it would be pushed past a blank page and sliced. */
   .mermaid-export svg {
     display: block;
     max-width: 100%;
+    max-height: ${Math.max(40, bodyImageMaxHeightMm(profile, layout) - MERMAID_BOX_MM)}mm;
+    width: auto;
     height: auto;
     margin: 0 auto;
   }
