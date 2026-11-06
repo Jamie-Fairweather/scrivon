@@ -15,8 +15,9 @@ use updater::PendingUpdate;
 use workspace_access::WorkspaceAccess;
 
 /// Grants the frontend recursive access to a workspace folder, but only one the
-/// user chose (see `workspace_access`).
-#[tauri::command]
+/// user chose (see `workspace_access`). Checking the folder touches the disk
+/// (slow on a network drive), so this runs off the window's main thread.
+#[tauri::command(async)]
 fn allow_workspace(
     app: tauri::AppHandle,
     access: tauri::State<'_, WorkspaceAccess>,

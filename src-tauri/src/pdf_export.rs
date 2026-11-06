@@ -485,8 +485,17 @@ fn content_matches(mime: &str, bytes: &[u8]) -> bool {
 /// Read a user-chosen export image. Image paths are saved in PDF profiles and
 /// must keep working after a restart, so this doesn't use the fs scope; instead
 /// it only returns real image files (PNG, JPEG, GIF, WebP or SVG).
+///
+/// The read runs on a background thread: a plain command runs on the window's
+/// main thread, and an online-only cloud file can take seconds to arrive.
 #[tauri::command]
-pub fn read_export_image(path: String) -> Result<String, String> {
+pub async fn read_export_image(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || read_image_as_data_url(&path))
+        .await
+        .map_err(|_| "Could not read image.".to_string())?
+}
+
+fn read_image_as_data_url(path: &str) -> Result<String, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("Image path is empty.".into());
@@ -555,7 +564,8 @@ mod tests {
     }
 
     fn read(path: &std::path::Path) -> Result<String, String> {
-        let result = read_export_image(path.to_string_lossy().into_owned());
+        let result =
+            tauri::async_runtime::block_on(read_export_image(path.to_string_lossy().into_owned()));
         let _ = std::fs::remove_file(path);
         result
     }
