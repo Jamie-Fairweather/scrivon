@@ -10,6 +10,8 @@ import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 import { cn } from '@/lib/utils'
 
 const DIAGRAM_PADDING_X = 32
+/** Top padding (pt-10) plus bottom padding (pb-4): the top strip keeps the Expand button off the diagram. */
+const DIAGRAM_PADDING_Y = 56
 
 type EmbeddedMermaidBlockProps = {
     source: string
@@ -29,9 +31,9 @@ export function expandDiagramLabel(ordinal: number, source: string): string {
 
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
     return (
-        <Card className="pointer-events-none w-full select-none">
+        <Card className="w-full select-text">
             <CardPanel className="p-3">
-                <pre className="overflow-auto text-xs whitespace-pre-wrap text-muted-foreground">{message}</pre>
+                <pre className="overflow-auto text-xs wrap-anywhere whitespace-pre-wrap text-muted-foreground">{message}</pre>
             </CardPanel>
         </Card>
     )
@@ -120,14 +122,14 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                     'relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-muted/30',
                     showPlaceholder ? 'flex min-h-[120px] items-center justify-center' : ''
                 )}
-                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + 32 } : undefined}
+                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + DIAGRAM_PADDING_Y } : undefined}
             >
                 {error ? (
-                    <div className="p-4">
+                    <div className="px-4 pt-10 pb-4">
                         <DiagramError message={error} />
                     </div>
                 ) : showDiagram && layoutWidth != null && layoutHeight != null ? (
-                    <div className="flex min-w-0 justify-center p-4">
+                    <div className="flex min-w-0 justify-center px-4 pt-10 pb-4">
                         <div className="relative shrink-0" style={{ width: layoutWidth, height: layoutHeight }}>
                             <div
                                 className="absolute top-0 left-0 origin-top-left"
