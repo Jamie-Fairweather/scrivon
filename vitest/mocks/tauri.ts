@@ -11,10 +11,12 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     writeTextFile: vi.fn(async () => undefined),
     writeFile: vi.fn(async () => undefined),
     mkdir: vi.fn(async () => undefined),
-    stat: vi.fn(async () => ({ size: 0, isFile: true, isDirectory: false, isSymlink: false })),
     rename: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
     copyFile: vi.fn(async () => undefined),
+    exists: vi.fn(async () => false),
+    stat: vi.fn(async () => ({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null })),
+    lstat: vi.fn(async () => ({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null })),
 }))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
