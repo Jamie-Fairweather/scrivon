@@ -1,9 +1,11 @@
 'use client'
 
-import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon } from 'lucide-react'
-import { Fragment, useCallback } from 'react'
-import { MAX_HITS } from '@/components/studio/command-palette/search-content'
-import type { PaletteGroup, PaletteItem } from '@/components/studio/command-palette/types'
+import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon, XIcon } from 'lucide-react'
+import { Fragment, useCallback, useRef, type KeyboardEvent } from 'react'
+import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
+import { MAX_HITS, MIN_QUERY_LENGTH } from '@/components/studio/command-palette/search-content'
+import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
+import { Badge } from '@/components/ui/badge'
 import {
     Command,
     CommandCollection,
@@ -26,6 +28,8 @@ import { Spinner } from '@/components/ui/spinner'
 type CommandPaletteDialogProps = {
     open: boolean
     onOpenChange: (open: boolean) => void
+    mode: PaletteMode
+    onModeChange: (mode: PaletteMode) => void
     query: string
     onQueryChange: (query: string) => void
     groups: PaletteGroup[]
@@ -120,6 +124,31 @@ function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: s
     )
 }
 
+const MODE_PLACEHOLDERS: Record<PaletteMode, string> = {
+    all: 'Search files, text, and commands…',
+    files: 'Go to file…',
+    text: 'Find in workspace…',
+}
+
+/** Label of the filter chip shown while the palette is narrowed to one kind of result. */
+const MODE_FILTER_LABELS: Record<PaletteMode, string | null> = {
+    all: null,
+    files: 'Files',
+    text: 'Text',
+}
+
+function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string): string {
+    if (!hasWorkspace) return 'Open a folder to search files and text.'
+
+    const parsed = parsePaletteQuery(query)
+    if (!parsed.actionsOnly && mode === 'files') return 'No file names match. Remove the Files filter to search file contents too.'
+    if (!parsed.actionsOnly && mode === 'text') {
+        if (parsed.query.length < MIN_QUERY_LENGTH) return `Type at least ${MIN_QUERY_LENGTH} characters to search file contents.`
+        return 'No text matches. Remove the Text filter to search file names too.'
+    }
+    return 'No results found. Try a shorter query or type > for commands.'
+}
+
 function paletteItemToStringValue(itemValue: unknown): string {
     if (!itemValue) return ''
     if (typeof itemValue === 'string') return itemValue
@@ -132,6 +161,8 @@ function paletteItemToStringValue(itemValue: unknown): string {
 export function CommandPaletteDialog({
     open,
     onOpenChange,
+    mode,
+    onModeChange,
     query,
     onQueryChange,
     groups,
@@ -149,15 +180,59 @@ export function CommandPaletteDialog({
         [onSelectItem, onOpenChange]
     )
 
-    const emptyMessage = hasWorkspace ? 'No results found. Try a shorter query or type > for commands.' : 'Open a folder to search files and text.'
+    const inputRef = useRef<HTMLInputElement>(null)
+    const filterLabel = MODE_FILTER_LABELS[mode]
+
+    const showAllResults = useCallback(() => {
+        onModeChange('all')
+        inputRef.current?.focus()
+    }, [onModeChange])
+
+    const handleInputKeyDown = useCallback(
+        (event: KeyboardEvent<HTMLInputElement>) => {
+            // Backspace in an empty box removes the Files/Text filter (held-down repeats don't, so clearing a query can't overshoot).
+            if (event.key === 'Backspace' && !event.repeat && mode !== 'all' && event.currentTarget.value === '') {
+                event.preventDefault()
+                onModeChange('all')
+            }
+        },
+        [mode, onModeChange]
+    )
+
+    const emptyMessage = emptyMessageFor(hasWorkspace, mode, query)
+
+    const endAddon =
+        isSearchingText || filterLabel ? (
+            <span className="flex items-center gap-2">
+                {isSearchingText ? <Spinner className="size-4 text-muted-foreground" /> : null}
+                {filterLabel ? (
+                    <Badge
+                        aria-label={`${filterLabel} only. Show all results`}
+                        className="pointer-events-auto px-1.5"
+                        onClick={showAllResults}
+                        onMouseDown={(event) => event.preventDefault()}
+                        render={<button type="button" />}
+                        title="Show all results (Backspace)"
+                        variant="outline"
+                    >
+                        {filterLabel}
+                        <XIcon aria-hidden className="size-3" />
+                    </Badge>
+                ) : null}
+            </span>
+        ) : undefined
 
     return (
         <CommandDialog onOpenChange={onOpenChange} open={open}>
             <CommandDialogPopup>
                 <Command itemToStringValue={paletteItemToStringValue} items={groups} mode="none" onValueChange={onQueryChange} value={query}>
                     <CommandInput
-                        endAddon={isSearchingText ? <Spinner className="size-4 text-muted-foreground" /> : undefined}
-                        placeholder="Search files, text, and commands…"
+                        // Make room for the filter chip so typed text doesn't run under it.
+                        className={filterLabel ? '*:data-[slot=autocomplete-input]:pe-24 sm:*:data-[slot=autocomplete-input]:pe-24' : undefined}
+                        endAddon={endAddon}
+                        onKeyDown={handleInputKeyDown}
+                        placeholder={MODE_PLACEHOLDERS[mode]}
+                        ref={inputRef}
                     />
                     <CommandPanel>
                         <CommandEmpty>{emptyMessage}</CommandEmpty>

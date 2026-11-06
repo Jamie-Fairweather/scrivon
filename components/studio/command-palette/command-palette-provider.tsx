@@ -80,6 +80,8 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
                 groups={groups}
                 hasWorkspace={hasWorkspace}
                 isSearchingText={isSearchingText}
+                mode={mode}
+                onModeChange={setMode}
                 onOpenChange={handleOpenChange}
                 onQueryChange={setQuery}
                 onSelectItem={handleSelectItem}
