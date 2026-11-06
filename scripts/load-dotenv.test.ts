@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyTauriSigningFromEnv, loadDotEnv, resolveKeyPath } from './load-dotenv.mjs'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyTauriSigningFromEnv, loadDotEnv, resolveKeyPath, tauriCommandSigns } from './load-dotenv.mjs'
 
 const ENV_KEYS = ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PATH', 'DOTENV_TEST_A', 'DOTENV_TEST_B']
 
@@ -80,6 +80,20 @@ describe('applyTauriSigningFromEnv', () => {
         expect(process.env.TAURI_SIGNING_PRIVATE_KEY).toBeUndefined()
     })
 
+    it('only warns about a missing path for a command that does not sign', () => {
+        writeFile(join(root, 'src-tauri', '.updater', 'scrivon'), 'stale-default-key')
+        process.env.TAURI_SIGNING_PRIVATE_KEY_PATH = join(dir, 'missing.key')
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+        try {
+            expect(() => applyTauriSigningFromEnv({ root, home, keyRequired: false })).not.toThrow()
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(join(dir, 'missing.key')))
+            expect(process.env.TAURI_SIGNING_PRIVATE_KEY).toBeUndefined()
+        } finally {
+            warn.mockRestore()
+        }
+    })
+
     it('uses the default key file only when no path is set', () => {
         writeFile(join(root, 'src-tauri', '.updater', 'scrivon'), 'default-key\n')
 
@@ -95,6 +109,23 @@ describe('applyTauriSigningFromEnv', () => {
         applyTauriSigningFromEnv({ root, home })
 
         expect(process.env.TAURI_SIGNING_PRIVATE_KEY).toBe('from-env')
+    })
+})
+
+describe('tauriCommandSigns', () => {
+    it.each([
+        [['build'], true],
+        [['build', '--bundles', 'nsis'], true],
+        [['--verbose', 'build'], true],
+        [['bundle'], true],
+        [['signer', 'sign', 'file.exe'], true],
+        [['build', '--help'], false],
+        [['dev'], false],
+        [['info'], false],
+        [['signer', 'generate', '-w', 'src-tauri/.updater/scrivon'], false],
+        [[], false],
+    ])('%j signs: %s', (args, expected) => {
+        expect(tauriCommandSigns(args)).toBe(expected)
     })
 })
 

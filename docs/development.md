@@ -127,7 +127,7 @@ A local `bun run tauri build` needs the private key, because it signs the update
 
 1. Get the private key file (and its password, if it has one) from the password manager or the offline backup.
 2. Save it as `src-tauri/.updater/scrivon`. Everything in `src-tauri/.updater/` except `.pub` files is gitignored, but **never commit it**, and keep backups of old keys outside the repository.
-3. Copy [`.env.example`](../.env.example) to `.env` and set `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (see [Local builds with signing](#local-builds-with-signing) below).
+3. That's all: `bun run tauri build` finds the key there by itself. If it has a password, copy [`.env.example`](../.env.example) to `.env` and set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (see [Local builds with signing](#local-builds-with-signing) below).
 
 #### Creating the key (new project only)
 
@@ -171,16 +171,16 @@ Under **Settings → Secrets and variables → Actions → Repository secrets**:
 
 ### Local builds with signing
 
-The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tauri build` loads [`.env`](../.env) first. Copy [`.env.example`](../.env.example) to `.env` and set either:
+The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tauri build` loads [`.env`](../.env) first. If neither key variable is set but `src-tauri/.updater/scrivon` exists, that file is used automatically. Otherwise copy [`.env.example`](../.env.example) to `.env` and set either:
 
-- `TAURI_SIGNING_PRIVATE_KEY_PATH=src-tauri/.updater/scrivon` (recommended), or
+- `TAURI_SIGNING_PRIVATE_KEY_PATH` to a key file kept somewhere else, or
 - `TAURI_SIGNING_PRIVATE_KEY` with the full key contents.
 
-If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If neither key variable is set but `src-tauri/.updater/scrivon` exists, that file is used automatically.
+If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
-`TAURI_SIGNING_PRIVATE_KEY_PATH` can be relative to the repo, absolute (`C:\Users\me\.tauri\scrivon.key`), or start with `~` for your home folder. If the file isn't there, the command stops with an error instead of quietly using a different key.
+`TAURI_SIGNING_PRIVATE_KEY_PATH` can be relative to the repo, absolute (`C:\Users\me\.tauri\scrivon.key`), or start with `~` for your home folder. If the file isn't there, `build` and `bundle` stop with an error instead of quietly using a different key. Commands that don't sign, such as `tauri dev` and `tauri signer generate`, only print a warning.
 
-**Building without the key.** `bundle.createUpdaterArtifacts` is on, so `bun run tauri build` fails at the end, after building the installers, when there is no private key. Without the key you can still build installers; they just can't be offered as in-app updates:
+**Building without the key.** `bundle.createUpdaterArtifacts` is on, so `bun run tauri build` fails at the end, after building the installers, when there is no private key. Without the key you can still build installers; they just can't be offered as in-app updates. First remove or comment out any `TAURI_SIGNING_PRIVATE_KEY_PATH` line in `.env`, then run:
 
 ```bash
 bun run tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'

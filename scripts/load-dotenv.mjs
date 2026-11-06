@@ -47,8 +47,23 @@ export function resolveKeyPath(keyPath, { root = projectRoot, home = homedir() }
     return resolve(root, expanded)
 }
 
-/** @param {{ root?: string, home?: string }} [options] */
-export function applyTauriSigningFromEnv({ root = projectRoot, home = homedir() } = {}) {
+/**
+ * Whether a Tauri CLI command signs anything with the updater key: `build`, `bundle` and `signer sign`.
+ * `dev`, `info`, `signer generate` and the rest never use it.
+ * @param {string[]} args the arguments after `tauri`
+ */
+export function tauriCommandSigns(args) {
+    if (args.includes('--help') || args.includes('-h')) return false
+    // Tauri's global flags (-v, -h, -V) take no value, so the first plain argument is the command.
+    const [command, subcommand] = args.filter((arg) => !arg.startsWith('-'))
+    return command === 'build' || command === 'bundle' || (command === 'signer' && subcommand === 'sign')
+}
+
+/**
+ * @param {{ root?: string, home?: string, keyRequired?: boolean }} [options]
+ * `keyRequired: false` (for commands that don't sign) turns a missing key file into a warning.
+ */
+export function applyTauriSigningFromEnv({ root = projectRoot, home = homedir(), keyRequired = true } = {}) {
     if (process.env.TAURI_SIGNING_PRIVATE_KEY) return
 
     const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH
@@ -56,10 +71,12 @@ export function applyTauriSigningFromEnv({ root = projectRoot, home = homedir() 
         const resolved = resolveKeyPath(keyPath, { root, home })
         // Never fall back to another key when a path was set: that could sign updates with the wrong key.
         if (!existsSync(resolved)) {
-            throw new Error(
-                `TAURI_SIGNING_PRIVATE_KEY_PATH points to a file that doesn't exist: ${resolved}\n` +
-                    'Fix the path (in .env or your environment), or remove it to use src-tauri/.updater/scrivon.'
-            )
+            const problem = `TAURI_SIGNING_PRIVATE_KEY_PATH points to a file that doesn't exist: ${resolved}`
+            if (!keyRequired) {
+                console.warn(`${problem}\nThis command doesn't sign anything, so it carries on without the key.`)
+                return
+            }
+            throw new Error(`${problem}\n` + 'Fix the path (in .env or your environment), or remove it to use src-tauri/.updater/scrivon.')
         }
         process.env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(resolved, 'utf8').trim()
         return
