@@ -7,6 +7,7 @@ import { StudioErrorBoundary, StudioReloadFallback } from '@/components/studio/s
 import { StudioLayout } from '@/components/studio/shell/studio-layout'
 import { StudioMenuBar } from '@/components/studio/shell/studio-menu-bar'
 import { StudioRecoveryScreen } from '@/components/studio/shell/studio-recovery-screen'
+import { NativeWindowTitle } from '@/components/studio/shell/use-native-window-title'
 import { WelcomeScreen } from '@/components/studio/shell/welcome-screen'
 import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
@@ -44,6 +45,7 @@ export function StudioShell() {
                     <DeleteConfirmProvider>
                         <AppUpdateProvider>
                             <StudioErrorBoundary fallback={StudioRecoveryScreen}>
+                                <NativeWindowTitle />
                                 <StudioRouter />
                             </StudioErrorBoundary>
                         </AppUpdateProvider>
