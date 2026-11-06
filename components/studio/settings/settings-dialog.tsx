@@ -64,7 +64,8 @@ export function SettingsDialog() {
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Restore all settings?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    This resets preferences and keyboard shortcuts to factory defaults. This cannot be undone.
+                                    Theme, layout, editor, autosave, keyboard shortcut and advanced settings go back to their defaults. Your document
+                                    export profiles are kept. This cannot be undone.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

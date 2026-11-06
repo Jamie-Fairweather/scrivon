@@ -6,6 +6,16 @@ import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 import { KeybindCapture, KeybindDisplay } from '@/components/studio/settings/keybind-capture'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogPopup,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 
 export function KeyboardSettings() {
@@ -81,9 +91,23 @@ export function KeyboardSettings() {
         <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
                 <p className="text-sm text-muted-foreground">Click Edit to rebind a shortcut. Press Esc or Tab to cancel recording.</p>
-                <Button type="button" variant="outline" size="sm" onClick={handleResetAll}>
-                    Reset all
-                </Button>
+                <AlertDialog>
+                    <AlertDialogTrigger render={<Button type="button" variant="outline" size="sm" />}>Reset all</AlertDialogTrigger>
+                    <AlertDialogPopup>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Reset all keyboard shortcuts?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Every shortcut goes back to its default, and the ones you changed are lost. This cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogClose render={<Button type="button" variant="outline" />}>Cancel</AlertDialogClose>
+                            <AlertDialogClose render={<Button type="button" variant="destructive" />} onClick={handleResetAll}>
+                                Reset all
+                            </AlertDialogClose>
+                        </AlertDialogFooter>
+                    </AlertDialogPopup>
+                </AlertDialog>
             </div>
 
             <div className="divide-y divide-border rounded-lg border border-border">

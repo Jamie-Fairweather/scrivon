@@ -187,9 +187,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }))
     }, [updateSettings])
 
+    // Export profiles are the user's own work (logos, headers, fonts), not preferences, so they're kept.
     const resetAllSettings = useCallback(() => {
-        persist(createDefaultSettings(isMacPlatform()))
-    }, [persist])
+        updateSettings((current) => ({ ...createDefaultSettings(isMacPlatform()), pdfExport: current.pdfExport }))
+    }, [updateSettings])
 
     const value = useMemo<AppSettingsContextValue>(
         () => ({

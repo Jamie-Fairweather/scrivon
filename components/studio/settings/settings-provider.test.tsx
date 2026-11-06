@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
+import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import { loadSettings, SETTINGS_BACKUP_KEY } from '@/lib/settings/storage'
 import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
 
@@ -145,6 +146,27 @@ describe('SettingsProvider persistence', () => {
         })
         expect(message).toBeNull()
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('keeps export profiles when restoring defaults', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.updateSettings((current) => ({
+                ...current,
+                editor: { ...current.editor, fontSize: 20 },
+                pdfExport: createPdfExportProfile(current.pdfExport, 'Company report'),
+            }))
+        })
+        const profiles = result.current.settings.pdfExport
+
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(result.current.settings.editor.fontSize).toBe(createDefaultSettings(false).editor.fontSize)
+        expect(result.current.settings.pdfExport).toEqual(profiles)
+        expect(stored().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
     })
 
     it('tells the user when unreadable settings were restored from the backup', () => {

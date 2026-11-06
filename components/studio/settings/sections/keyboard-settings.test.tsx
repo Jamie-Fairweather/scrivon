@@ -150,6 +150,22 @@ describe('KeyboardSettings recording', () => {
         expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
     })
 
+    it('asks before resetting every shortcut', async () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+        fireEvent.click(within(editor).getByRole('button', { name: /^Clear shortcut/ }))
+
+        fireEvent.click(screen.getByRole('button', { name: 'Reset all' }))
+        const confirm = await screen.findByRole('alertdialog')
+        expect(confirm).toHaveTextContent('Reset all keyboard shortcuts?')
+        fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }))
+        expect(within(editor).getByText('Not assigned')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Reset all' }))
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Reset all' }))
+        expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
+    })
+
     it('warns on both rows when two shortcuts share a chord', () => {
         const chord = { key: 'r', ctrl: true, alt: true }
         store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'view.toggleEditor': [chord], 'view.fitDiagram': [chord] } }))
