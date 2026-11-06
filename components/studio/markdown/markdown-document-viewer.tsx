@@ -25,6 +25,13 @@ type MarkdownDocumentViewerProps = {
     className?: string
 }
 
+/**
+ * Above this length one parse of the preview takes tens of milliseconds, too slow to repeat on every keystroke,
+ * so the preview waits for a short pause in typing instead.
+ */
+const LARGE_PREVIEW_CHARS = 10_000
+const LARGE_PREVIEW_DELAY_MS = 200
+
 function scrollViewport(root: HTMLElement | null): HTMLElement | null {
     return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
 }
@@ -62,7 +69,7 @@ function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElemen
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
-    const previewSource = useFrameSyncedValue(source, tabId)
+    const previewSource = useFrameSyncedValue(source, tabId, source.length > LARGE_PREVIEW_CHARS ? LARGE_PREVIEW_DELAY_MS : 0)
     const { expanded, setExpanded } = useMarkdownExpand()
     const { requestCanvasFit } = useCanvasFit()
     const { tabs, openFile } = useDocumentTabs()

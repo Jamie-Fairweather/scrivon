@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { notifyInfo } from '@/lib/notify'
@@ -38,6 +38,23 @@ vi.mock('@/lib/notify', () => ({
     notifyInfo: vi.fn(() => 'id'),
     notifyError: vi.fn(() => 'id'),
 }))
+
+/** How many times react-markdown has parsed and rendered a document. */
+const markdownParses = vi.hoisted(() => ({ count: 0 }))
+
+vi.mock('react-markdown', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-markdown')>()
+    const Markdown = actual.default
+    return {
+        ...actual,
+        default: function CountingMarkdown(props: Parameters<typeof Markdown>[0]) {
+            markdownParses.count++
+            return Markdown(props)
+        },
+    }
+})
+
+const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
 
 const DOC_A = 'C:\\notes/a.md'
 const DOC_OTHER = 'C:\\notes/docs/other.md'
@@ -79,6 +96,35 @@ describe('MarkdownDocumentViewer', () => {
         const { container, rerender } = render(viewer('a.md', '# Alpha'))
         rerender(viewer('b.md', '# Beta'))
         expect(container.querySelector('h1')).toHaveTextContent('Beta')
+    })
+
+    it('parses the document once per edit, not again for the text it is about to replace', async () => {
+        const { container, rerender } = render(viewer(DOC_A, '# One'))
+        await nextFrame()
+        const parses = markdownParses.count
+
+        rerender(viewer(DOC_A, '# Two'))
+        expect(markdownParses.count).toBe(parses)
+
+        await nextFrame()
+        expect(container.querySelector('h1')).toHaveTextContent('Two')
+        expect(markdownParses.count).toBe(parses + 1)
+    })
+
+    it('waits for a pause in typing before updating the preview of a large document', async () => {
+        vi.useFakeTimers()
+        try {
+            const filler = 'Lorem ipsum dolor sit amet.\n\n'.repeat(400)
+            const { container, rerender } = render(viewer(DOC_A, `# One\n\n${filler}`))
+            rerender(viewer(DOC_A, `# Two\n\n${filler}`))
+            act(() => vi.advanceTimersByTime(100))
+            expect(container.querySelector('h1')).toHaveTextContent('One')
+
+            act(() => vi.advanceTimersByTime(100))
+            expect(container.querySelector('h1')).toHaveTextContent('Two')
+        } finally {
+            vi.useRealTimers()
+        }
     })
 
     it('remembers the preview scroll position for each tab', () => {

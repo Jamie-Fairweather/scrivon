@@ -48,4 +48,35 @@ describe('useFrameSyncedValue', () => {
         flushFrame()
         expect(result.current).toBe('doc b edited')
     })
+
+    describe('with a delay', () => {
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('waits until the value has stopped changing for that long', () => {
+            const { result, rerender } = renderHook(({ value }) => useFrameSyncedValue(value, 'tab-a', 200), { initialProps: { value: 'one' } })
+            rerender({ value: 'two' })
+            act(() => vi.advanceTimersByTime(150))
+            rerender({ value: 'three' })
+            act(() => vi.advanceTimersByTime(150))
+            flushFrame()
+            expect(result.current).toBe('one')
+
+            act(() => vi.advanceTimersByTime(50))
+            expect(result.current).toBe('three')
+        })
+
+        it('still shows a new tab’s value straight away', () => {
+            const { result, rerender } = renderHook(({ value, tab }) => useFrameSyncedValue(value, tab, 200), {
+                initialProps: { value: 'doc a', tab: 'a.md' },
+            })
+            rerender({ value: 'doc b', tab: 'b.md' })
+            expect(result.current).toBe('doc b')
+        })
+    })
 })

@@ -6,11 +6,39 @@ vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
     useMermaidSvg: () => ({ svgForDisplay: null, dimensions: null, error: null, isPending: false }),
 }))
 
+/** How many times react-markdown has parsed and rendered a document. */
+const markdownParses = vi.hoisted(() => ({ count: 0 }))
+
+vi.mock('react-markdown', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-markdown')>()
+    const Markdown = actual.default
+    return {
+        ...actual,
+        default: function CountingMarkdown(props: Parameters<typeof Markdown>[0]) {
+            markdownParses.count++
+            return Markdown(props)
+        },
+    }
+})
+
+const noop = () => {}
+
 function preview(source: string) {
-    return render(<MarkdownPreview source={source} tabId="doc.md" onExpandBlock={() => {}} onLinkClick={() => {}} />)
+    return render(<MarkdownPreview source={source} tabId="doc.md" onExpandBlock={noop} onLinkClick={noop} />)
 }
 
 describe('MarkdownPreview', () => {
+    it('parses the document again only when its text changes', () => {
+        const { rerender } = preview('# One')
+        const parses = markdownParses.count
+
+        rerender(<MarkdownPreview source="# One" tabId="doc.md" onExpandBlock={noop} onLinkClick={noop} />)
+        expect(markdownParses.count).toBe(parses)
+
+        rerender(<MarkdownPreview source="# Two" tabId="doc.md" onExpandBlock={noop} onLinkClick={noop} />)
+        expect(markdownParses.count).toBe(parses + 1)
+    })
+
     describe('keeps what the Markdown says about each element', () => {
         it('numbers a list that resumes at 3 from 3', () => {
             const { container } = preview('3. three\n4. four')

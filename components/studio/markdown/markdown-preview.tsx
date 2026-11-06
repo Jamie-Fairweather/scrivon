@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { memo, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { nextFencedCodeBlockOrdinal, nextMermaidBlockOrdinal, resetMarkdownBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import type { Element } from 'hast'
 import type { Root } from 'mdast'
@@ -136,7 +136,12 @@ const staticMarkdownComponents: Components = {
     pre: ({ children }) => <>{children}</>,
 }
 
-export function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, className }: MarkdownPreviewProps) {
+/**
+ * Every render parses the whole document again, so this is memoised: the parent re-renders on each keystroke
+ * (before the preview text catches up), on autosave and while the splitter is dragged, and none of those change
+ * what the preview shows. Callers keep the callback props stable.
+ */
+export const MarkdownPreview = memo(function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, className }: MarkdownPreviewProps) {
     resetMarkdownBlockOrdinals()
 
     const components = useMemo((): Components => {
@@ -195,4 +200,4 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, cla
             </article>
         </div>
     )
-}
+})
