@@ -6,6 +6,7 @@ import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/stu
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { usePanZoom } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
 import { CircleAlert, Loader2 } from 'lucide-react'
@@ -99,7 +100,9 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     const { canvasFitRequestId } = useCanvasFit()
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
     const tabName = tabs.find((t) => t.id === activeTabId)?.name
-    const diagramLabel = tabName ? `Diagram: ${tabName}` : 'Diagram'
+    // A diagram can name and describe itself with accTitle and accDescr; otherwise it's named after the tab.
+    const accessibility = useMemo(() => readDiagramAccessibility(source), [source])
+    const diagramLabel = accessibility.title ?? (tabName ? `Diagram: ${tabName}` : 'Diagram')
     const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
@@ -146,7 +149,14 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
         >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div ref={transformRef} className={cn('origin-center transition-opacity', showDiagram && error && 'opacity-40')}>
-                    {showDiagram ? <DiagramIframe key={viewKey ?? 'none'} svg={svgForDisplay!} label={diagramLabel} /> : null}
+                    {showDiagram ? (
+                        <DiagramIframe
+                            key={viewKey ?? 'none'}
+                            svg={svgForDisplay!}
+                            label={diagramLabel}
+                            description={accessibility.description ?? undefined}
+                        />
+                    ) : null}
                 </div>
             </div>
             {/* Messages sit outside the pan/zoom layer, so they always show centred at full size. */}

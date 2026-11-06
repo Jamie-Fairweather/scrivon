@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 
@@ -24,6 +24,8 @@ type DiagramIframeProps = {
     svg: string
     /** What screen readers announce for the diagram, e.g. "Diagram: flow.mmd". */
     label?: string
+    /** A longer description screen readers read after the label, e.g. from the diagram's accDescr. */
+    description?: string
     /**
      * Ignored, like onBoundsMeasured. Tight bounds needed the frame's document, which the sandbox
      * hides, so they never worked. Kept only until embedded-mermaid-block stops passing them.
@@ -45,9 +47,10 @@ type Frames = { shown: Frame; incoming: Frame | null; nextId: number }
  * loads in a hidden second frame and takes over once it has loaded and painted, so edits never
  * flash a blank frame. Between edits there is only one frame.
  */
-export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL }: DiagramIframeProps) {
+export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description }: DiagramIframeProps) {
     const [frames, setFrames] = useState<Frames>(() => ({ shown: { svg, id: 0 }, incoming: null, nextId: 1 }))
     const paintRequestRef = useRef(0)
+    const descriptionId = useId()
 
     // Follow the svg prop while rendering: start loading a new diagram, or drop one that was
     // replaced before it loaded (including going back to the diagram already shown).
@@ -89,7 +92,18 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_
     return (
         // One named image for assistive tech. The frames inside are only how it is drawn, so they are
         // hidden from screen readers and kept out of the Tab order, the loading one included.
-        <div role="img" aria-label={label} className="relative overflow-hidden" style={{ width: shownDims.width, height: shownDims.height }}>
+        <div
+            role="img"
+            aria-label={label}
+            aria-describedby={description ? descriptionId : undefined}
+            className="relative overflow-hidden"
+            style={{ width: shownDims.width, height: shownDims.height }}
+        >
+            {description ? (
+                <span id={descriptionId} hidden>
+                    {description}
+                </span>
+            ) : null}
             {[current.shown, current.incoming].map((frame) => {
                 if (!frame) return null
                 const dims = getSvgDimensions(frame.svg)

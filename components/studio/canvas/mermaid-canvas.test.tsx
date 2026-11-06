@@ -116,4 +116,13 @@ describe('MermaidCanvas', () => {
             expect(frame).toHaveAttribute('inert')
         }
     })
+
+    it('names and describes the diagram from its own accTitle and accDescr (A27)', () => {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+
+        render(<MermaidCanvas source={'graph TD\n  accTitle: Sign-in flow\n  accDescr: How a user signs in\n  A --> B'} />)
+
+        const image = screen.getByRole('img', { name: 'Sign-in flow' })
+        expect(image).toHaveAccessibleDescription('How a user signs in')
+    })
 })
