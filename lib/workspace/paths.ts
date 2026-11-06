@@ -3,13 +3,22 @@ import { isSupportedDocument } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
+/** Device names Windows won't use for a file or folder, with or without an extension (`con`, `nul.md`). */
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i
+const MAX_NAME_LENGTH = 255
 
+/** Checks a file or folder name against the rules of Windows, the strictest of the systems Scrivon runs on. */
 export function validateFileName(name: string): string | null {
     const trimmed = name.trim()
     if (!trimmed) return 'Name cannot be empty'
     if (INVALID_CHARS.test(trimmed)) return 'Name contains invalid characters'
     if (trimmed === '.' || trimmed === '..') return 'Invalid name'
     if (trimmed.includes('/') || trimmed.includes('\\')) return 'Name cannot contain path separators'
+    // Windows quietly drops a trailing dot, so the item would get a different name from the one the app tracks.
+    if (trimmed.endsWith('.')) return 'Name cannot end with a dot'
+    const stem = trimmed.split('.')[0]!.trim()
+    if (WINDOWS_RESERVED_NAME.test(stem)) return `"${stem}" is a reserved name on Windows`
+    if (trimmed.length > MAX_NAME_LENGTH) return `Name is too long (${MAX_NAME_LENGTH} characters at most)`
     return null
 }
 

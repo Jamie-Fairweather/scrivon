@@ -44,6 +44,26 @@ describe('validateFileName', () => {
         expect(validateFileName('folder\\file.mmd')).toBe('Name cannot contain path separators')
     })
 
+    it('rejects names Windows reserves for devices, with or without an extension', () => {
+        expect(validateFileName('con')).toBe('"con" is a reserved name on Windows')
+        expect(validateFileName('AUX')).toBe('"AUX" is a reserved name on Windows')
+        expect(validateFileName('nul.md')).toBe('"nul" is a reserved name on Windows')
+        expect(validateFileName('COM1.mmd')).toBe('"COM1" is a reserved name on Windows')
+        expect(validateFileName('lpt9')).toBe('"lpt9" is a reserved name on Windows')
+        expect(validateFileName('console.md')).toBeNull()
+        expect(validateFileName('com10.md')).toBeNull()
+    })
+
+    it('rejects a trailing dot, which Windows would drop', () => {
+        expect(validateFileName('drafts.')).toBe('Name cannot end with a dot')
+        expect(validateFileName('...')).toBe('Name cannot end with a dot')
+    })
+
+    it('rejects names longer than Windows allows', () => {
+        expect(validateFileName(`${'a'.repeat(252)}.md`)).toBeNull()
+        expect(validateFileName(`${'a'.repeat(253)}.md`)).toBe('Name is too long (255 characters at most)')
+    })
+
     it('accepts valid names', () => {
         expect(validateFileName('diagram.mmd')).toBeNull()
         expect(validateFileName('  notes.md  ')).toBeNull()

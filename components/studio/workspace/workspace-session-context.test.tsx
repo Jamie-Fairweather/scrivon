@@ -375,6 +375,22 @@ describe('creating files and folders', () => {
         })
     })
 
+    it('refuses folder names Windows would reject or change, and says why', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.createFolder('C:\\ws', 'aux')
+        })
+        await act(async () => {
+            await result.current.session.createFolder('C:\\ws', 'drafts.')
+        })
+
+        expect(mkdir).not.toHaveBeenCalled()
+        expect(notifyError).toHaveBeenCalledWith("Couldn't create folder aux", undefined, { description: '"aux" is a reserved name on Windows' })
+        expect(notifyError).toHaveBeenCalledWith("Couldn't create folder drafts.", undefined, { description: 'Name cannot end with a dot' })
+    })
+
     it('suggests a default name nothing in the folder uses', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)
