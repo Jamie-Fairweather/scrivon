@@ -69,7 +69,7 @@ import type { ExportDocument } from '@/lib/markdown/export-document'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
-import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText, stripAccessibilityLines, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
@@ -1924,7 +1924,8 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     const text = node.value.replace(/\n$/, '')
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         try {
-            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
+            // The alt text comes from the accTitle and accDescr lines, which the renderer would draw as stray boxes.
+            const svg = renderMermaidDiagramForExport(stripAccessibilityLines(text), profile.content.mermaidThemeId)
             return {
                 kind: 'diagram',
                 png: await diagramPng(svg, profile.content.mermaidThemeId),

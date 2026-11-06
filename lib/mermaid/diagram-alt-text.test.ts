@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText, stripAccessibilityLines } from '@/lib/mermaid/diagram-alt-text'
 
 describe('diagramAltText', () => {
     it("uses the diagram's own accTitle and accDescr", () => {
@@ -65,5 +65,26 @@ describe('diagramAltText', () => {
         expect(diagramAltText('graph TD\n  A --> B')).toEqual({ name: 'Flowchart', description: 'Flowchart' })
         expect(diagramAltText('pie\n  "Dogs" : 3')).toEqual({ name: 'Diagram', description: 'Diagram' })
         expect(diagramAltText('')).toEqual({ name: 'Diagram', description: 'Diagram' })
+    })
+})
+
+describe('stripAccessibilityLines', () => {
+    it('takes out accTitle, accDescr and accDescr blocks, which the renderer would draw as boxes', () => {
+        expect(stripAccessibilityLines('flowchart TD\n  accTitle: Login flow\n  accDescr: How a user signs in\n  A[Start] --> B[End]')).toBe(
+            'flowchart TD\n  A[Start] --> B[End]'
+        )
+        expect(stripAccessibilityLines('flowchart TD\n  accDescr {\n    multi\n    line }\n  A --> B')).toBe('flowchart TD\n  A --> B')
+        expect(stripAccessibilityLines('stateDiagram-v2\n  ACCTITLE : States\n  accDescr { one line }\n  [*] --> Idle')).toBe(
+            'stateDiagram-v2\n  [*] --> Idle'
+        )
+        // Diagram text after a block's closing brace stays.
+        expect(stripAccessibilityLines('graph TD\n  accDescr { note } A --> B')).toBe('graph TD\n A --> B')
+    })
+
+    it('keeps every other line as it is, and a block that never closes', () => {
+        const plain = '%%{init: {"theme": "dark"}}%%\nflowchart LR\n  %% accTitle: in a comment\n  A[accTitle] --> B\n'
+        expect(stripAccessibilityLines(plain)).toBe(plain)
+        const open = 'flowchart TD\n  accDescr {\n  A --> B'
+        expect(stripAccessibilityLines(open)).toBe(open)
     })
 })
