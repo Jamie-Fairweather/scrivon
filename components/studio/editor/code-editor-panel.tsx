@@ -7,12 +7,14 @@ import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
+import { editorAriaLabel } from '@/lib/monaco/editor-aria'
 import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { documentKind } from '@/lib/tauri/fs'
+import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 function EditorLoading() {
@@ -163,6 +165,11 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
+    const activeName = activeTab?.name
+    const ariaLabel = useMemo(
+        () => editorAriaLabel(activeName !== undefined ? { name: activeName, readOnly: isReadOnly } : null, isMacPlatform()),
+        [activeName, isReadOnly]
+    )
     const editorOptions = useMemo(
         () => ({
             ...BASE_EDITOR_OPTIONS,
@@ -173,8 +180,9 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
             minimap: { enabled: settings.editor.minimap },
             readOnly: isReadOnly,
             domReadOnly: isReadOnly,
+            ariaLabel,
         }),
-        [settings.editor, isReadOnly]
+        [settings.editor, isReadOnly, ariaLabel]
     )
 
     useEffect(() => {

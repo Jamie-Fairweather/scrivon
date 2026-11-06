@@ -236,3 +236,16 @@ describe('CodeEditorPanel models', () => {
         expect(updateTabContent).not.toHaveBeenCalled()
     })
 })
+
+describe('CodeEditorPanel accessibility', () => {
+    it('names the editor after the open file and says how to leave it', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.mmd'
+        tabsState = { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        expect(editor.options.ariaLabel).toMatch(/^a\.md, Markdown editor\. Press Control\+M/)
+
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
+        expect(editor.options.ariaLabel).toMatch(/^b\.mmd, Mermaid editor\./)
+    })
+})
