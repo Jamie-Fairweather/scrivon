@@ -357,3 +357,32 @@ describe('copies of unsaved text', () => {
         expect(saveUnsavedBackup).not.toHaveBeenCalled()
     })
 })
+
+describe('turning autosave back on', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 50 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
+    })
+
+    it('saves the tabs that already have unsaved edits, but not read-only ones', async () => {
+        const { result, rerender } = renderHook(useHarness, {
+            wrapper: createWrapper([tab('/ws/a.mmd'), tab('/ws/b.mmd'), tab('/ws/locked.md', { readOnly: true, isDirty: true })]),
+        })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(3))
+        act(() => {
+            result.current.tabs.updateTabContent('/ws/a.mmd', 'edit a')
+            result.current.tabs.updateTabContent('/ws/b.mmd', 'edit b')
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(writeFile).not.toHaveBeenCalled()
+
+        settingsState.autosave = { enabled: true, delayMs: 50 }
+        rerender()
+
+        await waitFor(() => expect(result.current.tabs.tabs.map((t) => t.isDirty)).toEqual([false, false, true]))
+        expect(writeFile).toHaveBeenCalledTimes(2)
+    })
+})

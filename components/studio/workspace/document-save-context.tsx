@@ -123,12 +123,6 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
         void deleteUnsavedBackup(path).catch(warnBackupFailed)
     }, [])
 
-    useEffect(() => {
-        if (autosaveEnabled) return
-        for (const timer of saveTimers.current.values()) clearTimeout(timer)
-        saveTimers.current.clear()
-    }, [autosaveEnabled])
-
     // One question about a file changed on disk at a time, so saves of several tabs can't stack dialogs.
     const diskQuestion = useRef<Promise<unknown>>(Promise.resolve())
     const openDiskQuestions = useRef(0)
@@ -271,6 +265,19 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
         },
         [flushSave, tabsRef]
     )
+
+    // Turning autosave off drops the saves that were due. Turning it on saves the tabs that already have
+    // unsaved edits, instead of leaving them until the next keystroke.
+    useEffect(() => {
+        if (!autosaveEnabled) {
+            for (const timer of saveTimers.current.values()) clearTimeout(timer)
+            saveTimers.current.clear()
+            return
+        }
+        for (const tab of tabsRef.current) {
+            if (tab.isDirty && !tab.readOnly) scheduleSave(tab.id)
+        }
+    }, [autosaveEnabled, scheduleSave, tabsRef])
 
     const cancelScheduledSave = useCallback(
         (id: string) => {
