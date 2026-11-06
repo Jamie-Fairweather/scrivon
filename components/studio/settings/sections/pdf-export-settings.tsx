@@ -230,8 +230,11 @@ export function PdfExportSettings() {
         <div className="space-y-8">
             <div className="space-y-6">
                 <Field>
-                    <FieldLabel htmlFor="pdf-profile">Profile</FieldLabel>
-                    <FieldDescription>Named export styles for branded PDFs.</FieldDescription>
+                    <FieldLabel htmlFor="pdf-profile">Default export profile</FieldLabel>
+                    <FieldDescription>
+                        Styles for both PDF and Word export. The Export dialog starts with this profile, and you can pick another there for one
+                        export.
+                    </FieldDescription>
                     <div className="flex flex-wrap gap-2">
                         <OptionSelect
                             id="pdf-profile"
