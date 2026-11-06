@@ -57,7 +57,8 @@ export function SettingsDialog() {
                         <SettingsSectionPanel section={activeSection} />
                     </ScrollArea>
                 </div>
-                <DialogFooter variant="bare" className="items-center justify-between">
+                {/* sm: so it replaces the footer's own sm:justify-end; narrow windows keep the stacked full-width buttons. */}
+                <DialogFooter variant="bare" className="sm:items-center sm:justify-between">
                     <AlertDialog>
                         <AlertDialogTrigger render={<Button type="button" variant="outline" />}>Restore defaults</AlertDialogTrigger>
                         <AlertDialogPopup>
