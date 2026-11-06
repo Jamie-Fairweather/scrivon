@@ -4,6 +4,9 @@
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/esm/vs/editor/edcore.main.js'
 import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js'
+import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js'
+import { IOpenerService } from 'monaco-editor/esm/vs/platform/opener/common/opener.js'
+import { registerExternalLinkOpener } from '@/lib/monaco/link-opener'
 
 // Monaco's background work (link detection, word suggestions) runs in a bundled worker.
 // The bundler turns this `new Worker(new URL(...))` into its own worker chunk.
@@ -12,3 +15,6 @@ globalThis.MonacoEnvironment = {
 }
 
 loader.config({ monaco })
+
+// Ctrl+Clicked web and email links open in the system browser or mail app.
+registerExternalLinkOpener(StandaloneServices.get(IOpenerService))

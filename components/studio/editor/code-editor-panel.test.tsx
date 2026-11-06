@@ -120,7 +120,6 @@ const fakeMonaco = {
         defineTheme: () => {},
         setModelLanguage: () => {},
         onDidChangeMarkers: () => ({ dispose: () => {} }),
-        registerLinkOpener: vi.fn(() => ({ dispose: () => {} })),
         remeasureFonts: vi.fn(),
     },
 }
@@ -483,14 +482,6 @@ describe('CodeEditorPanel theme', () => {
         view.rerender(<Panel />)
 
         expect(defineMonacoDiagramTheme).toHaveBeenLastCalledWith(fakeMonaco, dark.tokens, false)
-    })
-})
-
-describe('CodeEditorPanel links', () => {
-    it('hands Ctrl+Clicked links to the app instead of window.open', async () => {
-        tabsState = { tabs: [tab('/w/a.md', 'https://mermaid.js.org')], activeTabId: '/w/a.md' }
-        await mountEditor()
-        expect(fakeMonaco.editor.registerLinkOpener).toHaveBeenCalledTimes(1)
     })
 })
 
