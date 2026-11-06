@@ -14,7 +14,7 @@ export function FileTreeRootActions() {
         <Menu>
             <MenuTrigger
                 render={
-                    <Button variant="ghost" size="icon-sm" aria-label="New">
+                    <Button variant="ghost" size="icon-sm" aria-label="New file or folder" title="New file or folder">
                         <Plus className="size-4" />
                     </Button>
                 }

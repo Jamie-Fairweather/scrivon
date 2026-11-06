@@ -47,7 +47,8 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                     aria-selected={isActive || undefined}
                     aria-disabled={isUnsupported || undefined}
                     tabIndex={isTabStop ? 0 : -1}
-                    title={isUnsupported ? 'Scrivon supports .md and .mmd files only' : undefined}
+                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file won't open.
+                    title={isUnsupported ? `${node.name}\nScrivon supports .md, .mmd and .mermaid files only` : node.name}
                     className={cn(
                         `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,

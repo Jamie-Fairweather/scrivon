@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useId, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -9,6 +9,10 @@ import { documentExtension } from '@/lib/workspace/file-types'
 
 export type NamePromptOptions = {
     title: string
+    /** One line under the title, such as which folder a new item goes in. */
+    description?: string
+    /** The confirm button's label. Defaults to 'Create'. */
+    submitLabel?: string
     defaultValue?: string
     placeholder?: string
     /**
@@ -49,7 +53,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
     const [request, setRequest] = useState<NamePromptOptions>({ title: '' })
     const [value, setValue] = useState('')
 
-    const { title, placeholder, validate } = request
+    const { title, description, submitLabel = 'Create', placeholder, validate } = request
     const trimmed = value.trim()
     const error = open && validate ? validate(trimmed) : null
     const canSubmit = trimmed.length > 0 && !error
@@ -71,17 +75,6 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
             setOpen(true)
         })
     }, [])
-
-    const dialogCopy = useMemo(() => {
-        const lower = title.toLowerCase()
-        if (lower.includes('rename')) {
-            return { description: 'Choose a new name for this item.', submitLabel: 'Rename' }
-        }
-        if (lower.includes('folder')) {
-            return { description: 'Enter a folder name.', submitLabel: 'Create' }
-        }
-        return { description: 'Enter a file name.', submitLabel: 'Create' }
-    }, [title])
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -107,8 +100,9 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
             <Dialog onOpenChange={handleOpenChange} open={open}>
                 <DialogPopup showCloseButton={false}>
                     <DialogHeader>
-                        <DialogTitle>{title}</DialogTitle>
-                        <DialogDescription>{dialogCopy.description}</DialogDescription>
+                        {/* Titles and descriptions can hold long file names; let those wrap instead of overflowing. */}
+                        <DialogTitle className="wrap-anywhere">{title}</DialogTitle>
+                        {description && <DialogDescription className="wrap-anywhere">{description}</DialogDescription>}
                     </DialogHeader>
                     <form className="contents" onSubmit={handleSubmit}>
                         <DialogPanel>
@@ -135,7 +129,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                 Cancel
                             </DialogClose>
                             <Button disabled={!canSubmit} type="submit">
-                                {dialogCopy.submitLabel}
+                                {submitLabel}
                             </Button>
                         </DialogFooter>
                     </form>

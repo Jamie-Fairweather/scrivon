@@ -70,6 +70,13 @@ describe('FileTree', () => {
         expect(item('photo.png')).toHaveAttribute('aria-disabled', 'true')
     })
 
+    it('shows the full name on hover, and why an unsupported file will not open', () => {
+        render(<FileTree tree={tree} />)
+
+        expect(item('flow.mmd')).toHaveAttribute('title', 'flow.mmd')
+        expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .mmd and .mermaid files only')
+    })
+
     it('is a single Tab stop, on the open file', () => {
         tabs.activeTabId = '/ws/flow.mmd'
         render(<FileTree tree={tree} />)
@@ -126,7 +133,14 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         press('flow.mmd', 'F2')
-        expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ defaultValue: 'flow.mmd' }))
+        expect(promptName).toHaveBeenCalledWith(
+            expect.objectContaining({
+                title: 'Rename "flow.mmd"',
+                description: 'Choose a new name for this file.',
+                submitLabel: 'Rename',
+                defaultValue: 'flow.mmd',
+            })
+        )
 
         press('docs', 'Delete')
         expect(confirmDelete).toHaveBeenCalledWith('docs', true)

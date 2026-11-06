@@ -72,6 +72,20 @@ describe('NamePromptProvider', () => {
         expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'v1.2'.length])
     })
 
+    it('shows the description and button label it is given', async () => {
+        await openPrompt({ title: 'Rename "notes.md"', description: 'Choose a new name for this file.', submitLabel: 'Rename' })
+
+        expect(screen.getByText('Choose a new name for this file.')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument()
+    })
+
+    it('does not guess a description from the title', async () => {
+        await openPrompt({ title: 'Rename "drafts"', defaultValue: 'drafts' })
+
+        expect(screen.queryByText(/choose a new name/i)).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument()
+    })
+
     it('blocks an empty name and returns null on cancel', async () => {
         const { onResult, input } = await openPrompt({ title: 'New folder name', defaultValue: 'diagrams', placeholder: 'Folder name' })
         expect(input).toHaveAttribute('placeholder', 'Folder name')

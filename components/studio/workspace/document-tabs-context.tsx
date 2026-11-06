@@ -148,7 +148,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         async (requestedPath: string) => {
             const fileName = getBaseName(requestedPath)
             if (!isSupportedDocument(fileName)) {
-                await showError('Unsupported file', 'Scrivon supports .md and .mmd files only.')
+                await showError('Unsupported file', 'Scrivon supports .md, .mmd and .mermaid files only.')
                 return
             }
 

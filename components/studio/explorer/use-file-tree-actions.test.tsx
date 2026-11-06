@@ -30,7 +30,7 @@ describe('useFileTreeActions', () => {
         })
 
         const options = promptName.mock.calls[0]![0]
-        expect(options).toMatchObject({ defaultValue: 'diagram.mmd', placeholder: 'diagram.mmd' })
+        expect(options).toMatchObject({ defaultValue: 'diagram.mmd', placeholder: 'diagram.mmd', description: 'Creates the diagram in "ws".' })
         options.validate!('login flow')
         expect(session.getNameError).toHaveBeenLastCalledWith('/ws', 'login flow.mmd', 'file')
         expect(session.createFile).toHaveBeenCalledWith('/ws', 'login flow.mmd')
@@ -59,6 +59,7 @@ describe('useFileTreeActions', () => {
             await result.current.createFolderInParent()
         })
 
+        expect(promptName.mock.calls[0]![0]).toMatchObject({ description: 'Creates the folder in "ws".', placeholder: 'Folder name' })
         expect(session.createFolder).toHaveBeenCalledWith('/ws', 'drafts')
     })
 })
