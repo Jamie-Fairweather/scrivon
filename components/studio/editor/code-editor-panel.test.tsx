@@ -376,3 +376,50 @@ describe('CodeEditorPanel resize handle', () => {
         expect(panel.style.width).toBe('400px')
     })
 })
+
+describe('CodeEditorPanel resize handle from the keyboard', () => {
+    function renderPanel(width = 400) {
+        const onWidthChange = vi.fn()
+        const onResetWidth = vi.fn()
+        const view = render(<CodeEditorPanel width={width} onWidthChange={onWidthChange} onResetWidth={onResetWidth} />)
+        const handle = view.getByRole('separator', { name: 'Resize editor' })
+        return { onWidthChange, onResetWidth, handle }
+    }
+
+    it('can be focused and says how wide the editor is', () => {
+        const { handle } = renderPanel()
+        // happy-dom's window is 1024px wide: the editor may take 60% of it.
+        expect(handle).toHaveAttribute('tabindex', '0')
+        expect(handle).toHaveAttribute('aria-valuenow', '400')
+        expect(handle).toHaveAttribute('aria-valuemin', '280')
+        expect(handle).toHaveAttribute('aria-valuemax', '614')
+        expect(handle).toHaveAttribute('aria-valuetext', '400 pixels wide')
+    })
+
+    it('resizes with the arrow keys, Home and End', () => {
+        const { onWidthChange, handle } = renderPanel()
+
+        fireEvent.keyDown(handle, { key: 'ArrowRight' })
+        expect(onWidthChange).toHaveBeenLastCalledWith(416)
+        fireEvent.keyDown(handle, { key: 'ArrowLeft', shiftKey: true })
+        expect(onWidthChange).toHaveBeenLastCalledWith(336)
+        fireEvent.keyDown(handle, { key: 'Home' })
+        expect(onWidthChange).toHaveBeenLastCalledWith(280)
+        fireEvent.keyDown(handle, { key: 'End' })
+        expect(onWidthChange).toHaveBeenLastCalledWith(614)
+    })
+
+    it('does not save a width that would not change anything', () => {
+        const { onWidthChange, handle } = renderPanel(280)
+        fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+        fireEvent.keyDown(handle, { key: 'Home' })
+        expect(onWidthChange).not.toHaveBeenCalled()
+    })
+
+    it('resets to the default width with Enter or a double-click', () => {
+        const { onResetWidth, handle } = renderPanel()
+        fireEvent.keyDown(handle, { key: 'Enter' })
+        fireEvent.doubleClick(handle)
+        expect(onResetWidth).toHaveBeenCalledTimes(2)
+    })
+})

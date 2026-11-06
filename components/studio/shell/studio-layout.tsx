@@ -35,7 +35,12 @@ export function StudioLayout() {
                             <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                                 {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
                                 {editorLayout.hydrated && (
-                                    <CodeEditorPanel open={layout.editorOpen} width={editorLayout.width} onWidthChange={editorLayout.onWidthChange} />
+                                    <CodeEditorPanel
+                                        open={layout.editorOpen}
+                                        width={editorLayout.width}
+                                        onWidthChange={editorLayout.onWidthChange}
+                                        onResetWidth={editorLayout.resetEditorWidth}
+                                    />
                                 )}
 
                                 {viewerKind === 'markdown' ? (

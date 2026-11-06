@@ -13,7 +13,7 @@ import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
-import { clampEditorWidth } from '@/components/studio/editor/editor-width'
+import { MIN_EDITOR_WIDTH, clampEditorWidth, maxEditorWidth } from '@/components/studio/editor/editor-width'
 import { documentKind } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -68,7 +68,13 @@ type CodeEditorPanelProps = {
     open?: boolean
     width: number
     onWidthChange: (width: number) => void
+    /** Puts the editor back to its default width (double-click or Enter on the resize handle). */
+    onResetWidth?: () => void
 }
+
+/** How far one arrow key press moves the resize handle (with Shift: the larger step). */
+const KEYBOARD_RESIZE_STEP = 16
+const KEYBOARD_RESIZE_BIG_STEP = 64
 
 function languageForTab(tab: DocumentTab) {
     if (tab.readOnly) return 'markdown'
@@ -76,7 +82,7 @@ function languageForTab(tab: DocumentTab) {
     return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
@@ -153,6 +159,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
     // While dragging, the width lives here and is saved once when the drag ends.
     const [dragWidth, setDragWidth] = useState<number | null>(null)
     const shownWidth = dragWidth ?? effectiveWidth
+    const availableWidth = rowWidth > 0 ? rowWidth : typeof window !== 'undefined' ? window.innerWidth : 0
 
     const onResizePointerDown = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
@@ -164,12 +171,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
                 pointerId: e.pointerId,
                 startX: e.clientX,
                 startWidth: effectiveWidth,
-                available: rowWidth > 0 ? rowWidth : window.innerWidth,
+                available: availableWidth,
                 width: effectiveWidth,
             }
             setDragWidth(effectiveWidth)
         },
-        [effectiveWidth, rowWidth]
+        [effectiveWidth, availableWidth]
     )
 
     const onResizePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -187,6 +194,27 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
         setDragWidth(null)
         if (drag.width !== drag.startWidth) onWidthChange(drag.width)
     }, [onWidthChange])
+
+    /** Arrow keys resize (Shift for bigger steps), Home and End go to the narrowest and widest, Enter resets. */
+    const onResizeKeyDown = useCallback(
+        (e: React.KeyboardEvent<HTMLDivElement>) => {
+            const step = e.shiftKey ? KEYBOARD_RESIZE_BIG_STEP : KEYBOARD_RESIZE_STEP
+            let next: number
+            if (e.key === 'ArrowLeft') next = effectiveWidth - step
+            else if (e.key === 'ArrowRight') next = effectiveWidth + step
+            else if (e.key === 'Home') next = MIN_EDITOR_WIDTH
+            else if (e.key === 'End') next = maxEditorWidth(availableWidth)
+            else if (e.key === 'Enter' && onResetWidth) {
+                e.preventDefault()
+                onResetWidth()
+                return
+            } else return
+            e.preventDefault()
+            const clamped = clampEditorWidth(next, availableWidth)
+            if (clamped !== effectiveWidth) onWidthChange(clamped)
+        },
+        [effectiveWidth, availableWidth, onWidthChange, onResetWidth]
+    )
 
     const onEditorChange = useCallback(
         (value: string | undefined) => {
@@ -346,7 +374,15 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
                 role="separator"
                 aria-orientation="vertical"
                 aria-label="Resize editor"
-                className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none hover:bg-ring/30 active:bg-ring/50"
+                aria-valuenow={shownWidth}
+                aria-valuemin={MIN_EDITOR_WIDTH}
+                aria-valuemax={maxEditorWidth(availableWidth)}
+                aria-valuetext={`${shownWidth} pixels wide`}
+                tabIndex={0}
+                className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30 focus-visible:bg-ring/60
+                    active:bg-ring/50"
+                onKeyDown={onResizeKeyDown}
+                onDoubleClick={onResetWidth}
                 onPointerDown={onResizePointerDown}
                 onPointerMove={onResizePointerMove}
                 onPointerUp={endResize}
