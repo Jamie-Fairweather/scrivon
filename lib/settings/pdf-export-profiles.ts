@@ -94,11 +94,20 @@ export function deletePdfExportProfile(settings: PdfExportSettings, profileId: s
 export const PDF_MIN_BODY_HEIGHT_MM = 40
 
 /**
+ * Rough height of a header or footer bar left at "0 fits the content". The PDF export sizes
+ * body images with the same estimate (AUTO_BAR_HEIGHT_MM in lib/markdown/export-html-css.ts),
+ * so the warning and the export agree on how much room is left.
+ */
+export const PDF_AUTO_BAR_HEIGHT_MM = 12
+
+/**
  * Page height left for the document text once the top and bottom margins and any shown
- * header/footer (bar height plus gap) are taken off. A bar that ignores margins sits inside
- * the margin band, so it only takes more room once it is taller than the margin.
+ * header/footer (its height, or PDF_AUTO_BAR_HEIGHT_MM when it fits its content, plus its
+ * gap) are taken off. A bar that ignores margins sits inside the margin band, so it only
+ * takes more room once it is taller than the margin.
  * With the Footer switch off, page numbers still print, but on their own: the export drops
- * the footer's height, gap and edge-to-edge band (applyPdfFooterSwitch), so they don't count.
+ * the footer's height, gap and edge-to-edge band (applyPdfFooterSwitch), so only a bare
+ * content-sized row counts.
  * Negative when they add up to more than the page.
  */
 export function pdfBodyHeightMm(profile: PdfExportProfile): number {
@@ -108,7 +117,7 @@ export function pdfBodyHeightMm(profile: PdfExportProfile): number {
     const layout = resolvePdfExportLayout({ ...profile, footer })
     const band = (margin: number, bar: PdfExportChrome, shown: boolean, bleeds: boolean) => {
         if (!shown) return margin
-        const barMm = bar.heightMm + bar.gapMm
+        const barMm = (bar.heightMm > 0 ? bar.heightMm : PDF_AUTO_BAR_HEIGHT_MM) + bar.gapMm
         return bleeds ? Math.max(margin, barMm) : margin + barMm
     }
     const { top, bottom } = profile.page.marginsMm

@@ -6,6 +6,7 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    PDF_AUTO_BAR_HEIGHT_MM,
     pdfBodyHeightMm,
     renamePdfExportProfile,
     setActivePdfExportProfile,
@@ -276,6 +277,15 @@ describe('pdfBodyHeightMm', () => {
         expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 40)
     })
 
+    it('estimates the height of a bar that fits its content, as the export does', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, ...bar(0, 3, false) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - (10 + PDF_AUTO_BAR_HEIGHT_MM + 3) - 10)
+        // Bleeding into a 10 mm margin, the 12 mm row still pushes the body down a little.
+        profile.header = { ...profile.header, ...bar(0, 0, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - PDF_AUTO_BAR_HEIGHT_MM - 10)
+    })
+
     it('goes negative when the bars outgrow a landscape A4 page', () => {
         const profile = createDefaultPdfExportProfile()
         profile.page = { ...profile.page, orientation: 'landscape' }
@@ -287,7 +297,7 @@ describe('pdfBodyHeightMm', () => {
     it('leaves out the size, gap and bleed of a switched-off footer that prints only page numbers', () => {
         const profile = createDefaultPdfExportProfile()
         profile.footer = { ...profile.footer, heightMm: 20, gapMm: 15, ignoreMargins: true, pageNumbers: 'number' }
-        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 10)
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - (10 + PDF_AUTO_BAR_HEIGHT_MM))
         profile.footer = { ...profile.footer, enabled: true }
         expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 35)
     })
