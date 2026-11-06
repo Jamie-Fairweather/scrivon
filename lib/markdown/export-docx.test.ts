@@ -418,6 +418,38 @@ describe('renderExportDocx', () => {
         expect(escaped.xml).toContain('<w:font w:name="A&amp;B Mono">')
     })
 
+    it('gives Chinese, Japanese and Korean text a font that has their characters', async () => {
+        const japanese = await render(
+            ['# 見出し', '', '日本語の文章です。', '', 'Code `コード`.', '', fence('js', 'const 名前 = 1')].join('\n'),
+            (draft) => {
+                draft.header.enabled = true
+                draft.header.left.text = 'ヘッダー'
+            }
+        )
+        const fonts = (font: string) => `<w:rFonts w:ascii="${font}" w:cs="${font}" w:eastAsia="Yu Gothic" w:hAnsi="${font}"/>`
+        // Latin text keeps the profile's font; only the East Asian slot changes.
+        expect(runWith(japanese.xml, '日本語の文章です。')).toContain(fonts('Segoe UI'))
+        expect(runWith(japanese.xml, '見出し')).toContain(fonts('Segoe UI'))
+        expect(runWith(japanese.xml, 'コード')).toContain(fonts('Consolas'))
+        expect(runWith(japanese.xml, 'const 名前 = 1')).toContain(fonts('Consolas'))
+        expect(runWith(japanese.parts['word/header1.xml']!, 'ヘッダー')).toContain(fonts('Segoe UI'))
+        expect(japanese.parts['word/styles.xml']).toContain(fonts('Segoe UI'))
+        // Word swaps in another Japanese font if Yu Gothic is missing.
+        expect(japanese.parts['word/fontTable.xml']).toContain('<w:font w:name="Yu Gothic"><w:charset w:val="80"/>')
+
+        const korean = await render('한국어 문장입니다. 漢字도 있어요.')
+        expect(runWith(korean.xml, '한국어 문장입니다. 漢字도 있어요.')).toContain('w:eastAsia="Malgun Gothic"')
+        expect(korean.parts['word/fontTable.xml']).toContain('<w:charset w:val="81"/>')
+
+        const chinese = await render('中文段落。')
+        expect(runWith(chinese.xml, '中文段落。')).toContain('w:eastAsia="Microsoft YaHei"')
+
+        // With no East Asian text, the slot is left to Word, and a comment in Japanese doesn't count.
+        const latin = await render('Plain words.\n\n<!-- 日本語 -->')
+        expect(latin.xml).not.toContain('w:eastAsia')
+        expect(latin.parts['word/fontTable.xml']).not.toContain('w:charset')
+    })
+
     it('keeps blocks nested in list items and quotes indented, with the quote bar on all of them', async () => {
         const { xml } = await render(
             [

@@ -137,6 +137,47 @@ function wordFont(stack: string, fallback: string): string {
     return names.find((name) => !MAC_ONLY_FONTS.has(name.toLowerCase())) ?? names[0] ?? fallback
 }
 
+/** A Windows font for Chinese, Japanese or Korean text, and its Word charset so Word swaps in one of the same script if it's missing. */
+type EastAsianFont = { name: string; charset: string }
+
+const EAST_ASIAN_FONTS = {
+    japanese: { name: 'Yu Gothic', charset: '80' },
+    korean: { name: 'Malgun Gothic', charset: '81' },
+    // There is no language setting to tell Traditional from Simplified; YaHei has the characters of both.
+    chinese: { name: 'Microsoft YaHei', charset: '86' },
+} as const satisfies Record<string, EastAsianFont>
+
+/** Word's four font slots. Word draws Chinese, Japanese and Korean characters with `eastAsia` and everything else with the rest. */
+type WordFont = { ascii: string; hAnsi: string; cs: string; eastAsia?: string }
+
+const KANA = /[぀-ヿㇰ-ㇿｦ-ﾟ]/g
+const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힯]/g
+const HAN = /[㐀-䶿一-鿿豈-﫿\u{20000}-\u{3FFFD}]/u
+
+/**
+ * The East Asian font for the document, from the script its text is in: kana means Japanese, Hangul Korean,
+ * and Chinese characters alone Chinese. Undefined with no such text, so Word keeps its own choice.
+ */
+function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
+    const { metadata, profile, tree } = document
+    const parts = [metadata.title, metadata.subtitle, metadata.author, metadata.date, profile.content.watermark]
+    for (const chrome of [profile.header, profile.footer]) parts.push(chrome.left.text, chrome.right.text)
+    visit(tree, (node) => {
+        if (node.type === 'html') return
+        if ('value' in node && typeof node.value === 'string') parts.push(node.value)
+        if ('alt' in node && typeof node.alt === 'string') parts.push(node.alt)
+    })
+    const text = parts.join('\n')
+    const kana = text.match(KANA)?.length ?? 0
+    const hangul = text.match(HANGUL)?.length ?? 0
+    if (kana > 0 || hangul > 0) return kana >= hangul ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.korean
+    return HAN.test(text) ? EAST_ASIAN_FONTS.chinese : undefined
+}
+
+function wordFontSlots(name: string, eastAsian: EastAsianFont | undefined): WordFont {
+    return { ascii: name, hAnsi: name, cs: name, eastAsia: eastAsian?.name }
+}
+
 /**
  * Characters XML 1.0 doesn't allow: control characters other than tab, line feed and carriage return,
  * U+FFFE/U+FFFF, and half surrogate pairs. docx writes them as they are, and one of them makes Word refuse the whole file.
@@ -172,12 +213,16 @@ function escapeXml(text: string): string {
 /**
  * docx only lists embedded fonts, so Word gets no hint about the code font.
  * Marking it fixed-pitch makes Word swap in another monospace font when it isn't installed.
+ * The East Asian font's charset does the same for its script, so a missing Yu Gothic becomes another Japanese font.
  */
-function fontTableXml(monoFont: string): string {
+function fontTableXml(monoFont: string, eastAsian: EastAsianFont | undefined): string {
     return [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
         `<w:font w:name="${escapeXml(monoFont)}"><w:family w:val="modern"/><w:pitch w:val="fixed"/></w:font>`,
+        eastAsian
+            ? `<w:font w:name="${eastAsian.name}"><w:charset w:val="${eastAsian.charset}"/><w:family w:val="swiss"/><w:pitch w:val="variable"/></w:font>`
+            : '',
         '</w:fonts>',
     ].join('')
 }
@@ -545,9 +590,11 @@ type RenderState = {
     footnotes: Record<number, { children: Paragraph[] }>
     definitions: Map<string, string>
     footnoteIds: Map<string, number>
-    bodyFont: string
-    headingFont: string
-    monoFont: string
+    /** Chinese, Japanese or Korean font for the document's East Asian text, if it has any. */
+    eastAsian: EastAsianFont | undefined
+    bodyFont: WordFont
+    headingFont: WordFont
+    monoFont: WordFont
     accent: string
     link: string
     bodyHalfPoints: number
@@ -573,6 +620,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     const marginLeft = convertMillimetersToTwip(profile.page.marginsMm.left)
     const marginRight = convertMillimetersToTwip(profile.page.marginsMm.right)
     const widthTwip = convertMillimetersToTwip(widthMm)
+    const eastAsian = eastAsianFont(document)
     return {
         document,
         prepared,
@@ -583,9 +631,10 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         footnotes: {},
         definitions: collectDefinitions(document.tree),
         footnoteIds: new Map(),
-        bodyFont: wordFont(profile.typography.bodyFont, 'Calibri'),
-        headingFont: wordFont(profile.typography.headingFont, 'Calibri'),
-        monoFont: wordFont(profile.typography.monoFont, 'Consolas'),
+        eastAsian,
+        bodyFont: wordFontSlots(wordFont(profile.typography.bodyFont, 'Calibri'), eastAsian),
+        headingFont: wordFontSlots(wordFont(profile.typography.headingFont, 'Calibri'), eastAsian),
+        monoFont: wordFontSlots(wordFont(profile.typography.monoFont, 'Consolas'), eastAsian),
         accent: hexColor(profile.brand.accentColor, '262626'),
         link: hexColor(profile.brand.linkColor.trim() || profile.brand.accentColor, '262626'),
         bodyHalfPoints: Math.round(profile.typography.bodySizePt * 2),
@@ -1926,7 +1975,7 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         sections: buildSections(state, groups, watermark),
     })
 
-    const buffer = await Packer.toBuffer(doc, undefined, [{ path: 'word/fontTable.xml', data: fontTableXml(state.monoFont) }])
+    const buffer = await Packer.toBuffer(doc, undefined, [{ path: 'word/fontTable.xml', data: fontTableXml(state.monoFont.ascii, state.eastAsian) }])
     warnAboutDroppedImages(state)
     return new Uint8Array(buffer)
 }
