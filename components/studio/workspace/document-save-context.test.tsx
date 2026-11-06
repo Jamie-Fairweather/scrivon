@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
+import { confirmCloseAfterSaveFailure } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentSaveProvider, useDocumentSave } from './document-save-context'
@@ -12,6 +14,17 @@ const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 40
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: settingsState, setAutosaveEnabled: vi.fn() }),
+}))
+
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
+    notifyError: vi.fn(() => 'toast'),
+    dismissNotification: vi.fn(),
+}))
+
+vi.mock('@/lib/tauri/dialog', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/tauri/dialog')>()),
+    confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
 }))
 
 function tab(id: string, overrides: Partial<DocumentTab> = {}): DocumentTab {
@@ -145,5 +158,81 @@ describe('DocumentSaveProvider', () => {
 
         expect(ok).toBe(false)
         expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: true, saveError: 'Access is denied. (os error 5)' })
+    })
+})
+
+describe('save error notices', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
+
+    async function failingTab() {
+        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        const rendered = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
+        await waitFor(() => expect(rendered.result.current.tabs.tabs).toHaveLength(1))
+        const save = async () => {
+            await act(async () => {
+                await rendered.result.current.save.flushSave('/ws/a.mmd')
+            })
+        }
+        return { ...rendered, save }
+    }
+
+    it('shows one notice with Try Again for a run of failed saves, and clears it once a save works', async () => {
+        const { save } = await failingTab()
+
+        await save()
+        await save()
+
+        expect(notifyError).toHaveBeenCalledTimes(1)
+        expect(notifyError).toHaveBeenCalledWith("Couldn't save a.mmd", 'Access is denied. (os error 5)', {
+            id: 'save-error:/ws/a.mmd',
+            description: 'Access is denied. (os error 5)',
+            timeout: 0,
+            action: { label: 'Try Again', onClick: expect.any(Function) },
+        })
+
+        vi.mocked(writeTextFile).mockResolvedValue(undefined)
+        await save()
+        expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
+    })
+
+    it('keeps the error on the tab while the user keeps typing', async () => {
+        const { result, save } = await failingTab()
+        await save()
+
+        act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'more text'))
+
+        expect(result.current.tabs.tabs[0]?.saveError).toBe('Access is denied. (os error 5)')
+    })
+
+    it('saves again from the notice and reports a new failure', async () => {
+        const { save } = await failingTab()
+        await save()
+        const options = vi.mocked(notifyError).mock.calls[0]![2] as NotifyOptions
+
+        await act(async () => {
+            options.action!.onClick()
+        })
+
+        await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(2))
+        expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
+        expect(writeTextFile).toHaveBeenCalledTimes(2)
+    })
+
+    it('clears the notice when the tab is closed without saving', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
+        const { result, save } = await failingTab()
+        await save()
+        vi.mocked(dismissNotification).mockClear()
+
+        await act(async () => {
+            await result.current.tabs.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
     })
 })

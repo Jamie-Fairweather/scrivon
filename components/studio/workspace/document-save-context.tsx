@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { errorMessage } from '@/lib/notify'
+import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
 import { writeWorkspaceFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
@@ -18,6 +18,10 @@ type DocumentSaveContextValue = {
 }
 
 const DocumentSaveContext = createContext<DocumentSaveContextValue | null>(null)
+
+function saveErrorToastId(tabId: string): string {
+    return `save-error:${tabId}`
+}
 
 export function useDocumentSave(): DocumentSaveContextValue {
     const ctx = useContext(DocumentSaveContext)
@@ -64,12 +68,13 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
 
             const content = tab.content
             if (!silent) {
-                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: true, saveError: undefined } : t)))
+                // Any earlier save error stays on the tab until a save actually works.
+                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: true } : t)))
             }
 
             try {
                 await writeWorkspaceFile(tab.path, content)
-                saveErrors.current.delete(id)
+                if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
                 // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
                 setTabs((prev) =>
                     prev.map((t) => (t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t))
@@ -77,12 +82,28 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
                 return true
             } catch (err) {
                 const message = errorMessage(err, 'Failed to save file')
+                // Tell the user once per run of failures; autosave would otherwise repeat it after every pause in typing.
+                if (!saveErrors.current.has(id)) {
+                    notifyError(`Couldn't save ${tab.name}`, err, {
+                        id: saveErrorToastId(id),
+                        description: message,
+                        timeout: 0,
+                        action: {
+                            label: 'Try Again',
+                            onClick: () => {
+                                dismissNotification(saveErrorToastId(id))
+                                saveErrors.current.delete(id)
+                                void coordinator.flushSave.current(id)
+                            },
+                        },
+                    })
+                }
                 saveErrors.current.set(id, message)
                 setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: false, saveError: message } : t)))
                 return false
             }
         },
-        [setTabs, tabsRef]
+        [coordinator, setTabs, tabsRef]
     )
 
     const flushSave = useCallback(
@@ -136,6 +157,8 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             clearTimeout(timer)
             saveTimers.current.delete(id)
         }
+        // The tab is closing, so its "couldn't save" notice no longer applies.
+        if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
     }, [])
 
     const flushSaveOnTabLeave = useCallback(

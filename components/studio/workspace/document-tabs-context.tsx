@@ -224,7 +224,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         (id: string, content: string) => {
             const tab = tabsRef.current.find((t) => t.id === id)
             if (tab?.readOnly) return
-            setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content, isDirty: true, saveError: undefined } : t)))
+            // A save error stays until a save works, so typing doesn't hide that edits aren't reaching the disk.
+            setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content, isDirty: true } : t)))
             coordinator.scheduleSave.current(id)
         },
         [coordinator, setTabs, tabsRef]

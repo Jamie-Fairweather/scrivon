@@ -7,6 +7,7 @@ export type WorkspaceCoordinatorRefs = {
     flushSave: MutableRefObject<(id: string) => Promise<boolean>>
     flushSaveOnTabLeave: MutableRefObject<(id: string) => void>
     scheduleSave: MutableRefObject<(id: string) => void>
+    /** For a tab that is closing: drops its pending autosave and its "couldn't save" notice. */
     cancelScheduledSave: MutableRefObject<(id: string) => void>
     getAutosaveEnabled: MutableRefObject<() => boolean>
     /** The error from the tab's last failed save, if its last save failed. */
