@@ -210,6 +210,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     void openFile(openPath)
                     return
                 }
+                case 'network':
+                    notifyInfo("Network links aren't opened", { description: "Scrivon doesn't follow links to files on other computers." })
+                    return
                 case 'unresolved':
                     notifyInfo("Can't follow this link", { description: 'Links to other files only work in documents saved on disk.' })
                     return

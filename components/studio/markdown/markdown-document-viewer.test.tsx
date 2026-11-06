@@ -331,6 +331,18 @@ describe('MarkdownDocumentViewer', () => {
             expect(workspace.openFile).not.toHaveBeenCalled()
         })
 
+        it('never looks up a link to another computer’s shared folder', () => {
+            // In Markdown `\\` is one backslash, so `\\\\evil` is how a document spells `\\evil`.
+            render(viewer(DOC_A, String.raw`[Setup guide](\\\\evil\\share\\setup.exe) and [notes](//evil/share/notes.md)`))
+            fireEvent.click(screen.getByRole('link', { name: 'Setup guide' }))
+            fireEvent.click(screen.getByRole('link', { name: 'notes' }))
+            expect(revealItemInDir).not.toHaveBeenCalled()
+            expect(workspace.openFile).not.toHaveBeenCalled()
+            expect(openUrl).not.toHaveBeenCalled()
+            expect(notifyInfo).toHaveBeenCalledTimes(2)
+            expect(notifyInfo).toHaveBeenCalledWith("Network links aren't opened", expect.anything())
+        })
+
         it('explains when a relative link has no folder to resolve against', () => {
             workspace.tabs = [{ ...fileTab('example:intro'), readOnly: true }]
             render(viewer('example:intro', '[next](next.md)'))

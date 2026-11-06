@@ -40,18 +40,70 @@ describe('resolveMarkdownLink', () => {
 
     it('resolves links starting with / from the open folder, like a repository root', () => {
         expect(resolveMarkdownLink('/docs/other.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:\\notes/docs/other.md', fragment: null })
-        expect(resolveMarkdownLink('/x.md', { documentPath: '/a/b.md', workspaceRoot: null })).toEqual({
+        expect(resolveMarkdownLink('/../../x.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:/x.md', fragment: null })
+        // Without an open folder there is no root to start from, and the root of the disk isn't it.
+        expect(resolveMarkdownLink('/x.md', { documentPath: '/a/b.md', workspaceRoot: null })).toEqual({ kind: 'unresolved' })
+    })
+
+    it('keeps absolute Windows paths, resolving . and ..', () => {
+        expect(resolveMarkdownLink('C:\\specs\\a.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:\\specs\\a.md', fragment: null })
+        expect(resolveMarkdownLink('C:%5Cspecs%5Ca.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:\\specs\\a.md', fragment: null })
+        expect(resolveMarkdownLink('C:/specs/a.md#top', inWorkspace)).toEqual({ kind: 'file', path: 'C:/specs/a.md', fragment: 'top' })
+        expect(resolveMarkdownLink('C:\\notes\\..\\..\\specs\\.\\a.md', inWorkspace)).toEqual({
             kind: 'file',
-            path: '/x.md',
+            path: 'C:\\specs\\a.md',
             fragment: null,
         })
     })
 
-    it('keeps absolute Windows and UNC paths', () => {
-        expect(resolveMarkdownLink('C:\\specs\\a.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:\\specs\\a.md', fragment: null })
-        expect(resolveMarkdownLink('C:%5Cspecs%5Ca.md', inWorkspace)).toEqual({ kind: 'file', path: 'C:\\specs\\a.md', fragment: null })
-        expect(resolveMarkdownLink('C:/specs/a.md#top', inWorkspace)).toEqual({ kind: 'file', path: 'C:/specs/a.md', fragment: 'top' })
-        expect(resolveMarkdownLink('\\\\server\\share\\a.md', inWorkspace)).toEqual({ kind: 'file', path: '\\\\server\\share\\a.md', fragment: null })
+    describe('network shares', () => {
+        it('never follows a link to another computer', () => {
+            for (const href of [
+                '\\\\server\\share\\a.md',
+                // How the Markdown parser hands over `\\evil\share\setup.exe`.
+                '%5C%5Cevil%5Cshare%5Csetup.exe',
+                '//evil/share/x.md',
+                '\\/evil/share/x.md',
+                '/\\evil\\share\\x.md',
+                '\\\\evil',
+                '\\\\?\\C:\\notes\\a.md',
+                '\\\\.\\pipe\\x',
+                '\\\\?\\UNC\\evil\\share\\x.md',
+            ]) {
+                expect({ href, target: resolveMarkdownLink(href, inWorkspace) }).toEqual({ href, target: { kind: 'network' } })
+                expect({ href, target: resolveMarkdownLink(href, { documentPath: null, workspaceRoot: null }) }).toEqual({
+                    href,
+                    target: { kind: 'network' },
+                })
+            }
+        })
+
+        it('follows links within the share the open folder is on', () => {
+            const onShare = { documentPath: '\\\\nas\\team\\notes\\a.md', workspaceRoot: '\\\\nas\\team\\notes' }
+            expect(resolveMarkdownLink('b.md', onShare)).toEqual({ kind: 'file', path: '\\\\nas\\team\\notes\\b.md', fragment: null })
+            expect(resolveMarkdownLink('\\\\NAS\\Team\\other\\c.md', onShare)).toEqual({
+                kind: 'file',
+                path: '\\\\NAS\\Team\\other\\c.md',
+                fragment: null,
+            })
+            expect(resolveMarkdownLink('/d.md', onShare)).toEqual({ kind: 'file', path: '\\\\nas\\team\\notes/d.md', fragment: null })
+            expect(resolveMarkdownLink('\\\\nas\\other\\x.md', onShare)).toEqual({ kind: 'network' })
+            expect(resolveMarkdownLink('\\\\evil\\share\\x.md', onShare)).toEqual({ kind: 'network' })
+        })
+
+        it("can't climb out of the open share with ..", () => {
+            const onShare = { documentPath: '\\\\nas\\team\\notes\\a.md', workspaceRoot: '\\\\nas\\team\\notes' }
+            expect(resolveMarkdownLink('../../../evil/share/x.md', onShare)).toEqual({
+                kind: 'file',
+                path: '\\\\nas\\team\\evil\\share\\x.md',
+                fragment: null,
+            })
+            expect(resolveMarkdownLink('\\\\nas\\team\\..\\..\\evil\\share\\x.md', onShare)).toEqual({
+                kind: 'file',
+                path: '\\\\nas\\team\\evil\\share\\x.md',
+                fragment: null,
+            })
+        })
     })
 
     it('handles links to the same file and bare ?queries', () => {

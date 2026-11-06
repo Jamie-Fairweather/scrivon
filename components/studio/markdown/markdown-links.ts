@@ -9,6 +9,11 @@ export type MarkdownLinkTarget =
     | { kind: 'external'; url: string }
     /** A file on disk, with an optional `#fragment` to scroll to once it is open. */
     | { kind: 'file'; path: string; fragment: string | null }
+    /**
+     * A file on another computer's shared folder. Never touched: even looking it up makes Windows connect to that
+     * computer and send it the user's sign-in.
+     */
+    | { kind: 'network' }
     /** A relative file link in a document that has no folder on disk (for example an example tab). */
     | { kind: 'unresolved' }
     /** Some other URL scheme the app can't open. */
@@ -25,7 +30,12 @@ const EXTERNAL_SCHEME = /^(https?|mailto|tel):/i
 const WINDOWS_ABSOLUTE = /^[a-zA-Z]:[\\/]/
 /** A Windows path as it arrives in a link: the Markdown parser percent-encodes `\` as `%5C`. */
 const WINDOWS_ABSOLUTE_HREF = /^[a-zA-Z]:([\\/]|%5c)/i
-const UNC_PATH = /^\\\\/
+/**
+ * Two separators at the start, in any mix: a network share (`\\server\share`, `//server/share`) or a device path
+ * (`\\?\`, `\\.\`).
+ */
+const NETWORK_PATH = /^[\\/]{2}/
+const NETWORK_SHARE = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/
 const URL_SCHEME = /^[a-zA-Z][a-zA-Z\d+.-]*:/
 
 function decode(text: string): string {
@@ -46,15 +56,37 @@ export function markdownUrlTransform(url: string): string {
 }
 
 /**
- * Appends `segments` to `base`, resolving `.` and `..`. The base is kept exactly as written so the result
- * matches the paths the explorer and tabs already use; new segments use `separator`.
+ * `server\share` (lower case) for a path on a network share, '' for a network or device path that names no share
+ * Scrivon would open, or null for a local path.
+ */
+function networkShare(path: string): string | null {
+    if (!NETWORK_PATH.test(path)) return null
+    const match = NETWORK_SHARE.exec(path)
+    if (!match) return ''
+    const [, host, share] = match
+    if (host === '?' || host === '.') return ''
+    return `${host}\\${share}`.toLowerCase()
+}
+
+/** The start of a path that `..` can't climb above: `C:`, `\\server\share`, or '' for a POSIX path. */
+function pathRoot(path: string): string {
+    const network = /^[\\/]{2}[^\\/]*(?:[\\/]+[^\\/]*)?/.exec(path)
+    if (network) return network[0]
+    return /^[a-zA-Z]:/.exec(path)?.[0] ?? ''
+}
+
+/**
+ * Appends `segments` to `base`, resolving `.` and `..` (never above the base's drive or share). The base is kept
+ * exactly as written so the result matches the paths the explorer and tabs already use; new segments use
+ * `separator`.
  */
 function joinSegments(base: string, segments: string[], separator: string): string {
     const tokens = base.split(/([/\\])/)
+    const rootTokens = pathRoot(base).split(/([/\\])/).length
     for (const segment of segments) {
         if (!segment || segment === '.') continue
         if (segment === '..') {
-            if (tokens.length >= 3) tokens.splice(-2, 2)
+            if (tokens.length - 2 >= rootTokens) tokens.splice(-2, 2)
             continue
         }
         tokens.push(separator, segment)
@@ -69,18 +101,33 @@ function parentFolder(path: string): { folder: string; separator: string } | nul
 }
 
 function resolveFilePath(linkPath: string, { documentPath, workspaceRoot }: MarkdownLinkContext): string | null {
-    if (WINDOWS_ABSOLUTE.test(linkPath) || UNC_PATH.test(linkPath)) return linkPath
+    if (WINDOWS_ABSOLUTE.test(linkPath) || NETWORK_PATH.test(linkPath)) {
+        const root = pathRoot(linkPath)
+        const rest = linkPath.slice(root.length)
+        return joinSegments(root, rest.split(/[/\\]/), rest[0] ?? '\\')
+    }
 
     const segments = linkPath.split(/[/\\]/)
 
     if (linkPath.startsWith('/')) {
-        if (workspaceRoot) return joinSegments(workspaceRoot.replace(/[/\\]+$/, ''), segments, '/')
-        return linkPath
+        // Like a repository root, so it needs the open folder; never the root of the disk.
+        return workspaceRoot ? joinSegments(workspaceRoot.replace(/[/\\]+$/, ''), segments, '/') : null
     }
 
     const parent = documentPath ? parentFolder(documentPath) : null
     if (!parent) return null
     return joinSegments(parent.folder, segments, parent.separator)
+}
+
+/**
+ * Whether a link may lead to `path`. A network share is only followed when the open folder or document is on that
+ * same share, so a link can't make Scrivon contact another computer.
+ */
+function isReachable(path: string, { documentPath, workspaceRoot }: MarkdownLinkContext): boolean {
+    const share = networkShare(path)
+    if (share === null) return true
+    if (!share) return false
+    return [documentPath, workspaceRoot].some((open) => open !== null && networkShare(open) === share)
 }
 
 /** Works out what clicking a preview link with this `href` should do. */
@@ -106,5 +153,6 @@ export function resolveMarkdownLink(href: string | undefined, context: MarkdownL
 
     const path = resolveFilePath(linkPath, context)
     if (!path) return { kind: 'unresolved' }
+    if (!isReachable(path, context)) return { kind: 'network' }
     return { kind: 'file', path, fragment }
 }
