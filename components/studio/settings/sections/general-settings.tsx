@@ -20,7 +20,7 @@ export function GeneralSettings() {
                 </div>
             </Field>
 
-            <Field disabled={!settings.autosave.enabled}>
+            <Field>
                 <FieldLabel htmlFor="autosave-delay">Autosave delay (ms)</FieldLabel>
                 <FieldDescription>How long to wait after edits before saving (200–5000).</FieldDescription>
                 <NumberField
@@ -29,6 +29,7 @@ export function GeneralSettings() {
                     min={200}
                     max={5000}
                     step={100}
+                    disabled={!settings.autosave.enabled}
                     onValueChange={(value) => {
                         if (value != null) setAutosaveDelayMs(value)
                     }}
