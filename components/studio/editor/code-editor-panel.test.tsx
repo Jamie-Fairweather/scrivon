@@ -45,6 +45,10 @@ class FakeEditor {
         model?.listeners.add(this.fire)
     }
     private fire = () => this.contentListeners.forEach((l) => l())
+    /** True once @monaco-editor/react has hooked up onChange, which happens a render after create. */
+    get listening() {
+        return this.contentListeners.size > 0
+    }
     getModel() {
         return this.model && !this.model.disposed ? this.model : null
     }
@@ -190,7 +194,8 @@ function Panel({ open = true }: { open?: boolean }) {
 
 async function mountEditor() {
     const view = render(<Panel />)
-    await waitFor(() => expect(editors.length).toBe(1))
+    await waitFor(() => expect(editors[0]?.listening).toBe(true))
+    expect(editors).toHaveLength(1)
     return { view, editor: editors[0]! }
 }
 
