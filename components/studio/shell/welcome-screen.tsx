@@ -56,7 +56,7 @@ export function WelcomeScreen() {
                                     <li key={path}>
                                         <div
                                             className="group flex items-center gap-2 rounded-lg border border-transparent px-3 py-2 transition-colors
-                                                hover:border-border hover:bg-muted/50"
+                                                focus-within:border-border focus-within:bg-muted/50 hover:border-border hover:bg-muted/50"
                                         >
                                             <button
                                                 type="button"
@@ -70,8 +70,13 @@ export function WelcomeScreen() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon-sm"
-                                                className={cn('shrink-0 opacity-0 transition-opacity group-hover:opacity-100')}
-                                                aria-label="Remove from recents"
+                                                // Hidden until the row is hovered or focused, but always shown on touch screens.
+                                                className={cn(
+                                                    'shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
+                                                    'focus-visible:opacity-100 pointer-coarse:opacity-100'
+                                                )}
+                                                aria-label={`Remove ${name || path} from recent folders`}
+                                                title="Remove from recent folders"
                                                 onClick={() => void removeRecent(path)}
                                             >
                                                 <FolderX className="size-4" />
