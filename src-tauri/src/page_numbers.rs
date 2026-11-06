@@ -1335,7 +1335,10 @@ fn label_operations(
 ) -> Vec<Operation> {
     let font_size = slot.font_size.clamp(6.0, 24.0);
     let x = slot.right - label_width(label, font_size);
-    let mut ops = Vec::with_capacity(9);
+    let mut ops = Vec::with_capacity(11);
+    // Each label gets its own graphics state, so a translucent footer's alpha
+    // doesn't carry over to the TOC labels stamped after it on the same page.
+    ops.push(Operation::new("q", vec![]));
     ops.push(match role {
         LabelRole::Footer => Operation::new(
             "BDC",
@@ -1363,6 +1366,7 @@ fn label_operations(
         ),
         Operation::new("ET", vec![]),
         Operation::new("EMC", vec![]),
+        Operation::new("Q", vec![]),
     ]);
     ops
 }
@@ -2186,6 +2190,62 @@ end";
             "toc should show the heading's page"
         );
         assert!(!stamped.extract_text(&[2]).unwrap().contains('3'));
+    }
+
+    #[test]
+    fn a_translucent_footer_does_not_fade_the_toc_numbers() {
+        let mut doc = Document::with_version("1.5");
+        let fonts = || dictionary! { "Font" => dictionary! { "F1" => helvetica() } };
+        let footer = text(
+            "F1",
+            9.0,
+            700.0,
+            1060.0,
+            Object::string_literal(FOOTER_MARK),
+        );
+        let toc = [
+            vec![flip()],
+            text("F1", 11.0, 700.0, 400.0, Object::string_literal("SFT0001")),
+            footer.clone(),
+        ]
+        .concat();
+        let body = [
+            vec![flip()],
+            text("F1", 11.0, 100.0, 200.0, Object::string_literal("SFH0001")),
+            footer,
+        ]
+        .concat();
+        build_pdf(&mut doc, vec![(toc, fonts()), (body, fonts())]);
+        let path = save_temp(&mut doc, "scrivon-toc-translucent-footer.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "#40404040")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        // Each drawn label, and whether the alpha state is in force for it (following q/Q).
+        let mut translucent = false;
+        let mut saved = Vec::new();
+        let mut drawn = Vec::new();
+        for op in page_operations(&stamped, 1) {
+            match op.operator.as_str() {
+                "q" => saved.push(translucent),
+                "Q" => translucent = saved.pop().unwrap_or(false),
+                "gs" => {
+                    translucent = op.operands.first() == Some(&Object::Name(ALPHA_GS_NAME.into()));
+                }
+                "Tj" => {
+                    if let Some(Object::String(bytes, _)) = op.operands.first() {
+                        drawn.push((bytes.clone(), translucent));
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(drawn.contains(&(b"Page 1".to_vec(), true)), "{drawn:?}");
+        assert!(
+            drawn.contains(&(b"2".to_vec(), false)),
+            "the toc number took the footer's alpha: {drawn:?}"
+        );
     }
 
     /// Resources whose `/G1` state paints at 1% fill alpha, like the export CSS's markers.
