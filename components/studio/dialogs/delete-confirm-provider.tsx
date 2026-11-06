@@ -59,10 +59,6 @@ export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
         [finish]
     )
 
-    const description = isDirectory
-        ? `Delete folder "${itemName}" and its contents? This cannot be undone.`
-        : `Delete "${itemName}"? This cannot be undone.`
-
     return (
         <DeleteConfirmContext.Provider value={{ confirmDelete }}>
             {children}
@@ -71,7 +67,12 @@ export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete {isDirectory ? 'folder' : 'file'}?</AlertDialogTitle>
                         {/* Long names with no spaces (snake_case, dotted) break anywhere instead of running past the dialog. */}
-                        <AlertDialogDescription className="wrap-anywhere">{description}</AlertDialogDescription>
+                        <AlertDialogDescription className="wrap-anywhere">
+                            {/* The name stands out, so it's clear at a glance what is about to go. */}
+                            {isDirectory ? 'Delete folder ' : 'Delete '}
+                            <span className="font-medium text-foreground">&quot;{itemName}&quot;</span>
+                            {isDirectory ? ' and its contents?' : '?'} This cannot be undone.
+                        </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogClose render={<Button type="button" variant="ghost" />} onClick={() => finish(false)}>
