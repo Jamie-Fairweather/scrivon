@@ -62,6 +62,14 @@ describe('buildPdfExportCss', () => {
         expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-height: 164mm;/)
     })
 
+    it('raises the toc leader without a transform, which bloats every pdf page', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const rule = css.slice(css.indexOf('.pdf-toc-leader {'), css.indexOf('}', css.indexOf('.pdf-toc-leader {')))
+        expect(rule).toContain('position: relative;')
+        expect(rule).toContain('top: -0.25em;')
+        expect(rule).not.toContain('transform')
+    })
+
     it('sizes headings, the title and code relative to the body size', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.bodySizePt = 16

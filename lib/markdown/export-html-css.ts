@@ -486,10 +486,12 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Raised with top, not transform: a transform makes Chromium paint every leader onto every page of the PDF. */
   .pdf-toc-leader {
     flex: 1 0 1.25rem;
     border-bottom: 1px dotted #a3a3a3;
-    transform: translateY(-0.25em);
+    position: relative;
+    top: -0.25em;
   }
   .pdf-toc-num {
     flex: 0 0 4.2em;
