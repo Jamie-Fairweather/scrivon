@@ -8,6 +8,7 @@ import {
     getActivePdfExportProfile,
     renamePdfExportProfile,
     setActivePdfExportProfile,
+    uniqueProfileName,
     updatePdfExportProfile,
 } from '@/lib/settings/pdf-export-profiles'
 
@@ -162,6 +163,39 @@ describe('pdf export profile CRUD', () => {
         expect(deletePdfExportProfile(settings, DEFAULT_PDF_EXPORT_PROFILE_ID)).toEqual(settings)
         expect(duplicatePdfExportProfile(settings, 'missing')).toEqual(settings)
         expect(deletePdfExportProfile(settings, 'missing')).toEqual(settings)
+    })
+
+    it('gives new profiles names the pickers can tell apart', () => {
+        let settings = createDefaultPdfExportSettings()
+        settings = createPdfExportProfile(settings)
+        settings = createPdfExportProfile(settings)
+        settings = createPdfExportProfile(settings)
+        expect(settings.profiles.map((profile) => profile.name)).toEqual(['Default', 'New profile', 'New profile 2', 'New profile 3'])
+
+        // Names are compared trimmed and ignoring case.
+        expect(createPdfExportProfile(settings, ' default ').profiles.at(-1)!.name).toBe('default 2')
+    })
+
+    it('numbers copies instead of stacking "copy copy"', () => {
+        let settings = createDefaultPdfExportSettings()
+        settings = duplicatePdfExportProfile(settings, DEFAULT_PDF_EXPORT_PROFILE_ID)
+        const firstCopyId = settings.activeProfileId
+        settings = duplicatePdfExportProfile(settings, DEFAULT_PDF_EXPORT_PROFILE_ID)
+        settings = duplicatePdfExportProfile(settings, firstCopyId)
+        settings = duplicatePdfExportProfile(settings, settings.activeProfileId)
+        expect(settings.profiles.map((profile) => profile.name)).toEqual([
+            'Default',
+            'Default copy',
+            'Default copy 2',
+            'Default copy 3',
+            'Default copy 4',
+        ])
+    })
+
+    it('uniqueProfileName keeps a free name and counts up from 2', () => {
+        expect(uniqueProfileName([], 'Report')).toBe('Report')
+        expect(uniqueProfileName([{ name: 'Report' }], 'Report')).toBe('Report 2')
+        expect(uniqueProfileName([{ name: 'Report' }, { name: 'report 2' }], 'Report')).toBe('Report 3')
     })
 
     it('falls back when the active profile id is missing', () => {

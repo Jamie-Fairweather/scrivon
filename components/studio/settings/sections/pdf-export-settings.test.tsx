@@ -116,6 +116,32 @@ describe('PdfExportSettings delete profile', () => {
     })
 })
 
+describe('PdfExportSettings new and duplicate', () => {
+    function expectNameSelected(name: string) {
+        const input = screen.getByLabelText<HTMLInputElement>('Profile name')
+        expect(input).toHaveValue(name)
+        expect(input).toHaveFocus()
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, name.length])
+    }
+
+    it('names each new profile uniquely and selects the name to type over', () => {
+        renderSection()
+        fireEvent.click(screen.getByRole('button', { name: 'New' }))
+        expectNameSelected('New profile')
+        fireEvent.click(screen.getByRole('button', { name: 'New' }))
+        expectNameSelected('New profile 2')
+        expect(savedNames()).toBe('Default|New profile|New profile 2')
+    })
+
+    it('selects the name of a duplicate too', () => {
+        renderSection()
+        fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
+        expectNameSelected('Default copy')
+        fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
+        expectNameSelected('Default copy 2')
+    })
+})
+
 describe('PdfExportSettings profile name', () => {
     it('keeps spaces while typing and saves the trimmed name', () => {
         renderSection()

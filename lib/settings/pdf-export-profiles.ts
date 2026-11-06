@@ -13,6 +13,26 @@ function cloneProfile(profile: PdfExportProfile, id: string, name: string): PdfE
     }
 }
 
+/**
+ * `base`, or `base 2`, `base 3`… — the first one no profile already uses
+ * (names compared trimmed and case-insensitively), so pickers can tell profiles apart.
+ */
+export function uniqueProfileName(profiles: readonly Pick<PdfExportProfile, 'name'>[], base: string): string {
+    const taken = new Set(profiles.map((profile) => profile.name.trim().toLowerCase()))
+    const name = base.trim()
+    if (!taken.has(name.toLowerCase())) return name
+    for (let n = 2; ; n++) {
+        const candidate = `${name} ${n}`
+        if (!taken.has(candidate.toLowerCase())) return candidate
+    }
+}
+
+/** "Report" → "Report copy"; a copy of "Report copy" or "Report copy 2" is also "Report copy", then made unique. */
+function copyName(profiles: readonly PdfExportProfile[], sourceName: string): string {
+    const original = sourceName.trim().replace(/ copy(?: \d+)?$/i, '')
+    return uniqueProfileName(profiles, `${original} copy`)
+}
+
 export function getActivePdfExportProfile(settings: PdfExportSettings): PdfExportProfile {
     return settings.profiles.find((profile) => profile.id === settings.activeProfileId) ?? settings.profiles[0]!
 }
@@ -23,7 +43,7 @@ export function setActivePdfExportProfile(settings: PdfExportSettings, profileId
 }
 
 export function createPdfExportProfile(settings: PdfExportSettings, name = 'New profile'): PdfExportSettings {
-    const profile = createDefaultPdfExportProfile({ id: newProfileId(), name })
+    const profile = createDefaultPdfExportProfile({ id: newProfileId(), name: uniqueProfileName(settings.profiles, name) })
     return {
         profiles: [...settings.profiles, profile],
         activeProfileId: profile.id,
@@ -33,7 +53,7 @@ export function createPdfExportProfile(settings: PdfExportSettings, name = 'New 
 export function duplicatePdfExportProfile(settings: PdfExportSettings, profileId: string): PdfExportSettings {
     const source = settings.profiles.find((profile) => profile.id === profileId)
     if (!source) return settings
-    const profile = cloneProfile(source, newProfileId(), `${source.name} copy`)
+    const profile = cloneProfile(source, newProfileId(), copyName(settings.profiles, source.name))
     return {
         profiles: [...settings.profiles, profile],
         activeProfileId: profile.id,

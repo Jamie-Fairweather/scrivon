@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { APP_THEME_IDS, APP_THEME_LABELS, type AppThemeId } from '@/lib/theme/catalog'
 import {
     createPdfExportProfile,
@@ -121,11 +121,12 @@ function FontSelect({
  * each non-empty value; the saved name is trimmed. Leaving the box shows the saved
  * name again, so a cleared box falls back to the last good name.
  */
-function ProfileNameInput({ id, name, onRename }: { id: string; name: string; onRename: (name: string) => void }) {
+function ProfileNameInput({ id, ref, name, onRename }: { id: string; ref?: Ref<HTMLInputElement>; name: string; onRename: (name: string) => void }) {
     const [draft, setDraft] = useState<string | null>(null)
     return (
         <Input
             id={id}
+            ref={ref}
             value={draft ?? name}
             onChange={(event) => {
                 const next = event.target.value
@@ -188,8 +189,23 @@ export function PdfExportSettings() {
         }
     }, [])
 
+    const nameInputRef = useRef<HTMLInputElement>(null)
+    // Set by New and Duplicate: once the new profile is active, focus and select its
+    // name so the user can type over the generated one straight away.
+    const focusNameRef = useRef(false)
+    useEffect(() => {
+        if (!focusNameRef.current) return
+        focusNameRef.current = false
+        nameInputRef.current?.focus()
+        nameInputRef.current?.select()
+    }, [active.id])
+
     const setPdf = (update: (pdf: PdfExportSettingsValue) => PdfExportSettingsValue) =>
         updateSettings((current) => ({ ...current, pdfExport: update(current.pdfExport) }))
+    const addProfile = (update: (pdf: PdfExportSettingsValue) => PdfExportSettingsValue) => {
+        focusNameRef.current = true
+        setPdf(update)
+    }
     const patch = (update: (profile: PdfExportProfile) => PdfExportProfile) => setPdf((current) => updatePdfExportProfile(current, active.id, update))
     /** Merge `changes` into one section of the active profile. */
     const setSection = <K extends ProfileSection>(key: K, changes: Partial<PdfExportProfile[K]>) =>
@@ -211,14 +227,14 @@ export function PdfExportSettings() {
                             options={pdf.profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
                             onChange={(id) => setPdf((current) => setActivePdfExportProfile(current, id))}
                         />
-                        <Button type="button" variant="outline" size="sm" onClick={() => setPdf(createPdfExportProfile)}>
+                        <Button type="button" variant="outline" size="sm" onClick={() => addProfile((current) => createPdfExportProfile(current))}>
                             New
                         </Button>
                         <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setPdf((current) => duplicatePdfExportProfile(current, current.activeProfileId))}
+                            onClick={() => addProfile((current) => duplicatePdfExportProfile(current, current.activeProfileId))}
                         >
                             Duplicate
                         </Button>
@@ -234,6 +250,7 @@ export function PdfExportSettings() {
                     <FieldLabel htmlFor="pdf-profile-name">Profile name</FieldLabel>
                     <ProfileNameInput
                         id="pdf-profile-name"
+                        ref={nameInputRef}
                         name={active.name}
                         onRename={(name) => setPdf((current) => renamePdfExportProfile(current, active.id, name))}
                     />
