@@ -53,16 +53,16 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         setToggled((prev) => new Map(prev).set(path, expanded))
     }, [])
 
+    // Takes the folder's open state from the row, so it doesn't change with `rows` and the memoized rows stay put.
     const activate = useCallback(
-        (node: FileNode) => {
+        (node: FileNode, expanded: boolean | undefined) => {
             if (node.kind === 'directory') {
-                const row = rows.find((r) => r.node.path === node.path)
-                setExpanded(node.path, !row?.expanded)
+                setExpanded(node.path, !expanded)
             } else if (isSupportedDocument(node.name)) {
                 void openFile(node.path)
             }
         },
-        [rows, setExpanded, openFile]
+        [setExpanded, openFile]
     )
 
     const focusRow = useCallback((path: string) => {
@@ -136,7 +136,7 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                 if (action.type === 'focus') focusRow(action.path)
                 else if (action.type === 'expand') setExpanded(action.path, true)
                 else if (action.type === 'collapse') setExpanded(action.path, false)
-                else activate(row.node)
+                else activate(row.node, row.expanded)
             }
             e.preventDefault()
         },
@@ -149,7 +149,11 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                 {rows.map((row) => (
                     <FileTreeNode
                         key={row.node.path}
-                        row={row}
+                        node={row.node}
+                        level={row.level}
+                        expanded={row.expanded}
+                        position={row.position}
+                        siblingCount={row.siblingCount}
                         isActive={row.node.kind === 'file' && row.node.path === activeTabId}
                         isTabStop={row.node.path === tabStopPath}
                         onActivate={activate}

@@ -1,7 +1,7 @@
 'use client'
 
 import { ChevronRight, FileCode2, FileText, Folder } from 'lucide-react'
-import { useId, useRef } from 'react'
+import { memo, useId, useRef } from 'react'
 import { FileTreeContextMenu, FileTreeRowContextMenu } from '@/components/studio/explorer/file-tree-context-menu'
 import { isMarkdownFile, isMermaidFile, isSupportedDocument } from '@/lib/tauri/fs'
 import type { VisibleTreeRow } from '@/lib/workspace/flatten-file-tree'
@@ -10,18 +10,30 @@ import { cn } from '@/lib/utils'
 
 const UNSUPPORTED_HINT = 'Scrivon supports .md, .mmd and .mermaid files only'
 
-type FileTreeNodeProps = {
-    row: VisibleTreeRow
+// The row's fields one by one, not the row object, so a row that didn't change isn't drawn again.
+type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
     isActive: boolean
     /** The one row the Tab key lands on; the arrow keys move between rows. */
     isTabStop: boolean
-    onActivate: (node: FileNode) => void
+    onActivate: (node: FileNode, expanded: boolean | undefined) => void
     onFocusRow: (path: string) => void
 }
 
-/** One row of the file tree. FileTree supplies the row and handles the keys. */
-export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow }: FileTreeNodeProps) {
-    const { node, level, expanded } = row
+/**
+ * One row of the file tree. FileTree supplies the row and handles the keys. Memoized: every row has two menus, and
+ * moving focus or typing in the editor would otherwise draw every visible row again.
+ */
+export const FileTreeNode = memo(function FileTreeNode({
+    node,
+    level,
+    expanded,
+    position,
+    siblingCount,
+    isActive,
+    isTabStop,
+    onActivate,
+    onFocusRow,
+}: FileTreeNodeProps) {
     const rowRef = useRef<HTMLDivElement>(null)
     const hintId = useId()
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
@@ -44,8 +56,8 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                     role="treeitem"
                     data-path={node.path}
                     aria-level={level}
-                    aria-posinset={row.position}
-                    aria-setsize={row.siblingCount}
+                    aria-posinset={position}
+                    aria-setsize={siblingCount}
                     aria-expanded={expanded}
                     aria-selected={isActive || undefined}
                     // Not aria-disabled: an unsupported file can still be renamed, duplicated and deleted. It just won't open.
@@ -59,7 +71,7 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                         isActive && 'font-medium',
                         isUnsupported && 'text-muted-foreground/60'
                     )}
-                    onClick={() => onActivate(node)}
+                    onClick={() => onActivate(node, expanded)}
                     onFocus={() => onFocusRow(node.path)}
                 >
                     {node.kind === 'directory' ? (
@@ -85,4 +97,4 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
             </div>
         </FileTreeRowContextMenu>
     )
-}
+})
