@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
+import { getWorkspaceFileSize } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
@@ -57,6 +58,11 @@ vi.mock('@/lib/notify', () => ({
     notifyError: vi.fn(),
 }))
 
+vi.mock('@/lib/tauri/fs', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/tauri/fs')>()
+    return { ...actual, getWorkspaceFileSize: vi.fn(async () => null) }
+})
+
 vi.mock('@/components/studio/command-palette/search-content', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/components/studio/command-palette/search-content')>()
     return { ...actual, searchWorkspaceContent: vi.fn(actual.searchWorkspaceContent) }
@@ -104,6 +110,44 @@ describe('usePaletteSearch text search', () => {
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(result.current.groups.find((group) => group.id === 'text')).toBeUndefined()
         expect(notifyError).toHaveBeenCalledWith("Couldn't search file contents", expect.any(Error), { id: 'palette-text-search' })
+    })
+})
+
+describe('usePaletteSearch file cache', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/a.md'), file('/ws/b.md')]
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readTextFile).mockImplementation(async () => 'the oauth flow')
+        vi.mocked(getWorkspaceFileSize).mockImplementation(async () => 14)
+    })
+
+    it('does not read unchanged files again while the user keeps typing', async () => {
+        const { result } = renderHook(() => usePaletteSearch('text', true))
+
+        act(() => result.current.setQuery('oauth'))
+        await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md', '/ws/b.md']))
+        expect(readTextFile).toHaveBeenCalledTimes(2)
+
+        act(() => result.current.setQuery('oauth flow'))
+        await waitFor(() => expect(result.current.isSearchingText).toBe(false))
+        expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md', '/ws/b.md'])
+        expect(readTextFile).toHaveBeenCalledTimes(2)
+    })
+
+    it('reads files fresh after the palette is closed and opened again', async () => {
+        const { result } = renderHook(() => usePaletteSearch('text', true))
+
+        act(() => result.current.setQuery('oauth'))
+        await waitFor(() => expect(result.current.isSearchingText).toBe(false))
+        act(() => result.current.resetSearch())
+
+        act(() => result.current.setQuery('oauth'))
+        await waitFor(() => expect(result.current.isSearchingText).toBe(false))
+        expect(readTextFile).toHaveBeenCalledTimes(4)
     })
 })
 

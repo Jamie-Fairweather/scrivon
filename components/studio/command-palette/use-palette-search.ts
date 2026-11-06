@@ -11,6 +11,7 @@ import { buildCommandRegistry, createToggleLightDark } from '@/components/studio
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
 import { searchActions } from '@/components/studio/command-palette/search-actions'
 import {
+    createContentCache,
     DEBOUNCE_MS,
     MIN_QUERY_LENGTH,
     searchWorkspaceContent,
@@ -78,6 +79,8 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const [textTruncatedFiles, setTextTruncatedFiles] = useState(0)
     const [lastResolvedTextQuery, setLastResolvedTextQuery] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
+    // File text read by earlier searches in this palette session (cleared on close and folder change).
+    const [contentCache] = useState(() => createContentCache())
 
     const parsedQueryState = useMemo(() => parsePaletteQuery(query), [query])
     const shouldSearchText =
@@ -93,15 +96,20 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             .catch(() => setRecentFilesState({ root: workspaceRoot, paths: [] }))
     }, [enabled, workspaceRoot])
 
+    useEffect(() => {
+        contentCache.clear()
+    }, [contentCache, workspaceRoot])
+
     const resetSearch = useCallback(() => {
         abortRef.current?.abort()
+        contentCache.clear()
         setQuery('')
         setLastResolvedTextQuery(null)
         setTextItems(null)
         setTextCapped(false)
         setTextUnreadableFiles(0)
         setTextTruncatedFiles(0)
-    }, [])
+    }, [contentCache])
 
     const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
 
@@ -249,6 +257,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                         openBuffers,
                         readFile: isTauri() ? readWorkspaceFile : async () => '',
                         getFileSize: isTauri() ? getWorkspaceFileSize : undefined,
+                        cache: contentCache,
                         signal: controller.signal,
                     })
                 } catch (err) {
@@ -271,7 +280,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             window.clearTimeout(timeout)
             controller.abort()
         }
-    }, [shouldSearchText, parsedQueryState.query, tabs, filePaths])
+    }, [shouldSearchText, parsedQueryState.query, tabs, filePaths, contentCache])
 
     const runItem = useCallback(
         async (item: PaletteItem) => {

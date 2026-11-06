@@ -10,6 +10,45 @@ export const MAX_HITS_PER_FILE = 10
 export const MAX_FILE_BYTES = 1_048_576
 export const READ_CONCURRENCY = 8
 export const PREVIEW_MAX_CHARS = 100
+/** Upper bound on file text kept between searches, so a huge workspace can't fill memory. */
+export const MAX_CACHED_CHARS = 16_000_000
+
+/**
+ * Disk file text kept between searches while the palette is open, so each pause in typing
+ * doesn't read every file again. A file's text is reused only while its size on disk is unchanged.
+ */
+export type ContentCache = {
+    get: (path: string, size: number) => string | undefined
+    set: (path: string, size: number, text: string) => void
+    clear: () => void
+}
+
+export function createContentCache(maxChars = MAX_CACHED_CHARS): ContentCache {
+    const files = new Map<string, { size: number; text: string }>()
+    let chars = 0
+
+    return {
+        get(path, size) {
+            const cached = files.get(path)
+            return cached && cached.size === size ? cached.text : undefined
+        },
+        set(path, size, text) {
+            const previous = files.get(path)
+            if (previous) {
+                chars -= previous.text.length
+                files.delete(path)
+            }
+            // Once full, further files are simply read from disk each time.
+            if (chars + text.length > maxChars) return
+            files.set(path, { size, text })
+            chars += text.length
+        },
+        clear() {
+            files.clear()
+            chars = 0
+        },
+    }
+}
 
 /** A window of the line around the match, and where the match starts inside it (for highlighting). */
 export function buildPreview(line: string, matchIndex: number, matchLength: number): { preview: string; matchStart: number } {
@@ -105,6 +144,8 @@ export type SearchWorkspaceContentOptions = {
     openBuffers: Map<string, string>
     readFile: (path: string) => Promise<string>
     getFileSize?: (path: string) => Promise<number | null>
+    /** Reuses file text from earlier searches; only used when the file size is known. */
+    cache?: ContentCache
     signal: AbortSignal
     maxHits?: number
     maxHitsPerFile?: number
@@ -129,6 +170,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         openBuffers,
         readFile,
         getFileSize,
+        cache,
         signal,
         maxHits = MAX_HITS,
         maxHitsPerFile = MAX_HITS_PER_FILE,
@@ -162,12 +204,15 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
 
     const scanDiskPath = async (path: string): Promise<TextSearchHit[]> => {
         try {
-            if (getFileSize) {
-                const size = await getFileSize(path)
-                if (size !== null && size > maxFileBytes) return []
-            }
+            const size = getFileSize ? await getFileSize(path) : null
+            if (size !== null && size > maxFileBytes) return []
 
-            const content = await readFile(path)
+            let content = size !== null ? cache?.get(path, size) : undefined
+            if (content === undefined) {
+                content = await readFile(path)
+                // Kept even if this search was cancelled meanwhile, so the next one can use it.
+                if (size !== null) cache?.set(path, size, content)
+            }
             if (signal.aborted) return []
             if (content.length > maxFileBytes) return []
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { buildPreview, searchWorkspaceContent, textHitToPaletteItem } from '@/components/studio/command-palette/search-content'
+import { describe, expect, it, vi } from 'vitest'
+import { buildPreview, createContentCache, searchWorkspaceContent, textHitToPaletteItem } from '@/components/studio/command-palette/search-content'
 
 describe('buildPreview', () => {
     it('trims long lines with ellipsis', () => {
@@ -506,5 +506,103 @@ describe('searchWorkspaceContent', () => {
         })
 
         expect(result.hits).toEqual([])
+    })
+})
+
+describe('searchWorkspaceContent file cache', () => {
+    const files: Record<string, string> = { '/a.md': 'the oauth flow', '/b.md': 'oauth tokens' }
+
+    function search(query: string, cache: ReturnType<typeof createContentCache>, readFile: (path: string) => Promise<string>, sizes = files) {
+        return searchWorkspaceContent({
+            query,
+            paths: Object.keys(files),
+            openBuffers: new Map(),
+            readFile,
+            getFileSize: async (path) => sizes[path]!.length,
+            cache,
+            signal: new AbortController().signal,
+        })
+    }
+
+    it('does not read unchanged files again for the next query', async () => {
+        const cache = createContentCache()
+        const readFile = vi.fn(async (path: string) => files[path]!)
+
+        await search('oauth', cache, readFile)
+        expect(readFile).toHaveBeenCalledTimes(2)
+
+        const result = await search('tokens', cache, readFile)
+        expect(readFile).toHaveBeenCalledTimes(2)
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/b.md'])
+    })
+
+    it('reads a file again when its size on disk has changed', async () => {
+        const cache = createContentCache()
+        await search('oauth', cache, async (path) => files[path]!)
+
+        const changed: Record<string, string> = { ...files, '/a.md': 'the oauth flow, now with tokens' }
+        const readFile = vi.fn(async (path: string) => changed[path]!)
+        const result = await search('tokens', cache, readFile, changed)
+
+        expect(readFile).toHaveBeenCalledTimes(1)
+        expect(readFile).toHaveBeenCalledWith('/a.md')
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/a.md', '/b.md'])
+    })
+
+    it('does not use the cache when the file size is unknown', async () => {
+        const cache = createContentCache()
+        const readFile = vi.fn(async () => 'oauth')
+        const options = { paths: ['/a.md'], openBuffers: new Map<string, string>(), readFile, cache, signal: new AbortController().signal }
+
+        await searchWorkspaceContent({ ...options, query: 'oauth' })
+        await searchWorkspaceContent({ ...options, query: 'oau' })
+        expect(readFile).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps text read by a search that was cancelled meanwhile', async () => {
+        const cache = createContentCache()
+        const controller = new AbortController()
+        await searchWorkspaceContent({
+            query: 'oauth',
+            paths: ['/a.md'],
+            openBuffers: new Map(),
+            readFile: async () => {
+                controller.abort()
+                return 'the oauth flow'
+            },
+            getFileSize: async () => 14,
+            cache,
+            signal: controller.signal,
+        })
+
+        expect(cache.get('/a.md', 14)).toBe('the oauth flow')
+    })
+})
+
+describe('createContentCache', () => {
+    it('stops adding files once its size budget is used up', () => {
+        const cache = createContentCache(10)
+        cache.set('/a.md', 6, 'aaaaaa')
+        cache.set('/b.md', 6, 'bbbbbb')
+
+        expect(cache.get('/a.md', 6)).toBe('aaaaaa')
+        expect(cache.get('/b.md', 6)).toBeUndefined()
+    })
+
+    it('frees the old text when a file is stored again', () => {
+        const cache = createContentCache(10)
+        cache.set('/a.md', 6, 'aaaaaa')
+        cache.set('/a.md', 2, 'aa')
+        cache.set('/b.md', 6, 'bbbbbb')
+
+        expect(cache.get('/a.md', 2)).toBe('aa')
+        expect(cache.get('/b.md', 6)).toBe('bbbbbb')
+    })
+
+    it('forgets everything when cleared', () => {
+        const cache = createContentCache()
+        cache.set('/a.md', 1, 'a')
+        cache.clear()
+        expect(cache.get('/a.md', 1)).toBeUndefined()
     })
 })
