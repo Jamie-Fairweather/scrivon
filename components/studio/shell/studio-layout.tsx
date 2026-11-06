@@ -11,12 +11,10 @@ import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explor
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
 import { documentKind } from '@/lib/workspace/file-types'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
-import { useMediaQuery } from '@/hooks/use-media-query'
 
 export function StudioLayout() {
     const { activeTab, activeTabId } = useDocumentTabs()
     const { layout } = useStudioLayout()
-    const isMobile = useMediaQuery('(max-width: 768px)')
     const editorLayout = useEditorPanelLayout()
 
     useWindowCloseHandler()
@@ -27,7 +25,8 @@ export function StudioLayout() {
         <CanvasControlsProvider>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="flex min-h-0 flex-1">
-                    {layout.explorerOpen && !isMobile && <WorkspaceExplorer />}
+                    {/* Shown whenever it is switched on, at any window width, so the toggles always match the screen. */}
+                    {layout.explorerOpen && <WorkspaceExplorer />}
 
                     <MarkdownExpandProvider tabId={activeTabId}>
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
