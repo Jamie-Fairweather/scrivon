@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
-import { renderMermaidDiagram } from '@/lib/mermaid/render'
+import { renderMermaidDiagramAsync, SupersededRenderError } from '@/lib/mermaid/render-client'
 import { clearSvgCache, forgetDocumentSvgs, readCachedSvg, readLatestSvg, readRenderError, storeRenderError, storeSvg } from '@/lib/mermaid/svg-cache'
 
 const RENDER_DEBOUNCE_MS = 200
@@ -79,15 +79,21 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
             } else if (cachedError !== null) {
                 showError(cachedError)
             } else {
-                try {
-                    const svg = renderMermaidDiagram(renderTrimmed, renderThemeId)
-                    storeSvg(renderThemeId, renderForKey, renderTrimmed, svg)
-                    showSvg(svg)
-                } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err)
-                    storeRenderError(renderThemeId, renderForKey, renderTrimmed, message)
-                    showError(message)
-                }
+                // Layout runs in a worker, so a big diagram doesn't freeze typing. Results that arrive
+                // after the text, theme or document moved on are dropped, so a cleared document stays clear.
+                renderMermaidDiagramAsync(renderTrimmed, renderThemeId, renderForKey).then(
+                    (svg) => {
+                        if (!isCurrent()) return
+                        storeSvg(renderThemeId, renderForKey, renderTrimmed, svg)
+                        showSvg(svg)
+                    },
+                    (err: unknown) => {
+                        if (err instanceof SupersededRenderError || !isCurrent()) return
+                        const message = err instanceof Error ? err.message : String(err)
+                        storeRenderError(renderThemeId, renderForKey, renderTrimmed, message)
+                        showError(message)
+                    }
+                )
             }
         }, RENDER_DEBOUNCE_MS)
 

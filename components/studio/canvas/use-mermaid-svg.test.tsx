@@ -22,8 +22,8 @@ function expectedSvg(source: string) {
     return vi.mocked(renderMermaidDiagram).getMockImplementation()!(source, 'scrivon-light')
 }
 
-function waitForRender() {
-    act(() => {
+async function waitForRender() {
+    await act(async () => {
         vi.advanceTimersByTime(250)
     })
 }
@@ -39,23 +39,23 @@ afterEach(() => {
 })
 
 describe('useMermaidSvg', () => {
-    it('renders the source after a pause', () => {
+    it('renders the source after a pause', async () => {
         const { result } = renderHook(() => useMermaidSvg(V1, 'a.mmd'))
         expect(result.current.isPending).toBe(true)
 
-        waitForRender()
+        await waitForRender()
 
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
         expect(result.current.error).toBeNull()
     })
 
-    it('falls back to the latest render of a document after a remount, not the first one (B14)', () => {
+    it('falls back to the latest render of a document after a remount, not the first one (B14)', async () => {
         const first = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
-        waitForRender()
+        await waitForRender()
         first.rerender({ source: V2 })
-        waitForRender()
+        await waitForRender()
         first.rerender({ source: V3 })
-        waitForRender()
+        await waitForRender()
         first.unmount()
 
         const again = renderHook(() => useMermaidSvg(BROKEN, 'a.mmd'))
@@ -63,60 +63,60 @@ describe('useMermaidSvg', () => {
         expect(again.result.current.svgForDisplay).toBe(expectedSvg(V3))
     })
 
-    it('reports a syntax error even when an earlier render is still on screen (U02)', () => {
+    it('reports a syntax error even when an earlier render is still on screen (U02)', async () => {
         const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
-        waitForRender()
+        await waitForRender()
 
         rerender({ source: BROKEN })
         expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), error: null, isStale: true, isPending: false })
 
-        waitForRender()
+        await waitForRender()
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
         expect(result.current.isStale).toBe(true)
         expect(result.current.error).toMatch(/\S/)
 
         rerender({ source: V2 })
-        waitForRender()
+        await waitForRender()
         expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), error: null, isStale: false })
     })
 
-    it('does not bring a deleted diagram back when typing starts again (U02)', () => {
+    it('does not bring a deleted diagram back when typing starts again (U02)', async () => {
         const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
-        waitForRender()
+        await waitForRender()
 
         rerender({ source: '   ' })
         expect(result.current.svgForDisplay).toBeNull()
 
         rerender({ source: 'f' })
         expect(result.current.svgForDisplay).toBeNull()
-        waitForRender()
+        await waitForRender()
         expect(result.current.svgForDisplay).toBeNull()
         expect(result.current.error).toMatch(/\S/)
     })
 
-    it('renders each edit once when two views show the same document (P03)', () => {
+    it('renders each edit once when two views show the same document (P03)', async () => {
         const views = renderHook(({ source }) => ({ canvas: useMermaidSvg(source, 'a.mmd'), exportMenu: useMermaidSvg(source, 'a.mmd') }), {
             initialProps: { source: V1 },
         })
-        waitForRender()
+        await waitForRender()
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(1)
         expect(views.result.current.exportMenu.svgForDisplay).toBe(expectedSvg(V1))
 
         views.rerender({ source: V2 })
-        waitForRender()
+        await waitForRender()
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
         expect(views.result.current.canvas.svgForDisplay).toBe(expectedSvg(V2))
 
         views.rerender({ source: BROKEN })
-        waitForRender()
+        await waitForRender()
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(3)
         expect(views.result.current.canvas.error).toMatch(/\S/)
         expect(views.result.current.exportMenu.error).toBe(views.result.current.canvas.error)
     })
 
-    it('shows the error straight away for a document that never rendered', () => {
+    it('shows the error straight away for a document that never rendered', async () => {
         const { result } = renderHook(() => useMermaidSvg(BROKEN, 'b.mmd'))
-        waitForRender()
+        await waitForRender()
 
         expect(result.current).toMatchObject({ svgForDisplay: null, isStale: false, isPending: false })
         expect(result.current.error).toMatch(/\S/)
