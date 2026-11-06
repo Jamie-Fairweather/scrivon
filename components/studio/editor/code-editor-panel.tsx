@@ -199,7 +199,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
 
     return (
         <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-code" style={{ width }}>
-            <div className="min-h-0 flex-1 overflow-hidden bg-code">
+            <div className="min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (
                     <MonacoEditor
                         path={editorPath}
