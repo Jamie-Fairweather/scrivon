@@ -40,6 +40,15 @@ font-kit = "0.14.3"
 [profile.dev.package.lopdf]
 opt-level = 3
 
+# Shipped builds: whole-program optimisation for a smaller exe and smaller update downloads.
+# opt-level stays 3 so PDF page stamping stays fast. panic stays "unwind" on purpose: a panic
+# in lopdf or font-kit then fails that one export instead of closing the app with unsaved tabs.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
 windows-core = "0.61.2"
