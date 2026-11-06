@@ -155,4 +155,19 @@ describe('EditorTabBar', () => {
         expect(screen.getByText('api')).toHaveClass('text-muted-foreground')
         expect(screen.getByRole('button', { name: 'Close README.md in guide' })).toBeInTheDocument()
     })
+
+    it('opens the right-click menu of a background tab without switching to it, and closes that tab from it', async () => {
+        tabs = [tab('/w/a.mmd'), tab('/w/b.mmd'), tab('/w/c.mmd')]
+        activeTabId = '/w/a.mmd'
+        const view = render(<EditorTabBar />)
+
+        fireEvent.contextMenu(screen.getByRole('tab', { name: 'c.mmd' }), { clientX: 300, clientY: 20 })
+        const close = await screen.findByRole('menuitem', { name: 'Close' })
+        expect(setActiveTab).not.toHaveBeenCalled()
+        expect(view.container.querySelector('[data-menu-open]')).toContainElement(screen.getByRole('tab', { name: 'c.mmd' }))
+
+        fireEvent.click(close)
+        expect(closeTab).toHaveBeenCalledWith('/w/c.mmd')
+        expect(setActiveTab).not.toHaveBeenCalled()
+    })
 })

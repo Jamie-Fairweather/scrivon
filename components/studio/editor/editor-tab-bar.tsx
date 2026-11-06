@@ -143,6 +143,8 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                     className={cn(
                                         // Tabs keep a readable width; when they don't all fit, the strip scrolls.
                                         'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
+                                        // Outlined while its right-click menu is open, since that doesn't switch to it.
+                                        'in-data-[menu-open]:ring-1 in-data-[menu-open]:ring-ring/60 in-data-[menu-open]:ring-inset',
                                         isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
                                     )}
                                 >
