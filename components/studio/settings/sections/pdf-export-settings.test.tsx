@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -23,6 +23,36 @@ const savedNames = () => screen.getByTestId('saved-names').textContent
 beforeEach(() => {
     // Start each test from default settings (the provider reads and writes localStorage).
     window.localStorage?.clear()
+})
+
+describe('PdfExportSettings delete profile', () => {
+    it('is disabled while only one profile exists', () => {
+        renderSection()
+        expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+    })
+
+    it('asks first, and Cancel keeps the profile', async () => {
+        renderSection()
+        fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
+        expect(savedNames()).toBe('Default|Default copy')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+        const dialog = await screen.findByRole('alertdialog')
+        expect(dialog).toHaveTextContent('Delete profile "Default copy"?')
+        expect(savedNames()).toBe('Default|Default copy')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+        expect(savedNames()).toBe('Default|Default copy')
+    })
+
+    it('deletes the profile named in the dialog once confirmed', async () => {
+        renderSection()
+        fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete profile' }))
+        expect(savedNames()).toBe('Default')
+    })
 })
 
 describe('PdfExportSettings profile name', () => {

@@ -32,6 +32,16 @@ import { ImagePathField } from '@/components/studio/settings/image-path-field'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogPopup,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -128,6 +138,38 @@ function ProfileNameInput({ id, name, onRename }: { id: string; name: string; on
     )
 }
 
+/** Delete asks first: a profile holds a lot of hand-tuned settings and there is no undo. */
+function DeleteProfileButton({ profile, disabled, onDelete }: { profile: PdfExportProfile; disabled: boolean; onDelete: (id: string) => void }) {
+    // Remember the profile when the dialog opens, so the one named is the one deleted
+    // (and the title doesn't switch to the next profile while the dialog closes).
+    const [target, setTarget] = useState({ id: profile.id, name: profile.name })
+    return (
+        <AlertDialog
+            onOpenChange={(open) => {
+                if (open) setTarget({ id: profile.id, name: profile.name })
+            }}
+        >
+            <AlertDialogTrigger render={<Button type="button" variant="destructive-outline" size="sm" disabled={disabled} />}>
+                Delete
+            </AlertDialogTrigger>
+            <AlertDialogPopup>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>{`Delete profile "${target.name}"?`}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This removes its page, font, colour, logo and header/footer settings. This cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogClose render={<Button type="button" variant="outline" />}>Cancel</AlertDialogClose>
+                    <AlertDialogClose render={<Button type="button" variant="destructive" />} onClick={() => onDelete(target.id)}>
+                        Delete profile
+                    </AlertDialogClose>
+                </AlertDialogFooter>
+            </AlertDialogPopup>
+        </AlertDialog>
+    )
+}
+
 export function PdfExportSettings() {
     const { settings, updateSettings } = useAppSettings()
     const pdf = settings.pdfExport
@@ -175,15 +217,11 @@ export function PdfExportSettings() {
                     >
                         Duplicate
                     </Button>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
+                    <DeleteProfileButton
+                        profile={active}
                         disabled={pdf.profiles.length <= 1}
-                        onClick={() => setPdf((current) => deletePdfExportProfile(current, current.activeProfileId))}
-                    >
-                        Delete
-                    </Button>
+                        onDelete={(id) => setPdf((current) => deletePdfExportProfile(current, id))}
+                    />
                 </div>
             </Field>
 
