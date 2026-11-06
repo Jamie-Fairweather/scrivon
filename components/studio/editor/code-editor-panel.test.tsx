@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { Suspense, lazy, type ComponentType } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -331,5 +331,48 @@ describe('CodeEditorPanel scrolling', () => {
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
         const { editor } = await mountEditor()
         expect(editor.options.scrollbar).toMatchObject({ horizontal: 'auto' })
+    })
+})
+
+describe('CodeEditorPanel resize handle', () => {
+    function renderPanel() {
+        const onWidthChange = vi.fn()
+        const view = render(<CodeEditorPanel width={400} onWidthChange={onWidthChange} />)
+        const handle = view.getByRole('separator', { name: 'Resize editor' })
+        const panel = view.container.firstElementChild as HTMLElement
+        return { onWidthChange, handle, panel }
+    }
+
+    it('resizes only with the main button, and saves the width once when the drag ends', () => {
+        const { onWidthChange, handle, panel } = renderPanel()
+
+        fireEvent.pointerDown(handle, { button: 2, pointerId: 1, clientX: 400 })
+        fireEvent.pointerMove(handle, { pointerId: 1, clientX: 500 })
+        expect(panel.style.width).toBe('400px')
+
+        fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 400 })
+        fireEvent.pointerMove(handle, { pointerId: 1, clientX: 450 })
+        fireEvent.pointerMove(handle, { pointerId: 1, clientX: 480 })
+        expect(panel.style.width).toBe('480px')
+        expect(onWidthChange).not.toHaveBeenCalled()
+
+        fireEvent.pointerUp(handle, { pointerId: 1, clientX: 480 })
+        fireEvent.lostPointerCapture(handle, { pointerId: 1 })
+        expect(onWidthChange).toHaveBeenCalledTimes(1)
+        expect(onWidthChange).toHaveBeenCalledWith(480)
+    })
+
+    it('stops following the pointer when the drag is cancelled', () => {
+        const { onWidthChange, handle, panel } = renderPanel()
+
+        fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 400 })
+        fireEvent.pointerMove(handle, { pointerId: 1, clientX: 450 })
+        fireEvent.pointerCancel(handle, { pointerId: 1 })
+        fireEvent.pointerMove(handle, { pointerId: 1, clientX: 600 })
+
+        expect(onWidthChange).toHaveBeenCalledTimes(1)
+        expect(onWidthChange).toHaveBeenCalledWith(450)
+        // The parent did not apply the new width, so the panel shows the prop again.
+        expect(panel.style.width).toBe('400px')
     })
 })

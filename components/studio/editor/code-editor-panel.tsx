@@ -81,7 +81,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
-    const resizeStart = useRef({ x: 0, width: 0 })
+    const resizeDragRef = useRef<{ pointerId: number; startX: number; startWidth: number; available: number; width: number } | null>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const [rowWidth, setRowWidth] = useState(0)
     const monacoRef = useRef<Monaco | null>(null)
@@ -150,29 +150,43 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
     }, [])
 
     const effectiveWidth = rowWidth > 0 ? clampEditorWidth(width, rowWidth) : width
+    // While dragging, the width lives here and is saved once when the drag ends.
+    const [dragWidth, setDragWidth] = useState<number | null>(null)
+    const shownWidth = dragWidth ?? effectiveWidth
 
     const onResizePointerDown = useCallback(
-        (e: React.PointerEvent) => {
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            // Only the main button resizes; right and middle clicks do nothing here.
+            if (e.button !== 0) return
             e.preventDefault()
-            resizeStart.current = { x: e.clientX, width: effectiveWidth }
             e.currentTarget.setPointerCapture(e.pointerId)
-            const available = rowWidth > 0 ? rowWidth : window.innerWidth
-
-            const onMove = (moveEvent: PointerEvent) => {
-                const delta = moveEvent.clientX - resizeStart.current.x
-                onWidthChange(clampEditorWidth(resizeStart.current.width + delta, available))
+            resizeDragRef.current = {
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startWidth: effectiveWidth,
+                available: rowWidth > 0 ? rowWidth : window.innerWidth,
+                width: effectiveWidth,
             }
-
-            const onUp = () => {
-                window.removeEventListener('pointermove', onMove)
-                window.removeEventListener('pointerup', onUp)
-            }
-
-            window.addEventListener('pointermove', onMove)
-            window.addEventListener('pointerup', onUp)
+            setDragWidth(effectiveWidth)
         },
-        [effectiveWidth, rowWidth, onWidthChange]
+        [effectiveWidth, rowWidth]
     )
+
+    const onResizePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        const drag = resizeDragRef.current
+        if (!drag || e.pointerId !== drag.pointerId) return
+        drag.width = clampEditorWidth(drag.startWidth + e.clientX - drag.startX, drag.available)
+        setDragWidth(drag.width)
+    }, [])
+
+    /** Ends a drag however it ends (release, cancel or lost capture) and saves the width once. */
+    const endResize = useCallback(() => {
+        const drag = resizeDragRef.current
+        if (!drag) return
+        resizeDragRef.current = null
+        setDragWidth(null)
+        if (drag.width !== drag.startWidth) onWidthChange(drag.width)
+    }, [onWidthChange])
 
     const onEditorChange = useCallback(
         (value: string | undefined) => {
@@ -303,7 +317,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
         <div
             ref={rootRef}
             className={cn('relative flex h-full shrink-0 flex-col border-r border-border bg-code', !open && 'hidden')}
-            style={{ width: effectiveWidth }}
+            style={{ width: shownWidth }}
         >
             <div className="min-h-0 flex-1 overflow-hidden bg-code">
                 {editorPath ? (
@@ -326,12 +340,18 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
                 )}
             </div>
 
+            {/* Straddles the border and sits above Monaco's scrollbar (z-index 11), so it can be
+                grabbed from the text side too. */}
             <div
                 role="separator"
                 aria-orientation="vertical"
                 aria-label="Resize editor"
-                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-ring/30 active:bg-ring/50"
+                className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none hover:bg-ring/30 active:bg-ring/50"
                 onPointerDown={onResizePointerDown}
+                onPointerMove={onResizePointerMove}
+                onPointerUp={endResize}
+                onPointerCancel={endResize}
+                onLostPointerCapture={endResize}
             />
         </div>
     )
