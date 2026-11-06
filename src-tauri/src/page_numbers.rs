@@ -1090,18 +1090,20 @@ fn scan_page(doc: &Document, cache: &FontCache<'_>, page_id: ObjectId) -> Walked
 /// Drops marker look-alikes that are really document text. The export draws
 /// real markers almost transparent, so once any translucent marker is found,
 /// opaque matches (body text that happens to read `SFPN`) are left alone. If
-/// none is translucent the alpha couldn't be read, and every match is kept.
-fn keep_real_markers(scans: &mut [Walked]) {
+/// none is translucent the alpha couldn't be read, and every match is kept to
+/// place the numbers by. Returns whether any translucent marker was found:
+/// only then is it safe to cut the markers out of the text.
+fn keep_real_markers(scans: &mut [Walked]) -> bool {
     let alpha_known = scans
         .iter()
         .any(|scan| scan.hits().any(|hit| hit.translucent));
-    if !alpha_known {
-        return;
+    if alpha_known {
+        for scan in scans {
+            scan.footers.retain(|hit| hit.translucent);
+            scan.marks.retain(|(_, hit)| hit.translucent);
+        }
     }
-    for scan in scans {
-        scan.footers.retain(|hit| hit.translucent);
-        scan.marks.retain(|(_, hit)| hit.translucent);
-    }
+    alpha_known
 }
 
 /// Cuts the markers' glyphs out of the content streams that drew them, so the
@@ -1506,10 +1508,11 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
         .iter()
         .map(|(_, id)| scan_page(doc, &cache, *id))
         .collect();
-    keep_real_markers(&mut scans);
+    // Markers whose alpha couldn't be read may be the document's own text
+    // (`SFPN` in a code sample), so those are never cut out.
+    let real_markers = keep_real_markers(&mut scans);
     let toc = toc_entries(&pages, &scans);
-    let has_markers = scans.iter().any(|scan| scan.hits().next().is_some());
-    if !want_footer && toc.is_empty() && !has_markers {
+    if !want_footer && toc.is_empty() && !real_markers {
         return Ok(false);
     }
 
@@ -1597,7 +1600,9 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
 
     // Cut the markers out first: the overlay below splits each page's content
     // into several streams.
-    blank_markers(doc, scans);
+    if real_markers {
+        blank_markers(doc, scans);
+    }
 
     for (position, page_ops) in operations.into_iter().enumerate() {
         if page_ops.is_empty() {
@@ -2451,24 +2456,8 @@ end";
     #[test]
     fn cutting_a_marker_out_of_a_run_keeps_the_text_after_it_in_place() {
         let mut doc = Document::with_version("1.5");
-        let page = [
-            vec![flip()],
-            text(
-                "F1",
-                10.0,
-                100.0,
-                1000.0,
-                Object::string_literal("ab SFPN cd"),
-            ),
-        ]
-        .concat();
-        build_pdf(
-            &mut doc,
-            vec![(
-                page,
-                dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
-            )],
-        );
+        let page = [vec![flip()], marker_text(10.0, 100.0, 1000.0, "ab SFPN cd")].concat();
+        build_pdf(&mut doc, vec![(page, marker_resources())]);
         let path = save_temp(&mut doc, "scrivon-page-numbers-cut.pdf");
 
         stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
@@ -2523,11 +2512,64 @@ end";
     }
 
     #[test]
+    fn never_cuts_document_text_when_no_real_marker_was_drawn() {
+        // No page numbers and no TOC, so the export drew no markers at all; the
+        // document itself mentions the codes.
+        let mut doc = Document::with_version("1.5");
+        let page = [
+            vec![flip()],
+            text(
+                "F1",
+                10.0,
+                100.0,
+                300.0,
+                Object::string_literal("Codes: SFPN SFT2024 SFH1234"),
+            ),
+        ]
+        .concat();
+        let fonts = || dictionary! { "Font" => dictionary! { "F1" => helvetica() } };
+        build_pdf(&mut doc, vec![(page, fonts())]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-lookalike-only.pdf");
+        let printed = std::fs::read(&path).unwrap();
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("none", "")).unwrap();
+
+        let after = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(after == printed, "the PDF was rewritten");
+
+        // With numbers on, the look-alike still only places the label: its text stays.
+        let mut doc = Document::with_version("1.5");
+        let page = [
+            vec![flip()],
+            text(
+                "F1",
+                10.0,
+                100.0,
+                300.0,
+                Object::string_literal("Type SFPN here"),
+            ),
+        ]
+        .concat();
+        build_pdf(&mut doc, vec![(page, fonts())]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-lookalike-numbered.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let text = stamped.extract_text(&[1]).unwrap();
+        assert!(text.contains("Type SFPN here"), "{text:?}");
+        assert!(text.contains("Page 1"), "{text:?}");
+    }
+
+    #[test]
     fn removes_markers_drawn_with_skia_glyph_ids() {
         let mut doc = Document::with_version("1.5");
         let font = skia_type0(&mut doc);
         let ops = vec![
             flip(),
+            Operation::new("gs", vec!["G1".into()]),
             Operation::new("BT", vec![]),
             Operation::new("Tf", vec!["F1".into(), 1.into()]),
             Operation::new(
@@ -2550,10 +2592,9 @@ end";
             ),
             Operation::new("ET", vec![]),
         ];
-        build_pdf(
-            &mut doc,
-            vec![(ops, dictionary! { "Font" => dictionary! { "F1" => font } })],
-        );
+        let mut resources = marker_resources();
+        resources.set("Font", dictionary! { "F1" => font });
+        build_pdf(&mut doc, vec![(ops, resources)]);
         let path = save_temp(&mut doc, "scrivon-page-numbers-skia-blank.pdf");
 
         stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
@@ -2588,14 +2629,15 @@ end";
             },
             inner.encode().unwrap(),
         ));
-        let ops = vec![flip(), Operation::new("Do", vec!["X1".into()])];
-        build_pdf(
-            &mut doc,
-            vec![(
-                ops,
-                dictionary! { "XObject" => dictionary! { "X1" => form_id } },
-            )],
-        );
+        // The form inherits the nearly transparent fill the page sets before drawing it.
+        let ops = vec![
+            flip(),
+            Operation::new("gs", vec!["G1".into()]),
+            Operation::new("Do", vec!["X1".into()]),
+        ];
+        let mut resources = marker_resources();
+        resources.set("XObject", dictionary! { "X1" => form_id });
+        build_pdf(&mut doc, vec![(ops, resources)]);
         let path = save_temp(&mut doc, "scrivon-page-numbers-form-blank.pdf");
 
         stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
