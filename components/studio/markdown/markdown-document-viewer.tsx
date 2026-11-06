@@ -23,21 +23,39 @@ function scrollViewport(root: HTMLElement | null): HTMLElement | null {
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
-    const previewSource = useFrameSyncedValue(source)
+    const previewSource = useFrameSyncedValue(source, tabId)
     const { expanded, setExpanded } = useMarkdownExpand()
     const { requestCanvasFit } = useCanvasFit()
     const scrollAreaRef = useRef<HTMLDivElement>(null)
-    const savedScrollTopRef = useRef(0)
+    const expandedKey = expanded?.canvasKey ?? null
+    /** Last preview scroll position per tab. The viewer stays mounted across tab switches, so it keeps them. */
+    const scrollTopByTabRef = useRef(new Map<string, number>())
+    /** Which tab scroll events belong to; recording pauses while a diagram is expanded over the preview. */
+    const scrollTrackingRef = useRef<{ tabId: string | null; paused: boolean }>({ tabId, paused: false })
+    const lastViewRef = useRef<{ tabId: string | null; expandedKey: string | null }>({ tabId, expandedKey: null })
 
     useEffect(() => {
         clearFencedCodeBlockContainers()
     }, [tabId])
 
+    useEffect(() => {
+        const viewport = scrollViewport(scrollAreaRef.current)
+        if (!viewport) return
+
+        const onScroll = () => {
+            const { tabId: scrollTabId, paused } = scrollTrackingRef.current
+            if (scrollTabId && !paused) scrollTopByTabRef.current.set(scrollTabId, viewport.scrollTop)
+        }
+
+        viewport.addEventListener('scroll', onScroll, { passive: true })
+        return () => viewport.removeEventListener('scroll', onScroll)
+    }, [])
+
     const onExpandBlock = useCallback(
         (blockId: string, blockSource: string) => {
             if (!tabId) return
             const viewport = scrollViewport(scrollAreaRef.current)
-            if (viewport) savedScrollTopRef.current = viewport.scrollTop
+            if (viewport) scrollTopByTabRef.current.set(tabId, viewport.scrollTop)
             setExpanded({
                 blockId,
                 source: blockSource,
@@ -50,27 +68,37 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const onCloseExpanded = useCallback(() => setExpanded(null), [setExpanded])
 
     useEffect(() => {
-        if (!expanded) return
+        if (!expandedKey) return
 
         requestCanvasFit()
         const outerId = requestAnimationFrame(() => {
             requestCanvasFit()
         })
         return () => cancelAnimationFrame(outerId)
-    }, [expanded, requestCanvasFit])
+    }, [expandedKey, requestCanvasFit])
 
+    // Restores the preview scroll position after switching tabs or closing the expanded diagram.
     useLayoutEffect(() => {
-        if (expanded) return
+        const previous = lastViewRef.current
+        lastViewRef.current = { tabId, expandedKey }
+        scrollTrackingRef.current = { tabId, paused: expandedKey !== null }
+        if (expandedKey) return
 
-        const scrollTop = savedScrollTopRef.current
+        const tabChanged = previous.tabId !== tabId
+        const closedExpanded = !tabChanged && previous.expandedKey !== null
+        if (!tabChanged && !closedExpanded) return
+
+        const scrollTop = (tabId ? scrollTopByTabRef.current.get(tabId) : undefined) ?? 0
         const viewport = scrollViewport(scrollAreaRef.current)
-        if (!viewport || viewport.scrollTop === scrollTop) return
+        if (!viewport) return
+        if (viewport.scrollTop !== scrollTop) viewport.scrollTop = scrollTop
 
+        // Diagrams and code blocks may still be laying out, so apply it again once they have.
         let innerId = 0
         const outerId = requestAnimationFrame(() => {
             innerId = requestAnimationFrame(() => {
                 const nextViewport = scrollViewport(scrollAreaRef.current)
-                if (nextViewport) nextViewport.scrollTop = scrollTop
+                if (nextViewport && nextViewport.scrollTop !== scrollTop) nextViewport.scrollTop = scrollTop
             })
         })
 
@@ -78,7 +106,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             cancelAnimationFrame(outerId)
             if (innerId) cancelAnimationFrame(innerId)
         }
-    }, [expanded])
+    }, [tabId, expandedKey])
 
     return (
         <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background', className)}>

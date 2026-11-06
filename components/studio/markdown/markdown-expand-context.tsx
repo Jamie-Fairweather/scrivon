@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 
 export type ExpandedMermaidBlock = {
     blockId: string
@@ -13,18 +13,30 @@ type MarkdownExpandContextValue = {
     setExpanded: (block: ExpandedMermaidBlock | null) => void
 }
 
+type ExpandedState = {
+    tabId: string | null
+    block: ExpandedMermaidBlock
+}
+
 const MarkdownExpandContext = createContext<MarkdownExpandContextValue | null>(null)
 
+/**
+ * Holds the expanded Markdown diagram for the active tab. The expanded block belongs to the tab it was opened
+ * in, so switching tabs closes it. Children are never remounted on a tab switch: they hold the editor, its undo
+ * history and the per-tab canvas zoom.
+ */
 export function MarkdownExpandProvider({ tabId, children }: { tabId: string | null; children: ReactNode }) {
-    const [expanded, setExpanded] = useState<ExpandedMermaidBlock | null>(null)
+    const [state, setState] = useState<ExpandedState | null>(null)
 
-    const value = useMemo(() => ({ expanded, setExpanded }), [expanded])
+    if (state && state.tabId !== tabId) setState(null)
 
-    return (
-        <MarkdownExpandContext.Provider key={tabId ?? 'none'} value={value}>
-            {children}
-        </MarkdownExpandContext.Provider>
-    )
+    const expanded = state && state.tabId === tabId ? state.block : null
+
+    const setExpanded = useCallback((block: ExpandedMermaidBlock | null) => setState(block ? { tabId, block } : null), [tabId])
+
+    const value = useMemo(() => ({ expanded, setExpanded }), [expanded, setExpanded])
+
+    return <MarkdownExpandContext.Provider value={value}>{children}</MarkdownExpandContext.Provider>
 }
 
 export function useMarkdownExpand(): MarkdownExpandContextValue {
