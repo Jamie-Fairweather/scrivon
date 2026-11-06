@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useRef, type CSSProperties, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent } from 'react'
 import { CircleAlert, Focus, Loader2, Lock, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { DocumentExportMenu } from '@/components/studio/editor/document-export-menu'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
 import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-context-menu'
+import { getTabFolderHints } from '@/components/studio/editor/tab-labels'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { documentKind } from '@/lib/workspace/file-types'
@@ -31,7 +32,7 @@ function tabStatusText(tab: TabState): string {
     return parts.join(', ')
 }
 
-function TabCloseButton({ tab, isActive, onClose }: { tab: TabState; isActive: boolean; onClose: () => void }) {
+function TabCloseButton({ tab, label, isActive, onClose }: { tab: TabState; label: string; isActive: boolean; onClose: () => void }) {
     const showCloseSlot = isActive || (!tab.readOnly && tab.isDirty) || tab.isSaving
     const unsaved = !tab.readOnly && tab.isDirty
 
@@ -45,7 +46,7 @@ function TabCloseButton({ tab, isActive, onClose }: { tab: TabState; isActive: b
                 'mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground',
                 showCloseSlot ? 'opacity-100' : 'opacity-0 group-focus-within/tab:opacity-100 group-hover/tab:opacity-100'
             )}
-            aria-label={`Close ${tab.name}${unsaved ? ', unsaved changes' : ''}`}
+            aria-label={`Close ${label}${unsaved ? ', unsaved changes' : ''}`}
             onClick={(e) => {
                 e.stopPropagation()
                 onClose()
@@ -76,6 +77,8 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     const tabRefs = useRef(new Map<string, HTMLButtonElement>())
     // The tab reachable with Tab: the active one, or the first if none is active.
     const focusableTabId = tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null)
+    // Same-named files (README.md in two folders) also show the folder that tells them apart.
+    const folderHints = useMemo(() => getTabFolderHints(tabs), [tabs])
 
     useEffect(() => {
         if (!activeTabId) return
@@ -132,6 +135,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                     {tabs.map((tab) => {
                         const isActive = tab.id === activeTabId
                         const status = tabStatusText(tab)
+                        const folderHint = folderHints.get(tab.id)
                         return (
                             <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
                                 <div
@@ -153,14 +157,26 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                         tabIndex={tab.id === focusableTabId ? 0 : -1}
                                         className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
                                         onClick={() => void setActiveTab(tab.id)}
-                                        title={tab.saveError ? `Save failed: ${tab.saveError}` : tab.path}
+                                        title={tab.saveError ? `${tab.path}\nSave failed: ${tab.saveError}` : tab.path}
                                     >
                                         {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
                                         {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive" aria-hidden />}
                                         <span className="truncate">{tab.name}</span>
+                                        {folderHint && (
+                                            // Shrinks much faster than the name, so it is cut off first.
+                                            <span className="shrink-[100] truncate text-[10px] text-muted-foreground">
+                                                <span className="sr-only">in </span>
+                                                {folderHint}
+                                            </span>
+                                        )}
                                         {status && <span className="sr-only">, {status}</span>}
                                     </button>
-                                    <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
+                                    <TabCloseButton
+                                        tab={tab}
+                                        label={folderHint ? `${tab.name} in ${folderHint}` : tab.name}
+                                        isActive={isActive}
+                                        onClose={() => void closeTab(tab.id)}
+                                    />
                                 </div>
                             </EditorTabRowContextMenu>
                         )

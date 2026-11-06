@@ -69,7 +69,8 @@ describe('EditorTabBar', () => {
         expect(screen.getByRole('tab', { name: 'saving.md , saving' })).toBeInTheDocument()
         expect(screen.getByRole('tab', { name: 'Example.mmd , read-only example' })).toBeInTheDocument()
         const failed = screen.getByRole('tab', { name: 'failed.md , unsaved changes, save failed: Disk full' })
-        expect(failed).toHaveAttribute('title', 'Save failed: Disk full')
+        // The failure doesn't hide which file it is.
+        expect(failed).toHaveAttribute('title', '/w/failed.md\nSave failed: Disk full')
         expect(screen.getByRole('button', { name: 'Close dirty.md, unsaved changes' })).toHaveAttribute('tabindex', '-1')
     })
 
@@ -141,5 +142,17 @@ describe('EditorTabBar', () => {
 
         act(() => fit.focus())
         expect(await screen.findByText('Expand a Mermaid block to fit')).toBeInTheDocument()
+    })
+
+    it('shows the folder when two open files have the same name', () => {
+        tabs = [tab('/w/docs/api/README.md'), tab('/w/docs/guide/README.md'), tab('/w/notes.md')]
+        activeTabId = '/w/notes.md'
+        render(<EditorTabBar />)
+
+        expect(screen.getByRole('tab', { name: /^README\.md\s*in api$/ })).toBeInTheDocument()
+        expect(screen.getByRole('tab', { name: /^README\.md\s*in guide$/ })).toBeInTheDocument()
+        expect(screen.getByRole('tab', { name: 'notes.md' })).toBeInTheDocument()
+        expect(screen.getByText('api')).toHaveClass('text-muted-foreground')
+        expect(screen.getByRole('button', { name: 'Close README.md in guide' })).toBeInTheDocument()
     })
 })
