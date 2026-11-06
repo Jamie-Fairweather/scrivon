@@ -56,6 +56,7 @@ export function searchOpenTabs(
         searchText: searchText(item),
         path: item.path,
         name: item.name,
+        documentKind: documentKind(item.name) ?? 'markdown',
         isDirty: item.isDirty,
     }))
 }

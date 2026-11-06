@@ -34,6 +34,13 @@ describe('textHitToPaletteItem', () => {
         expect(item.kind).toBe('text')
         expect(item.name).toBe('readme.md')
         expect(item.value).toBe('text:/workspace/docs/readme.md:3:5')
+        expect(item.documentKind).toBe('markdown')
+    })
+
+    it('treats upper-case extensions like the rest of the app', () => {
+        const hit = { line: 1, column: 1, length: 4, preview: 'flow', source: 'disk' as const }
+        expect(textHitToPaletteItem({ ...hit, path: '/workspace/NOTES.Md' }).documentKind).toBe('markdown')
+        expect(textHitToPaletteItem({ ...hit, path: '/workspace/FLOW.MMD' }).documentKind).toBe('mermaid')
     })
 })
 

@@ -109,8 +109,19 @@ const dirtyTab: PaletteItem = {
     searchText: 'notes.md',
     path: '/ws/notes.md',
     name: 'notes.md',
+    documentKind: 'markdown',
     isDirty: true,
 }
+
+describe('CommandPaletteDialog icons', () => {
+    it('shows the document icon for an upper-case .MD tab', () => {
+        const tab: PaletteItem = { ...dirtyTab, value: 'tab:/ws/README.MD', path: '/ws/README.MD', name: 'README.MD', isDirty: false }
+        renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [tab] }] })
+        const option = screen.getByRole('option', { name: /README.MD/ })
+        expect(option.querySelector('.lucide-file-text')).not.toBeNull()
+        expect(option.querySelector('.lucide-network')).toBeNull()
+    })
+})
 
 describe('CommandPaletteDialog accessibility', () => {
     it('names the dialog and the search box', () => {

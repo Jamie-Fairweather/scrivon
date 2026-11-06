@@ -81,7 +81,7 @@ function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: s
     if (item.kind === 'tab') {
         return (
             <CommandItem onClick={handleClick} value={item.value}>
-                <DocumentIcon kind={item.name.endsWith('.md') ? 'markdown' : 'mermaid'} />
+                <DocumentIcon kind={item.documentKind} />
                 <span className="flex-1 truncate">{item.name}</span>
                 {item.isDirty ? (
                     <>
@@ -123,7 +123,7 @@ function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: s
 
     return (
         <CommandItem onClick={handleClick} value={item.value}>
-            <DocumentIcon kind={item.name.endsWith('.md') ? 'markdown' : 'mermaid'} />
+            <DocumentIcon kind={item.documentKind} />
             <span className="min-w-0 flex-1">
                 <span className="block truncate">
                     {item.name} · {item.line}:{item.column}

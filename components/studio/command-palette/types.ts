@@ -19,6 +19,7 @@ export type TabPaletteItem = {
     searchText: string
     path: string
     name: string
+    documentKind: DocumentKind
     isDirty: boolean
 }
 
@@ -38,6 +39,7 @@ export type TextPaletteItem = {
     searchText: string
     path: string
     name: string
+    documentKind: DocumentKind
     line: number
     column: number
     length: number

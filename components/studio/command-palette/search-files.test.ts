@@ -62,6 +62,20 @@ describe('searchFiles', () => {
 })
 
 describe('searchOpenTabs', () => {
+    it('picks the document kind regardless of extension case', () => {
+        const results = searchOpenTabs(
+            [
+                { id: '/workspace/README.MD', path: '/workspace/README.MD', name: 'README.MD', isDirty: false },
+                { id: '/workspace/flow.Mermaid', path: '/workspace/flow.Mermaid', name: 'flow.Mermaid', isDirty: false },
+            ],
+            '/workspace',
+            '',
+            () => false
+        )
+
+        expect(results.map((item) => item.documentKind)).toEqual(['markdown', 'mermaid'])
+    })
+
     it('excludes example tabs', () => {
         const results = searchOpenTabs(
             [

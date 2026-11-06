@@ -1,4 +1,4 @@
-import { getBaseName } from '@/lib/tauri/fs'
+import { documentKind, getBaseName } from '@/lib/tauri/fs'
 import type { TextSearchHit } from '@/components/studio/command-palette/types'
 
 export const MIN_QUERY_LENGTH = 2
@@ -166,6 +166,7 @@ export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/s
         searchText: `${name} ${hit.preview} ${hit.path}`,
         path: hit.path,
         name,
+        documentKind: documentKind(name) ?? 'markdown',
         line: hit.line,
         column: hit.column,
         length: hit.length,
