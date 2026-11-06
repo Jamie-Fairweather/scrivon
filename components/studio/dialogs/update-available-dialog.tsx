@@ -15,25 +15,35 @@ export type AppUpdateInfo = {
     notes: string | null
 }
 
+/** Why an install stopped to ask the user: edited files with autosave off, or files that failed to save. */
+export type InstallBlocker = { reason: 'unsaved'; fileNames: string[] } | { reason: 'save-failed' }
+
 type UpdateAvailableDialogProps = {
     update: AppUpdateInfo
     notesLoading: boolean
     installing: boolean
-    /** Some open files could not be saved, so the install was stopped. */
-    saveFailed: boolean
+    /** Set when the install stopped to ask what to do with open files. */
+    blocker: InstallBlocker | null
     onLater: () => void
     onInstall: () => void
-    onInstallAnyway: () => void
+    onSaveAndInstall: () => void
+    onInstallWithoutSaving: () => void
+}
+
+function formatFileNames(names: string[]): string {
+    if (names.length <= 3) return names.join(', ')
+    return `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
 }
 
 export function UpdateAvailableDialog({
     update,
     notesLoading,
     installing,
-    saveFailed,
+    blocker,
     onLater,
     onInstall,
-    onInstallAnyway,
+    onSaveAndInstall,
+    onInstallWithoutSaving,
 }: UpdateAvailableDialogProps) {
     const showChangelog = Boolean(update.notes?.trim()) || notesLoading
 
@@ -56,7 +66,18 @@ export function UpdateAvailableDialog({
                         ) : null}
                     </DialogPanel>
                 ) : null}
-                {saveFailed ? (
+                {blocker?.reason === 'unsaved' ? (
+                    <div className="px-6">
+                        <Alert variant="warning">
+                            <TriangleAlert />
+                            <AlertTitle>Save changes before installing?</AlertTitle>
+                            <AlertDescription>
+                                Autosave is off and these files have unsaved changes: {formatFileNames(blocker.fileNames)}.
+                            </AlertDescription>
+                        </Alert>
+                    </div>
+                ) : null}
+                {blocker?.reason === 'save-failed' ? (
                     <div className="px-6">
                         <Alert variant="error">
                             <TriangleAlert />
@@ -67,10 +88,19 @@ export function UpdateAvailableDialog({
                 ) : null}
                 <DialogFooter variant="bare">
                     <Button type="button" variant="outline" disabled={installing} onClick={onLater}>
-                        {saveFailed ? 'Cancel' : 'Later'}
+                        {blocker ? 'Cancel' : 'Later'}
                     </Button>
-                    {saveFailed ? (
-                        <Button type="button" variant="destructive" disabled={installing} onClick={onInstallAnyway}>
+                    {blocker?.reason === 'unsaved' ? (
+                        <>
+                            <Button type="button" variant="destructive-outline" disabled={installing} onClick={onInstallWithoutSaving}>
+                                Don&apos;t save
+                            </Button>
+                            <Button type="button" disabled={installing} onClick={onSaveAndInstall}>
+                                {installing ? 'Installing…' : 'Save and install'}
+                            </Button>
+                        </>
+                    ) : blocker?.reason === 'save-failed' ? (
+                        <Button type="button" variant="destructive" disabled={installing} onClick={onInstallWithoutSaving}>
                             {installing ? 'Installing…' : 'Install anyway'}
                         </Button>
                     ) : (

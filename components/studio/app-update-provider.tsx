@@ -1,8 +1,8 @@
 'use client'
 
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { UpdateAvailableDialog, type AppUpdateInfo } from '@/components/studio/dialogs/update-available-dialog'
-import { useDocumentSave, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { UpdateAvailableDialog, type AppUpdateInfo, type InstallBlocker } from '@/components/studio/dialogs/update-available-dialog'
+import { useDocumentSave, useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
@@ -10,21 +10,35 @@ import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/upda
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 const UPDATE_CHECK_DELAY_MS = 4_000
 
+/** How long installing waits for open files to save (e.g. an offline network drive) before treating it as failed. */
+export const SAVE_BEFORE_INSTALL_TIMEOUT_MS = 10_000
+
 export type InstallUpdateOptions = {
-    /** Install even though some open files could not be saved (their unsaved changes are lost). */
-    ignoreSaveErrors?: boolean
+    /**
+     * Edited files: 'ask' (default) stops to ask first when autosave is off, 'save' saves them,
+     * 'discard' installs without saving them (their unsaved changes are lost).
+     */
+    unsaved?: 'ask' | 'save' | 'discard'
+}
+
+function savedWithin(save: Promise<boolean>, ms: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), ms)
+    })
+    return Promise.race([save.catch(() => false), timeout]).finally(() => clearTimeout(timer))
 }
 
 type AppUpdateContextValue = {
     update: AppUpdateInfo | null
     notesLoading: boolean
     installing: boolean
-    /** True after an install attempt stopped because some open files could not be saved. */
-    saveFailed: boolean
+    /** Set when an install attempt stopped to ask what to do with open files. */
+    installBlocker: InstallBlocker | null
     dialogOpen: boolean
     openUpdateDialog: () => void
     dismissUpdateDialog: () => void
@@ -44,12 +58,19 @@ export function useAppUpdate(): AppUpdateContextValue {
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
     const { settings } = useAppSettings()
     const { flushAllSaves } = useDocumentSave()
+    const { tabs } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
     const [notesLoading, setNotesLoading] = useState(false)
     const [installing, setInstalling] = useState(false)
-    const [saveFailed, setSaveFailed] = useState(false)
+    const [installBlocker, setInstallBlocker] = useState<InstallBlocker | null>(null)
     const [dialogOpen, setDialogOpen] = useState(false)
+    // Read when Install is pressed; a ref so typing doesn't recreate installUpdate.
+    const tabsRef = useRef(tabs)
+
+    useEffect(() => {
+        tabsRef.current = tabs
+    }, [tabs])
 
     useEffect(() => {
         if (!isTauri() || !settings.updates.checkOnLaunch) return
@@ -99,21 +120,32 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
     const dismissUpdateDialog = useCallback(() => {
         if (installing) return
-        setSaveFailed(false)
+        setInstallBlocker(null)
         setDialogOpen(false)
     }, [installing])
 
     const installUpdate = useCallback(
-        async ({ ignoreSaveErrors = false }: InstallUpdateOptions = {}) => {
+        async ({ unsaved = 'ask' }: InstallUpdateOptions = {}) => {
+            setInstallBlocker(null)
+
+            // With autosave off the user saves by hand, so don't write their edits to disk without asking.
+            if (unsaved === 'ask' && !coordinator.getAutosaveEnabled.current()) {
+                const fileNames = tabsRef.current.filter((t) => t.isDirty && !t.readOnly).map((t) => t.name)
+                if (fileNames.length > 0) {
+                    setInstallBlocker({ reason: 'unsaved', fileNames })
+                    return
+                }
+            }
+
             setInstalling(true)
-            setSaveFailed(false)
 
             // The installer ends the process straight away (on Windows it exits before relaunch() runs),
             // so the save-on-close handler never fires. Save open files first, the same way closing does.
-            if (!ignoreSaveErrors) {
-                const saved = await flushAllSaves().catch(() => false)
+            // A save that hangs counts as failed, so the dialog never stays stuck on "Installing…".
+            if (unsaved !== 'discard') {
+                const saved = await savedWithin(flushAllSaves(), SAVE_BEFORE_INSTALL_TIMEOUT_MS)
                 if (!saved) {
-                    setSaveFailed(true)
+                    setInstallBlocker({ reason: 'save-failed' })
                     setInstalling(false)
                     return
                 }
@@ -141,13 +173,13 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
             update,
             notesLoading,
             installing,
-            saveFailed,
+            installBlocker,
             dialogOpen,
             openUpdateDialog,
             dismissUpdateDialog,
             installUpdate,
         }),
-        [update, notesLoading, installing, saveFailed, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
+        [update, notesLoading, installing, installBlocker, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
     )
 
     return (
@@ -158,10 +190,11 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                     update={update}
                     notesLoading={notesLoading}
                     installing={installing}
-                    saveFailed={saveFailed}
+                    blocker={installBlocker}
                     onLater={dismissUpdateDialog}
                     onInstall={() => void installUpdate()}
-                    onInstallAnyway={() => void installUpdate({ ignoreSaveErrors: true })}
+                    onSaveAndInstall={() => void installUpdate({ unsaved: 'save' })}
+                    onInstallWithoutSaving={() => void installUpdate({ unsaved: 'discard' })}
                 />
             ) : null}
         </AppUpdateContext.Provider>
