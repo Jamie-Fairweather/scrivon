@@ -72,16 +72,18 @@ describe('useMermaidSvg', () => {
         await waitForRender()
 
         rerender({ source: BROKEN })
-        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), error: null, isStale: true, isPending: false })
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), currentError: null, isStale: true, isPending: false })
 
         await waitForRender()
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
         expect(result.current.isStale).toBe(true)
-        expect(result.current.error).toMatch(/\S/)
+        expect(result.current.currentError).toMatch(/\S/)
+        // `error` keeps its meaning for views that swap the diagram for an error card: only when there's nothing to show.
+        expect(result.current.error).toBeNull()
 
         rerender({ source: V2 })
         await waitForRender()
-        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), error: null, isStale: false })
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), error: null, currentError: null, isStale: false })
     })
 
     it('does not bring a deleted diagram back when typing starts again (U02)', async () => {
@@ -114,8 +116,8 @@ describe('useMermaidSvg', () => {
         views.rerender({ source: BROKEN })
         await waitForRender()
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(3)
-        expect(views.result.current.canvas.error).toMatch(/\S/)
-        expect(views.result.current.exportMenu.error).toBe(views.result.current.canvas.error)
+        expect(views.result.current.canvas.currentError).toMatch(/\S/)
+        expect(views.result.current.exportMenu.currentError).toBe(views.result.current.canvas.currentError)
     })
 
     it('renders a document shown for the first time without waiting, then waits between keystrokes (U38)', async () => {

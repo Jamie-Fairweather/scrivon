@@ -32,7 +32,7 @@ export function DocumentExportMenu() {
     const diagramExportSource = isMarkdownTab ? (expanded?.source ?? '') : (activeTab?.content ?? '')
     const diagramExportCanvasKey = isMarkdownTab ? (expanded?.canvasKey ?? null) : activeTabId
 
-    const { error, isPending, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
+    const { currentError, isPending, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
@@ -41,7 +41,7 @@ export function DocumentExportMenu() {
     const hasDiagramSource = diagramExportSource.trim().length > 0
     const showDiagramExport = isMermaidTab || (isMarkdownTab && Boolean(expanded))
     const diagramBlocked = isMarkdownTab && !expanded
-    const diagramDisabled = diagramBlocked || !hasDiagramSource || Boolean(error) || isPending || isEmpty || exporting
+    const diagramDisabled = diagramBlocked || !hasDiagramSource || Boolean(currentError) || isPending || isEmpty || exporting
     const pdfDisabled = !hasMarkdown || exporting
 
     const runExport = async (action: () => Promise<void>) => {

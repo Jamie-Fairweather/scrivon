@@ -21,6 +21,7 @@ function mockHook(result: Partial<ReturnType<typeof useMermaidSvg>>) {
         svgForDisplay: null,
         dimensions: null,
         error: null,
+        currentError: null,
         isStale: false,
         isPending: false,
         isEmpty: false,
@@ -34,7 +35,7 @@ beforeEach(() => {
 
 describe('MermaidCanvas', () => {
     it('keeps the last good diagram and shows the error in a banner when the text is broken (U02)', () => {
-        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 }, error: 'Invalid mermaid header', isStale: true })
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 }, currentError: 'Invalid mermaid header', isStale: true })
 
         render(<MermaidCanvas source="graph" />)
 
@@ -46,7 +47,7 @@ describe('MermaidCanvas', () => {
     })
 
     it('shows the error card when there is no earlier diagram', () => {
-        mockHook({ error: 'Invalid mermaid header' })
+        mockHook({ error: 'Invalid mermaid header', currentError: 'Invalid mermaid header' })
 
         render(<MermaidCanvas source="graph" />)
 
@@ -56,7 +57,7 @@ describe('MermaidCanvas', () => {
     })
 
     it('lets the error text be selected instead of starting a pan, outside the pan/zoom layer (U37)', () => {
-        mockHook({ error: 'Invalid mermaid header' })
+        mockHook({ error: 'Invalid mermaid header', currentError: 'Invalid mermaid header' })
 
         render(<MermaidCanvas source="graph" />)
 

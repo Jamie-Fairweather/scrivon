@@ -99,7 +99,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
-    const { svgForDisplay, dimensions, error, isPending, isEmpty } = useMermaidSvg(source, viewKey)
+    const { svgForDisplay, dimensions, currentError: error, isPending, isEmpty } = useMermaidSvg(source, viewKey)
 
     useEffect(() => {
         pruneSvgCache(openTabIds)

@@ -123,5 +123,15 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
     const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
     const isPending = canRender && !hasRenderError && !isEmpty && !svgForDisplay
 
-    return { svgForDisplay, dimensions, error: errorMessage, isStale, isPending, isEmpty }
+    return {
+        svgForDisplay,
+        dimensions,
+        /** Why the current text doesn't render, when there is no older diagram to show instead. */
+        error: svgForDisplay ? null : errorMessage,
+        /** Why the current text doesn't render, also while an older diagram is shown (see isStale). */
+        currentError: errorMessage,
+        isStale,
+        isPending,
+        isEmpty,
+    }
 }
