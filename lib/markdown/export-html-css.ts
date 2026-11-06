@@ -221,6 +221,14 @@ function hiddenChromeSections(firstPages: PdfExportProfile['header']['hideOnFirs
     return firstPages === 'title' ? ['.pdf-title-table'] : ['.pdf-title-table', '.pdf-toc-table']
 }
 
+/** Whether a header or footer bar shows on the pages of one section: the title page, the TOC or the body. */
+export function pdfChromeShown(profile: PdfExportProfile, kind: 'header' | 'footer', section: 'title' | 'toc' | 'body'): boolean {
+    const layout = resolvePdfExportLayout(profile)
+    if (!(kind === 'header' ? layout.showHeader : layout.showFooter)) return false
+    const chrome = kind === 'header' ? profile.header : profile.footer
+    return !hiddenChromeSections(chrome.hideOnFirstPages).includes(`.pdf-${section}-table`)
+}
+
 function chromeHideCss(firstPages: PdfExportProfile['header']['hideOnFirstPages'], barClass: string): string {
     const sections = hiddenChromeSections(firstPages)
     if (sections.length === 0) return ''

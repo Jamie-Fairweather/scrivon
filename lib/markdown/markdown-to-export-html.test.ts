@@ -105,8 +105,10 @@ SHIKI_FAIL
         expect(tocTable).toBeLessThan(html.indexOf('class="pdf-toc-page"'))
         expect(html.indexOf('class="pdf-toc-page"')).toBeLessThan(bodyTable)
         expect(bodyTable).toBeLessThan(html.indexOf('class="pdf-body"'))
-        expect(html.match(/class="pdf-chrome-bar pdf-header-bar"/g)).toHaveLength(3)
-        expect(html.match(/class="pdf-chrome-bar pdf-footer-bar"/g)).toHaveLength(3)
+        // Both bars hide on the title page (the default), so only the TOC and body tables carry them.
+        expect(html.match(/class="pdf-chrome-bar pdf-header-bar"/g)).toHaveLength(2)
+        expect(html.match(/class="pdf-chrome-bar pdf-footer-bar"/g)).toHaveLength(2)
+        expect(html.slice(titleTable, tocTable)).not.toContain('pdf-chrome-bar')
         expect(html).toContain('pdf-logo')
         expect(html).toContain('Sub')
         expect(html).toContain('Ada')
@@ -212,6 +214,38 @@ SHIKI_FAIL
         expect(html).not.toContain('base64,fr')
         expect(html).not.toContain('#e5e7eb')
         expect(print.pageNumberColor).toBe('')
+    })
+
+    it('leaves header and footer images out of the sections that hide the bar', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.header.enabled = true
+        profile.header.hideOnFirstPages = 'title+toc'
+        profile.footer.enabled = true
+        profile.footer.hideOnFirstPages = 'none'
+        const assets = {
+            logoDataUrl: '',
+            header: { left: 'data:image/png;base64,HEAD', right: '' },
+            footer: { left: 'data:image/png;base64,FOOT', right: '' },
+        }
+
+        const { html } = await markdownToExportHtml('# A\n\n## B', { profile, assets })
+        // The header shows on body pages only; the footer shows everywhere, so it is drawn once, fixed.
+        expect(html.match(/base64,HEAD/g)).toHaveLength(1)
+        const body = html.indexOf('class="pdf-chrome-table pdf-body-table"')
+        expect(html.indexOf('base64,HEAD')).toBeGreaterThan(body)
+        expect(html.slice(0, body)).not.toContain('class="pdf-chrome-bar pdf-header-bar"')
+        expect(html.match(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
+
+        // A switched-off header has no bar anywhere, so a stale image there is never embedded.
+        profile.header.enabled = false
+        const { html: noHeader } = await markdownToExportHtml('# A\n\n## B', { profile, assets })
+        expect(noHeader).not.toContain('class="pdf-chrome-bar pdf-header-bar"')
+        expect(noHeader).not.toContain('base64,HEAD')
+        expect(noHeader).toContain('<thead class="pdf-chrome-head"><tr><td></td></tr></thead>')
     })
 
     it('keeps footer rows when only the header shows', async () => {

@@ -8,6 +8,7 @@ import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocume
 import {
     buildPdfExportCss,
     PDF_PAGE_NUMBER_MARK,
+    pdfChromeShown,
     pdfTocMark,
     printDialogPageNumberCss,
     resolvePdfExportLayout,
@@ -156,17 +157,22 @@ function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata,
     return `${plainLabel(parts?.before ?? '')}${slot}${plainLabel(parts?.after ?? '')}`
 }
 
+type ChromeSection = 'title' | 'toc' | 'body'
+
 /**
  * Header/footer bar: `[image][text] … [text][image]`, so an image on either
- * end is always the outermost item, nearest the page edge.
+ * end is always the outermost item, nearest the page edge. Nothing for a section
+ * that hides the bar, so its images aren't embedded there for nothing.
  */
 function renderChromeCell(
     kind: 'header' | 'footer',
+    section: ChromeSection,
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
     metadata: PdfExportMetadata,
     stamped: boolean
 ): string {
+    if (!pdfChromeShown(profile, kind, section)) return ''
     const chrome = kind === 'header' ? profile.header : profile.footer
     const images = kind === 'header' ? assets.header : assets.footer
     const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata, stamped)
@@ -194,7 +200,7 @@ function footerOnEveryPage(profile: PdfExportProfile, hasTitlePage: boolean, has
  * the body clear of it.
  */
 function chromeTable(
-    kind: 'title' | 'toc' | 'body',
+    kind: ChromeSection,
     inner: string,
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
@@ -204,9 +210,9 @@ function chromeTable(
 ): string {
     const footClass = fixedFooter ? ' class="pdf-footer-spacer" aria-hidden="true"' : ''
     return `<table class="pdf-chrome-table pdf-${kind}-table">
-    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', profile, assets, metadata, stamped)}</td></tr></thead>
+    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', kind, profile, assets, metadata, stamped)}</td></tr></thead>
     <tbody><tr><td>${inner}</td></tr></tbody>
-    <tfoot${footClass}><tr><td>${renderChromeCell('footer', profile, assets, metadata, stamped)}</td></tr></tfoot>
+    <tfoot${footClass}><tr><td>${renderChromeCell('footer', kind, profile, assets, metadata, stamped)}</td></tr></tfoot>
   </table>`
 }
 
@@ -233,7 +239,9 @@ function wrapWithChrome(
         tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata, fixedFooter, stamped) : '',
         chromeTable('body', body, profile, assets, metadata, fixedFooter, stamped),
     ]
-    const footer = fixedFooter ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', profile, assets, metadata, stamped)}</div>` : ''
+    const footer = fixedFooter
+        ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', 'body', profile, assets, metadata, stamped)}</div>`
+        : ''
     return `<article class="export-article">
   ${sections.filter(Boolean).join('\n  ')}${footer}
 </article>`
