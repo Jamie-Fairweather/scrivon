@@ -68,6 +68,7 @@ import type { ExportDocument } from '@/lib/markdown/export-document'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
+import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
@@ -79,7 +80,7 @@ type ImageKind = 'png' | 'jpg' | 'gif' | 'bmp'
 type PreparedCode =
     | { kind: 'code'; lines: HighlightedToken[][] }
     /** `size` is the SVG's own size, which the PDF draws it at. The PNG is drawn at 2x that. */
-    | { kind: 'diagram'; png: Uint8Array | null; size: { width: number; height: number } | null; source: string }
+    | { kind: 'diagram'; png: Uint8Array | null; size: { width: number; height: number } | null; source: string; alt: DiagramAltText }
     | { kind: 'error'; message: string }
 
 type Marks = {
@@ -302,10 +303,10 @@ function decodeImage(converted: Map<string, DecodedImage>, dataUrl: string): Dec
     return bytes && kind ? { kind, bytes, size: imageSize(kind, bytes) } : null
 }
 
-function embeddedImage(image: DecodedImage | null, maxWidth: number, maxHeight: number, name: string): ImageRun | null {
+function embeddedImage(image: DecodedImage | null, maxWidth: number, maxHeight: number, name: string, description = name): ImageRun | null {
     if (!image) return null
     const size = fit(image.size ?? { width: maxWidth, height: maxHeight }, maxWidth, maxHeight)
-    return new ImageRun({ type: image.kind, data: image.bytes, transformation: size, altText: { name, description: name } })
+    return new ImageRun({ type: image.kind, data: image.bytes, transformation: size, altText: { name, description } })
 }
 
 /** Longest side a redrawn image gets, well inside browser canvas limits. */
@@ -693,8 +694,9 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     return [new ExternalHyperlink({ link: url, children: inner })]
 }
 
+/** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
 function renderImage(state: RenderState, node: Image): ImageRun | null {
-    return embeddedImage(decodeImage(state.images, node.url), Math.min(availablePx(state), 640), 480, node.alt || 'image')
+    return embeddedImage(decodeImage(state.images, node.url), Math.min(availablePx(state), 640), 480, node.alt || 'Picture', node.alt ?? '')
 }
 
 function paragraphOptions(state: RenderState) {
@@ -923,7 +925,7 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
                         type: 'png',
                         data: prepared.png,
                         transformation: size,
-                        altText: { name: 'Diagram', description: 'Diagram' },
+                        altText: prepared.alt,
                     }),
                 ],
             }),
@@ -1707,7 +1709,13 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         try {
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
-            return { kind: 'diagram', png: await diagramPng(svg, profile.content.mermaidThemeId), size: getSvgDimensions(svg), source: text }
+            return {
+                kind: 'diagram',
+                png: await diagramPng(svg, profile.content.mermaidThemeId),
+                size: getSvgDimensions(svg),
+                source: text,
+                alt: diagramAltText(text),
+            }
         } catch (err) {
             return { kind: 'error', message: xmlSafe(errorMessage(err)) }
         }
