@@ -625,15 +625,15 @@ function footnoteHalfPoints(state: RenderState): number {
 function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     const heading = marks.headingSize
     const color = marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined
+    const size = heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)
     return new TextRun({
         text,
         bold: marks.bold || heading !== undefined,
         italics: marks.italics || marks.quote,
         strike: marks.strike,
         font: marks.code ? state.monoFont : heading !== undefined ? state.headingFont : state.bodyFont,
-        size: marks.code
-            ? Math.max(16, Math.round(state.bodyHalfPoints * 0.85))
-            : (heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)),
+        // Code is 0.85em of the text around it, as in the PDF, so it scales up in a heading.
+        size: marks.code ? Math.max(16, Math.round(size * 0.85)) : size,
         color,
         shading: marks.code ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
         underline: marks.link ? { type: UnderlineType.SINGLE, color: state.link } : undefined,

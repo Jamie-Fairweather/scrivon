@@ -354,6 +354,14 @@ describe('renderExportDocx', () => {
         expect(xml).not.toContain('descr="Diagram"')
     })
 
+    it('sizes inline code to the text around it, so code in a heading is not shrunk to body size', async () => {
+        const { xml } = await render('# The `render()` function\n\n### Uses `useState`\n\nBody `inline` code.')
+        // 0.85em, as in the PDF: 36 → 31 in an H1, 27 → 23 in an H3, 22 → 19 in the body.
+        expect(runWith(xml, 'render()')).toContain('<w:sz w:val="31"/>')
+        expect(runWith(xml, 'useState')).toContain('<w:sz w:val="23"/>')
+        expect(runWith(xml, 'inline')).toContain('<w:sz w:val="19"/>')
+    })
+
     it('picks a code font Windows has and marks it fixed-pitch for Word', async () => {
         const monaco = await render('Some `code`.', (draft) => {
             draft.typography.monoFont = 'Monaco, Consolas, monospace'
