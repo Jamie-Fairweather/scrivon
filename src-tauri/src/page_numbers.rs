@@ -11,7 +11,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Encoding, Object, ObjectId, Stream, StringFormat};
@@ -29,6 +29,9 @@ const FALLBACK_BASELINE_OFFSET_PT: f32 = 8.0;
 const MAX_XOBJECT_DEPTH: usize = 4;
 /// The export CSS draws markers at 1% opacity; anything more opaque is document text.
 const MARKER_MAX_ALPHA: f32 = 0.05;
+/// Why the footer numbers were left out when no page drew its footer.
+const FOOTER_NOT_FOUND: &str = "Scrivon couldn't find the footer on any page, so it left the \
+     page numbers out. Content wider than the page can push the footer off.";
 
 /// Prefix for a user template; the remainder may contain `{{page}}` / `{{total}}`.
 const CUSTOM_FORMAT_PREFIX: &str = "custom:";
@@ -1444,22 +1447,31 @@ fn toc_entries(pages: &[(u32, ObjectId)], scans: &[Walked]) -> Vec<TocEntry> {
         .collect()
 }
 
+/// What numbering the pages did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Stamped {
+    /// The PDF was changed, and the numbered copy written to the output. When
+    /// false there was nothing to change, and the output was left alone.
+    pub changed: bool,
+    /// Why some page numbers were left out, to tell the user.
+    pub warning: Option<String>,
+}
+
 /// Numbers the pages of the PDF at `input` and writes the numbered copy to
 /// `output` (which may be the same file). The copy goes to a temporary file
 /// that is then swapped in, so a failed write never leaves a cut-off PDF.
-/// Returns false, leaving `output` alone, when there was nothing to stamp.
 pub fn stamp_page_numbers_to(
     input: &Path,
     output: &Path,
     options: &PdfPrintOptions,
-) -> Result<bool, String> {
+) -> Result<Stamped, String> {
     let mut doc =
         Document::load(input).map_err(|e| format!("Could not open PDF to number pages: {e}"))?;
-    if !stamp_document(&mut doc, options)? {
-        return Ok(false);
+    let stamped = stamp_document(&mut doc, options)?;
+    if stamped.changed {
+        save_replacing(&mut doc, output)?;
     }
-    save_replacing(&mut doc, output)?;
-    Ok(true)
+    Ok(stamped)
 }
 
 #[cfg(test)]
@@ -1470,20 +1482,26 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
 
 /// Writes `doc` next to `output` and then renames it over `output`.
 fn save_replacing(doc: &mut Document, output: &Path) -> Result<(), String> {
-    let temp = crate::pdf_export::temp_sibling(output);
-    let saved = doc
-        .save(&temp)
+    let temp = TempFile(crate::pdf_export::temp_sibling(output));
+    doc.save(&temp.0)
         .and_then(|file| file.sync_all())
-        .and_then(|()| std::fs::rename(&temp, output));
-    saved.map_err(|e| {
-        let _ = std::fs::remove_file(&temp);
-        format!("Could not save numbered PDF: {e}")
-    })
+        .and_then(|()| std::fs::rename(&temp.0, output))
+        .map_err(|e| format!("Could not save numbered PDF: {e}"))
 }
 
-/// Stamps the page numbers into `doc` and cuts the markers out. Returns false
-/// when there was nothing to do.
-fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool, String> {
+/// A temporary file that is deleted when this is dropped, so a failed save
+/// (or a panic part-way through one) doesn't leave it in the user's folder.
+/// Once it has been renamed into place there's nothing left to delete.
+struct TempFile(PathBuf);
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Stamps the page numbers into `doc` and cuts the markers out.
+fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamped, String> {
     let format = options.page_number_format.as_str();
     let want_footer = format_page_label(format, 1, 1).is_some();
     let (footer_rgb, footer_alpha) =
@@ -1500,7 +1518,7 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
     let pages: Vec<(u32, ObjectId)> = doc.get_pages().into_iter().collect();
     let total = pages.len() as u32;
     if total == 0 {
-        return Ok(false);
+        return Ok(Stamped::default());
     }
 
     let cache = cache_for_pages(doc, &pages.iter().map(|(_, id)| *id).collect::<Vec<_>>());
@@ -1513,7 +1531,7 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
     let real_markers = keep_real_markers(&mut scans);
     let toc = toc_entries(&pages, &scans);
     if !want_footer && toc.is_empty() && !real_markers {
-        return Ok(false);
+        return Ok(Stamped::default());
     }
 
     // The export only hides the footer on the title and TOC pages, which always
@@ -1522,6 +1540,14 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
     // than the page pushes it off the edge) and still needs a number.
     let first_footer = scans.iter().position(|scan| !scan.footers.is_empty());
     let footer_template = footer_template(doc, &pages, &scans);
+    // With no footer on any page, the numbers go inside the print margins. In
+    // bleed mode those are 0 (the CSS draws the margins), which would put the
+    // numbers in the page corners: leave them out and say why instead.
+    let footers_lost = want_footer
+        && first_footer.is_none()
+        && options.margin_right_mm <= 0.0
+        && options.margin_bottom_mm <= 0.0;
+    let warning = footers_lost.then(|| FOOTER_NOT_FOUND.to_string());
 
     let font_id = doc.add_object(dictionary! {
         "Type" => "Font",
@@ -1538,7 +1564,7 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
     });
 
     let mut operations = vec![Vec::new(); pages.len()];
-    if want_footer {
+    if want_footer && !footers_lost {
         for (position, ((page_index, page_id), scan)) in pages.iter().zip(&scans).enumerate() {
             let Some(label) = format_page_label(format, *page_index, total) else {
                 continue;
@@ -1604,10 +1630,12 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
         blank_markers(doc, scans);
     }
 
+    let mut changed = real_markers;
     for (position, page_ops) in operations.into_iter().enumerate() {
         if page_ops.is_empty() {
             continue;
         }
+        changed = true;
         let page_id = pages[position].1;
         ensure_page_resource(doc, page_id, "Font", FONT_NAME, font_id)?;
         if let Some(gs_id) = alpha_gs_id {
@@ -1619,7 +1647,7 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<bool,
         overlay_page_content(doc, page_id, content.encode().map_err(|e| e.to_string())?)?;
     }
 
-    Ok(true)
+    Ok(Stamped { changed, warning })
 }
 
 #[cfg(test)]
@@ -2224,6 +2252,39 @@ end";
         let _ = std::fs::remove_file(&path);
         assert!(stamped.extract_text(&[1]).unwrap().contains("Page 1"));
         assert!(stamped.extract_text(&[2]).unwrap().contains("Page 2"));
+    }
+
+    #[test]
+    fn leaves_numbers_out_of_the_page_corners_when_no_footer_was_found_in_bleed_mode() {
+        let mut doc = Document::with_version("1.5");
+        let fonts = || dictionary! { "Font" => dictionary! { "F1" => helvetica() } };
+        let page = [
+            vec![flip()],
+            text("F1", 10.0, 100.0, 300.0, Object::string_literal("Body")),
+        ]
+        .concat();
+        build_pdf(&mut doc, vec![(page.clone(), fonts()), (page, fonts())]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-bleed-no-footer.pdf");
+        let printed = std::fs::read(&path).unwrap();
+        // Bleed mode prints with no margins.
+        let mut bleed = options("page-n", "");
+        bleed.margin_right_mm = 0.0;
+        bleed.margin_bottom_mm = 0.0;
+
+        let result = stamp_page_numbers_to(&path, &path, &bleed);
+
+        let after = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let stamped = result.unwrap();
+        assert!(!stamped.changed);
+        assert!(
+            stamped
+                .warning
+                .as_deref()
+                .is_some_and(|w| w.contains("page numbers out")),
+            "{stamped:?}"
+        );
+        assert!(after == printed, "the PDF was changed");
     }
 
     #[test]

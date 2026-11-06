@@ -1,10 +1,13 @@
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use base64::Engine;
 use serde::Deserialize;
 use tauri_plugin_fs::FsExt;
+
+use crate::page_numbers::Stamped;
 
 /// Print-engine settings that accompany the export HTML. Mirrors
 /// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
@@ -316,11 +319,28 @@ fn save_printed_pdf(
     output: &Path,
     options: &PdfPrintOptions,
 ) -> Result<Option<String>, String> {
-    let (numbered, warning) =
-        match crate::page_numbers::stamp_page_numbers_to(printed, output, options) {
-            Ok(numbered) => (numbered, None),
-            Err(err) => (false, Some(err)),
-        };
+    place_printed_pdf(printed, output, |input, output| {
+        crate::page_numbers::stamp_page_numbers_to(input, output, options)
+    })
+}
+
+/// `save_printed_pdf` with the numbering step passed in.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn place_printed_pdf(
+    printed: &Path,
+    output: &Path,
+    stamp: impl FnOnce(&Path, &Path) -> Result<Stamped, String>,
+) -> Result<Option<String>, String> {
+    // The stamper parses whatever PrintToPdf wrote; if it panics on something
+    // unexpected, the printed PDF is still whole and is saved as it is.
+    let stamped = std::panic::catch_unwind(AssertUnwindSafe(|| stamp(printed, output)))
+        .unwrap_or_else(|_| {
+            Err("Something in the printed PDF stopped Scrivon from numbering its pages.".into())
+        });
+    let (numbered, warning) = match stamped {
+        Ok(stamped) => (stamped.changed, stamped.warning),
+        Err(err) => (false, Some(err)),
+    };
     if !numbered {
         if let Err(err) = std::fs::rename(printed, output) {
             let _ = std::fs::remove_file(printed);
@@ -529,8 +549,8 @@ mod tests {
 
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
-        mime_from_path, read_export_image, save_printed_pdf, temp_sibling, wait_until_ready,
-        PdfPrintOptions, MAX_REWRITES,
+        mime_from_path, place_printed_pdf, read_export_image, save_printed_pdf, temp_sibling,
+        wait_until_ready, PdfPrintOptions, MAX_REWRITES,
     };
 
     #[test]
@@ -793,6 +813,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(warning.is_some_and(|w| w.contains("number pages")));
         assert_eq!(saved, b"%PDF-1.7 not really a pdf");
+        assert_eq!(names, ["Report.pdf"]);
+    }
+
+    #[test]
+    fn keeps_the_unnumbered_pdf_when_numbering_panics() {
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        let printed = temp_sibling(&output);
+        write_printed_pdf(&printed);
+        let printed_bytes = std::fs::read(&printed).unwrap();
+
+        let warning = place_printed_pdf(&printed, &output, |_, _| panic!("unexpected PDF"));
+
+        let saved = std::fs::read(&output).unwrap();
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(warning
+            .unwrap()
+            .is_some_and(|w| w.contains("numbering its pages")));
+        assert_eq!(saved, printed_bytes);
+        assert_eq!(names, ["Report.pdf"], "temporary files were left behind");
+    }
+
+    #[test]
+    fn says_why_page_numbers_were_left_out() {
+        // No footer on any page and no print margins (bleed mode): nowhere to put them.
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        let printed = temp_sibling(&output);
+        write_printed_pdf(&printed);
+        let printed_bytes = std::fs::read(&printed).unwrap();
+        let mut bleed = print_options("page-n");
+        bleed.margin_right_mm = 0.0;
+        bleed.margin_bottom_mm = 0.0;
+
+        let warning = save_printed_pdf(&printed, &output, &bleed).unwrap();
+
+        let saved = std::fs::read(&output).unwrap();
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(warning.is_some_and(|w| w.contains("footer")));
+        assert_eq!(saved, printed_bytes);
         assert_eq!(names, ["Report.pdf"]);
     }
 
