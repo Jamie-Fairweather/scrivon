@@ -49,6 +49,13 @@ function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
     return rest
 }
 
+function hasClass(className: string | undefined, name: string): boolean {
+    return className?.split(/\s+/).includes(name) ?? false
+}
+
+/** Hides the bullet and moves the checkbox into its place (the list's start padding). */
+const TASK_LIST_ITEM_CLASS = 'list-none [&_input]:-ms-5 [&_input]:me-1 [&_input]:align-middle'
+
 type TableCellProps = {
     children?: ReactNode
     node?: { properties?: { align?: string | null } }
@@ -84,16 +91,28 @@ const staticMarkdownComponents: Components = {
         const { className, ...rest } = withoutNode(props)
         return <h4 {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
     },
-    p: ({ children }) => <p className="mb-3 text-sm leading-relaxed text-foreground/90">{children}</p>,
-    ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90">{children}</ul>,
-    ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 ps-5 text-sm text-foreground/90">{children}</ol>,
+    p: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <p {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
+    },
+    ul: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <ul {...rest} className={cn('mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90', className)} />
+    },
+    // `start` comes through, so a list that resumes at 3 is numbered from 3.
+    ol: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <ol {...rest} className={cn('mb-3 list-decimal space-y-1 ps-5 text-sm text-foreground/90', className)} />
+    },
     li: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <li {...rest} className={cn('break-words', className)} />
+        // A task item shows its checkbox where the bullet would be, not as well as it.
+        return <li {...rest} className={cn('break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)} />
     },
-    blockquote: ({ children }) => (
-        <blockquote className="mb-3 border-l-2 border-border ps-4 text-sm text-muted-foreground italic">{children}</blockquote>
-    ),
+    blockquote: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <blockquote {...rest} className={cn('mb-3 border-l-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
+    },
     hr: () => <hr className="my-6 border-border" />,
     table: ({ children }) => (
         <div className="mb-4 overflow-x-auto rounded-lg border border-border">
