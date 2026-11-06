@@ -1,14 +1,56 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot version updates. Options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Updates are grouped and weekly so a handful of open PRs can't block new ones.
+# Commit prefixes follow conventional commits: shipped dependencies use fix(deps) so they
+# produce a release, dev-only and CI updates use chore(deps-dev) / ci(deps) and don't.
 
 version: 2
 updates:
-  - package-ecosystem: "bun" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "bun"
+    directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # The JS API packages must stay on the same minor as the Rust crates (see the cargo tauri group).
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
+      dev-tooling:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      prod-minor-patch:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "fix"
+      prefix-development: "chore"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # webview2-com and windows-core must match the versions wry uses, so they move with Tauri.
+      tauri:
+        patterns:
+          - "tauri*"
+          - "webview2-com*"
+          - "windows-core"
+      rust-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
 
   # Workflows pin actions to full commit SHAs; this keeps the pins (and their version comments) current.
   - package-ecosystem: "github-actions"
