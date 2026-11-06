@@ -769,28 +769,35 @@ async function renderBlockquote(state: RenderState, node: Blockquote): Promise<B
     return nested(state, QUOTE_STEP, true, () => renderBlocks(state, node.children))
 }
 
+/** The header's column count. Like the PDF, short rows are padded to it and extra cells are dropped. */
+function tableColumns(table: MdTable): number {
+    return Math.max(1, table.align?.length || table.children[0]!.children.length)
+}
+
 function renderTable(state: RenderState, table: MdTable): Table {
     const width = Math.max(1, state.contentTwip - state.extraLeft)
+    const columns = tableColumns(table)
     return new Table({
         width: { size: width, type: WidthType.DXA },
-        columnWidths: columnWidths(table, width),
+        columnWidths: columnWidths(columns, width),
         indent: state.extraLeft > 0 ? { size: state.extraLeft, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
-        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, table.align, rowIndex === 0)),
+        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, columns, table.align, rowIndex === 0)),
     })
 }
 
-function columnWidths(table: MdTable, width: number): number[] {
-    const count = table.children[0]!.children.length
+function columnWidths(count: number, width: number): number[] {
     const column = Math.round(width / count)
     return Array.from({ length: count }, () => column)
 }
 
-function renderTableRow(state: RenderState, row: MdTableRow, align: MdTable['align'], header: boolean): TableRow {
+function renderTableRow(state: RenderState, row: MdTableRow, columns: number, align: MdTable['align'], header: boolean): TableRow {
     return new TableRow({
         tableHeader: header,
-        children: row.children.map((cell, index) => renderTableCell(state, cell, align?.[index], header)),
+        children: Array.from({ length: columns }, (_, index) =>
+            renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, align?.[index], header)
+        ),
     })
 }
 
@@ -1374,12 +1381,12 @@ function measureFlow(
         } else if (node.type === 'code') {
             placeBlock(cursor, pageHeight, codeTwip(state, node))
         } else if (node.type === 'table') {
-            const columns = Math.max(1, node.children[0].children.length)
+            const columns = tableColumns(node)
             const column = Math.max(200, Math.floor(width / columns) - 360)
             let table = 200
             for (const row of node.children) {
                 let rowHeight = 240
-                for (const cell of row.children)
+                for (const cell of row.children.slice(0, columns))
                     rowHeight = Math.max(rowHeight, textBlockTwip(state, plainText(cell), state.bodyHalfPoints, column, 120, 120))
                 table += rowHeight
             }

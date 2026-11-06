@@ -396,6 +396,21 @@ describe('renderExportDocx', () => {
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
     })
 
+    it('gives every table row the header column count, as the PDF does', async () => {
+        const { xml } = await render('| a | b | c |\n| --- | :---: | ---: |\n| 1 |\n| 1 | 2 | 3 | 4 |')
+        const table = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)![0]
+        const rows = table.match(/<w:tr>[\s\S]*?<\/w:tr>/g) ?? []
+        expect(rows).toHaveLength(3)
+        for (const row of rows) expect(row.match(/<w:tc>/g)).toHaveLength(3)
+        expect(table.match(/<w:gridCol /g)).toHaveLength(3)
+        // A padded cell keeps the grid lines and its column's alignment.
+        const padded = rows[1]!.match(/<w:tc>[\s\S]*?<\/w:tc>/g)!
+        expect(padded[2]).toContain('w:val="single"')
+        expect(padded[2]).toContain('<w:jc w:val="end"/>')
+        // Cells past the header are left out, as in the PDF and preview.
+        expect(table).not.toContain('>4</w:t>')
+    })
+
     it('justifies body paragraphs and leaves headings, lists, quotes, and tables left aligned', async () => {
         const { xml } = await render('# Title\n\nJustified body.\n\n> Quoted.\n\n- item\n\n| a |\n| --- |\n| b |', (draft) => {
             draft.typography.justify = true
