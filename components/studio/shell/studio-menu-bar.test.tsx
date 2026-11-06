@@ -1,0 +1,94 @@
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { StudioMenuBar } from './studio-menu-bar'
+
+vi.mock('next/image', () => ({
+    default: (props: { alt: string }) => <span data-alt={props.alt} />,
+}))
+vi.mock('@/components/studio/workspace/workspace-provider', () => ({
+    useCanvasFit: vi.fn(),
+    useDocumentSave: vi.fn(),
+    useStudioLayout: vi.fn(),
+    useWorkspaceSession: vi.fn(),
+}))
+vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
+vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
+vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
+vi.mock('@/components/studio/shell/window-titlebar-controls', () => ({ WindowTitlebarControls: () => null }))
+
+function mockContexts({ isDesktop = false, workspaceRoot = null as string | null } = {}) {
+    vi.mocked(useWorkspaceSession).mockReturnValue({
+        isDesktop,
+        workspaceRoot,
+        recentWorkspaces: [],
+        pickAndOpenWorkspace: vi.fn(),
+        openWorkspace: vi.fn(),
+        closeWorkspace: vi.fn(),
+    } as unknown as ReturnType<typeof useWorkspaceSession>)
+    vi.mocked(useStudioLayout).mockReturnValue({
+        layout: { explorerOpen: true, editorOpen: true },
+        setExplorerOpen: vi.fn(),
+        setEditorOpen: vi.fn(),
+        setPreviewOnly: vi.fn(),
+    } as unknown as ReturnType<typeof useStudioLayout>)
+    vi.mocked(useDocumentSave).mockReturnValue({ autosaveEnabled: true, setAutosaveEnabled: vi.fn() } as unknown as ReturnType<
+        typeof useDocumentSave
+    >)
+    vi.mocked(useAppSettings).mockReturnValue({ openSettings: vi.fn() } as unknown as ReturnType<typeof useAppSettings>)
+    vi.mocked(useCanvasFit).mockReturnValue({ requestCanvasFit: vi.fn() } as unknown as ReturnType<typeof useCanvasFit>)
+}
+
+describe('StudioMenuBar', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        mockContexts()
+    })
+
+    it('is a real menubar with arrow-key movement between menus', async () => {
+        render(<StudioMenuBar />)
+
+        const menubar = screen.getByRole('menubar')
+        const file = within(menubar).getByRole('menuitem', { name: 'File' })
+        expect(
+            within(menubar)
+                .getAllByRole('menuitem')
+                .map((el) => el.textContent)
+        ).toEqual(['File', 'Options', 'Help'])
+
+        file.focus()
+        const user = userEvent.setup()
+        await user.keyboard('{ArrowRight}')
+
+        expect(within(menubar).getByRole('menuitem', { name: 'Options' })).toHaveFocus()
+    })
+
+    it('keeps the update button out of the menubar focus loop', () => {
+        mockContexts({ isDesktop: true })
+        render(<StudioMenuBar />)
+
+        expect(within(screen.getByRole('menubar')).queryByRole('button', { name: 'Update' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument()
+    })
+
+    it('focuses File when F10 is pressed', () => {
+        render(<StudioMenuBar />)
+
+        fireEvent.keyDown(document.body, { key: 'F10' })
+
+        expect(screen.getByRole('menuitem', { name: 'File' })).toHaveFocus()
+    })
+
+    it('lists About and Licences directly in the Help menu', async () => {
+        render(<StudioMenuBar />)
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'Help' }))
+
+        const menu = await screen.findByRole('menu')
+        expect(within(menu).getByRole('menuitem', { name: 'About Scrivon…' })).toBeInTheDocument()
+        expect(within(menu).getByRole('menuitem', { name: 'Licences…' })).toBeInTheDocument()
+    })
+})

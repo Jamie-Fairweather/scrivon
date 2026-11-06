@@ -1,13 +1,15 @@
 'use client'
 
 import Image from 'next/image'
-import { useState, type MouseEvent, type ReactNode } from 'react'
+import { Menubar } from '@base-ui/react/menubar'
+import { useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
+import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
 import { WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
 import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
@@ -53,6 +55,8 @@ export function StudioMenuBar() {
     const { requestCanvasFit } = useCanvasFit()
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
+    const menubarRef = useRef<HTMLDivElement>(null)
+    useMenubarAccessKey(menubarRef)
 
     const hasWorkspace = Boolean(workspaceRoot)
 
@@ -78,7 +82,7 @@ export function StudioMenuBar() {
                 <span className="sr-only">{APP_NAME}</span>
             </div>
             <nav aria-label="Application menu" className="flex shrink-0 items-center px-1">
-                <div className="flex items-center gap-0.5">
+                <Menubar ref={menubarRef} modal={false} className="flex items-center gap-0.5">
                     <MenuBarEntry label="File">
                         <MenuGroup>
                             <MenuItem disabled={!isDesktop} onClick={() => void pickAndOpenWorkspace()}>
@@ -143,19 +147,14 @@ export function StudioMenuBar() {
                     )}
 
                     <MenuBarEntry label="Help">
-                        <MenuSub>
-                            <MenuSubTrigger>About</MenuSubTrigger>
-                            <MenuSubPopup className="min-w-48">
-                                <MenuGroup>
-                                    <MenuItem onClick={() => setAboutOpen(true)}>About Scrivon…</MenuItem>
-                                    <MenuItem onClick={() => setLicensesOpen(true)}>Licences…</MenuItem>
-                                </MenuGroup>
-                            </MenuSubPopup>
-                        </MenuSub>
+                        <MenuGroup>
+                            <MenuItem onClick={() => setAboutOpen(true)}>About {APP_NAME}…</MenuItem>
+                            <MenuItem onClick={() => setLicensesOpen(true)}>Licences…</MenuItem>
+                        </MenuGroup>
                     </MenuBarEntry>
+                </Menubar>
 
-                    {isDesktop && <MenuBarUpdateButton />}
-                </div>
+                {isDesktop && <MenuBarUpdateButton />}
             </nav>
 
             <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} onOpenLicenses={() => setLicensesOpen(true)} />
