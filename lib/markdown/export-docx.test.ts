@@ -185,12 +185,20 @@ function blockWith(xml: string, text: string, tag = '<w:p>'): string {
     return xml.slice(xml.lastIndexOf(tag, end), end)
 }
 
-/** The page number the contents entry for `id` shows: the stored result of its PAGEREF field. */
-function tocPage(xml: string, id: string): number | null {
-    const at = xml.indexOf(`<w:instrText>PAGEREF ${id} \\h</w:instrText>`)
-    if (at < 0) return null
-    const match = /<w:fldChar w:fldCharType="separate"\/><w:t xml:space="preserve">(\d+)<\/w:t><w:fldChar w:fldCharType="end"\/>/.exec(xml.slice(at))
-    return match ? Number(match[1]) : null
+/** The page number the contents row for `heading` shows: the stored result of its PAGEREF field. */
+function tocPage(xml: string, heading: string): number | null {
+    const row = [...xml.matchAll(/<w:hyperlink [^>]*>([\s\S]*?)<\/w:hyperlink>/g)].find((link) => link[1]!.includes(`>${heading}</w:t>`))
+    const field = row
+        ? /<w:instrText>PAGEREF \S+ \\h<\/w:instrText><w:fldChar w:fldCharType="separate"\/><w:t xml:space="preserve">(\d+)<\/w:t><w:fldChar w:fldCharType="end"\/>/.exec(
+              row[1]!
+          )
+        : null
+    return field ? Number(field[1]) : null
+}
+
+/** Each heading bookmark in the document part, in order: its name and its number. */
+function bookmarks(xml: string): { name: string; id: string }[] {
+    return [...xml.matchAll(/<w:bookmarkStart w:name="([^"]+)" w:id="(\d+)"\/>/g)].map(([, name, id]) => ({ name: name!, id: id! }))
 }
 
 /** Display size, in pixels, of the drawing whose alt text is `descr`. */
@@ -351,7 +359,9 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('bold')
         expect(xml).toContain('https://example.com')
         expect(xml).toContain('https://example.com/named')
-        expect(xml).toContain('w:anchor="alpha"')
+        // The link to #alpha goes to the Alpha heading's bookmark.
+        expect(xml).toContain('w:anchor="_Ref1"')
+        expect(blockWith(body, 'Alpha')).toContain('<w:bookmarkStart w:name="_Ref1" w:id="1"/>')
         expect(xml).toContain('Quoted words')
         expect(xml).toContain('quoted item')
         expect(xml).toContain('open')
@@ -629,7 +639,8 @@ describe('renderExportDocx', () => {
         )
         const body = parts['word/document.xml']!
         expect(body).not.toContain('&lt;')
-        expect(body).not.toMatch(/<w:t[^>]*>[^<]*margin/)
+        // Not even in bookmark names, which were the heading's slug.
+        expect(body).not.toContain('margin')
         // Each row reads as its heading does in the body, and a heading that is only a comment gets no row.
         const rows = [...body.matchAll(/<w:hyperlink [^>]*>([\s\S]*?)<\/w:hyperlink>/g)].map((row) =>
             [...row[1]!.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((text) => text[1]).join('|')
@@ -675,7 +686,7 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('Header Bell report')
         expect(xml).toContain('Footnote.')
         expect(parts['docProps/core.xml']).toContain('<dc:title>Bell report</dc:title>')
-        expect(tocPage(xml, 'log-review')).toBe(3)
+        expect(tocPage(xml, 'Log review')).toBe(3)
     })
 
     it('keeps links, formatting, pictures, and paragraphs in footnotes', async () => {
@@ -898,7 +909,7 @@ describe('renderExportDocx', () => {
             draft.frontMatter.tocExcludeH1 = false
         })
         // The description wraps in its wide column: 4 lines a row, not the 7 two equal columns gave, which put End on page 8.
-        expect(tocPage(xml, 'end')).toBe(6)
+        expect(tocPage(xml, 'End')).toBe(6)
     })
 
     it('justifies body paragraphs and leaves headings, lists, quotes, and tables left aligned', async () => {
@@ -990,8 +1001,8 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('relativeFrom="page"')
         // Contents is laid out in the file: dotted leaders and a page number, not an empty Word TOC field.
         expect(xml).toContain('w:leader="dot"')
-        expect(xml).toMatch(/Alpha<\/w:t>[\s\S]{0,400}<w:tab\/>[\s\S]{0,400}PAGEREF alpha/)
-        expect(tocPage(xml, 'alpha')).toBe(3)
+        expect(xml).toMatch(/Alpha<\/w:t>[\s\S]{0,400}<w:tab\/>[\s\S]{0,400}PAGEREF _Ref1 \\h/)
+        expect(tocPage(xml, 'Alpha')).toBe(3)
         expect(xml).not.toContain('TOC \\h \\o')
         // Nothing asks Word to update fields on open, so readers don't get a prompt every time.
         expect(xml).not.toContain('w:updateFields')
@@ -1009,7 +1020,7 @@ describe('renderExportDocx', () => {
         expect(sections[1]).not.toContain('w:vAlign')
         expect(sections[1]).toContain('w:val="nextPage"')
         // The page count is unchanged: cover, contents, then the body on page 3.
-        expect(tocPage(xml, 'world')).toBe(3)
+        expect(tocPage(xml, 'World')).toBe(3)
     })
 
     it('puts a bleeding cover image and both bars on the paper edge', async () => {
@@ -1038,8 +1049,8 @@ describe('renderExportDocx', () => {
         // Later pages keep their margins and pull the bars out to the top, bottom, and side edges.
         expect(xml).toMatch(/<w:pgMar w:top="\d+" w:right="566" w:bottom="\d+" w:left="566" w:header="0" w:footer="0"/)
         expect(xml).toContain('<w:tblW w:type="dxa" w:w="11905"/><w:tblInd w:type="dxa" w:w="-566"/>')
-        expect(xml).toContain('w:anchor="alpha"')
-        expect(xml).toContain('w:anchor="beta"')
+        expect(tocPage(xml, 'Alpha')).toBe(3)
+        expect(tocPage(xml, 'Beta')).toBe(3)
     })
 
     it('splits sections where the header or footer must disappear', async () => {
@@ -1320,7 +1331,7 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('quoted')
         // Every entry gets a number, in page order. The contents fill two pages, and the 100-line block
         // before Alpha runs over two more. Seventy headings take about four and a half pages.
-        const pages = ['alpha', 'beta', 'section-1', 'section-70', 'deep'].map((id) => tocPage(xml, id))
+        const pages = ['Alpha', 'Beta', 'Section 1', 'Section 70', 'Deep'].map((heading) => tocPage(xml, heading))
         expect(pages).toEqual([4, 9, 9, 14, 14])
         // Pictures with a size in their header keep it; ones without get the 640×480 box; broken ones are their alt text.
         expect(drawingSize(xml, 'pixel')).toEqual({ width: 1, height: 1 })
@@ -1344,32 +1355,54 @@ describe('renderExportDocx', () => {
         const relative = Array.from({ length: 12 }, (_, index) => [`![shot](./images/shot${index}.png)`, '']).flat()
         const linked = await render(['# Start', '', ...relative, '# End'].join('\n'), toc)
         // The contents is page 1. Twelve one-line alt texts fit on page 2 with both headings.
-        expect(tocPage(linked.xml, 'start')).toBe(2)
-        expect(tocPage(linked.xml, 'end')).toBe(2)
+        expect(tocPage(linked.xml, 'Start')).toBe(2)
+        expect(tocPage(linked.xml, 'End')).toBe(2)
         // The number keeps the contents' styling, and the link still jumps to the heading.
         expect(runWith(linked.xml, '2')).toContain('<w:color w:val="404040"/>')
-        expect(linked.xml).toContain('w:anchor="end"')
+        expect(linked.xml).toContain(`w:anchor="${bookmarks(linked.parts['word/document.xml']!)[1]!.name}"`)
 
         // Real pictures still take their height: 12 at 480px don't fit on one page.
         const embedded = Array.from({ length: 12 }, (_, index) => [`![shot${index}](${dataUrl('image/png', sizedPng(640, 480))})`, '']).flat()
         const pictures = await render(['# Start', '', ...embedded, '# End'].join('\n'), toc)
-        expect(tocPage(pictures.xml, 'start')).toBe(2)
-        expect(tocPage(pictures.xml, 'end')).toBeGreaterThan(4)
+        expect(tocPage(pictures.xml, 'Start')).toBe(2)
+        expect(tocPage(pictures.xml, 'End')).toBeGreaterThan(4)
 
         // Japanese characters are a full em wide, so the same number of them fills more than twice the lines.
         const paragraphs = (text: string) => Array.from({ length: 20 }, () => [text, '']).flat()
         const japanese = await render(['# Start', '', ...paragraphs('日本語の文章を書きます。'.repeat(25)), '# End'].join('\n'), toc)
         const latin = await render(['# Start', '', ...paragraphs('Latin text. '.repeat(25)), '# End'].join('\n'), toc)
-        expect(tocPage(japanese.xml, 'end')).toBe(5)
-        expect(tocPage(latin.xml, 'end')).toBe(3)
+        expect(tocPage(japanese.xml, 'End')).toBe(5)
+        expect(tocPage(latin.xml, 'End')).toBe(3)
         // Emoji are one wide character each, not two narrow ones.
         const emoji = await render(['# Start', '', ...paragraphs('😀'.repeat(300)), '# End'].join('\n'), toc)
-        expect(tocPage(emoji.xml, 'end')).toBe(5)
+        expect(tocPage(emoji.xml, 'End')).toBe(5)
 
         // Long headings wrap in the contents and push later rows onto the next contents page.
         const long = Array.from({ length: 40 }, (_, index) => `## ${'Wrapped heading words '.repeat(6)}${index}`)
         const wrapped = await render(['# Start', '', ...long].join('\n'), toc)
-        expect(tocPage(wrapped.xml, 'start')).toBe(3)
+        expect(tocPage(wrapped.xml, 'Start')).toBe(3)
+    })
+
+    it('gives headings bookmark names Word keeps, and points the contents and links at them', async () => {
+        const long = 'Installing the desktop app on Windows and macOS step by step'
+        const { parts } = await render([`# ${long}`, '', '# 1. Intro', '', 'See [the intro](#1-intro).'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        const body = parts['word/document.xml']!
+        const marks = bookmarks(body)
+        // The slugs are 60 characters and start with a digit; Word wants a letter or _ first and at most 40.
+        expect(marks).toHaveLength(2)
+        for (const { name } of marks) expect(name).toMatch(/^[A-Za-z_]\w{0,39}$/)
+        // docx numbers every bookmark 1; each has its own number, and its end matches.
+        expect(new Set(marks.map(({ id }) => id)).size).toBe(2)
+        for (const { id } of marks) expect(body).toContain(`<w:bookmarkEnd w:id="${id}"/>`)
+        // The PAGEREF fields and the contents links use those names, and so does the link in the text.
+        const names = marks.map(({ name }) => name)
+        expect([...body.matchAll(/PAGEREF (\S+) \\h/g)].map((match) => match[1])).toEqual(names)
+        expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual([...names, names[1]])
+        expect(tocPage(body, long)).toBe(2)
+        expect(tocPage(body, '1. Intro')).toBe(2)
     })
 
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
@@ -1522,7 +1555,7 @@ describe('renderExportDocx', () => {
             draft.footer.enabled = true
             draft.footer.hideOnFirstPages = 'title'
         })
-        expect(footerOnly.xml).toContain('w:anchor="beta"')
+        expect(tocPage(footerOnly.xml, 'Beta')).not.toBeNull()
 
         const wide = await cover(
             '# Alpha',

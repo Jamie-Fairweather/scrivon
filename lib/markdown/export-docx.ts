@@ -1,6 +1,8 @@
 import {
     AlignmentType,
     Bookmark,
+    BookmarkEnd,
+    BookmarkStart,
     BorderStyle,
     BuilderElement,
     Document,
@@ -42,6 +44,7 @@ import {
     convertMillimetersToTwip,
     type ILevelsOptions,
     type ISectionOptions,
+    type ParagraphChild,
 } from 'docx'
 import type {
     Blockquote,
@@ -615,6 +618,39 @@ type RenderState = {
     cellPx: number | null
     /** The contents entries, worded as their headings are in the body. */
     toc: PdfExportOutlineItem[]
+    /** Each heading id's bookmark number. See {@link headingBookmarks}. */
+    bookmarks: Map<string, number>
+}
+
+/**
+ * A number for each heading's bookmark, in document order. Heading ids are slugs, which can be longer than the
+ * 40 characters Word allows or start with a digit (`1-introduction`). Word drops such a bookmark, and the contents
+ * page number pointing at it then reads "Error! Bookmark not defined." after an update. See {@link bookmarkName}.
+ */
+function headingBookmarks(tree: ExportDocument['tree']): Map<string, number> {
+    const numbers = new Map<string, number>()
+    visit(tree, 'heading', (node: Heading) => {
+        const id = headingId(node)
+        if (id && !numbers.has(id)) numbers.set(id, numbers.size + 1)
+    })
+    return numbers
+}
+
+/** A hidden bookmark name, like the `_Ref` ones Word makes for cross-references: always valid, and kept out of Word's bookmark list. */
+function bookmarkName(number: number): string {
+    return `_Ref${number}`
+}
+
+/** Where a link to `#id` goes in Word: the heading's bookmark, else the id as it is. */
+function anchorFor(state: RenderState, id: string): string {
+    const number = state.bookmarks.get(id)
+    return number === undefined ? id : bookmarkName(number)
+}
+
+/** A heading's bookmark. docx gives every Bookmark the number 1, and Word needs each to have its own, so it is set here. */
+function headingBookmark(number: number, children: ParagraphChild[]): Bookmark {
+    const name = bookmarkName(number)
+    return Object.assign(new Bookmark({ id: name, children }), { start: new BookmarkStart(name, number), end: new BookmarkEnd(number) })
 }
 
 /**
@@ -669,6 +705,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         inFootnote: false,
         cellPx: null,
         toc: tocEntries(document),
+        bookmarks: headingBookmarks(document.tree),
     }
 }
 
@@ -801,7 +838,7 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     const inner = renderInlines(state, node.children, { ...marks, link: true })
     if (inner.length === 0) return []
     const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
-    if (url.startsWith('#')) return [new InternalHyperlink({ anchor: url.slice(1), children: inner })]
+    if (url.startsWith('#')) return [new InternalHyperlink({ anchor: anchorFor(state, url.slice(1)), children: inner })]
     return [new ExternalHyperlink({ link: url, children: inner })]
 }
 
@@ -857,7 +894,7 @@ function headingId(node: Heading): string {
 function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean): Paragraph {
     const depth = Math.min(Math.max(node.depth, 1), 6)
     const level = state.document.profile.flow.newPageFromHeading
-    const id = headingId(node)
+    const bookmark = state.bookmarks.get(headingId(node))
     const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1] })
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
@@ -871,7 +908,7 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
         },
         indent: contentIndent(state),
         border: quoteBorder(state),
-        children: id ? [new Bookmark({ id, children: inlines })] : inlines,
+        children: bookmark === undefined ? inlines : [headingBookmark(bookmark, inlines)],
     })
 }
 
@@ -1811,11 +1848,11 @@ function fieldChar(type: 'begin' | 'separate' | 'end') {
  * The entry's page number as a PAGEREF field to the heading's bookmark. The estimate is the field's stored
  * result, so Word on the web shows it, and desktop Word puts in the real page when fields are updated (F9).
  */
-function tocPageRun(state: RenderState, id: string, page: number, level: number): TextRun {
+function tocPageRun(state: RenderState, bookmark: string, page: number, level: number): TextRun {
     return new TextRun({
         children: [
             fieldChar('begin'),
-            new StringContainer('w:instrText', `PAGEREF ${id} \\h`),
+            new StringContainer('w:instrText', `PAGEREF ${bookmark} \\h`),
             fieldChar('separate'),
             String(page),
             fieldChar('end'),
@@ -1833,17 +1870,18 @@ function tocBlocks(state: RenderState): Paragraph[] {
         const spacing = tocEntrySpacing(level, first)
         first = false
         const left = (level - 1) * 240
+        const bookmark = anchorFor(state, item.id)
         return new Paragraph({
             spacing,
             indent: { left },
             tabStops: [{ type: TabStopType.RIGHT, position: Math.max(left + 240, tab), leader: LeaderType.DOT }],
             children: [
                 new InternalHyperlink({
-                    anchor: item.id,
+                    anchor: bookmark,
                     children: [
                         tocRun(state, item.text, level),
                         new TextRun({ children: [new Tab()], font: state.bodyFont, size: state.bodyHalfPoints }),
-                        tocPageRun(state, item.id, pages.get(item.id) ?? 1, level),
+                        tocPageRun(state, bookmark, pages.get(item.id) ?? 1, level),
                     ],
                 }),
             ],
