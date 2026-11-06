@@ -15,6 +15,8 @@ bun run tauri dev
 
 The web UI also runs with `bun run dev`, but folder workspaces require the desktop app (`bun run tauri dev`).
 
+`bun run build` (the production web build) also needs Rust installed: afterwards it runs `cargo metadata` to list the Rust crates in the licences dialog.
+
 ## Releasing
 
 Releases are automated with [semantic-release](https://semantic-release.gitbook.io/) and [Conventional Commits](https://www.conventionalcommits.org/).

@@ -36,6 +36,24 @@ jobs:
             - name: Type check
               run: bun run typecheck
 
+            # The build's postbuild step (generate-licenses.mjs) runs `cargo metadata` to list the Rust
+            # crates for the licences dialog, which downloads every crate in the Windows build.
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: stable
+
+            - name: Cache Cargo registry
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+              with:
+                  path: |
+                      ~/.cargo/registry/index
+                      ~/.cargo/registry/cache
+                      ~/.cargo/git/db
+                  key: cargo-registry-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+                  restore-keys: |
+                      cargo-registry-${{ runner.os }}-
+
             - name: Build Next.js app
               run: bun run build
 
