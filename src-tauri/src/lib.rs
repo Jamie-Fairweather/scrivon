@@ -30,10 +30,32 @@ fn allow_workspace(
         .map_err(|e| e.to_string())
 }
 
+/// Gives the app's windows the taskbar ID (AppUserModelID) the installer puts on
+/// its shortcuts. Without it, Windows only matches a window to a pinned icon
+/// when the app was started from that shortcut. After an update the installer
+/// starts the exe directly, so the window got a second taskbar button.
+/// Must run before any window exists.
+#[cfg(all(windows, any(test, not(debug_assertions))))]
+fn set_taskbar_id(identifier: &str) {
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SetCurrentProcessExplicitAppUserModelID(app_id: *const u16) -> i32;
+    }
+    let id: Vec<u16> = identifier.encode_utf16().chain([0]).collect();
+    // SAFETY: `id` is a NUL-terminated UTF-16 string that outlives the call.
+    let result = unsafe { SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
+    if result < 0 {
+        eprintln!("Could not set the taskbar ID (error {result:#x}).");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
     crash_report::install(&context.config().identifier);
+    // Installed copies only: a dev build shouldn't share the installed app's taskbar icon.
+    #[cfg(all(windows, not(debug_assertions)))]
+    set_taskbar_id(&context.config().identifier);
 
     let result = tauri::Builder::default()
         .manage(PendingUpdate(Mutex::new(None)))
@@ -64,5 +86,45 @@ pub fn run() {
     if let Err(err) = result {
         crash_report::startup_failed(&err.to_string());
         std::process::exit(1);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::ffi::c_void;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn GetCurrentProcessExplicitAppUserModelID(app_id: *mut *mut u16) -> i32;
+    }
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoTaskMemFree(memory: *const c_void);
+    }
+
+    fn taskbar_id() -> Option<String> {
+        let mut id: *mut u16 = std::ptr::null_mut();
+        // SAFETY: on success `id` is a NUL-terminated string the caller frees.
+        unsafe {
+            if GetCurrentProcessExplicitAppUserModelID(&mut id) < 0 || id.is_null() {
+                return None;
+            }
+            let len = (0..).take_while(|&i| *id.add(i) != 0).count();
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(id, len));
+            CoTaskMemFree(id as *const c_void);
+            Some(text)
+        }
+    }
+
+    #[test]
+    fn windows_get_the_taskbar_id_of_the_installer_shortcuts() {
+        // The installers put the bundle identifier on their shortcuts.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let identifier = config["identifier"].as_str().unwrap();
+
+        super::set_taskbar_id(identifier);
+
+        assert_eq!(taskbar_id().as_deref(), Some(identifier));
     }
 }
