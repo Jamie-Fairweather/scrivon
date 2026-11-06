@@ -72,11 +72,12 @@ export function StudioLayout() {
                     {layout.explorerOpen && <WorkspaceExplorer />}
 
                     <MarkdownExpandProvider tabId={activeTabId}>
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                        {/* data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
                             <EditorTabBar />
 
                             {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
-                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
                                 {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
                                 {editorLayout.hydrated && (
                                     <CodeEditorPanel

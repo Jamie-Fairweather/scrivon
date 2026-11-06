@@ -445,7 +445,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             style={{ width: shownWidth }}
             inert={!open}
         >
-            <div className="min-h-0 flex-1 overflow-hidden bg-code">
+            {/* data-find-overflow-host: lets the find box's tooltips past this clip (app/globals.css). */}
+            <div className="min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (
                     <MonacoEditor
                         path={editorPath}
