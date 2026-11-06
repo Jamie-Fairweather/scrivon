@@ -276,27 +276,56 @@ function twipToEmu(twip: number): number {
     return Math.round(twip * 635)
 }
 
-/** Diagonal watermark. Returns null where canvas is unavailable; the caller then writes the words into the header. */
-async function createWatermarkPng(text: string): Promise<Uint8Array | null> {
+type Picture = { data: Uint8Array; width: number; height: number }
+
+/** The PDF watermark is `font-size: 4rem`. It is drawn at twice that so it stays sharp. */
+const WATERMARK_FONT_PX = 64 * 2
+const WATERMARK_ANGLE = Math.PI / 6
+
+/**
+ * Diagonal watermark drawn like the PDF's: bold body font at 8% black, turned 30°.
+ * The canvas is sized to the turned text so nothing is clipped. Width and height are display
+ * pixels, never wider than `maxWidth`. Null where canvas is unavailable; the caller then writes the words into the header.
+ */
+async function createWatermarkPng(text: string, fontFamily: string, maxWidth: number): Promise<Picture | null> {
     const trimmed = text.trim()
     if (!trimmed) return null
     try {
         const canvas = document.createElement('canvas')
-        canvas.width = 900
-        canvas.height = 220
         const ctx = canvas.getContext('2d')
         if (!ctx) return null
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.translate(canvas.width / 2, canvas.height / 2)
-        ctx.rotate(-Math.PI / 6)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.16)'
-        ctx.font = '700 72px sans-serif'
+        const setFont = () => {
+            // An invalid stack is ignored by the canvas, so the plain sans-serif stays.
+            ctx.font = `700 ${WATERMARK_FONT_PX}px sans-serif`
+            ctx.font = `700 ${WATERMARK_FONT_PX}px ${fontFamily}`
+        }
+        setFont()
+        const textWidth = ctx.measureText(trimmed).width
+        const textHeight = WATERMARK_FONT_PX * 1.2
+        const pad = WATERMARK_FONT_PX * 0.25
+        const cos = Math.cos(WATERMARK_ANGLE)
+        const sin = Math.sin(WATERMARK_ANGLE)
+        const boxWidth = textWidth * cos + textHeight * sin + pad * 2
+        const boxHeight = textWidth * sin + textHeight * cos + pad * 2
+        const scale = Math.min(1, (maxWidth * 2) / boxWidth)
+        canvas.width = Math.max(1, Math.ceil(boxWidth * scale))
+        canvas.height = Math.max(1, Math.ceil(boxHeight * scale))
+        // Resizing the canvas resets the context, so style it after.
+        setFont()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.08)'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
+        ctx.translate(canvas.width / 2, canvas.height / 2)
+        ctx.rotate(-WATERMARK_ANGLE)
+        ctx.scale(scale, scale)
         ctx.fillText(trimmed, 0, 0)
         const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/png'))
         if (!blob) return null
-        return new Uint8Array(await blob.arrayBuffer())
+        return {
+            data: new Uint8Array(await blob.arrayBuffer()),
+            width: Math.max(1, Math.round(canvas.width / 2)),
+            height: Math.max(1, Math.round(canvas.height / 2)),
+        }
     } catch {
         return null
     }
@@ -835,10 +864,10 @@ function textRuns(state: RenderState, text: string, color: string): TextRun[] {
     return text ? [new TextRun({ text, font: state.bodyFont, size: chromeHalfPoints(state), color })] : []
 }
 
-function watermarkBlocks(state: RenderState, png: Uint8Array | null): Paragraph[] {
+function watermarkBlocks(state: RenderState, picture: Picture | null): Paragraph[] {
     const text = state.document.profile.content.watermark.trim()
     if (!text) return []
-    if (!png) {
+    if (!picture) {
         return [
             new Paragraph({
                 alignment: AlignmentType.CENTER,
@@ -853,8 +882,8 @@ function watermarkBlocks(state: RenderState, png: Uint8Array | null): Paragraph[
             children: [
                 new ImageRun({
                     type: 'png',
-                    data: png,
-                    transformation: { width: 500, height: 140 },
+                    data: picture.data,
+                    transformation: { width: picture.width, height: picture.height },
                     floating: {
                         horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, align: HorizontalPositionAlign.CENTER },
                         verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, align: VerticalPositionAlign.CENTER },
@@ -1315,7 +1344,7 @@ function sectionProperties(state: RenderState, showHeader: boolean, showFooter: 
     }
 }
 
-function buildSections(state: RenderState, groups: { id: FrontGroup; children: Block[] }[], watermark: Uint8Array | null): ISectionOptions[] {
+function buildSections(state: RenderState, groups: { id: FrontGroup; children: Block[] }[], watermark: Picture | null): ISectionOptions[] {
     const { profile } = state.document
     const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; children: Block[] }[] = []
     for (const group of groups) {
@@ -1373,7 +1402,7 @@ export async function renderExportDocx(document: ExportDocument): Promise<Uint8A
     if (document.profile.frontMatter.titlePage) groups.push({ id: 'title', children: await titleBlocks(state) })
     if (document.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
     groups.push({ id: 'body', children: body })
-    const watermark = await createWatermarkPng(document.profile.content.watermark)
+    const watermark = await createWatermarkPng(document.profile.content.watermark, document.profile.typography.bodyFont, state.contentPx)
 
     const doc = new Document({
         title: document.metadata.title,

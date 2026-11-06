@@ -535,6 +535,35 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('Watermark')
     })
 
+    it('sizes the watermark to the turned text so long words are not clipped or stretched', async () => {
+        const canvases = stubDocument('png')
+        await render('# Hi', (draft) => {
+            draft.content.watermark = 'DRAFT'
+        })
+        const long = await render('# Hi', (draft) => {
+            draft.content.watermark = 'CONFIDENTIAL'
+        })
+        const [draft, confidential] = canvases
+        expect(confidential!.width).toBeGreaterThan(draft!.width)
+        expect(confidential!.height).toBeGreaterThan(draft!.height)
+        // 960px of text turned 30°, plus padding: it all fits, where the old 900×220 canvas cut the ends off.
+        expect(confidential!.width).toBe(973)
+        expect(confidential!.height).toBe(678)
+        // Placed at half the canvas size (it is drawn at 2x), so the shape and angle are kept.
+        expect(long.xml).toContain(`cx="${487 * 9525}" cy="${339 * 9525}"`)
+        // Same look as the PDF: 8% black in the body font.
+        expect(confidential!.ctx.fillStyle).toBe('rgba(0, 0, 0, 0.08)')
+        expect(confidential!.ctx.font).toContain('Segoe UI')
+        expect(confidential!.ctx.filled).toEqual(['CONFIDENTIAL'])
+
+        // Text too long for the page is scaled down to the text width instead of running off it.
+        const huge = await render('# Hi', (draft) => {
+            draft.content.watermark = 'INTERNAL USE ONLY - DO NOT DISTRIBUTE'
+        })
+        expect(canvases[2]!.width).toBe(718 * 2)
+        expect(huge.xml).toContain(`cx="${718 * 9525}"`)
+    })
+
     it('falls back to header text when canvas cannot encode the watermark', async () => {
         stubDocument('no-context')
         const missingContext = await render('# Hi', (draft) => {
@@ -774,20 +803,42 @@ function stubCoverCanvas(mode: 'ok' | 'no-context' | 'no-blob' | 'throw') {
     })
 }
 
+type StubContext = { font: string; fillStyle: string; textAlign: string; textBaseline: string; filled: string[] }
+
+/** Fake canvas for the watermark. Text measures 80px a character at the 128px font size. */
 function stubDocument(mode: 'png' | 'no-context' | 'no-blob') {
+    const canvases: { width: number; height: number; ctx: StubContext }[] = []
     vi.stubGlobal('document', {
         createElement() {
-            return {
+            const ctx: StubContext & Record<string, unknown> = {
+                font: '',
+                fillStyle: '',
+                textAlign: '',
+                textBaseline: '',
+                filled: [],
+                translate() {},
+                rotate() {},
+                scale() {},
+                measureText: (text: string) => ({ width: text.length * 80 }),
+                fillText(text: string) {
+                    ctx.filled.push(text)
+                },
+            }
+            const canvas = {
                 width: 0,
                 height: 0,
+                ctx,
                 getContext() {
                     if (mode === 'no-context') return null
-                    return { clearRect() {}, translate() {}, rotate() {}, fillText() {} }
+                    return ctx
                 },
                 toBlob(callback: (blob: Blob | null) => void) {
                     callback(mode === 'no-blob' ? null : new Blob([PNG]))
                 },
             }
+            canvases.push(canvas)
+            return canvas
         },
     })
+    return canvases
 }
