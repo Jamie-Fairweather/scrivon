@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils'
  * Keeps the custom title bar above modal dialogs (their backdrop and viewport cover the whole
  * window), so the window can still be dragged, minimised, maximised and closed while one is open.
  * Only raised while a dialog is open, so popovers and tooltips near the top still draw over it.
+ * The dialog viewports in components/ui (dialog, alert-dialog, command) start below the title bar
+ * so no dialog is hidden under it.
  */
 export const TITLEBAR_ABOVE_DIALOGS_CLASS = 'relative [body:has([data-slot$=dialog-popup])_&]:z-60'
 
