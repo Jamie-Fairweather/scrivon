@@ -270,17 +270,30 @@ async fn export_html_to_pdf_impl(
         Err(_) => Err("Creating the PDF took too long, so it was stopped. Try again.".into()),
     };
 
-    drop(window);
-
     if let Err(err) = result {
         let _ = std::fs::remove_file(&printed);
         return Err(err);
     }
-    let output = PathBuf::from(output_path);
+    finish_export(window, printed, PathBuf::from(output_path), options).await
+}
+
+/// Numbers the printed PDF and puts it in place, then closes the export
+/// `window`. If the main window was closed during the export, this hidden
+/// window is the last one, and closing it quits the app, so it must stay open
+/// until the PDF is saved.
+#[cfg_attr(not(windows), allow(dead_code))]
+async fn finish_export<W>(
+    window: W,
+    printed: PathBuf,
+    output: PathBuf,
+    options: PdfPrintOptions,
+) -> Result<Option<String>, String> {
     // Stamping parses the whole PDF: keep it off the async runtime's threads.
-    tauri::async_runtime::spawn_blocking(move || save_printed_pdf(&printed, &output, &options))
-        .await
-        .map_err(|_| "PDF export failed.".to_string())?
+    let saved =
+        tauri::async_runtime::spawn_blocking(move || save_printed_pdf(&printed, &output, &options))
+            .await;
+    drop(window);
+    saved.map_err(|_| "PDF export failed.".to_string())?
 }
 
 /// A temporary file next to `path`, so it can be renamed over it.
@@ -506,9 +519,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        check_output_path, check_output_writable, could_not_save_message, mime_from_path,
-        read_export_image, save_printed_pdf, temp_sibling, wait_until_ready, PdfPrintOptions,
-        MAX_REWRITES,
+        check_output_path, check_output_writable, could_not_save_message, finish_export,
+        mime_from_path, read_export_image, save_printed_pdf, temp_sibling, wait_until_ready,
+        PdfPrintOptions, MAX_REWRITES,
     };
 
     #[test]
@@ -799,6 +812,50 @@ mod tests {
         assert!(result.unwrap_err().contains("Couldn't save \"Report.pdf\""));
         assert_eq!(saved, b"%PDF-1.7 last week's export");
         assert_eq!(names, ["Report.pdf"], "temporary files were left behind");
+    }
+
+    /// Stands in for the export window: notes, when it's closed, whether the
+    /// numbered PDF was already saved.
+    struct ExportWindowProbe<'a> {
+        output: &'a std::path::Path,
+        saved_when_closed: &'a Cell<Option<bool>>,
+    }
+
+    impl Drop for ExportWindowProbe<'_> {
+        fn drop(&mut self) {
+            let saved = lopdf::Document::load(self.output)
+                .ok()
+                .and_then(|doc| doc.extract_text(&[1]).ok())
+                .is_some_and(|text| text.contains("Page 1"));
+            self.saved_when_closed.set(Some(saved));
+        }
+    }
+
+    #[test]
+    fn closes_the_export_window_only_once_the_pdf_is_saved() {
+        // Closing the last window quits the app, so the window must outlive the save.
+        let dir = temp_folder();
+        let output = dir.join("Report.pdf");
+        let printed = temp_sibling(&output);
+        write_printed_pdf(&printed);
+        let saved_when_closed = Cell::new(None);
+        let window = ExportWindowProbe {
+            output: &output,
+            saved_when_closed: &saved_when_closed,
+        };
+
+        let result = tauri::async_runtime::block_on(finish_export(
+            window,
+            printed,
+            output.clone(),
+            print_options("page-n"),
+        ));
+
+        let names = files_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(result, Ok(None));
+        assert_eq!(saved_when_closed.get(), Some(true));
+        assert_eq!(names, ["Report.pdf"]);
     }
 
     /// Runs `wait_until_ready` against a page that answers `statuses` in turn
