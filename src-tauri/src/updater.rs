@@ -2,11 +2,8 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager, State, Url};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
-
-const STABLE_MANIFEST: &str =
-    "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json";
 
 /// Written to the app data folder just before the installer starts. On Windows
 /// the app exits as soon as it has launched the installer, so it can't tell
@@ -119,6 +116,23 @@ mod tests {
     }
 
     #[test]
+    fn update_checks_use_the_stable_manifest_in_tauri_conf() {
+        // check_for_app_update has no URL of its own: without this entry every
+        // check fails with "the updater endpoints are empty".
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let endpoints = config["plugins"]["updater"]["endpoints"]
+            .as_array()
+            .expect("tauri.conf.json needs plugins.updater.endpoints");
+        assert_eq!(
+            endpoints,
+            &[serde_json::json!(
+                "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json"
+            )]
+        );
+    }
+
+    #[test]
     fn prerelease_versions_contain_hyphen() {
         assert!(is_prerelease_build("1.3.0-rc.1"));
         assert!(is_prerelease_build("2.0.0-beta"));
@@ -205,14 +219,8 @@ pub async fn check_for_app_update(
         return Ok(None);
     }
 
-    let manifest_url = Url::parse(STABLE_MANIFEST).map_err(|e| e.to_string())?;
-
-    let updater = app
-        .updater_builder()
-        .endpoints(vec![manifest_url])
-        .map_err(|e| e.to_string())?
-        .build()
-        .map_err(|e| e.to_string())?;
+    // The manifest URL comes from plugins.updater.endpoints in tauri.conf.json.
+    let updater = app.updater_builder().build().map_err(|e| e.to_string())?;
 
     match updater.check().await.map_err(|e| e.to_string())? {
         Some(update) => {
