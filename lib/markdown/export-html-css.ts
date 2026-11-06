@@ -303,6 +303,8 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     border: 1px solid #e5e5e5;
     text-align: start;
     vertical-align: top;
+    /* Columns keep room for their longest word; 'anywhere' would squeeze short columns mid-word. */
+    overflow-wrap: break-word;
   }
   /* Markdown column alignment (:-: and --:) arrives as an align attribute, which any stylesheet rule would override. */
   table:not(.pdf-chrome-table) th[align="left"],

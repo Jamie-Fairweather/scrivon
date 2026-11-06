@@ -31,6 +31,8 @@ describe('buildPdfExportCss', () => {
         // The section table can't grow to fit its widest line, and long words break instead of overflowing.
         expect(css).toMatch(/\.pdf-chrome-table \{\s*width: 100%;\s*border-collapse: collapse;\s*table-layout: fixed;/)
         expect(css).toMatch(/\.export-article \{[^}]*overflow-wrap: anywhere;/)
+        // Table cells must not shrink below their longest word, or short columns break mid-word.
+        expect(css).toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*overflow-wrap: break-word;/)
     })
 
     it('fits body images to the text width and to one page', () => {
