@@ -68,6 +68,12 @@ describe('tokensToSemanticVars', () => {
         expect(contrastRatio(vars['--muted-foreground'], vars['--muted'])).toBeGreaterThanOrEqual(4.5)
     })
 
+    it.each(APP_THEME_IDS)('%s: focus ring reaches 3:1 on the background (globals.css draws it at full strength)', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--ring'], vars['--background'])).toBeGreaterThanOrEqual(3)
+    })
+
     it.each(APP_THEME_IDS)('%s: text on highlighted rows reaches 4.5:1', (id) => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 

@@ -246,10 +246,20 @@
 
 @layer base {
     * {
-        @apply border-border outline-ring/50;
+        @apply border-border outline-ring;
         /* Plain overflow boxes get thin themed scrollbars that match the ScrollArea thumbs. */
         scrollbar-width: thin;
         scrollbar-color: color-mix(in srgb, var(--foreground) 20%, transparent) transparent;
+    }
+    /* Hand-written buttons (tabs, tree rows, titlebar) have no focus style of their own. Draw a
+       full-strength ring inside them so scroll boxes and the window edge can't clip it.
+       Primitives that use the outline-none utility keep their own ring (utilities beat base). */
+    button:focus-visible,
+    [role='button']:focus-visible,
+    [role='tab']:focus-visible,
+    [role='treeitem']:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
     }
     html,
     body {
