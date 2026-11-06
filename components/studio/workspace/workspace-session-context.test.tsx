@@ -76,6 +76,19 @@ function createWindowsDisk(files: Record<string, string>) {
             if (contents.has(key(path)) || isFolder(key(path))) throw 'Cannot create a file when that file already exists. (os error 183)'
             folders.set(key(path), String(path))
         },
+        /** Like plugin-fs: a folder that isn't empty is only removed with `recursive`. */
+        remove: async (path: string | URL, options?: { recursive?: boolean }) => {
+            const k = key(path)
+            if (contents.delete(k)) return
+            if (!isFolder(k)) throw new Error(`not found: ${String(path)}`)
+            const inside = [...contents.keys(), ...folders.keys()].filter((c) => c.startsWith(`${k}\\`))
+            if (inside.length > 0 && !options?.recursive) throw 'The directory is not empty. (os error 145)'
+            for (const c of inside) {
+                contents.delete(c)
+                folders.delete(c)
+            }
+            folders.delete(k)
+        },
         rename: async (from: string | URL, to: string | URL) => {
             const file = contents.get(key(from))
             if (!file) throw new Error(`not found: ${String(from)}`)
@@ -106,6 +119,7 @@ function mountDisk(disk: ReturnType<typeof createWindowsDisk>) {
     vi.mocked(exists).mockImplementation(disk.exists)
     vi.mocked(mkdir).mockImplementation(disk.mkdir)
     vi.mocked(rename).mockImplementation(disk.rename)
+    vi.mocked(remove).mockImplementation(disk.remove)
     vi.mocked(readFile).mockImplementation(disk.readBytes)
     vi.mocked(writeFile).mockImplementation(disk.writeBytes)
 }
@@ -195,10 +209,13 @@ describe('WorkspaceSessionProvider on Windows paths', () => {
         expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\sub\\c.mmd'])
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\sub\\c.mmd')
 
+        // The folder still holds c.mmd, so this only works when the delete is recursive.
         await act(async () => {
             await result.current.session.deleteEntry('C:\\ws/sub', true)
         })
         expect(result.current.tabs.tabs).toEqual([])
+        expect(await disk.exists('C:\\ws\\sub\\c.mmd')).toBe(false)
+        expect(notifyError).not.toHaveBeenCalledWith("Couldn't delete sub", expect.anything())
     })
 
     it('restores a saved session with mixed separators as one tab per file', async () => {

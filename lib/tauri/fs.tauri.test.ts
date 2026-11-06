@@ -100,11 +100,16 @@ describe('workspace fs (Tauri)', () => {
         await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
         expect(renameMock).toHaveBeenCalledWith('/ws/old.mmd', '/ws/new.mmd')
-        expect(removeMock).toHaveBeenCalledWith('/ws/new.mmd')
+        expect(removeMock).toHaveBeenCalledWith('/ws/new.mmd', { recursive: false })
         // A byte-for-byte copy that refuses to replace an existing file (copyFile would replace it).
         expect(readFileMock).toHaveBeenCalledWith('/ws/source.mmd')
         expect(writeFileMock).toHaveBeenCalledWith('/ws/copy.mmd', bytes, { createNew: true })
         expect(copyFileMock).not.toHaveBeenCalled()
+    })
+
+    it('deletes a folder with everything in it only when asked to', async () => {
+        await removeWorkspacePath('C:\\ws\\docs', { recursive: true })
+        expect(removeMock).toHaveBeenCalledWith('C:\\ws\\docs', { recursive: true })
     })
 
     it('duplicates unsaved text when given, and never over an existing file', async () => {

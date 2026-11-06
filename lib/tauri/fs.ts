@@ -112,9 +112,13 @@ export async function renameWorkspacePath(oldPath: string, newPath: string): Pro
     await rename(oldPath, newPath)
 }
 
-export async function removeWorkspacePath(path: string): Promise<void> {
+/**
+ * Deletes a file, or a folder with `recursive` (everything inside it goes too). Without `recursive`
+ * a folder that isn't empty is refused.
+ */
+export async function removeWorkspacePath(path: string, { recursive = false }: { recursive?: boolean } = {}): Promise<void> {
     if (!isTauri()) return
-    await remove(path)
+    await remove(path, { recursive })
 }
 
 /** The names of everything directly inside a folder, read from disk rather than the cached tree. */

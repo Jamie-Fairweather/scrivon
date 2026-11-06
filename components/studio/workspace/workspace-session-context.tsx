@@ -286,7 +286,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     const deleteEntry = useCallback(
         async (path: string, isDirectory: boolean) => {
             try {
-                await removeWorkspacePath(path)
+                // The user confirmed deleting the folder and everything in it; without recursive a folder that isn't empty is refused.
+                await removeWorkspacePath(path, { recursive: isDirectory })
             } catch (err) {
                 // Its tabs stay open: the file (or some of the folder) may still be there.
                 notifyError(`Couldn't delete ${getBaseName(path)}`, err)
