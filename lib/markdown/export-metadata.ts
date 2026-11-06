@@ -9,9 +9,26 @@ const FRONT_MATTER_KEYS = new Set(['title', 'subtitle', 'author', 'date'])
 
 const PAGE_PLACEHOLDER = /\{\{\s*(page|total)\s*\}\}/
 
-/** Fills the document placeholders a header/footer text may use. */
+/** A document placeholder in header/footer text, spaces inside the braces allowed like `{{ page }}`. */
+const DOCUMENT_PLACEHOLDER = /\{\{\s*(title|subtitle|author|date)\s*\}\}/gi
+
+/** Today's date the way the user's system writes it, for a `{{date}}` the document leaves blank. */
+function todayText(): string {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date())
+}
+
+/**
+ * Fills the document placeholders a header/footer text may use: `{{title}}`, `{{subtitle}}`,
+ * `{{author}}` and `{{date}}`, which is today when no date is set. `{{page}}` and `{{total}}`
+ * are left for the page numbering.
+ */
 export function resolvePdfChromeText(text: string, metadata: PdfExportMetadata): string {
-    return text.replaceAll('{{title}}', metadata.title).replaceAll('{{date}}', metadata.date).trim()
+    return text
+        .replace(DOCUMENT_PLACEHOLDER, (_match, key: string) => {
+            const name = key.toLowerCase() as keyof PdfExportMetadata
+            return name === 'date' ? metadata.date || todayText() : metadata[name]
+        })
+        .trim()
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     fallbackPdfExportTitle,
     guessDocumentLanguage,
@@ -6,6 +6,7 @@ import {
     pdfPageNumberFormat,
     pdfPageNumberParts,
     pdfPageNumberTemplate,
+    resolvePdfChromeText,
     resolvePdfExportMetadata,
 } from '@/lib/markdown/export-metadata'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
@@ -121,6 +122,30 @@ describe('fallbackPdfExportTitle', () => {
     it('counts setext headings and ignores lower levels', () => {
         expect(fallbackPdfExportTitle('Setext Title\n============\n\nBody', 'x.md')).toBe('Setext Title')
         expect(fallbackPdfExportTitle('## Section\n\nSub\n---\n\n# Main', 'x.md')).toBe('Main')
+    })
+})
+
+describe('resolvePdfChromeText', () => {
+    const metadata = { title: 'Spec', subtitle: 'Draft two', author: 'Ada', date: '5 March 2024' }
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('fills title, subtitle, author and date, with or without spaces in the braces', () => {
+        expect(resolvePdfChromeText('{{title}} · {{ subtitle }} · {{Author}} · {{  date }}', metadata)).toBe('Spec · Draft two · Ada · 5 March 2024')
+        // Page numbers belong to the stamper, and unknown names stay as typed.
+        expect(resolvePdfChromeText('{{ page }} of {{total}} {{version}}', metadata)).toBe('{{ page }} of {{total}} {{version}}')
+    })
+
+    it("uses today's date when the document has none", () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date(2026, 2, 5, 12))
+        const today = new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(2026, 2, 5, 12))
+        expect(today).toContain('2026')
+        expect(resolvePdfChromeText('Generated {{date}}', { ...metadata, date: '' })).toBe(`Generated ${today}`)
+        // A blank author or subtitle just leaves the placeholder out.
+        expect(resolvePdfChromeText('{{author}} {{title}}', { ...metadata, author: '' })).toBe('Spec')
     })
 })
 
