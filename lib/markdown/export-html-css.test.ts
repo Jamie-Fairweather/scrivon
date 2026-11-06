@@ -24,6 +24,15 @@ describe('buildPdfExportCss', () => {
         }
     })
 
+    it('keeps wide content from stretching the page past its width', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        const css = buildPdfExportCss(profile)
+        // The section table can't grow to fit its widest line, and long words break instead of overflowing.
+        expect(css).toMatch(/\.pdf-chrome-table \{\s*width: 100%;\s*border-collapse: collapse;\s*table-layout: fixed;/)
+        expect(css).toMatch(/\.export-article \{[^}]*overflow-wrap: anywhere;/)
+    })
+
     it('justifies only top-level body paragraphs', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true

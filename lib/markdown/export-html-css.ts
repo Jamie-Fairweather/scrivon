@@ -235,6 +235,8 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     font-family: ${profile.typography.bodyFont};
     font-size: ${profile.typography.bodySizePt}pt;
     line-height: ${profile.typography.lineHeight};
+    /* A long URL or token breaks instead of widening the page, which would make Chromium shrink every page. */
+    overflow-wrap: anywhere;
     position: relative;
   }
   h1, h2, h3, h4, h5, h6 {
@@ -461,9 +463,11 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     font-size: 1px;
     line-height: 0;
   }
+  /* Fixed layout: wide content can't stretch the section past the page and shrink the whole PDF. */
   .pdf-chrome-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
   }
   .pdf-chrome-table > thead { display: table-header-group; }
   .pdf-chrome-table > tfoot { display: table-footer-group; }
