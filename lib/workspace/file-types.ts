@@ -18,3 +18,17 @@ export function documentKind(name: string): DocumentKind | null {
     if (isMermaidFile(name)) return 'mermaid'
     return null
 }
+
+const DOCUMENT_EXTENSIONS = ['.mermaid', '.mmd', '.md']
+
+/** The extension that makes `name` a document Scrivon opens, as written (`.md`, `.MMD`, `.mermaid`), or null. */
+export function documentExtension(name: string): string | null {
+    const lower = name.toLowerCase()
+    const ext = DOCUMENT_EXTENSIONS.find((e) => lower.endsWith(e))
+    return ext ? name.slice(name.length - ext.length) : null
+}
+
+/** Adds `extension` unless `name` already ends in one Scrivon opens: `login flow` becomes `login flow.mmd`. */
+export function withDocumentExtension(name: string, extension: string): string {
+    return !name || isSupportedDocument(name) ? name : `${name}${extension}`
+}

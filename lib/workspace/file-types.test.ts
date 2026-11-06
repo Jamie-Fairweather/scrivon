@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { documentKind, isMarkdownFile, isMermaidFile, isSupportedDocument } from './file-types'
+import { documentExtension, documentKind, isMarkdownFile, isMermaidFile, isSupportedDocument, withDocumentExtension } from './file-types'
 
 describe('isMarkdownFile', () => {
     it('matches .md case-insensitively', () => {
@@ -32,5 +32,25 @@ describe('documentKind', () => {
         expect(documentKind('flow.mmd')).toBe('mermaid')
         expect(documentKind('flow.mermaid')).toBe('mermaid')
         expect(documentKind('image.png')).toBeNull()
+    })
+})
+
+describe('documentExtension', () => {
+    it('returns the supported extension as written, or null', () => {
+        expect(documentExtension('notes.md')).toBe('.md')
+        expect(documentExtension('Flow.MMD')).toBe('.MMD')
+        expect(documentExtension('flow.mermaid')).toBe('.mermaid')
+        expect(documentExtension('image.png')).toBeNull()
+        expect(documentExtension('drafts')).toBeNull()
+    })
+})
+
+describe('withDocumentExtension', () => {
+    it('adds the extension only when the name has no supported one', () => {
+        expect(withDocumentExtension('login flow', '.mmd')).toBe('login flow.mmd')
+        expect(withDocumentExtension('v1.2 plan', '.md')).toBe('v1.2 plan.md')
+        expect(withDocumentExtension('notes.md', '.mmd')).toBe('notes.md')
+        expect(withDocumentExtension('flow.MERMAID', '.mmd')).toBe('flow.MERMAID')
+        expect(withDocumentExtension('', '.mmd')).toBe('')
     })
 })

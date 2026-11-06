@@ -56,6 +56,22 @@ describe('NamePromptProvider', () => {
         await waitFor(() => expect(onResult).toHaveBeenCalledWith('my flow.mmd'))
     })
 
+    it('selects the name without its extension, so typing keeps the file type', async () => {
+        const { input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram 2.mmd' })
+
+        fireEvent.focus(input)
+
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'diagram 2'.length])
+    })
+
+    it('selects a whole folder name, even one with a dot', async () => {
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'v1.2' })
+
+        fireEvent.focus(input)
+
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'v1.2'.length])
+    })
+
     it('blocks an empty name and returns null on cancel', async () => {
         const { onResult, input } = await openPrompt({ title: 'New folder name', defaultValue: 'diagrams', placeholder: 'Folder name' })
         expect(input).toHaveAttribute('placeholder', 'Folder name')

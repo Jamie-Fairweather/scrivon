@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import { getParentPath, isSupportedDocument } from '@/lib/tauri/fs'
+import { documentExtension, withDocumentExtension } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
@@ -21,13 +22,18 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
 
     const handleRename = async () => {
         const folder = getParentPath(node.path)
+        // A file renamed without an extension keeps its current one ('notes.md' -> 'meeting' -> 'meeting.md').
+        const extension = node.kind === 'file' ? documentExtension(node.name) : null
+        const finalName = (value: string) => (extension ? withDocumentExtension(value, extension) : value)
         const name = await promptName({
             title: 'Rename',
             defaultValue: node.name,
             placeholder: node.name,
-            validate: (value) => getNameError(folder, value, node.kind, node.path),
+            validate: (value) => getNameError(folder, finalName(value), node.kind, node.path),
         })
-        if (name && name !== node.name) await renameEntry(node.path, name, node.kind === 'directory')
+        if (!name) return
+        const newName = finalName(name)
+        if (newName !== node.name) await renameEntry(node.path, newName, node.kind === 'directory')
     }
 
     const handleDelete = async () => {

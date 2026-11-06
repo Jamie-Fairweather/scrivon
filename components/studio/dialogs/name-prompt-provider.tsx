@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { documentExtension } from '@/lib/workspace/file-types'
 
 export type NamePromptOptions = {
     title: string
@@ -22,6 +23,14 @@ type NamePromptContextValue = {
 }
 
 const NamePromptContext = createContext<NamePromptContextValue | null>(null)
+
+/** Selects `notes` in `notes.md`, so typing a new name keeps the file type. Other text is selected whole. */
+function selectNameWithoutExtension(input: HTMLInputElement) {
+    const extension = documentExtension(input.value)
+    const end = input.value.length - (extension?.length ?? 0)
+    if (extension && end > 0) input.setSelectionRange(0, end)
+    else input.select()
+}
 
 export function useNamePrompt(): NamePromptContextValue {
     const ctx = useContext(NamePromptContext)
@@ -112,7 +121,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     id={inputId}
                                     nativeInput
                                     onChange={(e) => setValue(e.target.value)}
-                                    onFocus={(e) => e.target.select()}
+                                    onFocus={(e) => selectNameWithoutExtension(e.target)}
                                     placeholder={placeholder}
                                     value={value}
                                 />
