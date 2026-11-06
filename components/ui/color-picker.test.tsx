@@ -112,6 +112,55 @@ describe('ColorPicker', () => {
         expect(dot(container)).toHaveStyle({ left: '60%', top: '100%' })
     })
 
+    it('names the hue and alpha sliders on the focusable input', () => {
+        render(
+            <ColorPicker value="#00ffff80">
+                <ColorPickerHue />
+                <ColorPickerAlpha />
+            </ColorPicker>
+        )
+        // Base UI keeps edge-aligned thumbs invisible until it measures layout, which happy-dom never does,
+        // so a name lookup can't see the range input; check its attributes instead.
+        const hue = screen.getByRole('group', { name: 'Hue' }).querySelector('input[type="range"]')
+        const alpha = screen.getByRole('group', { name: 'Alpha' }).querySelector('input[type="range"]')
+        expect(hue).toHaveAttribute('aria-label', 'Hue')
+        expect(hue).toHaveAttribute('aria-valuetext', '180°')
+        expect(alpha).toHaveAttribute('aria-label', 'Alpha')
+        expect(alpha).toHaveAttribute('aria-valuetext', '50%')
+    })
+
+    it('lets the keyboard move around the saturation/brightness square', () => {
+        const onChange = vi.fn()
+        render(
+            <ColorPicker value="#ff0000" onChange={onChange}>
+                <ColorPickerSelection />
+            </ColorPicker>
+        )
+        const square = screen.getByRole('slider', { name: 'Saturation and brightness' })
+        expect(square).toHaveAttribute('tabindex', '0')
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 100%, brightness 100%')
+
+        fireEvent.keyDown(square, { key: 'ArrowLeft' })
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 99%, brightness 100%')
+        expect(onChange).toHaveBeenLastCalledWith('#ff0303')
+
+        fireEvent.keyDown(square, { key: 'ArrowDown', shiftKey: true })
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 99%, brightness 90%')
+
+        fireEvent.keyDown(square, { key: 'End' })
+        expect(onChange).toHaveBeenLastCalledWith('#e60000')
+        fireEvent.keyDown(square, { key: 'ArrowUp', shiftKey: true })
+        fireEvent.keyDown(square, { key: 'ArrowRight' })
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 100%, brightness 100%')
+
+        fireEvent.keyDown(square, { key: 'Home' })
+        expect(onChange).toHaveBeenLastCalledWith('#ffffff')
+
+        onChange.mockClear()
+        fireEvent.keyDown(square, { key: 'a' })
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('emits hue and alpha changes from the sliders', () => {
         const onChange = vi.fn()
         render(

@@ -6,6 +6,7 @@ import {
     type CSSProperties,
     createContext,
     type HTMLAttributes,
+    type KeyboardEvent as ReactKeyboardEvent,
     memo,
     useCallback,
     useContext,
@@ -255,6 +256,25 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
         [setSaturation, setLightness]
     )
 
+    /** Arrow keys nudge the point (Shift for bigger steps), Home/End jump to the left/right edge. */
+    const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+        const step = event.shiftKey ? 0.1 : 0.01
+        let { x, y } = position
+        if (event.key === 'ArrowLeft') x -= step
+        else if (event.key === 'ArrowRight') x += step
+        else if (event.key === 'ArrowUp') y -= step
+        else if (event.key === 'ArrowDown') y += step
+        else if (event.key === 'Home') x = 0
+        else if (event.key === 'End') x = 1
+        else return
+        event.preventDefault()
+        const point = { x: clamp(x, 0, 1), y: clamp(y, 0, 1) }
+        const next = hslFromSelection(point.x, point.y)
+        setSaturation(next.saturation)
+        setLightness(next.lightness)
+        setPicked({ ...point, ...next })
+    }
+
     useEffect(() => {
         if (!isDragging) return
         const onMove = (event: PointerEvent) => updateFromPointer(event.clientX, event.clientY)
@@ -270,8 +290,20 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
     return (
         <div
             ref={containerRef}
-            className={cn('relative aspect-square w-full cursor-crosshair rounded-md', className)}
+            role="slider"
+            tabIndex={0}
+            aria-label="Saturation and brightness"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(clamp(position.x, 0, 1) * 100)}
+            aria-valuetext={`Saturation ${Math.round(clamp(position.x, 0, 1) * 100)}%, brightness ${Math.round((1 - clamp(position.y, 0, 1)) * 100)}%`}
+            className={cn(
+                `relative aspect-square w-full cursor-crosshair rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/24
+                dark:focus-visible:ring-ring/48`,
+                className
+            )}
             style={{ background: backgroundGradient }}
+            onKeyDown={onKeyDown}
             onPointerDown={(event) => {
                 event.preventDefault()
                 setIsDragging(true)
@@ -297,6 +329,7 @@ function ColorSliderTrack({
     value,
     max,
     onValueChange,
+    unit,
     'aria-label': ariaLabel,
 }: {
     className?: string
@@ -304,6 +337,8 @@ function ColorSliderTrack({
     value: number
     max: number
     onValueChange: (value: number) => void
+    /** Read out after the value, e.g. "°" or "%". */
+    unit: string
     'aria-label': string
 }) {
     return (
@@ -319,9 +354,12 @@ function ColorSliderTrack({
         >
             <SliderPrimitive.Control className="flex h-4 w-full touch-none items-center select-none">
                 <SliderPrimitive.Track className="relative h-3 w-full grow rounded-full" data-slot="slider-track" style={style}>
+                    {/* Focus lands on the range input inside the thumb, so it carries the name and the ring uses has-focus-visible. */}
                     <SliderPrimitive.Thumb
+                        aria-label={ariaLabel}
+                        getAriaValueText={(_formatted, thumbValue) => `${Math.round(thumbValue)}${unit}`}
                         className="block size-4 shrink-0 rounded-full border border-primary/50 bg-background shadow outline-none
-                            focus-visible:ring-[3px] focus-visible:ring-ring/24"
+                            has-focus-visible:ring-[3px] has-focus-visible:ring-ring/24 dark:has-focus-visible:ring-ring/48"
                         data-slot="slider-thumb"
                         index={0}
                     />
@@ -339,6 +377,7 @@ export function ColorPickerHue({ className, ...props }: ColorPickerHueProps) {
         <div className={cn('w-full', className)} {...props}>
             <ColorSliderTrack
                 aria-label="Hue"
+                unit="°"
                 max={360}
                 value={hue}
                 onValueChange={setHue}
@@ -365,6 +404,7 @@ export function ColorPickerAlpha({ className, ...props }: ColorPickerAlphaProps)
         <div className={cn('w-full', className)} {...props}>
             <ColorSliderTrack
                 aria-label="Alpha"
+                unit="%"
                 max={100}
                 value={alpha}
                 onValueChange={setAlpha}
