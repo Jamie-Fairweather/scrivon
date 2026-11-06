@@ -120,6 +120,18 @@ describe('font stacks per picker', () => {
         for (const option of PDF_EXPORT_FONT_OPTIONS) expect(repairFontStack(option.value)).toBe(option.value)
     })
 
+    it('swaps the sans-serif fallback older builds gave Monospace picks for monospace', async () => {
+        const { repairMonoFontStack, PDF_EXPORT_FONT_OPTIONS } = await import('@/lib/settings/pdf-export-fonts')
+        expect(repairMonoFontStack('"Cascadia Code", sans-serif')).toBe('"Cascadia Code", monospace')
+        expect(repairMonoFontStack('0xProto, SANS-SERIF')).toBe('"0xProto", monospace')
+        expect(repairMonoFontStack('"Odd \\"Quote\\" Font", sans-serif')).toBe('"Odd \\"Quote\\" Font", monospace')
+        // Not the old shape: a generic family first, a lone name, or a longer stack.
+        expect(repairMonoFontStack('system-ui, sans-serif')).toBe('system-ui, sans-serif')
+        expect(repairMonoFontStack('"Fira Code"')).toBe('"Fira Code"')
+        expect(repairMonoFontStack('Menlo, Monaco, sans-serif')).toBe('Menlo, Monaco, sans-serif')
+        for (const option of PDF_EXPORT_FONT_OPTIONS) expect(repairMonoFontStack(option.value)).toBe(option.value)
+    })
+
     it('matches a saved stack to its option by value, or by first family for older spellings', async () => {
         const { matchFontOption, ensureFontOption } = await import('@/lib/settings/pdf-export-fonts')
         const options = [

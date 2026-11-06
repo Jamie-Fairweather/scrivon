@@ -115,8 +115,22 @@ describe('normalizePdfExportSettings', () => {
         expect(profile.typography).toMatchObject({
             headingFont: 'Calibri, sans-serif',
             bodyFont: '"A&B Sans", sans-serif',
-            monoFont: '"0xProto", sans-serif',
+            monoFont: '"0xProto", monospace',
         })
+    })
+
+    it('gives a Monospace font saved by the old system picker a monospace fallback', () => {
+        const mono = (monoFont: string) => normalizePdfExportProfile({ typography: { monoFont } }).typography.monoFont
+        expect(mono('"Cascadia Code", sans-serif')).toBe('"Cascadia Code", monospace')
+        expect(mono('Fira Code, sans-serif')).toBe('"Fira Code", monospace')
+        // Curated stacks, new picks and anything longer are left as saved.
+        expect(mono('Consolas, "Courier New", monospace')).toBe('Consolas, "Courier New", monospace')
+        expect(mono('"Fira Code", monospace')).toBe('"Fira Code", monospace')
+        expect(mono('"Segoe UI", Tahoma, sans-serif')).toBe('"Segoe UI", Tahoma, sans-serif')
+        // Only the Monospace slot: a sans font picked for headings keeps its sans fallback.
+        expect(normalizePdfExportProfile({ typography: { headingFont: '"Cascadia Code", sans-serif' } }).typography.headingFont).toBe(
+            '"Cascadia Code", sans-serif'
+        )
     })
 
     it('gives repeated profile ids new ones so each profile can be changed on its own', () => {

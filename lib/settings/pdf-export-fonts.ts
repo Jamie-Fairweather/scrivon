@@ -115,6 +115,19 @@ export function repairFontStack(stack: string): string {
     return parts.map((part) => (isValidFamily(part) ? part : quoteFontFamily(part.replace(/\s+/g, ' ')))).join(', ')
 }
 
+/**
+ * repairFontStack for the Monospace slot, which also mends what older builds saved there.
+ * Their system font picker wrote `<family>, sans-serif` for every font (no curated stack
+ * has that shape), so missing glyphs, such as CJK in code, fell back to a proportional
+ * font. Such a value gets a monospace fallback instead, the way a new pick does.
+ */
+export function repairMonoFontStack(stack: string): string {
+    const repaired = repairFontStack(stack)
+    const [family, generic, ...rest] = splitFontStack(repaired)
+    if (!family || generic?.toLowerCase() !== 'sans-serif' || rest.length > 0 || GENERIC_FAMILIES.has(family.toLowerCase())) return repaired
+    return `${quoteFontFamily(familyName(family))}, monospace`
+}
+
 /** `stack` with the slot's generic family added when it has none, so missing glyphs come from a similar font. */
 export function withGenericFallback(stack: string, slot: PdfExportFontSlot): string {
     const parts = splitFontStack(stack)
