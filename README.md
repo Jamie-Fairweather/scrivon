@@ -35,6 +35,8 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
 - **PDF export** — Save the full rendered document as PDF (native export on Windows via WebView2)
+- **Word export** — Save the document as a Word `.docx` file
+- **Export profiles** — Save page size, margins, fonts, title page, table of contents, headers, footers and page numbers as reusable profiles in **Settings → Document export**
 
 ### General
 
@@ -114,10 +116,10 @@ scrivon/
 
 Contributions are welcome. Please open an issue to discuss larger changes before submitting a pull request.
 
-1. Fork the repository and create a branch from `dev` (or `main` for small fixes).
+1. Fork the repository and create a branch from `dev`.
 2. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, etc.) so releases can be automated.
 3. Run `bun run tauri dev` locally to verify desktop behavior.
-4. Open a pull request with a clear description of the change.
+4. Open a pull request against `dev` with a clear description of the change. `main` and `rc` only take releases.
 
 See **[docs/development.md](docs/development.md)** for the full release pipeline, branch model, and updater signing.
 

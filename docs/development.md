@@ -66,7 +66,7 @@ feat!: remove legacy file format support
 
     Without this tag, existing `feat:` commits in history may produce a larger first bump (e.g. `0.2.0`).
 
-3. Merge a conventional commit to `main` or `rc` and confirm the [Release](../.github/workflows/release.yml) and [Build release artifacts](../.github/workflows/build-release.yml) workflows succeed.
+3. Merge a conventional commit to `main` or `rc` and confirm the [Release](../.github/workflows/release.yml) workflow succeeds: all three of its jobs (**CI checks**, **semantic-release** and **Build Windows installers**). The manual **Build release artifacts** workflow only runs when you start it.
 
 ### Branch model
 
@@ -104,7 +104,7 @@ Review the diff before pushing. If `v1.0.0` already exists, the next stable rele
 
 ### Branch protection
 
-If `main` or `rc` require pull requests, the Release workflow uses the `RELEASE_BOT_TOKEN` secret (a fine-grained or classic PAT) so semantic-release can push the `chore(release): …` commit. Add the **PAT owner** to the branch ruleset bypass list. The workflow is configured in [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+If `main` or `rc` require pull requests, the Release workflow uses the `RELEASE_BOT_TOKEN` secret (a fine-grained or classic PAT) so semantic-release can push the `chore(release): …` commit. It also uses the token to comment on and label the pull requests and issues in each release; without **Issues** and **Pull requests** write access it quietly skips those comments. Add the **PAT owner** to the branch ruleset bypass list. The workflow is configured in [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
 ### In-app updates
 
@@ -162,11 +162,11 @@ Anyone who skips the release from step 2 has to reinstall by hand.
 
 Under **Settings → Secrets and variables → Actions → Repository secrets**:
 
-| Secret                               | Value                                                                 |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| `RELEASE_BOT_TOKEN`                  | PAT with **Contents** (read/write) on this repo; owner on bypass list |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon`                         |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The key's password (leave empty only if the key has none)             |
+| Secret                               | Value                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `RELEASE_BOT_TOKEN`                  | PAT on this repo with **Contents**, **Issues** and **Pull requests** (read/write); owner on bypass list |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `src-tauri/.updater/scrivon`                                                           |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The key's password (leave empty only if the key has none)                                               |
 
 ### Local builds with signing
 
@@ -178,6 +178,14 @@ The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tau
 If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If neither key variable is set but `src-tauri/.updater/scrivon` exists, that file is used automatically.
 
 `TAURI_SIGNING_PRIVATE_KEY_PATH` can be relative to the repo, absolute (`C:\Users\me\.tauri\scrivon.key`), or start with `~` for your home folder. If the file isn't there, the command stops with an error instead of quietly using a different key.
+
+**Building without the key.** `bundle.createUpdaterArtifacts` is on, so `bun run tauri build` fails at the end, after building the installers, when there is no private key. Without the key you can still build installers; they just can't be offered as in-app updates:
+
+```bash
+bun run tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+```
+
+On a pre-release version such as `1.5.0-rc.1`, also add `--bundles nsis`: the MSI format only accepts numbers in a version, so the MSI step fails.
 
 ### Windows code signing
 
