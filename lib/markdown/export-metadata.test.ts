@@ -28,15 +28,37 @@ unknown: skip
         expect(body).toBe('# Body\n')
     })
 
-    it('skips blank values and malformed lines', () => {
+    it('skips blank values and nested or list values', () => {
         const source = `---
-title: 
-: missing-key
+title:
+tags:
+  - draft
+  - notes
+# a comment
 subtitle: Keep
 ---
 text
 `
-        expect(parsePdfExportFrontMatter(source).matter).toEqual({ subtitle: 'Keep' })
+        expect(parsePdfExportFrontMatter(source)).toEqual({ matter: { subtitle: 'Keep' }, body: 'text\n' })
+    })
+
+    it('keeps paragraphs that sit between two horizontal rules', () => {
+        for (const source of [
+            '---\nWelcome to the project.\n\nSome text.\n\n---\n\n## Section\n',
+            '---\n# Welcome\n---\nBody',
+            '---\n- one\n- two\n---\nBody',
+            '---\ntitle: Report\nThis line is not YAML.\n---\nBody',
+        ]) {
+            expect(parsePdfExportFrontMatter(source)).toEqual({ matter: {}, body: source })
+        }
+    })
+
+    it('only closes on a --- line of its own', () => {
+        // `----` and a pipe-less table divider are not the closing fence.
+        expect(parsePdfExportFrontMatter('---\ntitle: Report\n----\n# Body\n').body).toBe('---\ntitle: Report\n----\n# Body\n')
+        expect(parsePdfExportFrontMatter('---\ntitle: Report\n---|---\na|b\n').matter).toEqual({})
+        expect(parsePdfExportFrontMatter('---\r\ntitle: Report\r\n---  \r\n# Body')).toEqual({ matter: { title: 'Report' }, body: '# Body' })
+        expect(parsePdfExportFrontMatter('---\ntitle: Report\n---')).toEqual({ matter: { title: 'Report' }, body: '' })
     })
 })
 

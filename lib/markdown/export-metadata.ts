@@ -39,9 +39,30 @@ function stripQuotes(value: string): string {
     return trimmed
 }
 
+/** A YAML `key:` line, the kind of line front matter is made of. */
+const YAML_KEY_LINE = /^[A-Za-z_][\w-]*\s*:/
+/** What YAML allows after a key: indented (nested) values, list items and comments. */
+const YAML_CONTINUATION_LINE = /^(?:\s|-\s|-$|#)/
+
+/**
+ * Whether the text between two leading `---` lines is front matter rather than
+ * ordinary Markdown between two horizontal rules. Only `key: value` lines (and
+ * the values nested under them) count, so paragraphs between rules are kept.
+ */
+function isFrontMatterBlock(block: string): boolean {
+    let sawKey = false
+    for (const line of block.split(/\r?\n/)) {
+        if (!line.trim()) continue
+        if (YAML_KEY_LINE.test(line)) sawKey = true
+        else if (!sawKey || !YAML_CONTINUATION_LINE.test(line)) return false
+    }
+    return true
+}
+
 export function parsePdfExportFrontMatter(source: string): { matter: Partial<PdfExportMetadata>; body: string } {
-    const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
-    if (!match) return { matter: {}, body: source }
+    // The closing fence is a `---` line of its own: `----` or a `---|---` table divider doesn't close it.
+    const match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/)
+    if (!match || !isFrontMatterBlock(match[1]!)) return { matter: {}, body: source }
 
     const matter: Partial<PdfExportMetadata> = {}
     for (const line of match[1]!.split(/\r?\n/)) {
