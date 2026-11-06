@@ -55,6 +55,18 @@ describe('searchFiles', () => {
         expect(results[0]?.relativePath).toBe('/other/readme.md')
     })
 
+    it('leaves out files already listed elsewhere, whichever slash their path uses', () => {
+        const paths = ['C:\\ws/a.md', 'C:\\ws/b.md', 'C:\\ws/c.md']
+        const results = searchFiles(paths, 'C:\\ws', '', ['C:\\ws\\a.md', 'c:\\ws/c.md'])
+        expect(results.map((item) => item.path)).toEqual(['C:\\ws/b.md'])
+    })
+
+    it('does not spend the result limit on files listed elsewhere', () => {
+        const paths = Array.from({ length: 25 }, (_, i) => `/workspace/file-${String(i).padStart(2, '0')}.md`)
+        const results = searchFiles(paths, root, '', paths.slice(0, 20))
+        expect(results.map((item) => item.name)).toEqual(['file-20.md', 'file-21.md', 'file-22.md', 'file-23.md', 'file-24.md'])
+    })
+
     it('defaults unknown document kinds to markdown', () => {
         const results = searchFiles(['/workspace/readme'], '/workspace', 'readme')
         expect(results[0]?.documentKind).toBe('markdown')
@@ -116,6 +128,16 @@ describe('searchOpenTabs', () => {
         expect(searchOpenTabs(tabs, root, 'sum', () => false)).toEqual([])
         expect(searchOpenTabs(tabs, root, 'jamie', () => false)).toEqual([])
         expect(searchOpenTabs(tabs, root, 'b.mmd', () => false).map((item) => item.name)).toEqual(['b.mmd'])
+    })
+
+    it('gives each tab its path inside the workspace, so same-named tabs can be told apart', () => {
+        const root = 'C:\\ws'
+        const tabs = [
+            { id: `${root}/docs/README.md`, path: `${root}/docs/README.md`, name: 'README.md', isDirty: false },
+            { id: `${root}/api/README.md`, path: `${root}/api/README.md`, name: 'README.md', isDirty: false },
+        ]
+
+        expect(searchOpenTabs(tabs, root, '', () => false).map((item) => item.relativePath)).toEqual(['docs/README.md', 'api/README.md'])
     })
 
     it('matches tabs on their folder inside the workspace', () => {

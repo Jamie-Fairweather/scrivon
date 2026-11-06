@@ -38,6 +38,16 @@ function byValue(ctx: CommandRegistryContext, prefix: string) {
     return buildCommandRegistry(ctx).filter((action) => action.value.startsWith(prefix))
 }
 
+describe('buildCommandRegistry recent folders', () => {
+    it('shows the full path of each recent folder, so two folders with the same name differ', () => {
+        const recent = byValue(context({ recentWorkspaces: ['C:\\work\\docs', 'D:\\notes\\docs'] }), 'action:recent-workspace:')
+        expect(recent.map((action) => [action.label, action.detail])).toEqual([
+            ['Open Recent Folder: docs', 'C:\\work\\docs'],
+            ['Open Recent Folder: docs', 'D:\\notes\\docs'],
+        ])
+    })
+})
+
 describe('buildCommandRegistry examples', () => {
     it('disables Open Example with a reason when no folder is open', () => {
         const examples = byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:example:')

@@ -61,6 +61,12 @@ function highlightPreview(preview: string, matchStart: number, matchLength: numb
     )
 }
 
+/** Folder part of a workspace-relative path ('' for a file at the top of the folder). */
+function folderOf(relativePath: string): string {
+    const cut = Math.max(relativePath.lastIndexOf('/'), relativePath.lastIndexOf('\\'))
+    return cut > 0 ? relativePath.slice(0, cut) : ''
+}
+
 function DocumentIcon({ kind }: { kind: 'markdown' | 'mermaid' }) {
     if (kind === 'mermaid') return <NetworkIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     return <FileTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -72,7 +78,14 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
     if (item.kind === 'action') {
         return (
             <CommandItem disabled={item.disabled} onClick={handleClick} value={item.value}>
-                <span className="flex-1 truncate">{item.label}</span>
+                {item.detail ? (
+                    <span className="min-w-0 flex-1">
+                        <span className="block truncate">{item.label}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>
+                    </span>
+                ) : (
+                    <span className="flex-1 truncate">{item.label}</span>
+                )}
                 {/* Shown in the row (not a tooltip) so keyboard and screen-reader users get it too. */}
                 {item.disabled && item.disabledReason ? (
                     <span className="ms-2 shrink-0 text-xs text-muted-foreground">{item.disabledReason}</span>
@@ -86,7 +99,10 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
         return (
             <CommandItem onClick={handleClick} value={item.value}>
                 <DocumentIcon kind={item.documentKind} />
-                <span className="flex-1 truncate">{item.name}</span>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate">{item.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{item.relativePath}</span>
+                </span>
                 {item.isDirty ? (
                     <>
                         {/* Same dot as the tab bar; an accent dot would vanish on the highlighted row. */}
@@ -126,12 +142,15 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
         )
     }
 
+    const folder = folderOf(item.relativePath)
     return (
         <CommandItem onClick={handleClick} value={item.value}>
             <DocumentIcon kind={item.documentKind} />
             <span className="min-w-0 flex-1">
                 <span className="block truncate">
-                    {item.name} · {item.line}:{item.column}
+                    {item.name}
+                    {/* The folder tells apart files with the same name, e.g. docs/README.md and api/README.md. */}
+                    {folder ? <span className="text-xs text-muted-foreground"> {folder}</span> : null} · {item.line}:{item.column}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
                     {highlightPreview(item.preview, item.previewMatchStart, item.length)}

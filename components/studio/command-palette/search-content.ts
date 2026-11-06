@@ -1,5 +1,6 @@
 import { documentKind, getBaseName } from '@/lib/tauri/fs'
 import { foldLine, foldText, originalSpan } from '@/components/studio/command-palette/fold-text'
+import { relativePath } from '@/components/studio/command-palette/search-files'
 import type { TextSearchHit } from '@/components/studio/command-palette/types'
 
 export const MIN_QUERY_LENGTH = 2
@@ -230,7 +231,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits, unreadableFiles, truncatedFiles }
 }
 
-export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/studio/command-palette/types').TextPaletteItem {
+export function textHitToPaletteItem(hit: TextSearchHit, workspaceRoot: string): import('@/components/studio/command-palette/types').TextPaletteItem {
     const name = getBaseName(hit.path)
     return {
         kind: 'text',
@@ -238,6 +239,7 @@ export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/s
         searchText: `${name} ${hit.preview} ${hit.path}`,
         path: hit.path,
         name,
+        relativePath: relativePath(workspaceRoot, hit.path),
         documentKind: documentKind(name) ?? 'markdown',
         line: hit.line,
         column: hit.column,

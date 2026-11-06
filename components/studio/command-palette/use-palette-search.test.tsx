@@ -196,6 +196,34 @@ describe('usePaletteSearch while closed', () => {
     })
 })
 
+describe('usePaletteSearch duplicate files', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/open.md'), file('/ws/recent.md'), file('/ws/other.md')]
+        state.tabs.tabs = [{ id: '/ws/open.md', path: '/ws/open.md', name: 'open.md', content: '', isDirty: false }]
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('does not list open or recent files again under Files', async () => {
+        vi.mocked(getRecentFiles).mockResolvedValueOnce(['/ws/recent.md'])
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        await waitFor(() => expect(groupPaths(result.current.groups, 'recent')).toEqual(['/ws/recent.md']))
+        expect(groupPaths(result.current.groups, 'tabs')).toEqual(['/ws/open.md'])
+        expect(groupPaths(result.current.groups, 'files')).toEqual(['/ws/other.md'])
+    })
+
+    it('does not repeat a matching open file under Files while typing', () => {
+        const { result } = renderHook(() => usePaletteSearch('files', true))
+
+        act(() => result.current.setQuery('open'))
+        expect(groupPaths(result.current.groups, 'tabs')).toEqual(['/ws/open.md'])
+        expect(groupPaths(result.current.groups, 'files')).toEqual([])
+    })
+})
+
 describe('usePaletteSearch recent files', () => {
     beforeEach(() => {
         vi.clearAllMocks()

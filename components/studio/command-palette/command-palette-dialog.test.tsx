@@ -131,6 +131,7 @@ const dirtyTab: PaletteItem = {
     searchText: 'notes.md',
     path: '/ws/notes.md',
     name: 'notes.md',
+    relativePath: 'notes.md',
     documentKind: 'markdown',
     isDirty: true,
 }
@@ -148,6 +149,7 @@ describe('CommandPaletteDialog text results', () => {
             searchText: 'a.md aa bb aa /ws/a.md',
             path: '/ws/a.md',
             name: 'a.md',
+            relativePath: 'a.md',
             documentKind: 'markdown',
             line: 1,
             column: 7,
@@ -162,9 +164,63 @@ describe('CommandPaletteDialog text results', () => {
     })
 })
 
+describe('CommandPaletteDialog same-named files', () => {
+    function textHit(relativePath: string): PaletteItem {
+        return {
+            kind: 'text',
+            value: `text:/ws/${relativePath}:1:3`,
+            searchText: relativePath,
+            path: `/ws/${relativePath}`,
+            name: 'README.md',
+            relativePath,
+            documentKind: 'markdown',
+            line: 1,
+            column: 3,
+            length: 5,
+            preview: '# oauth',
+            previewMatchStart: 2,
+            source: 'disk',
+        }
+    }
+
+    it('shows the folder of each text hit', () => {
+        const items = [textHit('docs/README.md'), textHit('api/README.md')]
+        renderDialog({ mode: 'text', query: 'oauth', groups: [{ id: 'text', label: 'Text', items }] })
+        expect(screen.getByRole('option', { name: /^README\.md docs · 1:3/ })).toBeInTheDocument()
+        expect(screen.getByRole('option', { name: /^README\.md api · 1:3/ })).toBeInTheDocument()
+    })
+
+    it("shows each open tab's path inside the workspace", () => {
+        const tab = (relativePath: string): PaletteItem => ({ ...dirtyTab, value: `tab:${relativePath}`, relativePath, isDirty: false })
+        renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [tab('docs/notes.md'), tab('api/notes.md')] }] })
+        expect(screen.getByRole('option', { name: /docs\/notes\.md/ })).toBeInTheDocument()
+        expect(screen.getByRole('option', { name: /api\/notes\.md/ })).toBeInTheDocument()
+    })
+
+    it('shows the full path of a recent folder command', () => {
+        const recent: ActionPaletteItem = {
+            kind: 'action',
+            value: 'action:recent-workspace:C:\\work\\docs',
+            searchText: 'recent workspace docs',
+            label: 'Open Recent Folder: docs',
+            detail: 'C:\\work\\docs',
+            run: () => {},
+        }
+        renderDialog({ query: '>docs', groups: [{ id: 'actions', label: 'Commands', items: [recent] }] })
+        expect(screen.getByRole('option', { name: /Open Recent Folder: docs.*C:\\work\\docs/ })).toBeInTheDocument()
+    })
+})
+
 describe('CommandPaletteDialog icons', () => {
     it('shows the document icon for an upper-case .MD tab', () => {
-        const tab: PaletteItem = { ...dirtyTab, value: 'tab:/ws/README.MD', path: '/ws/README.MD', name: 'README.MD', isDirty: false }
+        const tab: PaletteItem = {
+            ...dirtyTab,
+            value: 'tab:/ws/README.MD',
+            path: '/ws/README.MD',
+            name: 'README.MD',
+            relativePath: 'README.MD',
+            isDirty: false,
+        }
         renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [tab] }] })
         const option = screen.getByRole('option', { name: /README.MD/ })
         expect(option.querySelector('.lucide-file-text')).not.toBeNull()

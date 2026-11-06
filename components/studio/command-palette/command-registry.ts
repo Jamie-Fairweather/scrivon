@@ -200,6 +200,8 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: `action:recent-workspace:${path}`,
             searchText: `recent workspace ${getBaseName(path)} ${path}`,
             label: `Open Recent Folder: ${getBaseName(path)}`,
+            // Two recent folders can share a name, so show where each one is.
+            detail: path,
             disabled: !ctx.isDesktop,
             disabledReason: 'Desktop only',
             run: () => void ctx.openWorkspace(path),

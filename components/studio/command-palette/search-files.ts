@@ -16,7 +16,7 @@ function pathKey(path: string): string {
  * Path below the workspace root. Windows tree paths mix separators (`C:\root/sub/a.md`),
  * so the root is matched whichever slash follows it.
  */
-function relativePath(workspaceRoot: string, path: string): string {
+export function relativePath(workspaceRoot: string, path: string): string {
     const root = workspaceRoot.replace(/[/\\]+$/, '')
     const separator = path[root.length]
     if ((separator === '/' || separator === '\\') && pathKey(path.slice(0, root.length)) === pathKey(root)) {
@@ -56,13 +56,17 @@ export function searchOpenTabs(
         searchText: searchText(item),
         path: item.path,
         name: item.name,
+        relativePath: relativePath(workspaceRoot, item.path),
         documentKind: documentKind(item.name) ?? 'markdown',
         isDirty: item.isDirty,
     }))
 }
 
-export function searchFiles(paths: string[], workspaceRoot: string, query: string): FilePaletteItem[] {
-    const ranked = fuzzyRank(paths, query, (path) => {
+/** `excludePaths` are files already listed elsewhere (open tabs, recent files), so Files doesn't repeat them. */
+export function searchFiles(paths: string[], workspaceRoot: string, query: string, excludePaths: readonly string[] = []): FilePaletteItem[] {
+    const excluded = new Set(excludePaths.map(pathKey))
+    const candidates = excluded.size > 0 ? paths.filter((path) => !excluded.has(pathKey(path))) : paths
+    const ranked = fuzzyRank(candidates, query, (path) => {
         const name = getBaseName(path)
         const rel = relativePath(workspaceRoot, path)
         return `${name} ${rel}`

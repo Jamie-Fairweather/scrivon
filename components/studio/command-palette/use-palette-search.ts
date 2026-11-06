@@ -213,6 +213,8 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             if (tabItems.length > 0) {
                 result.push({ id: 'tabs', label: 'Open Editors', items: tabItems })
             }
+            // Files leaves out what Open Editors and Recent Files already list.
+            const shownPaths = tabItems.map((item) => item.path)
 
             if (!parsedQuery || parsedQuery.length < MIN_QUERY_LENGTH) {
                 const openPaths = new Set(tabs.filter((t) => !isExampleTabId(t.id)).map((t) => t.path))
@@ -220,9 +222,10 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 if (recentItems.length > 0) {
                     result.push({ id: 'recent', label: 'Recent Files', items: recentItems })
                 }
+                shownPaths.push(...recentItems.map((item) => item.path))
             }
 
-            const fileItems = searchFiles(filePaths, workspaceRoot, parsedQuery)
+            const fileItems = searchFiles(filePaths, workspaceRoot, parsedQuery, shownPaths)
             if (fileItems.length > 0) {
                 result.push({ id: 'files', label: 'Files', items: fileItems })
             }
@@ -244,6 +247,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         }
 
         const parsedQuery = parsedQueryState.query
+        const root = workspaceRoot ?? ''
         const controller = new AbortController()
         abortRef.current?.abort()
         abortRef.current = controller
@@ -275,7 +279,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 if (controller.signal.aborted) return
 
                 // Always resolve the query, even after a failure, so the spinner stops.
-                const items = result ? result.hits.map(textHitToPaletteItem) : []
+                const items = result ? result.hits.map((hit) => textHitToPaletteItem(hit, root)) : []
                 setTextItems(items.length > 0 ? { id: 'text', label: 'Text', items } : null)
                 setTextCapped(result?.capped ?? false)
                 setTextUnreadableFiles(result?.unreadableFiles ?? 0)
@@ -288,7 +292,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             window.clearTimeout(timeout)
             controller.abort()
         }
-    }, [shouldSearchText, parsedQueryState.query, tabs, filePaths, contentCache])
+    }, [shouldSearchText, parsedQueryState.query, tabs, filePaths, contentCache, workspaceRoot])
 
     const runItem = useCallback(
         async (item: PaletteItem) => {

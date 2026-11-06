@@ -7,6 +7,8 @@ export type ActionPaletteItem = {
     value: string
     searchText: string
     label: string
+    /** Muted second line, e.g. the full path of a recent folder. */
+    detail?: string
     shortcut?: string
     disabled?: boolean
     disabledReason?: string
@@ -19,6 +21,7 @@ export type TabPaletteItem = {
     searchText: string
     path: string
     name: string
+    relativePath: string
     documentKind: DocumentKind
     isDirty: boolean
 }
@@ -39,6 +42,7 @@ export type TextPaletteItem = {
     searchText: string
     path: string
     name: string
+    relativePath: string
     documentKind: DocumentKind
     line: number
     column: number
