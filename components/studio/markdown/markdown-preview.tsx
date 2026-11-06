@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
 import { fencedCodeBlockOrdinal, mermaidBlockOrdinal, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
-import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
+import { isWebImageUrl, markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
@@ -78,8 +78,11 @@ function cellAlignStyle(align: string | null | undefined): CSSProperties | undef
     return undefined
 }
 
-/** `https://`, `http://` and `//host/` (which the webview fetches over http): loading one contacts another site. */
-const REMOTE_IMAGE_URL = /^(?:https?:)?\/\//i
+/** Whether loading this image would contact another site. Without a page to read it against, assume so. */
+function isRemoteImage(src: unknown): src is string {
+    if (typeof src !== 'string') return false
+    return typeof document === 'undefined' || isWebImageUrl(src, document.baseURI)
+}
 
 type BlockedRemoteImageProps = {
     src: string
@@ -217,7 +220,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
             },
             img(props) {
                 const { src, alt, ...rest } = withoutNode(props)
-                const remote = typeof src === 'string' && REMOTE_IMAGE_URL.test(src)
+                const remote = isRemoteImage(src)
                 if (remote && !loadRemoteImages) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onRemoteImageBlocked} />
                 // Inline, so a row of badges stays on one line, and never wider than the page.
                 return (

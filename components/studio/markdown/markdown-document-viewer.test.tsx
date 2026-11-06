@@ -154,6 +154,9 @@ describe('MarkdownDocumentViewer', () => {
             '[![Build badge](//badges.example/build.svg)](https://ci.example)',
             '',
             '![Local](./diagram.png)',
+            '',
+            // The webview reads this as https://sneaky.example/pixel.png.
+            '![Sneaky](https:sneaky.example/pixel.png)',
         ].join('\n')
 
         it('blocks web images until asked, and keeps local ones', () => {
@@ -162,12 +165,15 @@ describe('MarkdownDocumentViewer', () => {
             expect(container.querySelector('img[src^="https:"], img[src^="//"]')).toBeNull()
             expect(screen.getByRole('img', { name: 'Blocked web image: Tracker' })).toHaveAttribute('title', 'https://tracker.example/pixel.png?id=1')
             expect(screen.getByRole('link', { name: 'Blocked web image: Build badge' })).toHaveAttribute('href', 'https://ci.example')
+            expect(screen.getByRole('img', { name: 'Blocked web image: Sneaky' })).toBeInTheDocument()
+            expect(container.querySelectorAll('img')).toHaveLength(1)
             expect(container.querySelector('img[src="./diagram.png"]')).not.toBeNull()
 
             fireEvent.click(screen.getByRole('button', { name: 'Load images' }))
 
             expect(container.querySelector('img[src="https://tracker.example/pixel.png?id=1"]')).toHaveAttribute('referrerpolicy', 'no-referrer')
             expect(container.querySelector('img[src="//badges.example/build.svg"]')).not.toBeNull()
+            expect(container.querySelector('img[src="https:sneaky.example/pixel.png"]')).toHaveAttribute('referrerpolicy', 'no-referrer')
             expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
         })
 
