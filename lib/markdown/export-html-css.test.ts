@@ -69,6 +69,40 @@ describe('buildPdfExportCss', () => {
         expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-height: 164mm;/)
     })
 
+    it('keeps the title page on one sheet, shrinking the logo to fit', () => {
+        const titleRule = (css: string) => css.slice(css.indexOf('.pdf-title-page {'), css.indexOf('}', css.indexOf('.pdf-title-page {')))
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        // A4 portrait: the classic 297 - 20 - 40, growing up to the printable height less slack.
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 237mm;\s*max-height: 273mm;/)
+        const css = buildPdfExportCss(profile)
+        expect(css).toMatch(/\.pdf-title-page \.pdf-logo \{[^}]*flex: 0 1 auto;\s*min-height: 0;/)
+        expect(css).toMatch(/\.pdf-title-body \{[^}]*flex: 0 0 auto;/)
+
+        // Landscape: the sheet's short side is the height.
+        profile.page.orientation = 'landscape'
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 150mm;\s*max-height: 186mm;/)
+
+        // Large margins.
+        profile.page.orientation = 'portrait'
+        profile.page.marginsMm = { top: 50, right: 30, bottom: 50, left: 30 }
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 157mm;\s*max-height: 193mm;/)
+
+        // 30mm bars shown on the cover: 297 - (10 + 30) - (10 + 30) - 4.
+        profile.page.marginsMm = { top: 10, right: 10, bottom: 10, left: 10 }
+        for (const chrome of [profile.header, profile.footer]) {
+            chrome.enabled = true
+            chrome.heightMm = 30
+            chrome.hideOnFirstPages = 'none'
+        }
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 213mm;\s*max-height: 213mm;/)
+
+        // A bar that ignores margins sits in the margin band, so only its overflow counts: 297 - 30 - 30 - 4.
+        profile.header.ignoreMargins = true
+        profile.footer.ignoreMargins = true
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/max-height: 233mm;/)
+    })
+
     it('keeps body headings with the content that follows them', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
         const print = css.slice(css.indexOf('@media print'))
@@ -290,7 +324,8 @@ describe('buildPdfExportCss', () => {
         // and let the section fill the cell so the title centres in the space below the image.
         expect(css).toContain('.pdf-title-table > thead > tr > td { padding: 0; height: auto; }')
         expect(css).toContain('.pdf-title-table > tbody > tr > td { vertical-align: top; }')
-        expect(css).toContain('.pdf-title-page { height: 100%; min-height: 0; padding-top: 0; justify-content: flex-start; }')
+        // The image starts at the sheet's top edge; only the bottom margin (the footer is hidden on the cover) and slack come off.
+        expect(css).toContain('.pdf-title-page { height: 283mm; min-height: 0; max-height: none; padding-top: 0; justify-content: flex-start; }')
         expect(css).toContain('width: calc(100% + 20mm);')
         expect(css).toContain('margin: 0 -10mm 0 -10mm;')
         expect(css).toMatch(/\.pdf-title-page \.pdf-logo \{[^}]*max-width: none;[^}]*object-fit: cover;/)

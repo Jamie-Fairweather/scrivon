@@ -160,7 +160,7 @@ function bleedLayoutCss(profile: PdfExportProfile, layout: PdfExportLayout, marg
       layout.logoBleeds
           ? `${headerOnCover ? '' : '.pdf-title-table > thead > tr > td { padding: 0; height: auto; }'}
   .pdf-title-table > tbody > tr > td { vertical-align: top; }
-  .pdf-title-page { height: 100%; min-height: 0; padding-top: 0; justify-content: flex-start; }
+  .pdf-title-page { height: ${titlePageRoomMm(profile, layout)}mm; min-height: 0; max-height: none; padding-top: 0; justify-content: flex-start; }
   .pdf-title-page .pdf-logo {
     width: calc(100% + ${left + right}mm);
     max-width: none;
@@ -211,16 +211,45 @@ function chromeHideCss(firstPages: PdfExportProfile['header']['hideOnFirstPages'
     return `${sections.map((section) => `${section} ${barClass}`).join(', ')} { display: none !important; }`
 }
 
-/** Room for the title page inside the printable area, whichever way the sheet is turned. */
-function titlePageMinHeightMm(profile: PdfExportProfile): number {
+/** Rough height a header or footer bar takes up when it has no fixed height. */
+const AUTO_BAR_HEIGHT_MM = 12
+
+/** Slack for table-cell padding and rounding, so the cover never tips onto a second page. */
+const TITLE_PAGE_SLACK_MM = 4
+
+/**
+ * Room the title page has on its sheet, whichever way the sheet is turned: the page less
+ * its margins and any header/footer bar shown on the cover. A bar that ignores margins
+ * sits inside the margin band, so only the part that outgrows the margin counts.
+ */
+function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
     const { width, height } = pdfPageSizeMm(profile)
     const pageHeight = profile.page.orientation === 'landscape' ? width : height
     const { top, bottom } = profile.page.marginsMm
-    return Math.max(100, Math.round(pageHeight - top - bottom - 40))
+    const band = (margin: number, chrome: PdfExportProfile['header'], onCover: boolean, bleeds: boolean) => {
+        if (!onCover) return margin
+        const bar = (chrome.heightMm > 0 ? chrome.heightMm : AUTO_BAR_HEIGHT_MM) + chrome.gapMm
+        return bleeds ? Math.max(margin, bar) : margin + bar
+    }
+    const headerOnCover = layout.showHeader && profile.header.hideOnFirstPages === 'none'
+    const footerOnCover = layout.showFooter && profile.footer.hideOnFirstPages === 'none'
+    // An edge-to-edge cover image with no header above it starts at the very top of the sheet.
+    const topRoom = layout.logoBleeds && !headerOnCover ? 0 : band(top, profile.header, headerOnCover, layout.headerBleeds)
+    const bottomRoom = band(bottom, profile.footer, footerOnCover, layout.footerBleeds)
+    return Math.max(40, Math.floor(pageHeight - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
 }
 
-/** Rough height a header or footer bar takes up when it has no fixed height. */
-const AUTO_BAR_HEIGHT_MM = 12
+/**
+ * Height range of a normal (not edge-to-edge) title page: at least its classic size, the
+ * printable height less 40mm, and at most the room it has, where the logo starts to shrink.
+ */
+function titlePageHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): { min: number; max: number } {
+    const { width, height } = pdfPageSizeMm(profile)
+    const pageHeight = profile.page.orientation === 'landscape' ? width : height
+    const { top, bottom } = profile.page.marginsMm
+    const max = titlePageRoomMm(profile, layout)
+    return { min: Math.min(Math.max(100, Math.round(pageHeight - top - bottom - 40)), max), max }
+}
 
 /** Tallest a body image can print and still fit on one page beside the header/footer bars. */
 function bodyImageMaxHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
@@ -244,6 +273,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     const layout = resolvePdfExportLayout(profile)
     const { showHeader, showFooter } = layout
     const margins = profile.page.marginsMm
+    const titlePage = titlePageHeightMm(profile, layout)
 
     return `
   *, *::before, *::after { box-sizing: border-box; }
@@ -445,8 +475,10 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
   .pdf-chrome-table {
     height: 100vh;
   }
+  /* The cover is one page tall at most; the logo shrinks to leave the title text room on it. */
   .pdf-title-page {
-    min-height: ${titlePageMinHeightMm(profile)}mm;
+    min-height: ${titlePage.min}mm;
+    max-height: ${titlePage.max}mm;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -458,9 +490,12 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    flex: 0 0 auto;
   }
   .pdf-title-page .pdf-logo {
     display: block;
+    flex: 0 1 auto;
+    min-height: 0;
     max-width: 100%;
     max-height: 150mm;
     width: auto;
