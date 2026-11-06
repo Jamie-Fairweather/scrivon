@@ -267,6 +267,35 @@
     }
 }
 
+/* Windows Contrast Themes (forced colors) remove box-shadow focus rings and author
+   backgrounds, so focus, highlighted rows and switch state would all vanish.
+   System colours are kept in forced colors mode. Unlayered so it beats `outline-none`. */
+@media (forced-colors: active) {
+    [data-slot='switch'] {
+        outline: 1px solid CanvasText;
+    }
+    [data-slot='switch-thumb'] {
+        background-color: CanvasText;
+    }
+    :focus-visible {
+        outline: 2px solid Highlight;
+    }
+    [data-slot='switch']:focus-visible {
+        outline-offset: 2px;
+    }
+    [data-highlighted],
+    [aria-current='true'],
+    [aria-current='page'],
+    [aria-pressed='true'],
+    [data-slot='switch'][data-checked] {
+        background-color: Highlight;
+        color: HighlightText;
+    }
+    [data-slot='switch'][data-checked] [data-slot='switch-thumb'] {
+        background-color: HighlightText;
+    }
+}
+
 /* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.
    https://github.com/microsoft/monaco-editor/issues/5137 */
 body:has(.bg-code .monaco-editor .find-widget.visible) .bg-code.overflow-hidden,
