@@ -250,6 +250,19 @@ describe('CodeEditorPanel accessibility', () => {
     })
 })
 
+describe('CodeEditorPanel unicode highlighting', () => {
+    it('does not box ordinary non-Latin text, but shows invisible characters in diagrams', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.mmd'
+        tabsState = { tabs: [tab(a, 'Я і ти'), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        expect(editor.options.unicodeHighlight).toEqual({ ambiguousCharacters: false, invisibleCharacters: false, nonBasicASCII: false })
+
+        setTabs(view, { tabs: [tab(a, 'Я і ти'), tab(b, 'B')], activeTabId: b })
+        expect(editor.options.unicodeHighlight).toEqual({ ambiguousCharacters: false, invisibleCharacters: true, nonBasicASCII: false })
+    })
+})
+
 describe('CodeEditorPanel keeps editing state', () => {
     it('keeps the buffer (and its undo history) when the open file is renamed', async () => {
         const a = '/w/a.md'

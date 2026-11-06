@@ -48,6 +48,13 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     lineNumbers: 'on',
     renderLineHighlight: 'all',
     tabSize: 2,
+    // Monaco's defaults are for source code: they box ordinary Cyrillic, Greek and CJK
+    // letters and punctuation, curly quotes and en dashes. Off, as in VS Code for Markdown.
+    unicodeHighlight: {
+        ambiguousCharacters: false,
+        invisibleCharacters: false,
+        nonBasicASCII: false,
+    },
     scrollbar: {
         vertical: 'auto',
         horizontal: 'hidden',
@@ -169,6 +176,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
+    // Zero-width characters silently break Mermaid parsing, so show them in diagram files.
+    const isMermaid = activeName !== undefined && documentKind(activeName) === 'mermaid'
     const ariaLabel = useMemo(
         () => editorAriaLabel(activeName !== undefined ? { name: activeName, readOnly: isReadOnly } : null, isMacPlatform()),
         [activeName, isReadOnly]
@@ -184,8 +193,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
             readOnly: isReadOnly,
             domReadOnly: isReadOnly,
             ariaLabel,
+            unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
         }),
-        [settings.editor, isReadOnly, ariaLabel]
+        [settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
     useEffect(() => {
