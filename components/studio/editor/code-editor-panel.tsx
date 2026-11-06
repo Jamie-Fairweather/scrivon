@@ -15,7 +15,18 @@ import { registerCoordinatorRefs } from '@/components/studio/workspace/register-
 import { documentKind } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
-const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
+function EditorLoading() {
+    return <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">Loading editor…</div>
+}
+
+// Monaco is bundled with the app (see lib/monaco/setup-monaco.ts) and only loaded in the browser.
+const MonacoEditor = dynamic(
+    async () => {
+        await import('@/lib/monaco/setup-monaco')
+        return (await import('@monaco-editor/react')).default
+    },
+    { ssr: false, loading: () => <EditorLoading /> }
+)
 
 const MIN_WIDTH = 280
 const MAX_WIDTH_RATIO = 0.6
@@ -263,6 +274,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
                         defaultValue={editorDefaultValue}
                         language={editorLanguage}
                         theme={MONACO_DIAGRAM_THEME_ID}
+                        loading={<EditorLoading />}
                         beforeMount={onMonacoBeforeMount}
                         onMount={onMonacoMount}
                         options={editorOptions}

@@ -112,10 +112,13 @@ const fakeMonaco = {
     },
 }
 
-// The real @monaco-editor/react picks up window.monaco instead of downloading Monaco.
+// The real @monaco-editor/react picks up window.monaco when the loader has no bundled copy.
 ;(window as unknown as { monaco: unknown }).monaco = fakeMonaco
 
 // --- Module mocks ---
+
+// Skip loading the real bundled Monaco; the fake above stands in for it.
+vi.mock('@/lib/monaco/setup-monaco', () => ({}))
 
 vi.mock('next/dynamic', () => ({
     default: (load: () => Promise<ComponentType<Record<string, unknown>> | { default: ComponentType<Record<string, unknown>> }>) => {
