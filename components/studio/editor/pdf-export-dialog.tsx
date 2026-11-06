@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { exportMarkdown, notifyExportSaved, type ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
 import type { ExportFormat } from '@/lib/markdown/export-document'
-import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { notifyError } from '@/lib/notify'
 import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
+import { isWindowsTauri } from '@/lib/tauri/platform'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -68,6 +70,21 @@ const FORMAT_OPTIONS: { label: string; value: ExportFormat }[] = [
     { label: 'Word', value: 'docx' },
 ]
 
+/**
+ * Only the Windows app stamps page numbers into a PDF. Elsewhere it goes through the print
+ * dialog: the TOC has no page column, and footer numbers rely on the engine drawing CSS page
+ * counters, which WebKit (macOS, Linux) doesn't. Empty when nothing the profile asks for is lost.
+ */
+function pageNumberNote(format: ExportFormat, profile: PdfExportProfile, metadata: PdfExportMetadata): string {
+    if (format !== 'pdf' || isWindowsTauri()) return ''
+    const footer = pdfPageNumberFormat(profile, metadata) !== 'none'
+    const toc = profile.frontMatter.toc
+    if (footer && toc) return 'Outside the Windows app, footer page numbers may not print, and the table of contents shows no page numbers.'
+    if (footer) return 'Outside the Windows app, footer page numbers may not print.'
+    if (toc) return 'Outside the Windows app, the table of contents shows no page numbers.'
+    return ''
+}
+
 function PdfExportForm({
     source,
     tabName,
@@ -100,6 +117,7 @@ function PdfExportForm({
     const [error, setError] = useState('')
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
+    const note = pageNumberNote(format, profile, { title, subtitle, author, date })
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -136,6 +154,7 @@ function PdfExportForm({
             <DialogHeader>
                 <DialogTitle>Export document</DialogTitle>
                 <DialogDescription>Choose a format, profile, and optional title metadata for this export.</DialogDescription>
+                {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
             </DialogHeader>
             <DialogPanel className="space-y-4">
                 <fieldset disabled={busy} className="min-w-0 space-y-4">

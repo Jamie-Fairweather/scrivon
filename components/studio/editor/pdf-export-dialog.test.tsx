@@ -2,24 +2,34 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
+import type { ExportFormat } from '@/lib/markdown/export-document'
 import type { ExportResult } from '@/lib/markdown/export-pdf'
+import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { PdfExportDialog } from './pdf-export-dialog'
 
 const exportMarkdown = vi.hoisted(() => vi.fn<() => Promise<ExportResult>>())
 const notifyExportSaved = vi.hoisted(() => vi.fn())
 const notifyError = vi.hoisted(() => vi.fn())
+const platform = vi.hoisted(() => ({ windows: true }))
+/** Changes each export profile the dialog sees. */
+const profiles = vi.hoisted((): { edit: (profile: PdfExportProfile) => void } => ({ edit: () => undefined }))
 
 vi.mock('@/lib/markdown/export-pdf', () => ({ exportMarkdown, notifyExportSaved }))
 vi.mock('@/lib/notify', () => ({ notifyError }))
+vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri: () => platform.windows }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({ settings: { pdfExport: createDefaultPdfExportSettings() } }),
+    useAppSettings: () => {
+        const pdfExport = createDefaultPdfExportSettings()
+        pdfExport.profiles.forEach((profile) => profiles.edit(profile))
+        return { settings: { pdfExport } }
+    },
 }))
 
 // happy-dom has no Web Animations API; the dialog's scroll area asks for running animations.
 if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
 
 /** Stands in for the export menu, which owns the export state; `shown` mimics a tab switch unmounting the dialog. */
-function Owner({ shown = true, onOpenChange }: { shown?: boolean; onOpenChange: (open: boolean) => void }) {
+function Owner({ shown = true, format, onOpenChange }: { shown?: boolean; format?: ExportFormat; onOpenChange: (open: boolean) => void }) {
     const [exporting, setExporting] = useState(false)
     if (!shown) return <p>{exporting ? 'Menu busy' : 'Menu idle'}</p>
     return (
@@ -29,6 +39,7 @@ function Owner({ shown = true, onOpenChange }: { shown?: boolean; onOpenChange: 
             source={'# Report\n\nBody'}
             tabName="report.md"
             tabPath={'D:\\docs\\report.md'}
+            format={format}
             exporting={exporting}
             onExportingChange={setExporting}
         />
@@ -54,6 +65,8 @@ describe('PdfExportDialog', () => {
         exportMarkdown.mockReset()
         notifyExportSaved.mockReset()
         notifyError.mockReset()
+        platform.windows = true
+        profiles.edit = () => undefined
     })
 
     it('stays open with the edited fields when the save picker is cancelled', async () => {
@@ -166,5 +179,59 @@ describe('PdfExportDialog', () => {
         await waitFor(() => expect(screen.getByText('Menu idle')).toBeInTheDocument())
         expect(notifyError).toHaveBeenCalledWith('Export failed', undefined, { description: 'Disk is full.' })
         expect(onOpenChange).not.toHaveBeenCalled()
+    })
+
+    it('says outside Windows that page numbers the profile asks for may be missing', async () => {
+        platform.windows = false
+        profiles.edit = (profile) => {
+            profile.frontMatter.toc = true
+            profile.footer.pageNumbers = 'n-of-total'
+        }
+        const view = render(<Owner onOpenChange={vi.fn()} />)
+        expect(
+            await screen.findByText('Outside the Windows app, footer page numbers may not print, and the table of contents shows no page numbers.')
+        ).toBeInTheDocument()
+
+        // Word files don't go through the print dialog.
+        view.unmount()
+        render(<Owner format="docx" onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/Outside the Windows app/)).toBeNull()
+    })
+
+    it('names only what the profile turns on, and says nothing on Windows or when nothing is lost', async () => {
+        platform.windows = false
+        profiles.edit = (profile) => {
+            profile.frontMatter.toc = true
+        }
+        const toc = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText('Outside the Windows app, the table of contents shows no page numbers.')).toBeInTheDocument()
+        toc.unmount()
+
+        profiles.edit = (profile) => {
+            profile.footer.pageNumbers = 'number'
+        }
+        const footer = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText('Outside the Windows app, footer page numbers may not print.')).toBeInTheDocument()
+        footer.unmount()
+
+        // A custom footer with no page placeholder prints as ordinary text.
+        profiles.edit = (profile) => {
+            profile.footer.pageNumbers = 'custom'
+            profile.footer.right.text = 'Confidential'
+        }
+        const plain = render(<Owner onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/Outside the Windows app/)).toBeNull()
+        plain.unmount()
+
+        platform.windows = true
+        profiles.edit = (profile) => {
+            profile.frontMatter.toc = true
+            profile.footer.pageNumbers = 'number'
+        }
+        render(<Owner onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/Outside the Windows app/)).toBeNull()
     })
 })
