@@ -4,6 +4,7 @@ import { readTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { getWorkspaceFileSize } from '@/lib/tauri/fs'
+import type { AppThemeId } from '@/lib/theme/catalog'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
@@ -34,7 +35,7 @@ const state = vi.hoisted(() => ({
     save: { autosaveEnabled: true, setAutosaveEnabled: () => {}, flushSave: async () => true, flushAllSaves: async () => true },
     layout: { layout: { explorerOpen: true, editorOpen: true }, setExplorerOpen: () => {}, setEditorOpen: () => {}, setPreviewOnly: () => {} },
     canvas: { requestCanvasFit: () => {} },
-    theme: { isLight: true, setThemeId: () => {} },
+    theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
     settings: { settings: null as unknown, openSettings: () => {} },
 }))
 
@@ -306,6 +307,39 @@ describe('usePaletteSearch commands in the default results', () => {
 
         act(() => result.current.setQuery('settings'))
         expect(groupIds(result.current.groups)).toEqual(['files'])
+    })
+})
+
+describe('usePaletteSearch theme toggle', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    function runToggle(result: { current: ReturnType<typeof usePaletteSearch> }) {
+        act(() => result.current.setQuery('>switch to'))
+        const toggle = result.current.groups[0]?.items.find((item) => item.value === 'action:toggle-theme')
+        if (toggle?.kind !== 'action') throw new Error('toggle command missing')
+        act(() => void toggle.run())
+    }
+
+    it('switches back to the theme the user had, not to Scrivon', () => {
+        state.theme.themeId = 'tokyo-night-storm'
+        state.theme.isLight = false
+        const { result, rerender } = renderHook(() => usePaletteSearch('all', true))
+
+        runToggle(result)
+        expect(state.theme.setThemeId).toHaveBeenLastCalledWith('tokyo-night-light')
+
+        state.theme.themeId = 'tokyo-night-light'
+        state.theme.isLight = true
+        rerender()
+        runToggle(result)
+        expect(state.theme.setThemeId).toHaveBeenLastCalledWith('tokyo-night-storm')
     })
 })
 

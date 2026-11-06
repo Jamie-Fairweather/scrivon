@@ -7,7 +7,7 @@ import { getBaseName, getWorkspaceFileSize, readWorkspaceFile } from '@/lib/taur
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
-import { buildCommandRegistry, createToggleLightDark } from '@/components/studio/command-palette/command-registry'
+import { buildCommandRegistry, themeToggleTarget, type ThemeToggle } from '@/components/studio/command-palette/command-registry'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
 import { searchActions } from '@/components/studio/command-palette/search-actions'
 import {
@@ -71,7 +71,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
-    const { isLight, setThemeId } = useAppTheme()
+    const { themeId, isLight, setThemeId } = useAppTheme()
     const { settings, openSettings } = useAppSettings()
 
     const [query, setQuery] = useState('')
@@ -117,6 +117,14 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         setTextTruncatedFiles(0)
     }, [contentCache])
 
+    // Kept for the app session, so switching light/dark twice lands back on the user's theme.
+    const [lastThemeToggle, setLastThemeToggle] = useState<ThemeToggle | null>(null)
+    const toggleLightDark = useCallback(() => {
+        const target = themeToggleTarget(themeId, lastThemeToggle)
+        setLastThemeToggle({ from: themeId, to: target })
+        setThemeId(target)
+    }, [themeId, lastThemeToggle, setThemeId])
+
     const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
 
     const allActions = useMemo(
@@ -147,7 +155,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 openExample,
                 openSettings,
                 isLight,
-                toggleLightDark: createToggleLightDark(isLight, setThemeId),
+                toggleLightDark,
             }),
         [
             isDesktop,
@@ -175,7 +183,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             openExample,
             openSettings,
             isLight,
-            setThemeId,
+            toggleLightDark,
         ]
     )
 
