@@ -435,8 +435,15 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         <div
             ref={rootRef}
             data-slot="code-editor"
-            className={cn('relative flex h-full shrink-0 flex-col border-r border-border bg-code', !open && 'hidden')}
+            className={cn(
+                'flex h-full shrink-0 flex-col border-r border-border bg-code',
+                // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
+                // would lay out and wrap the whole file one character per line on every hide,
+                // show and tab switch.
+                open ? 'relative' : 'invisible absolute inset-y-0 left-0'
+            )}
             style={{ width: shownWidth }}
+            inert={!open}
         >
             <div className="min-h-0 flex-1 overflow-hidden bg-code">
                 {editorPath ? (

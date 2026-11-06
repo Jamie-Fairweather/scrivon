@@ -396,10 +396,15 @@ describe('CodeEditorPanel keeps editing state', () => {
         const panel = view.container.firstElementChild as HTMLElement
 
         view.rerender(<Panel open={false} />)
-        expect(panel).toHaveClass('hidden')
+        // Out of sight and out of reach, but keeping its size, so Monaco doesn't re-lay it out.
+        expect(panel).toHaveClass('invisible', 'absolute')
+        expect(panel).not.toHaveClass('hidden')
+        expect(panel).toHaveAttribute('inert')
+        expect(panel.style.width).toBe('400px')
         view.rerender(<Panel open />)
 
-        expect(panel).not.toHaveClass('hidden')
+        expect(panel).not.toHaveClass('invisible')
+        expect(panel).not.toHaveAttribute('inert')
         expect(editors).toHaveLength(1)
         expect(editor.getModel()).toBe(model)
         expect(model!.disposed).toBe(false)

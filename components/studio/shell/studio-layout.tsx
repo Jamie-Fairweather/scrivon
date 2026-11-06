@@ -75,7 +75,8 @@ export function StudioLayout() {
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                             <EditorTabBar />
 
-                            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                            {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
+                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                                 {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
                                 {editorLayout.hydrated && (
                                     <CodeEditorPanel
