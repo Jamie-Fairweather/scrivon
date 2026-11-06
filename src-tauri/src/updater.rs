@@ -25,7 +25,9 @@ fn is_prerelease_build(version: &str) -> bool {
 mod tests {
     use std::sync::Mutex;
 
-    use super::{install_error_message, install_pending, is_prerelease_build};
+    use super::{
+        count_other_instances, install_error_message, install_pending, is_prerelease_build,
+    };
 
     #[test]
     fn prerelease_versions_contain_hyphen() {
@@ -72,6 +74,35 @@ mod tests {
         );
         assert!(message.contains("503"), "{message}");
         assert!(!message.contains('`'), "{message}");
+    }
+
+    #[test]
+    fn counts_other_copies_in_the_same_session() {
+        let own = "\"Scrivon.exe\",\"4100\",\"Console\",\"1\",\"210,512 K\"";
+        let other = "\"Scrivon.exe\",\"5200\",\"Console\",\"1\",\"180,004 K\"";
+        let other_user = "\"Scrivon.exe\",\"6300\",\"RDP-Tcp#0\",\"2\",\"150,000 K\"";
+
+        assert_eq!(count_other_instances(own, 4100), 0);
+        assert_eq!(
+            count_other_instances(&format!("{own}\r\n{other}\r\n"), 4100),
+            1
+        );
+        assert_eq!(
+            count_other_instances(&format!("{own}\r\n{other_user}"), 4100),
+            0
+        );
+        assert_eq!(
+            count_other_instances(
+                "INFO: No tasks are running which match the specified criteria.",
+                4100
+            ),
+            0
+        );
+        // Own row missing: count every other copy.
+        assert_eq!(
+            count_other_instances(&format!("{other}\n{other_user}"), 4100),
+            2
+        );
     }
 }
 
@@ -141,13 +172,95 @@ fn install_error_message(err: &tauri_plugin_updater::Error) -> String {
     }
 }
 
+/// Other running copies of this app in the same Windows session, from
+/// `tasklist /FO CSV /NH` rows (`"name","pid","session name","session #","memory"`).
+#[cfg(any(windows, test))]
+fn count_other_instances(tasklist_csv: &str, own_pid: u32) -> usize {
+    let rows: Vec<(u32, &str)> = tasklist_csv
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line
+                .trim()
+                .strip_prefix('"')?
+                .strip_suffix('"')?
+                .split("\",\"")
+                .collect();
+            Some((fields.get(1)?.parse().ok()?, *fields.get(3)?))
+        })
+        .collect();
+    let own_session = rows
+        .iter()
+        .find(|(pid, _)| *pid == own_pid)
+        .map(|(_, session)| *session);
+    rows.iter()
+        .filter(|(pid, session)| *pid != own_pid && own_session.is_none_or(|own| own == *session))
+        .count()
+}
+
+/// True when another copy of Scrivon is running for this user. In passive mode
+/// the NSIS installer kills every copy without asking, which would throw away
+/// any unsaved edits in the others.
+#[cfg(windows)]
+fn other_instances_running() -> bool {
+    use std::os::windows::process::CommandExt;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let Some(image) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.file_name()?.to_string_lossy().into_owned()))
+    else {
+        return false;
+    };
+    let tasklist = std::env::var_os("SystemRoot")
+        .map(|root| PathBuf::from(root).join(r"System32\tasklist.exe"))
+        .unwrap_or_else(|| PathBuf::from("tasklist.exe"));
+    let output = Command::new(tasklist)
+        .args(["/FO", "CSV", "/NH", "/FI"])
+        .arg(format!("IMAGENAME eq {image}"))
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            count_other_instances(&String::from_utf8_lossy(&output.stdout), std::process::id()) > 0
+        }
+        // Can't tell: don't block the update.
+        _ => false,
+    }
+}
+
+#[cfg(not(windows))]
+fn other_instances_running() -> bool {
+    false
+}
+
+async fn ensure_no_other_instances() -> Result<(), String> {
+    let others = tauri::async_runtime::spawn_blocking(other_instances_running)
+        .await
+        .unwrap_or(false);
+    if others {
+        return Err(
+            "Scrivon is open in another window. Save your work there and close it, \
+            then install the update."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn install_app_update(pending: State<'_, PendingUpdate>) -> Result<(), String> {
     install_pending(&pending.0, |update: Update| async move {
-        update
-            .download_and_install(|_, _| {}, || {})
+        ensure_no_other_instances().await?;
+        let bytes = update
+            .download(|_, _| {}, || {})
             .await
-            .map_err(|e| install_error_message(&e))
+            .map_err(|e| install_error_message(&e))?;
+        // Again, in case another window was opened during the download.
+        ensure_no_other_instances().await?;
+        update.install(bytes).map_err(|e| install_error_message(&e))
     })
     .await
 }
