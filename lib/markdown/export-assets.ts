@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core'
-import { resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { errorMessage } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import type { PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
@@ -35,13 +34,13 @@ async function readImageDataUrl(path: string): Promise<ImageRead> {
  * An image that can't be read is left out and listed in `missing`, so the caller can say so.
  */
 export async function resolvePdfExportAssets(profile: PdfExportProfile): Promise<PdfExportLoadedAssets> {
-    const layout = resolvePdfExportLayout(profile)
     const slots: { slot: string; path: string; used: boolean }[] = [
         { slot: 'Logo', path: profile.brand.logoPath, used: profile.frontMatter.titlePage },
-        { slot: 'Header left image', path: profile.header.left.imagePath, used: layout.showHeader },
-        { slot: 'Header right image', path: profile.header.right.imagePath, used: layout.showHeader },
-        { slot: 'Footer left image', path: profile.footer.left.imagePath, used: layout.showFooter },
-        { slot: 'Footer right image', path: profile.footer.right.imagePath, used: layout.showFooter },
+        { slot: 'Header left image', path: profile.header.left.imagePath, used: profile.header.enabled },
+        { slot: 'Header right image', path: profile.header.right.imagePath, used: profile.header.enabled },
+        // Page numbers alone show a bare footer; its images need the Footer switch on.
+        { slot: 'Footer left image', path: profile.footer.left.imagePath, used: profile.footer.enabled },
+        { slot: 'Footer right image', path: profile.footer.right.imagePath, used: profile.footer.enabled },
     ]
     const reads = await Promise.all(slots.map(({ path, used }) => readImageDataUrl(used ? path.trim() : '')))
     const missing = slots.flatMap(({ slot, path }, index) => {

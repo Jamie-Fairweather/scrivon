@@ -193,6 +193,27 @@ SHIKI_FAIL
         expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
     })
 
+    it('prints only the page number when the footer switch is off', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.enabled = false
+        profile.footer.pageNumbers = 'page-n'
+        profile.footer.left.text = 'Confidential'
+        profile.footer.backgroundColor = '#e5e7eb'
+        profile.footer.textColor = '#ffffff'
+
+        const { html, print } = await markdownToExportHtml('# Only', {
+            profile,
+            assets: { ...EMPTY_ASSETS, footer: { left: 'data:image/png;base64,fl', right: 'data:image/png;base64,fr' } },
+        })
+        expect(html).toContain('<span class="pdf-page-number-mark">SFPN</span>')
+        expect(html).not.toContain('Confidential')
+        expect(html).not.toContain('base64,fl')
+        expect(html).not.toContain('base64,fr')
+        expect(html).not.toContain('#e5e7eb')
+        expect(print.pageNumberColor).toBe('')
+    })
+
     it('keeps footer rows when only the header shows', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
@@ -316,6 +337,7 @@ SHIKI_FAIL
         const profile = createDefaultPdfExportProfile()
         profile.page.size = 'letter'
         profile.page.orientation = 'landscape'
+        profile.footer.enabled = true
         profile.footer.pageNumbers = 'custom'
         profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
         profile.footer.textColor = '#ff0000'

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildPdfExportCss, pdfPageSizeMm, pdfPrintMarginsMm, resolvePdfExportLayout, resolvePdfPrintOptions } from '@/lib/markdown/export-html-css'
+import {
+    applyPdfFooterSwitch,
+    buildPdfExportCss,
+    pdfPageSizeMm,
+    pdfPrintMarginsMm,
+    resolvePdfExportLayout,
+    resolvePdfPrintOptions,
+} from '@/lib/markdown/export-html-css'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 
 describe('buildPdfExportCss', () => {
@@ -316,6 +323,43 @@ describe('buildPdfExportCss', () => {
         expect(buildPdfExportCss(profile)).not.toContain('.pdf-page-number')
         profile.footer.right.text = 'Draft'
         expect(resolvePdfExportLayout(profile).showFooter).toBe(true)
+    })
+
+    it('keeps only the page number of a footer that is switched off', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.enabled = false
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.left = { text: 'Confidential', imagePath: 'C:/left.png' }
+        profile.footer.right = { text: 'Page {{page}}', imagePath: 'C:/right.png' }
+        profile.footer.backgroundColor = '#1f2937'
+        profile.footer.textColor = '#ffffff'
+        profile.footer.heightMm = 20
+        profile.footer.gapMm = 5
+        profile.footer.ignoreMargins = true
+
+        const shown = applyPdfFooterSwitch(profile)
+        expect(shown.footer).toMatchObject({
+            left: { text: '', imagePath: '' },
+            right: { text: 'Page {{page}}', imagePath: '' },
+            backgroundColor: '',
+            textColor: '',
+            heightMm: 0,
+            gapMm: 0,
+            ignoreMargins: false,
+            pageNumbers: 'custom',
+        })
+        expect(resolvePdfExportLayout(shown)).toMatchObject({ showFooter: true, footerBleeds: false, bleed: false })
+        // White numbers from a dark footer would vanish on bare paper, so the stamp uses its default colour.
+        expect(resolvePdfPrintOptions(shown, { title: '', subtitle: '', author: '', date: '' })).toMatchObject({
+            pageNumberFormat: 'custom:Page {{page}}',
+            pageNumberColor: '',
+        })
+        const css = buildPdfExportCss(shown)
+        expect(css).not.toContain('#1f2937')
+        expect(css).not.toMatch(/\.pdf-footer-bar \{[^}]*(height|margin-top|padding-left):/)
+
+        profile.footer.enabled = true
+        expect(applyPdfFooterSwitch(profile)).toBe(profile)
     })
 
     it('lets images fill a fixed-height bar', () => {

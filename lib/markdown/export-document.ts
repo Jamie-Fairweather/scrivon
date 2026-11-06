@@ -2,6 +2,7 @@ import type { Root } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
+import { applyPdfFooterSwitch } from '@/lib/markdown/export-html-css'
 import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
@@ -41,8 +42,10 @@ export type ExportDocument = {
  * Throws `Nothing to export.` when the body is empty after front matter is removed.
  */
 export function buildExportDocument(source: string, options: BuildExportDocumentOptions = {}): ExportDocument {
-    const profile = options.profile ?? createDefaultPdfExportProfile()
-    const assets = options.assets ?? EMPTY_ASSETS
+    const profile = applyPdfFooterSwitch(options.profile ?? createDefaultPdfExportProfile())
+    const given = options.assets ?? EMPTY_ASSETS
+    // A switched-off footer shows only its page number, never its images.
+    const assets = profile.footer.enabled ? given : { ...given, footer: EMPTY_ASSETS.footer }
     const { metadata, body } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
     const trimmed = body.trim()
     if (!trimmed) {

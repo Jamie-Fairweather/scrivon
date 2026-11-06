@@ -87,7 +87,8 @@ describe('resolvePdfExportAssets', () => {
         profile.brand.logoPath = 'C:/moved/logo.png'
         profile.header.left.imagePath = 'C:/moved/header.png'
         profile.footer.left.imagePath = 'C:/moved/footer.png'
-        // No title page, header or footer.
+        // No title page or header, and the footer is off: page numbers alone show no footer images.
+        profile.footer.pageNumbers = 'number'
         await expect(resolvePdfExportAssets(profile)).resolves.toEqual({ assets: EMPTY, missing: [] })
         expect(invoke).not.toHaveBeenCalled()
     })

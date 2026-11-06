@@ -23,6 +23,29 @@ export function pdfFooterHasPageText(footer: PdfExportProfile['footer']): boolea
     return format !== 'custom' || footer.right.text.trim() !== ''
 }
 
+/**
+ * The profile as the export draws it. Page numbers have their own setting and still
+ * print with the Footer switch off, but nothing else of the footer does: no text,
+ * images, colours, size, gap or edge-to-edge band.
+ */
+export function applyPdfFooterSwitch(profile: PdfExportProfile): PdfExportProfile {
+    const { footer } = profile
+    if (footer.enabled) return profile
+    return {
+        ...profile,
+        footer: {
+            ...footer,
+            left: { text: '', imagePath: '' },
+            right: { ...footer.right, imagePath: '' },
+            backgroundColor: '',
+            textColor: '',
+            heightMm: 0,
+            gapMm: 0,
+            ignoreMargins: false,
+        },
+    }
+}
+
 export function resolvePdfExportLayout(profile: PdfExportProfile): PdfExportLayout {
     const showHeader = profile.header.enabled
     const showFooter = profile.footer.enabled || pdfFooterHasPageText(profile.footer)
