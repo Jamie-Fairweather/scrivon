@@ -1736,7 +1736,8 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         title: document.metadata.title,
         creator: document.metadata.author || undefined,
         description: document.metadata.subtitle || undefined,
-        features: { updateFields: true },
+        // No `updateFields`: it makes Word ask about updating fields every time the file opens.
+        // Header and footer page numbers refresh on their own; the contents numbers show their estimate until F9.
         styles: {
             default: {
                 document: {

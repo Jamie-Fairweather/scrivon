@@ -618,6 +618,8 @@ describe('renderExportDocx', () => {
         expect(xml).toMatch(/Alpha<\/w:t>[\s\S]{0,400}<w:tab\/>[\s\S]{0,400}PAGEREF alpha/)
         expect(tocPage(xml, 'alpha')).toBe(3)
         expect(xml).not.toContain('TOC \\h \\o')
+        // Nothing asks Word to update fields on open, so readers don't get a prompt every time.
+        expect(xml).not.toContain('w:updateFields')
     })
 
     it('centres the title page on its own page with the default profile', async () => {
