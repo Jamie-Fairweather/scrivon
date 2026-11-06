@@ -113,6 +113,8 @@ The installers find an existing install through these values in [`src-tauri/taur
 
 That is why **Settings → Apps** and the exe's **Properties → Details** still name the publisher `github`. A real name needs more than a hook: the setup `.exe` reads the install folder, and the folder the old copy's uninstaller runs in, from `HKCU\Software\<publisher>\Scrivon` before any hook runs, so it would need a custom NSIS template (`bundle.windows.nsis.template`) that also checks the old key. The other bundle details (`copyright`, `homepage`, descriptions) are safe to change.
 
+The setup `.exe` shows `src-tauri/windows/nsis-sidebar.bmp` on its welcome and finish pages and `nsis-header.bmp` at the top of the others. If you redraw them, keep them 24-bit BMPs at 164 × 314 and 150 × 57 pixels.
+
 ### Updater signing key
 
 Updates are signed with a minisign key. Every installed copy only accepts updates signed with the private key that matches `plugins.updater.pubkey` in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json).

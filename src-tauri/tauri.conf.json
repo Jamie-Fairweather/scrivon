@@ -54,6 +54,9 @@
                 "upgradeCode": "2671e548-9e53-5d3e-93c1-5be896bc07d0"
             },
             "nsis": {
+                "installerIcon": "icons/icon.ico",
+                "headerImage": "./windows/nsis-header.bmp",
+                "sidebarImage": "./windows/nsis-sidebar.bmp",
                 "installerHooks": "./windows/installer-hooks.nsh"
             }
         }
