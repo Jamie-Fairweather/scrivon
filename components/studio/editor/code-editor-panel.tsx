@@ -60,10 +60,9 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     lineNumbers: 'on',
     renderLineHighlight: 'all',
     tabSize: 2,
-    // Monaco would otherwise guess indentation from each file and ignore the Tab size setting
-    // for any file that is already indented. Tab inserts spaces.
+    // Monaco would otherwise guess the indent size from each file and ignore the Tab size
+    // setting for any file that is already indented. Tabs or spaces: see applyIndentation.
     detectIndentation: false,
-    insertSpaces: true,
     // Monaco's defaults are for source code: they box ordinary Cyrillic, Greek and CJK
     // letters and punctuation, curly quotes and en dashes. Off, as in VS Code for Markdown.
     unicodeHighlight: {
@@ -102,6 +101,15 @@ function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column:
     editor.setSelection(range)
     editor.revealRangeInCenter(range)
     editor.focus()
+}
+
+/**
+ * Uses the Tab size setting in every file, but keeps each file's own choice of tabs or spaces:
+ * a file indented with tabs keeps getting tabs, so Tab and Enter don't mix the two.
+ */
+function applyIndentation(model: editor.ITextModel, tabSize: number) {
+    model.detectIndentation(true, tabSize)
+    model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
 function languageForTab(tab: DocumentTab) {
@@ -281,14 +289,20 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
+    const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
-        editorRef.current?.updateOptions({
+        tabSizeRef.current = settings.editor.tabSize
+        const editor = editorRef.current
+        editor?.updateOptions({
             fontSize: settings.editor.fontSize,
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
             lineNumbers: settings.editor.lineNumbers,
             minimap: { enabled: settings.editor.minimap },
         })
+        // Changing Tab size resets every buffer to spaces, so look at the file again.
+        const model = editor?.getModel()
+        if (model) applyIndentation(model, settings.editor.tabSize)
     }, [settings.editor])
 
     // @monaco-editor/react keeps the beforeMount and onMount it was first given, so they read the
@@ -322,6 +336,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         } finally {
             suppressChangeRef.current = false
         }
+        applyIndentation(model, tabSizeRef.current)
     }, [])
 
     useEffect(() => {
@@ -380,6 +395,13 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .then(() => monaco.editor.remeasureFonts())
                 .catch(() => {})
             unbindEditorF1Command(editor, monaco)
+            const applyToAttachedModel = () => {
+                const model = editor.getModel()
+                if (model) applyIndentation(model, tabSizeRef.current)
+            }
+            // Each file opened in the editor (a tab switch swaps its buffer).
+            editor.onDidChangeModel(applyToAttachedModel)
+            applyToAttachedModel()
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
             if (pending && activeTabIdRef.current === pending.path) {

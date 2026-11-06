@@ -17,6 +17,7 @@ class FakeUri {
 class FakeModel {
     disposed = false
     readonly listeners = new Set<Listener>()
+    options: { tabSize?: number; indentSize?: number | 'tabSize'; insertSpaces?: boolean } = {}
     constructor(
         public value: string,
         public readonly uri: FakeUri
@@ -32,11 +33,20 @@ class FakeModel {
         this.disposed = true
         models.delete(this.uri.toString())
     }
+    /** Like Monaco's guess: tabs if a line is indented with a tab, otherwise the default. */
+    detectIndentation(defaultInsertSpaces: boolean, defaultTabSize: number) {
+        const usesTabs = /^\t/m.test(this.value)
+        this.updateOptions({ insertSpaces: usesTabs ? false : defaultInsertSpaces, tabSize: defaultTabSize, indentSize: defaultTabSize })
+    }
+    updateOptions(options: FakeModel['options']) {
+        Object.assign(this.options, options)
+    }
 }
 
 class FakeEditor {
     options: Record<string, unknown>
     private readonly contentListeners = new Set<Listener>()
+    private readonly modelListeners = new Set<Listener>()
     constructor(
         public model: FakeModel | null,
         options: Record<string, unknown>
@@ -56,6 +66,11 @@ class FakeEditor {
         this.model?.listeners.delete(this.fire)
         this.model = model
         model?.listeners.add(this.fire)
+        this.modelListeners.forEach((l) => l())
+    }
+    onDidChangeModel(listener: Listener) {
+        this.modelListeners.add(listener)
+        return { dispose: () => this.modelListeners.delete(listener) }
     }
     getValue() {
         return this.model?.getValue() ?? ''
@@ -174,10 +189,10 @@ const defineMonacoDiagramTheme = vi.fn()
 
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => theme }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme }))
+const DEFAULT_EDITOR_SETTINGS = { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false }
+let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({
-        settings: { editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false } },
-    }),
+    useAppSettings: () => ({ settings: { editor: editorSettings } }),
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
@@ -209,6 +224,7 @@ beforeEach(() => {
     updateTabContent.mockReset()
     defineMonacoDiagramTheme.mockClear()
     theme = LIGHT_THEME
+    editorSettings = DEFAULT_EDITOR_SETTINGS
     tabsState = { tabs: [], activeTabId: null }
 })
 
@@ -587,9 +603,27 @@ describe('CodeEditorPanel font', () => {
 })
 
 describe('CodeEditorPanel indentation', () => {
-    it('uses the Tab size setting instead of guessing indentation from the file', async () => {
+    it('uses the Tab size setting instead of guessing the indent size from the file', async () => {
         tabsState = { tabs: [tab('/w/a.mmd', 'flowchart TD\n    A --> B')], activeTabId: '/w/a.mmd' }
         const { editor } = await mountEditor()
-        expect(editor.options).toMatchObject({ tabSize: 2, detectIndentation: false, insertSpaces: true })
+        expect(editor.options).toMatchObject({ tabSize: 2, detectIndentation: false })
+        expect(editor.options).not.toHaveProperty('insertSpaces')
+        expect(editor.getModel()!.options).toEqual({ tabSize: 2, indentSize: 2, insertSpaces: true })
+    })
+
+    it('keeps tabs in a file indented with tabs, also after switching tabs and changing Tab size', async () => {
+        const spaces = '/w/a.mmd'
+        const tabbed = '/w/b.md'
+        const open = [tab(spaces, 'flowchart TD\n    A --> B'), tab(tabbed, '- item\n\t- nested')]
+        tabsState = { tabs: open, activeTabId: spaces }
+        const { view, editor } = await mountEditor()
+
+        setTabs(view, { tabs: open, activeTabId: tabbed })
+        expect(editor.getModel()!.options).toEqual({ tabSize: 2, indentSize: 2, insertSpaces: false })
+
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, tabSize: 4 }
+        view.rerender(<Panel />)
+        expect(editor.options.tabSize).toBe(4)
+        expect(editor.getModel()!.options).toEqual({ tabSize: 4, indentSize: 4, insertSpaces: false })
     })
 })
