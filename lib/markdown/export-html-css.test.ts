@@ -68,6 +68,15 @@ describe('buildPdfExportCss', () => {
         expect(css).toMatch(/\.pdf-toc-page h1 \{[^}]*font-size: [\d.]+em;/)
     })
 
+    it('honours markdown table column alignment', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).not.toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*text-align: left;/)
+        expect(css).toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*text-align: start;/)
+        for (const align of ['left', 'center', 'right']) {
+            expect(css).toContain(`table:not(.pdf-chrome-table) td[align="${align}"] { text-align: ${align}; }`)
+        }
+    })
+
     it('justifies only top-level body paragraphs', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true

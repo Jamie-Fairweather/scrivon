@@ -251,6 +251,15 @@ SHIKI_FAIL
         expect(html).not.toContain('SFT0003')
     })
 
+    it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })
+        expect(html).toContain('<td align="left">1</td>')
+        expect(html).toContain('<td align="center">2</td>')
+        expect(html).toContain('<td align="right">3</td>')
+        expect(html).toContain('td[align="right"] { text-align: right; }')
+    })
+
     it('returns the metadata and print options that match the html', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

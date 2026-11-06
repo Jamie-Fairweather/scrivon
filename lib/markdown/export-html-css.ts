@@ -296,9 +296,16 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
   table:not(.pdf-chrome-table) td {
     padding: 0.5rem 0.75rem;
     border: 1px solid #e5e5e5;
-    text-align: left;
+    text-align: start;
     vertical-align: top;
   }
+  /* Markdown column alignment (:-: and --:) arrives as an align attribute, which any stylesheet rule would override. */
+  table:not(.pdf-chrome-table) th[align="left"],
+  table:not(.pdf-chrome-table) td[align="left"] { text-align: left; }
+  table:not(.pdf-chrome-table) th[align="center"],
+  table:not(.pdf-chrome-table) td[align="center"] { text-align: center; }
+  table:not(.pdf-chrome-table) th[align="right"],
+  table:not(.pdf-chrome-table) td[align="right"] { text-align: right; }
   table:not(.pdf-chrome-table) th { font-weight: 600; }
   .pdf-avoid-break {
     break-inside: avoid;
