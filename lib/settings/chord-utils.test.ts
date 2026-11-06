@@ -6,6 +6,7 @@ import {
     isAllowedChord,
     isComposingKeyEvent,
     isMacPlatform,
+    isWindowsPlatform,
     normalizeChord,
     physicalKeyFallback,
     typesAltGraphCharacter,
@@ -157,5 +158,30 @@ describe('isMacPlatform', () => {
 
         vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0)' })
         expect(isMacPlatform()).toBe(false)
+    })
+})
+
+describe('isWindowsPlatform', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it('returns false when navigator is unavailable', () => {
+        vi.stubGlobal('navigator', undefined)
+        expect(isWindowsPlatform()).toBe(false)
+    })
+
+    it('uses userAgentData.platform when available, else the user agent', () => {
+        vi.stubGlobal('navigator', { userAgentData: { platform: 'Windows' }, userAgent: '' })
+        expect(isWindowsPlatform()).toBe(true)
+
+        vi.stubGlobal('navigator', { userAgentData: { platform: 'Linux' }, userAgent: 'Windows' })
+        expect(isWindowsPlatform()).toBe(false)
+
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' })
+        expect(isWindowsPlatform()).toBe(true)
+
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' })
+        expect(isWindowsPlatform()).toBe(false)
     })
 })

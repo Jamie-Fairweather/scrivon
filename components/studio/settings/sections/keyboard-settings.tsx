@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { chordListsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { findKeybindConflicts } from '@/lib/settings/conflicts'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { formatChord } from '@/lib/settings/format-keybind'
+import { formatChords } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 import { KeybindCapture, KeybindDisplay } from '@/components/studio/settings/keybind-capture'
@@ -166,7 +166,7 @@ export function KeyboardSettings() {
                                                     type="button"
                                                     size="xs"
                                                     variant="outline"
-                                                    aria-label={`Reassign ${rowError.reassign.map((chord) => formatChord(chord)).join(', ')} to ${action.label}`}
+                                                    aria-label={`Reassign ${formatChords(rowError.reassign)} to ${action.label}`}
                                                     onClick={() => handleReassign(action.id, rowError.reassign ?? [])}
                                                 >
                                                     Reassign

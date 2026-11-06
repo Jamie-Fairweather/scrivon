@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { isComposingKeyEvent, isModifierKey, normalizeChord, physicalKeyFallback, typesAltGraphCharacter } from '@/lib/settings/chord-utils'
 import { describeDisallowedChord } from '@/lib/settings/conflicts'
-import { formatChord } from '@/lib/settings/format-keybind'
+import { formatChords } from '@/lib/settings/format-keybind'
 import type { KeybindChord } from '@/lib/settings/types'
 import { Button } from '@/components/ui/button'
 
@@ -102,5 +102,5 @@ export function KeybindDisplay({ chords }: { chords: KeybindChord[] }) {
         return <span className="text-sm text-muted-foreground">Not assigned</span>
     }
 
-    return <span className="font-mono text-sm text-muted-foreground">{chords.map((chord) => formatChord(chord)).join(' ')}</span>
+    return <span className="font-mono text-sm text-muted-foreground">{formatChords(chords)}</span>
 }

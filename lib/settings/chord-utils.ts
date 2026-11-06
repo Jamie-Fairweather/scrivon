@@ -167,3 +167,14 @@ export function isMacPlatform(): boolean {
 
     return /macintosh|mac os x|iphone|ipad/i.test(navigator.userAgent)
 }
+
+export function isWindowsPlatform(): boolean {
+    if (typeof navigator === 'undefined') return false
+
+    const hintsPlatform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+    if (hintsPlatform) {
+        return /windows/i.test(hintsPlatform)
+    }
+
+    return /windows/i.test(navigator.userAgent)
+}
