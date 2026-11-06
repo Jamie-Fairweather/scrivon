@@ -11,7 +11,10 @@ import { Button } from '@/components/ui/button'
 export function KeyboardSettings() {
     const { settings, setKeybindChords, resetKeybind, resetAllKeybinds } = useAppSettings()
     const [editingId, setEditingId] = useState<KeybindActionId | null>(null)
-    const [error, setError] = useState<string | null>(null)
+    // Follows editingId straight away, so a late cancel (the recorder losing focus as it goes away) is ignored.
+    const editingRef = useRef<KeybindActionId | null>(null)
+    // Shown in the row it belongs to.
+    const [error, setError] = useState<{ actionId: KeybindActionId; message: string } | null>(null)
     const editButtons = useRef(new Map<KeybindActionId, HTMLButtonElement>())
     const returnFocusTo = useRef<KeybindActionId | null>(null)
     const conflicts = useMemo(() => findKeybindConflicts(settings.keybinds), [settings.keybinds])
@@ -31,33 +34,57 @@ export function KeyboardSettings() {
         if (actionId) editButtons.current.get(actionId)?.focus()
     }, [editingId])
 
-    const stopRecording = (actionId: KeybindActionId) => {
-        returnFocusTo.current = actionId
+    const showError = (actionId: KeybindActionId, message: string | null) => {
+        setError(message ? { actionId, message } : null)
+    }
+
+    const startRecording = (actionId: KeybindActionId) => {
+        setError(null)
+        editingRef.current = actionId
+        setEditingId(actionId)
+    }
+
+    const stopRecording = (actionId: KeybindActionId, refocus = true) => {
+        editingRef.current = null
+        returnFocusTo.current = refocus ? actionId : null
         setEditingId(null)
     }
 
     const handleCapture = (actionId: KeybindActionId, chord: KeybindChord | null) => {
+        if (editingRef.current !== actionId) return
         // Stop recording even when the chord is refused, so the next key (often Tab) is never recorded by mistake.
-        setError(chord ? setKeybindChords(actionId, [chord]) : null)
+        showError(actionId, chord ? setKeybindChords(actionId, [chord]) : null)
         stopRecording(actionId)
+    }
+
+    const handleCancel = (actionId: KeybindActionId, refocus: boolean) => {
+        if (editingRef.current !== actionId) return
+        setError(null)
+        stopRecording(actionId, refocus)
     }
 
     const handleClear = (actionId: KeybindActionId) => {
         setError(null)
         setKeybindChords(actionId, [])
+        editingRef.current = null
         setEditingId(null)
+        // The Clear button goes away, so keep focus in this row.
+        editButtons.current.get(actionId)?.focus()
+    }
+
+    const handleResetAll = () => {
+        setError(null)
+        resetAllKeybinds()
     }
 
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
                 <p className="text-sm text-muted-foreground">Click Edit to rebind a shortcut. Press Esc or Tab to cancel recording.</p>
-                <Button type="button" variant="outline" size="sm" onClick={resetAllKeybinds}>
+                <Button type="button" variant="outline" size="sm" onClick={handleResetAll}>
                     Reset all
                 </Button>
             </div>
-
-            {error ? <p className="text-sm text-destructive-foreground">{error}</p> : null}
 
             <div className="divide-y divide-border rounded-lg border border-border">
                 {KEYBIND_ACTIONS.map((action) => {
@@ -75,18 +102,21 @@ export function KeyboardSettings() {
                                         Same shortcut as {clashes.join(', ')}. Only one of them will run.
                                     </p>
                                 ) : null}
+                                {error?.actionId === action.id ? (
+                                    <p role="alert" className="text-xs text-destructive-foreground">
+                                        {error.message}
+                                    </p>
+                                ) : null}
                             </div>
 
                             <div className="flex items-center gap-2">
                                 {isEditing ? (
                                     <KeybindCapture
                                         active
+                                        label={action.label}
                                         onCapture={(chord) => handleCapture(action.id, chord)}
-                                        onCancel={() => {
-                                            setError(null)
-                                            stopRecording(action.id)
-                                        }}
-                                        onReject={setError}
+                                        onCancel={(refocus) => handleCancel(action.id, refocus)}
+                                        onReject={(message) => showError(action.id, message)}
                                     />
                                 ) : (
                                     <KeybindDisplay chords={chords} />
@@ -102,16 +132,29 @@ export function KeyboardSettings() {
                                             type="button"
                                             size="sm"
                                             variant="ghost"
-                                            onClick={() => setEditingId(action.id)}
+                                            aria-label={`Edit shortcut for ${action.label}`}
+                                            onClick={() => startRecording(action.id)}
                                         >
                                             Edit
                                         </Button>
                                         {chords.length > 0 ? (
-                                            <Button type="button" size="sm" variant="ghost" onClick={() => handleClear(action.id)}>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="ghost"
+                                                aria-label={`Clear shortcut for ${action.label}`}
+                                                onClick={() => handleClear(action.id)}
+                                            >
                                                 Clear
                                             </Button>
                                         ) : null}
-                                        <Button type="button" size="sm" variant="ghost" onClick={() => setError(resetKeybind(action.id))}>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            aria-label={`Reset ${action.label} to default`}
+                                            onClick={() => showError(action.id, resetKeybind(action.id))}
+                                        >
                                             Reset
                                         </Button>
                                     </>

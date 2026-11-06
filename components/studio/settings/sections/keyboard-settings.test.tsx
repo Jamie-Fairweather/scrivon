@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
@@ -41,7 +41,7 @@ describe('KeyboardSettings recording', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')
 
-        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
         press('b', { ctrlKey: true })
 
         expect(screen.getByText('Already assigned to Toggle explorer')).toBeInTheDocument()
@@ -50,27 +50,27 @@ describe('KeyboardSettings recording', () => {
         press('Tab')
 
         expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
-        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: 'Edit' }))
+        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
     })
 
     it('treats Tab as cancel and returns focus to the Edit button', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')
 
-        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
         expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
         press('Tab')
 
         expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
         expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
-        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: 'Edit' }))
+        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
     })
 
     it('refuses a plain letter and keeps recording until a usable chord is pressed', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')
 
-        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
         press('e')
 
         expect(screen.getByText('Add Ctrl or Alt, or use a function key')).toBeInTheDocument()
@@ -87,11 +87,11 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
         const explorer = row('Toggle explorer')
 
-        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
         press('е', { ctrlKey: true, altKey: true, code: 'KeyT' })
         expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
 
-        fireEvent.click(within(explorer).getByRole('button', { name: 'Edit' }))
+        fireEvent.click(within(explorer).getByRole('button', { name: /^Edit shortcut/ }))
         press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' })
         expect(within(explorer).getByText('Ctrl+Shift+1')).toBeInTheDocument()
     })
@@ -109,12 +109,68 @@ describe('KeyboardSettings recording', () => {
     it('shows why Reset did nothing when the default is taken', () => {
         renderKeyboardSettings()
 
-        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: 'Clear' }))
-        fireEvent.click(within(row('Toggle explorer')).getByRole('button', { name: 'Edit' }))
+        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: /^Clear shortcut/ }))
+        fireEvent.click(within(row('Toggle explorer')).getByRole('button', { name: /^Edit shortcut/ }))
         press('e', { ctrlKey: true })
-        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: 'Reset' }))
+        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: /^Reset .* to default$/ }))
 
         expect(screen.getByText('Ctrl+E is already assigned to Toggle explorer')).toBeInTheDocument()
         expect(within(row('Toggle editor')).getByText('Not assigned')).toBeInTheDocument()
+    })
+
+    it('names each row button after its action', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        expect(within(editor).getByRole('button', { name: 'Edit shortcut for Toggle editor' })).toBeInTheDocument()
+        expect(within(editor).getByRole('button', { name: 'Clear shortcut for Toggle editor' })).toBeInTheDocument()
+        expect(within(editor).getByRole('button', { name: 'Reset Toggle editor to default' })).toBeInTheDocument()
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        expect(within(editor).getByRole('button', { name: 'Press shortcut… for Toggle editor. Esc cancels.' })).toBeInTheDocument()
+    })
+
+    it('announces a refused shortcut in its own row and clears it when another row is edited', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        press('b', { ctrlKey: true })
+
+        expect(within(editor).getByRole('alert')).toHaveTextContent('Already assigned to Toggle explorer')
+
+        fireEvent.click(within(row('Fit diagram to screen')).getByRole('button', { name: /^Edit shortcut/ }))
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('stops recording from the Cancel button or a click on the recorder', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+        const edit = () => within(editor).getByRole('button', { name: /^Edit shortcut/ })
+
+        fireEvent.click(edit())
+        fireEvent.click(within(editor).getByRole('button', { name: 'Cancel' }))
+        expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
+        expect(document.activeElement).toBe(edit())
+
+        fireEvent.click(edit())
+        fireEvent.click(within(editor).getByRole('button', { name: /^Press shortcut/ }))
+        expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
+        expect(document.activeElement).toBe(edit())
+    })
+
+    it('stops recording when focus moves away, and leaves focus where it went', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+        const resetAll = screen.getByRole('button', { name: 'Reset all' })
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        act(() => resetAll.focus())
+
+        expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
+        expect(document.activeElement).toBe(resetAll)
+
+        press('k', { ctrlKey: true, altKey: true })
+        expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
     })
 })

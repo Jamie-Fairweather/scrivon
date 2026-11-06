@@ -9,13 +9,19 @@ import { Button } from '@/components/ui/button'
 
 type KeybindCaptureProps = {
     active: boolean
+    /** The action being recorded, for screen readers. */
+    label: string
     onCapture: (chord: KeybindChord | null) => void
-    onCancel: () => void
+    /**
+     * Called on Esc, Tab, or a click on the recorder or Cancel (refocus true), and when focus moves
+     * somewhere else (refocus false, so focus stays where the user put it).
+     */
+    onCancel: (refocus: boolean) => void
     /** Called with a short reason when the pressed chord can't be a shortcut; recording carries on. */
     onReject: (message: string) => void
 }
 
-export function KeybindCapture({ active, onCapture, onCancel, onReject }: KeybindCaptureProps) {
+export function KeybindCapture({ active, label, onCapture, onCancel, onReject }: KeybindCaptureProps) {
     const buttonRef = useRef<HTMLButtonElement>(null)
 
     useEffect(() => {
@@ -33,7 +39,7 @@ export function KeybindCapture({ active, onCapture, onCancel, onReject }: Keybin
             // Esc, and plain Tab / Shift+Tab (the usual way to move on), stop recording instead of being recorded.
             const isPlainTab = event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey
             if (event.key === 'Escape' || isPlainTab) {
-                onCancel()
+                onCancel(true)
                 return
             }
 
@@ -63,10 +69,25 @@ export function KeybindCapture({ active, onCapture, onCancel, onReject }: Keybin
 
     if (!active) return null
 
+    // Keys are read from the window, so the recorder only holds focus; clicking it or moving away cancels.
     return (
-        <Button ref={buttonRef} type="button" size="sm" variant="outline" className="min-w-36 animate-pulse">
-            Press shortcut…
-        </Button>
+        <>
+            <Button
+                ref={buttonRef}
+                type="button"
+                size="sm"
+                variant="outline"
+                className="min-w-36 motion-safe:animate-pulse"
+                onClick={() => onCancel(true)}
+                onBlur={() => onCancel(false)}
+            >
+                Press shortcut…<span className="sr-only"> for {label}. Esc cancels.</span>
+            </Button>
+            {/* Keeps focus on the recorder when pressed, so the click cancels and focus goes back to Edit. */}
+            <Button type="button" size="sm" variant="ghost" onMouseDown={(event) => event.preventDefault()} onClick={() => onCancel(true)}>
+                Cancel
+            </Button>
+        </>
     )
 }
 
