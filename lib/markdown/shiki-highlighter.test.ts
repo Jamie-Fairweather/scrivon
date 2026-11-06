@@ -111,6 +111,30 @@ describe('shiki highlighter', () => {
             expect(highlightFencedCodeNow('x'.repeat(4_001), 'text', 'github-dark')).toBeNull()
         })
 
+        it('stops highlighting on the spot once a frame’s time is used up, until the next frame', async () => {
+            const { highlightFencedCode, highlightFencedCodeNow } = await load()
+            await highlightFencedCode('x', 'text', 'github-dark')
+            const highlighter = await createHighlighter.mock.results[0]!.value
+            // Each block takes 5 ms; a frame has 8 ms for them all.
+            let clock = 0
+            const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+            highlighter.codeToHtml.mockImplementation((code: string) => {
+                clock += 5
+                return `<pre>${code}</pre>`
+            })
+
+            try {
+                expect(highlightFencedCodeNow('a', 'text', 'github-dark')).toBe('<pre>a</pre>')
+                expect(highlightFencedCodeNow('b', 'text', 'github-dark')).toBe('<pre>b</pre>')
+                expect(highlightFencedCodeNow('c', 'text', 'github-dark')).toBeNull()
+
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                expect(highlightFencedCodeNow('c', 'text', 'github-dark')).toBe('<pre>c</pre>')
+            } finally {
+                now.mockRestore()
+            }
+        })
+
         it('loads a palette’s code theme the first time a block needs it', async () => {
             const { highlightFencedCode, highlightFencedCodeNow } = await load()
             await highlightFencedCode('x', 'text', 'github-dark')

@@ -49,6 +49,27 @@ export function previewCodeTheme(themeId: AppThemeId, isLight: boolean): Bundled
  */
 const MAX_HIGHLIGHT_NOW_CHARS = 4_000
 
+/**
+ * Time {@link highlightFencedCodeNow} may take in one frame, across every block. Typing in a block stays well
+ * inside it, but a document with dozens of blocks opening, or every block redrawing for a new theme, would hold
+ * up the frame; past the budget, blocks get their colours a moment later instead.
+ */
+const HIGHLIGHT_NOW_BUDGET_MS = 8
+let highlightNowSpentMs = 0
+let highlightBudgetResetPending = false
+
+function spendHighlightBudget(ms: number): void {
+    highlightNowSpentMs += ms
+    if (highlightBudgetResetPending) return
+    highlightBudgetResetPending = true
+    const reset = () => {
+        highlightNowSpentMs = 0
+        highlightBudgetResetPending = false
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(reset)
+    else setTimeout(reset, 0)
+}
+
 let highlighterPromise: Promise<Highlighter> | null = null
 /** The highlighter once it has started, for highlighting without waiting. */
 let readyHighlighter: Highlighter | null = null
@@ -114,18 +135,21 @@ export async function highlightFencedCode(code: string, language: string | undef
 
 /**
  * The HTML {@link highlightFencedCode} would give, without waiting, or null when it can't be had straight away:
- * Shiki hasn't started, the block's grammar or theme isn't loaded yet, or the block is too long to highlight per
- * keystroke.
+ * Shiki hasn't started, the block's grammar or theme isn't loaded yet, the block is too long to highlight per
+ * keystroke, or this frame's highlighting time is used up.
  */
 export function highlightFencedCodeNow(code: string, language: string | undefined, theme: BundledTheme): string | null {
     const highlighter = readyHighlighter
-    if (!highlighter || code.length > MAX_HIGHLIGHT_NOW_CHARS) return null
+    if (!highlighter || code.length > MAX_HIGHLIGHT_NOW_CHARS || highlightNowSpentMs >= HIGHLIGHT_NOW_BUDGET_MS) return null
     const lang = loadedLanguage(highlighter, normalizeLanguage(language))
     if (!lang || !highlighter.getLoadedThemes().includes(theme)) return null
+    const started = performance.now()
     try {
         return highlighter.codeToHtml(code.replace(/\n$/, ''), { lang, theme })
     } catch {
         return null
+    } finally {
+        spendHighlightBudget(performance.now() - started)
     }
 }
 
