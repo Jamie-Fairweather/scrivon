@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { readTextFile } from '@tauri-apps/plugin-fs'
+import { readFile } from '@tauri-apps/plugin-fs'
+import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
@@ -18,6 +19,12 @@ vi.mock('@/lib/tauri/dialog', async (importOriginal) => {
         confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
     }
 })
+
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
+    notifyWarning: vi.fn(() => 'toast'),
+    dismissNotification: vi.fn(),
+}))
 
 type WrapperOptions = {
     initial?: { tabs: DocumentTab[]; activeTabId: string | null }
@@ -254,7 +261,7 @@ describe('DocumentTabsProvider', () => {
 
     it('reads file content when running inside Tauri', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce('graph TD\n  A --> B')
+        vi.mocked(readFile).mockResolvedValueOnce(new TextEncoder().encode('graph TD\n  A --> B'))
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper({ workspaceRoot: '/ws' }),
@@ -267,6 +274,51 @@ describe('DocumentTabsProvider', () => {
         await waitFor(() => {
             expect(result.current.tabs[0]?.content).toBe('graph TD\n  A --> B')
         })
+    })
+
+    it('opens a file that is not UTF-8 read-only, says why, and lets the user edit it as UTF-8', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        // "Café" saved by old Notepad as ANSI (Windows-1252): not valid UTF-8.
+        vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await result.current.openFile('/ws/old.md')
+        })
+
+        expect(result.current.tabs[0]).toMatchObject({ content: 'Café', readOnly: true, encodingIssue: 'legacy-encoding' })
+        expect(notifyWarning).toHaveBeenCalledWith('old.md is read-only', {
+            id: 'read-only:/ws/old.md',
+            description: "It isn't saved as UTF-8, so it's shown as Windows-1252 and left as it is. If you edit it, it will be saved as UTF-8.",
+            timeout: 0,
+            action: { label: 'Edit as UTF-8', onClick: expect.any(Function) },
+        })
+
+        // Typing is ignored while it is read-only, so nothing can be saved over the original bytes.
+        act(() => result.current.updateTabContent('/ws/old.md', 'changed'))
+        expect(result.current.tabs[0]?.content).toBe('Café')
+
+        const options = vi.mocked(notifyWarning).mock.calls[0]![1] as NotifyOptions
+        act(() => options.action!.onClick())
+        expect(dismissNotification).toHaveBeenCalledWith('read-only:/ws/old.md')
+        expect(result.current.tabs[0]).toMatchObject({ readOnly: false, encodingIssue: undefined, format: { encoding: 'utf-8', bom: false } })
+
+        act(() => result.current.updateTabContent('/ws/old.md', 'Café!'))
+        expect(result.current.tabs[0]).toMatchObject({ content: 'Café!', isDirty: true })
+    })
+
+    it('keeps the encoding of a UTF-16 file on its tab', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0xff, 0xfe, 0x41, 0x00]))
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await result.current.openFile('/ws/ps.md')
+        })
+
+        expect(result.current.tabs[0]).toMatchObject({ content: 'A', format: { encoding: 'utf-16le', bom: true } })
+        expect(result.current.tabs[0]?.readOnly).toBeUndefined()
+        expect(notifyWarning).not.toHaveBeenCalled()
     })
 
     it('focuses an already-open workspace file', async () => {
@@ -311,7 +363,7 @@ describe('DocumentTabsProvider', () => {
 
     it('shows an error when opening a file fails', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockRejectedValueOnce(new Error('Permission denied'))
+        vi.mocked(readFile).mockRejectedValueOnce(new Error('Permission denied'))
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper(),
@@ -369,7 +421,7 @@ describe('DocumentTabsProvider', () => {
 
     it('does not track recent files when opening a new file without a workspace root', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce('content')
+        vi.mocked(readFile).mockResolvedValueOnce(new TextEncoder().encode('content'))
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper(),
@@ -757,7 +809,7 @@ describe('DocumentTabsProvider', () => {
 
     it('shows a generic error when opening a file fails with a non-Error value', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockRejectedValueOnce('Permission denied')
+        vi.mocked(readFile).mockRejectedValueOnce('Permission denied')
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper(),

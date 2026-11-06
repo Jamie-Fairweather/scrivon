@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { writeFile } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
@@ -61,11 +61,11 @@ function useHarness() {
 function deferWrites() {
     const disk = new Map<string, string>()
     const pending: Array<() => void> = []
-    vi.mocked(writeTextFile).mockImplementation(
-        (path, content) =>
+    vi.mocked(writeFile).mockImplementation(
+        (path, data) =>
             new Promise<void>((resolve) => {
                 pending.push(() => {
-                    disk.set(String(path), content)
+                    disk.set(String(path), new TextDecoder().decode(data as Uint8Array))
                     resolve()
                 })
             })
@@ -141,13 +141,28 @@ describe('DocumentSaveProvider', () => {
         await writes.finishNext()
         await expect(flushAll).resolves.toBe(true)
 
-        expect(vi.mocked(writeTextFile).mock.calls.map((call) => call[1])).toEqual(['v1', 'v2'])
+        expect(vi.mocked(writeFile).mock.calls.map((call) => new TextDecoder().decode(call[1] as Uint8Array))).toEqual(['v1', 'v2'])
         expect(writes.disk.get('/ws/a.mmd')).toBe('v2')
         expect(result.current.tabs.tabs[0]?.isDirty).toBe(false)
     })
 
+    it('saves a UTF-16 file as UTF-16 with its byte-order mark', async () => {
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        const { result } = renderHook(useHarness, {
+            wrapper: createWrapper([tab('/ws/ps.md', { content: 'A', format: { encoding: 'utf-16le', bom: true } })]),
+        })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        act(() => result.current.tabs.updateTabContent('/ws/ps.md', 'é'))
+        await act(async () => {
+            await result.current.save.flushSave('/ws/ps.md')
+        })
+
+        expect(writeFile).toHaveBeenCalledWith('/ws/ps.md', new Uint8Array([0xff, 0xfe, 0xe9, 0x00]))
+    })
+
     it('keeps the real error text when a save fails', async () => {
-        vi.mocked(writeTextFile).mockRejectedValueOnce('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValueOnce('Access is denied. (os error 5)')
         const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
         await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
 
@@ -169,7 +184,7 @@ describe('save error notices', () => {
     })
 
     async function failingTab() {
-        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
         const rendered = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
         await waitFor(() => expect(rendered.result.current.tabs.tabs).toHaveLength(1))
         const save = async () => {
@@ -194,7 +209,7 @@ describe('save error notices', () => {
             action: { label: 'Try Again', onClick: expect.any(Function) },
         })
 
-        vi.mocked(writeTextFile).mockResolvedValue(undefined)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
         await save()
         expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
     })
@@ -219,7 +234,7 @@ describe('save error notices', () => {
 
         await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(2))
         expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
-        expect(writeTextFile).toHaveBeenCalledTimes(2)
+        expect(writeFile).toHaveBeenCalledTimes(2)
     })
 
     it('clears the notice when the tab is closed without saving', async () => {

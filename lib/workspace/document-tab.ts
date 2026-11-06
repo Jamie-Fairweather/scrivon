@@ -1,4 +1,5 @@
 import { getBaseName, normalizePath } from '@/lib/tauri/fs'
+import type { DecodedText } from '@/lib/workspace/text-encoding'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 export function tabFromPath(path: string, content: string): DocumentTab {
@@ -11,4 +12,14 @@ export function tabFromPath(path: string, content: string): DocumentTab {
         isDirty: false,
         isSaving: false,
     }
+}
+
+/** A tab for a file just read from disk. Text that couldn't be read safely opens read-only, so a save can't damage it. */
+export function tabFromFile(path: string, file: DecodedText): DocumentTab {
+    const tab: DocumentTab = { ...tabFromPath(path, file.content), format: file.format }
+    if (file.issue) {
+        tab.readOnly = true
+        tab.encodingIssue = file.issue
+    }
+    return tab
 }

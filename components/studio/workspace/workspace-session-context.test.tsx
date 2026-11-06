@@ -236,6 +236,19 @@ describe('WorkspaceSessionProvider on Windows paths', () => {
         expect(result.current.session.workspaceRoot).toBe('C:\\ws')
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\sub\\a.mmd')
     })
+
+    it('reopens a saved tab for a file that is not UTF-8 as read-only, and says why', async () => {
+        vi.mocked(getWorkspaceTabSession).mockResolvedValueOnce({ tabIds: ['C:\\ws\\sub\\a.mmd'], activeTabId: 'C:\\ws\\sub\\a.mmd' })
+        vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'Café', readOnly: true }))
+        expect(notifyWarning).toHaveBeenCalledWith('a.mmd is read-only', expect.objectContaining({ id: 'read-only:C:\\ws\\sub\\a.mmd' }))
+    })
 })
 
 describe('leaving a folder with unsaved edits', () => {
@@ -263,7 +276,7 @@ describe('leaving a folder with unsaved edits', () => {
     it('keeps the folder and its edits open when saving fails and the user cancels', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openAndEdit(result)
-        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
 
         await act(async () => {
             await result.current.session.closeWorkspace()
@@ -281,7 +294,7 @@ describe('leaving a folder with unsaved edits', () => {
     it('closes the folder without saving only when the user chooses to', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openAndEdit(result)
-        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
         vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
 
         await act(async () => {
@@ -321,7 +334,7 @@ describe('leaving a folder with unsaved edits', () => {
             await result.current.session.closeWorkspace()
         })
         expect(result.current.session.workspaceRoot).toBeNull()
-        expect(writeTextFile).not.toHaveBeenCalled()
+        expect(writeFile).not.toHaveBeenCalled()
         expect(await disk.read('C:\\ws\\a.mmd')).toBe('graph TD')
     })
 })

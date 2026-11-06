@@ -1,5 +1,6 @@
-import { readDir, readFile, readTextFile, writeFile, writeTextFile, mkdir, rename, remove, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
+import { readDir, readFile, writeFile, writeTextFile, mkdir, rename, remove, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
+import { decodeText, DEFAULT_TEXT_FORMAT, encodeText, type DecodedText, type TextFileFormat } from '@/lib/workspace/text-encoding'
 import type { FileNode } from '@/lib/workspace/types'
 
 /** Thrown instead of replacing a file or folder that is already there. */
@@ -74,9 +75,14 @@ export async function listWorkspaceTree(rootPath: string): Promise<FileNode[]> {
     return readDirTree(normalizePath(rootPath))
 }
 
+/** Reads a file as text, noting how it is stored (UTF-8 or UTF-16, with or without a mark) so a save can keep it that way. */
+export async function readWorkspaceTextFile(path: string): Promise<DecodedText> {
+    if (!isTauri()) return { content: '', format: DEFAULT_TEXT_FORMAT }
+    return decodeText(await readFile(path))
+}
+
 export async function readWorkspaceFile(path: string): Promise<string> {
-    if (!isTauri()) return ''
-    return readTextFile(path)
+    return (await readWorkspaceTextFile(path)).content
 }
 
 export async function getWorkspaceFileSize(path: string): Promise<number | null> {
@@ -89,9 +95,10 @@ export async function getWorkspaceFileSize(path: string): Promise<number | null>
     }
 }
 
-export async function writeWorkspaceFile(path: string, content: string): Promise<void> {
+/** Saves text in the file's own encoding (`format`, from readWorkspaceTextFile), UTF-8 when left out. */
+export async function writeWorkspaceFile(path: string, content: string, format: TextFileFormat = DEFAULT_TEXT_FORMAT): Promise<void> {
     if (!isTauri()) return
-    await writeTextFile(path, content)
+    await writeFile(path, encodeText(content, format))
 }
 
 /** Creates a new folder. Throws PathExistsError if something with that name is already there. */

@@ -56,6 +56,7 @@ import {
     listWorkspaceTree,
     PathExistsError,
     readWorkspaceFile,
+    readWorkspaceTextFile,
     removeWorkspacePath,
     renameWorkspacePath,
     writeWorkspaceFile,
@@ -69,13 +70,36 @@ describe('workspace fs (Tauri)', () => {
     })
 
     it('reads workspace files through Tauri', async () => {
-        readTextFileMock.mockResolvedValue('graph TD\n  A --> B')
+        readFileMock.mockResolvedValue(new TextEncoder().encode('graph TD\n  A --> B'))
         await expect(readWorkspaceFile('/ws/diagram.mmd')).resolves.toBe('graph TD\n  A --> B')
+        expect(readFileMock).toHaveBeenCalledWith('/ws/diagram.mmd')
     })
 
-    it('writes workspace files through Tauri', async () => {
-        await writeWorkspaceFile('/ws/diagram.mmd', 'updated')
-        expect(writeTextFileMock).toHaveBeenCalledWith('/ws/diagram.mmd', 'updated')
+    it('writes workspace files through Tauri as UTF-8 by default', async () => {
+        await writeWorkspaceFile('/ws/diagram.mmd', 'updated é')
+        expect(writeFileMock).toHaveBeenCalledWith('/ws/diagram.mmd', new TextEncoder().encode('updated é'))
+    })
+
+    it('saves a UTF-16 file with a byte-order mark the way it was read', async () => {
+        // "# Café" as Windows PowerShell 5.1 writes it.
+        const original = new Uint8Array([0xff, 0xfe, 0x23, 0x00, 0x20, 0x00, 0x43, 0x00, 0x61, 0x00, 0x66, 0x00, 0xe9, 0x00])
+        readFileMock.mockResolvedValue(original)
+        const file = await readWorkspaceTextFile('C:\\ws\\notes.md')
+        expect(file).toEqual({ content: '# Café', format: { encoding: 'utf-16le', bom: true } })
+
+        await writeWorkspaceFile('C:\\ws\\notes.md', file.content, file.format)
+        expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\notes.md', original)
+    })
+
+    it('keeps the byte-order mark of a UTF-8 file and flags an ANSI file', async () => {
+        const withMark = new Uint8Array([0xef, 0xbb, 0xbf, 0x41])
+        readFileMock.mockResolvedValueOnce(withMark)
+        const file = await readWorkspaceTextFile('/ws/a.md')
+        await writeWorkspaceFile('/ws/a.md', file.content, file.format)
+        expect(writeFileMock).toHaveBeenCalledWith('/ws/a.md', withMark)
+
+        readFileMock.mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+        await expect(readWorkspaceTextFile('/ws/ansi.md')).resolves.toMatchObject({ content: 'Café', issue: 'legacy-encoding' })
     })
 
     it('creates directories and files without replacing anything', async () => {

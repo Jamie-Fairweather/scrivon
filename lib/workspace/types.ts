@@ -1,3 +1,5 @@
+import type { TextDecodeIssue, TextFileFormat } from '@/lib/workspace/text-encoding'
+
 export type FileNode =
     | {
           kind: 'directory'
@@ -22,6 +24,10 @@ export type DocumentTab = {
     isSaving: boolean
     saveError?: string
     readOnly?: boolean
+    /** How the file is stored on disk, so saving keeps its encoding and byte-order mark. UTF-8 when unset. */
+    format?: TextFileFormat
+    /** Set when the file couldn't be read safely as text, so the tab is read-only to protect it. */
+    encodingIssue?: TextDecodeIssue
 }
 
 export type StudioLayoutState = {

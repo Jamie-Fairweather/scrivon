@@ -73,7 +73,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             }
 
             try {
-                await writeWorkspaceFile(tab.path, content)
+                await writeWorkspaceFile(tab.path, content, tab.format)
                 if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
                 // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
                 setTabs((prev) =>

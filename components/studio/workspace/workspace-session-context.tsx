@@ -14,7 +14,7 @@ import {
     listFolderNames,
     listWorkspaceTree,
     normalizePath,
-    readWorkspaceFile,
+    readWorkspaceTextFile,
     removeWorkspacePath,
     renameWorkspacePath,
     samePath,
@@ -22,7 +22,7 @@ import {
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
-import { tabFromPath } from '@/lib/workspace/document-tab'
+import { tabFromFile } from '@/lib/workspace/document-tab'
 import { notifyError, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
@@ -134,8 +134,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     await Promise.all(
                         sessionPaths.map(async (filePath) => {
                             try {
-                                const content = await readWorkspaceFile(filePath)
-                                return tabFromPath(filePath, content)
+                                return tabFromFile(filePath, await readWorkspaceTextFile(filePath))
                             } catch {
                                 return null
                             }
