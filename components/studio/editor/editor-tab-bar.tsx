@@ -10,6 +10,8 @@ import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
+import { IconTooltip } from '@/components/ui/icon-tooltip'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 type EditorTabBarProps = {
@@ -112,69 +114,75 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     )
 
     return (
-        <div
-            data-slot="editor-tab-bar"
-            className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)}
-            style={style}
-        >
-            <LayoutToggleButtons />
+        // Once one toolbar tooltip has shown, moving to the next button shows its tooltip straight away.
+        <TooltipProvider delay={400}>
             <div
-                ref={stripRef}
-                role="tablist"
-                aria-label="Open documents"
-                className="flex min-w-0 flex-1 [scrollbar-width:none] items-stretch overflow-x-auto"
-                onKeyDown={onTabListKeyDown}
+                data-slot="editor-tab-bar"
+                className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)}
+                style={style}
             >
-                {tabs.map((tab) => {
-                    const isActive = tab.id === activeTabId
-                    const status = tabStatusText(tab)
-                    return (
-                        <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
-                            <div
-                                role="presentation"
-                                className={cn(
-                                    // Tabs keep a readable width; when they don't all fit, the strip scrolls.
-                                    'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
-                                    isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
-                                )}
-                            >
-                                <button
-                                    ref={(el) => {
-                                        if (el) tabRefs.current.set(tab.id, el)
-                                        else tabRefs.current.delete(tab.id)
-                                    }}
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={isActive}
-                                    tabIndex={tab.id === focusableTabId ? 0 : -1}
-                                    className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
-                                    onClick={() => void setActiveTab(tab.id)}
-                                    title={tab.saveError ? `Save failed: ${tab.saveError}` : tab.path}
-                                >
-                                    {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
-                                    {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive" aria-hidden />}
-                                    <span className="truncate">{tab.name}</span>
-                                    {status && <span className="sr-only">, {status}</span>}
-                                </button>
-                                <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
-                            </div>
-                        </EditorTabRowContextMenu>
-                    )
-                })}
-            </div>
-            <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
-                <DocumentExportMenu />
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Fit diagram to screen"
-                    title={markdownNeedsExpand ? 'Expand a Mermaid block to fit' : 'Fit diagram to screen'}
-                    disabled={fitDisabled}
-                    onClick={fitToView}
+                <LayoutToggleButtons />
+                <div
+                    ref={stripRef}
+                    role="tablist"
+                    aria-label="Open documents"
+                    className="flex min-w-0 flex-1 [scrollbar-width:none] items-stretch overflow-x-auto"
+                    onKeyDown={onTabListKeyDown}
                 >
-                    <Focus className="size-4" />
-                </Button>
+                    {tabs.map((tab) => {
+                        const isActive = tab.id === activeTabId
+                        const status = tabStatusText(tab)
+                        return (
+                            <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
+                                <div
+                                    role="presentation"
+                                    className={cn(
+                                        // Tabs keep a readable width; when they don't all fit, the strip scrolls.
+                                        'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
+                                        isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
+                                    )}
+                                >
+                                    <button
+                                        ref={(el) => {
+                                            if (el) tabRefs.current.set(tab.id, el)
+                                            else tabRefs.current.delete(tab.id)
+                                        }}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={isActive}
+                                        tabIndex={tab.id === focusableTabId ? 0 : -1}
+                                        className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
+                                        onClick={() => void setActiveTab(tab.id)}
+                                        title={tab.saveError ? `Save failed: ${tab.saveError}` : tab.path}
+                                    >
+                                        {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
+                                        {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive" aria-hidden />}
+                                        <span className="truncate">{tab.name}</span>
+                                        {status && <span className="sr-only">, {status}</span>}
+                                    </button>
+                                    <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
+                                </div>
+                            </EditorTabRowContextMenu>
+                        )
+                    })}
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
+                    <DocumentExportMenu />
+                    {/* aria-disabled rather than disabled, so it can still be focused or hovered to say why. */}
+                    <IconTooltip label={markdownNeedsExpand ? 'Expand a Mermaid block to fit' : 'Fit diagram to screen'}>
+                        <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Fit diagram to screen"
+                            aria-disabled={fitDisabled || undefined}
+                            className="aria-disabled:cursor-default aria-disabled:opacity-64 aria-disabled:hover:bg-transparent"
+                            onClick={fitDisabled ? undefined : fitToView}
+                        >
+                            <Focus className="size-4" />
+                        </Button>
+                    </IconTooltip>
+                </div>
             </div>
-        </div>
+        </TooltipProvider>
     )
 }

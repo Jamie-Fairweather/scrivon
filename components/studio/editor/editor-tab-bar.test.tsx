@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, act } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -8,6 +8,7 @@ const setActiveTab = vi.fn(async (id: string) => {
     activeTabId = id
 })
 const closeTab = vi.fn(async () => {})
+const fitToView = vi.fn()
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
@@ -21,7 +22,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     }),
 }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
-    useCanvasControls: () => ({ canFitToView: false, fitToView: () => {} }),
+    useCanvasControls: () => ({ canFitToView: false, fitToView }),
 }))
 vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({ useMarkdownExpand: () => ({ expanded: false }) }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
@@ -36,6 +37,7 @@ function tab(path: string, extra: Partial<DocumentTab> = {}): DocumentTab {
 beforeEach(() => {
     setActiveTab.mockClear()
     closeTab.mockClear()
+    fitToView.mockClear()
 })
 
 describe('EditorTabBar', () => {
@@ -122,5 +124,22 @@ describe('EditorTabBar', () => {
         const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true })
         strip.dispatchEvent(wheel)
         expect(wheel.defaultPrevented).toBe(false)
+    })
+
+    it('keeps the Fit button reachable when it cannot be used, and says why on focus', async () => {
+        tabs = [tab('/w/notes.md')]
+        activeTabId = '/w/notes.md'
+        render(<EditorTabBar />)
+
+        const fit = screen.getByRole('button', { name: 'Fit diagram to screen' })
+        expect(fit).not.toBeDisabled()
+        expect(fit).toHaveAttribute('aria-disabled', 'true')
+        expect(fit).not.toHaveAttribute('title')
+
+        fireEvent.click(fit)
+        expect(fitToView).not.toHaveBeenCalled()
+
+        act(() => fit.focus())
+        expect(await screen.findByText('Expand a Mermaid block to fit')).toBeInTheDocument()
     })
 })
