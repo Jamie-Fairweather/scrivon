@@ -6,14 +6,13 @@
 
 :root {
     --titlebar-height: 2rem;
+    /* Browser-drawn parts (native scrollbars, form controls) follow the theme; .dark switches it. */
+    color-scheme: light;
     font-size: 16px;
-    line-height: 24px;
     font-weight: 400;
 
-    color: #0f0f0f;
-    background-color: #f6f6f6;
-
-    font-synthesis: none;
+    /* Never fake bold, but let fonts without an italic face (Geist Mono, CJK/Arabic fallbacks) slant. */
+    font-synthesis: style;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -64,7 +63,7 @@
 
 @theme inline {
     --animate-skeleton: skeleton 2s -1s infinite linear;
-    --font-heading: var(--font-heading);
+    --font-heading: var(--font-sans);
     --animate-caret-blink: 1s ease-out infinite caret-blink;
     --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
     --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
@@ -201,6 +200,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --destructive-foreground: var(--color-red-400);
     --info: var(--color-blue-500);
     --info-foreground: var(--color-blue-400);
@@ -246,7 +246,25 @@
 
 @layer base {
     * {
-        @apply border-border outline-ring/50;
+        @apply border-border outline-ring;
+        /* Plain overflow boxes get thin themed scrollbars that match the ScrollArea thumbs. */
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, var(--foreground) 20%, transparent) transparent;
+    }
+    /* Hand-written buttons (tabs, tree rows, titlebar) have no focus style of their own. Draw a
+       full-strength ring inside them so scroll boxes and the window edge can't clip it.
+       Primitives that use the outline-none utility keep their own ring (utilities beat base). */
+    button:focus-visible,
+    [role='button']:focus-visible,
+    [role='tab']:focus-visible,
+    [role='treeitem']:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+    }
+    /* Links get the same full-strength ring, drawn just outside so it doesn't cross inline text. */
+    a:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
     }
     html,
     body {
@@ -267,22 +285,61 @@
     }
 }
 
+/* Windows Contrast Themes (forced colors) remove box-shadow focus rings and author
+   backgrounds, so focus, highlighted rows and switch state would all vanish.
+   System colours are kept in forced colors mode. Unlayered so it beats `outline-none`. */
+@media (forced-colors: active) {
+    /* menu-switch is the switch drawn inside a switch-style menu item (Options > Autosave). */
+    [data-slot='switch'],
+    [data-slot='menu-switch'] {
+        outline: 1px solid CanvasText;
+    }
+    [data-slot='switch-thumb'],
+    [data-slot='menu-switch-thumb'] {
+        background-color: CanvasText;
+    }
+    :focus-visible {
+        outline: 2px solid Highlight;
+    }
+    [data-slot='switch']:focus-visible {
+        outline-offset: 2px;
+    }
+    [data-highlighted],
+    [aria-current='true'],
+    [aria-current='page'],
+    [aria-pressed='true'],
+    [role='tab'][aria-selected='true'],
+    [data-slot='switch'][data-checked],
+    [data-slot='menu-switch'][data-checked] {
+        background-color: Highlight;
+        color: HighlightText;
+    }
+    [data-slot='switch'][data-checked] [data-slot='switch-thumb'],
+    [data-slot='menu-switch'][data-checked] [data-slot='menu-switch-thumb'] {
+        background-color: HighlightText;
+    }
+}
+
 /* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.
+   Every element that clips the editor should carry data-find-overflow-host, and a new clipping
+   wrapper around the editor needs it too. The two class selectors match the editor host
+   (code-editor-panel.tsx) and its row and column (studio-layout.tsx) until those carry the
+   marker; remove them once they do.
    https://github.com/microsoft/monaco-editor/issues/5137 */
-body:has(.bg-code .monaco-editor .find-widget.visible) .bg-code.overflow-hidden,
-body:has(.bg-code .monaco-editor .find-widget.visible) .flex.min-h-0.min-w-0.flex-1.overflow-hidden:has(.bg-code),
-body:has(.bg-code .monaco-editor .find-widget.visible) .flex.min-h-0.min-w-0.flex-1.flex-col.overflow-hidden:has(.bg-code) {
+[data-find-overflow-host]:has(.monaco-editor .find-widget.visible),
+.bg-code.overflow-hidden:has(.monaco-editor .find-widget.visible),
+.flex.min-h-0.min-w-0.flex-1.overflow-hidden:has(.monaco-editor .find-widget.visible) {
     overflow: visible;
 }
 
 /* Prevent workbench hover tooltips from overlapping buttons (replace-all flicker).
    https://github.com/Jamie-Fairweather/scrivon/issues/21
    https://github.com/microsoft/monaco-editor/issues/5208 */
-body:has(.bg-code .monaco-editor .find-widget.visible) .workbench-hover-container {
+body:has(.monaco-editor .find-widget.visible) .workbench-hover-container {
     pointer-events: none !important;
 }
 
-body:has(.bg-code .monaco-editor .find-widget.visible)
+body:has(.monaco-editor .find-widget.visible)
     :is(
         .workbench-hover-container,
         .workbench-hover-container .hover-row,

@@ -16,6 +16,10 @@ type AppThemeContextValue = {
 
 const AppThemeContext = createContext<AppThemeContextValue | null>(null)
 
+/**
+ * The app's only theme system: it owns the `dark` class and theme variables on <html>.
+ * Do not add next-themes. Registry components that call its useTheme() should use useAppTheme() instead.
+ */
 export function AppThemeProvider({ children }: { children: ReactNode }) {
     const { settings, setThemeId } = useAppSettings()
     const themeId = settings.theme.id
