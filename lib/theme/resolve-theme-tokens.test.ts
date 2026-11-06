@@ -17,6 +17,7 @@ describe('resolveThemeTokens', () => {
             line: expect.any(String),
             textSecondary: expect.any(String),
             textFaint: expect.any(String),
+            interactive: expect.any(String),
             mutedText: expect.any(String),
             lineNumber: expect.any(String),
         })

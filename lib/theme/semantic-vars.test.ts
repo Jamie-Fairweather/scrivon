@@ -14,6 +14,7 @@ const sampleTokens: ResolvedThemeTokens = {
     line: '#444444',
     textSecondary: '#999999',
     textFaint: '#666666',
+    interactive: '#2a2a2a',
     mutedText: '#aaaaaa',
     lineNumber: '#777777',
 }
@@ -47,6 +48,24 @@ describe('tokensToSemanticVars', () => {
         const vars = tokensToSemanticVars(sampleTokens)
 
         expect(vars['--muted-foreground']).toBe('#aaaaaa')
+    })
+
+    it('uses the stronger interactive fill for hover and selected states, and surface for large panels', () => {
+        const vars = tokensToSemanticVars(sampleTokens)
+
+        expect(vars['--muted']).toBe('#2a2a2a')
+        expect(vars['--secondary']).toBe('#2a2a2a')
+        expect(vars['--sidebar-accent']).toBe('#2a2a2a')
+        expect(vars['--card']).toBe('#222222')
+        expect(vars['--popover']).toBe('#222222')
+        expect(vars['--code-highlight']).toBe('#222222')
+    })
+
+    it.each(APP_THEME_IDS)('%s: hover and selected fills stand out from the background', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--muted'], vars['--background'])).toBeGreaterThanOrEqual(1.15)
+        expect(contrastRatio(vars['--muted-foreground'], vars['--muted'])).toBeGreaterThanOrEqual(4.5)
     })
 
     it.each(APP_THEME_IDS)('%s: text on highlighted rows reaches 4.5:1', (id) => {
