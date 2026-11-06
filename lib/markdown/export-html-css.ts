@@ -191,6 +191,20 @@ function titlePageMinHeightMm(profile: PdfExportProfile): number {
     return Math.max(100, Math.round(pageHeight - top - bottom - 40))
 }
 
+/** Rough height a header or footer bar takes up when it has no fixed height. */
+const AUTO_BAR_HEIGHT_MM = 12
+
+/** Tallest a body image can print and still fit on one page beside the header/footer bars. */
+function bodyImageMaxHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
+    const { width, height } = pdfPageSizeMm(profile)
+    const pageHeight = profile.page.orientation === 'landscape' ? width : height
+    const { top, bottom } = profile.page.marginsMm
+    const bar = (chrome: PdfExportProfile['header']) => (chrome.heightMm > 0 ? chrome.heightMm : AUTO_BAR_HEIGHT_MM) + chrome.gapMm
+    const chrome = (layout.showHeader ? bar(profile.header) : 0) + (layout.showFooter ? bar(profile.footer) : 0)
+    // A little slack for the line box the image sits in.
+    return Math.max(40, Math.floor(pageHeight - top - bottom - chrome - 6))
+}
+
 export function buildPdfExportCss(profile: PdfExportProfile): string {
     const mermaidBg = getDiagramColors(profile.content.mermaidThemeId).bg
     const accent = profile.brand.accentColor
@@ -343,6 +357,13 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     max-width: 100%;
     height: auto;
     margin: 0 auto;
+  }
+  /* Body images shrink (keeping their shape) to the text width and to what fits on one page. */
+  .pdf-body img {
+    max-width: 100%;
+    max-height: ${bodyImageMaxHeightMm(profile, layout)}mm;
+    width: auto;
+    height: auto;
   }
   .export-error {
     margin: 0 0 1rem;

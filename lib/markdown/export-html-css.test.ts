@@ -33,6 +33,22 @@ describe('buildPdfExportCss', () => {
         expect(css).toMatch(/\.export-article \{[^}]*overflow-wrap: anywhere;/)
     })
 
+    it('fits body images to the text width and to one page', () => {
+        const profile = createDefaultPdfExportProfile()
+        // A4 portrait: 297 - 10 - 10, less a little slack.
+        expect(buildPdfExportCss(profile)).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 271mm;\s*width: auto;\s*height: auto;/)
+
+        // Header and footer bars take room from the page, so the cap shrinks.
+        profile.header.enabled = true
+        profile.header.heightMm = 20
+        profile.header.gapMm = 4
+        profile.footer.pageNumbers = 'number'
+        expect(buildPdfExportCss(profile)).toContain('max-height: 235mm;')
+
+        profile.page.orientation = 'landscape'
+        expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
+    })
+
     it('justifies only top-level body paragraphs', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true
