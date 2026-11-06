@@ -90,6 +90,56 @@ function fence(lang: string, body: string): string {
     return `\`\`\`${lang}\n${body}\n\`\`\``
 }
 
+const XML_NAME = '[A-Za-z_][\\w.-]*(?::[A-Za-z_][\\w.-]*)?'
+/** One piece of markup starting at a `<`: a declaration, comment, CDATA, end tag, or start tag with quoted attributes. */
+const XML_MARKUP = new RegExp(
+    `<\\?[\\s\\S]*?\\?>|<!--[\\s\\S]*?-->|<!\\[CDATA\\[[\\s\\S]*?\\]\\]>|</(${XML_NAME})\\s*>|<(${XML_NAME})((?:\\s+${XML_NAME}\\s*=\\s*(?:"[^"<]*"|'[^'<]*'))*)\\s*(/?)>`,
+    'y'
+)
+const XML_ATTRIBUTE = new RegExp(`(${XML_NAME})\\s*=`, 'g')
+
+/**
+ * Throws unless `xml` is well-formed, as Word requires before it opens a file: only characters XML allows,
+ * no stray `&` or `<`, quoted attributes given once, tags that close in order, declared prefixes, and one root.
+ */
+function assertWellFormed(part: string, xml: string): void {
+    const problem = (what: string, at: number) => new Error(`${part}: ${what} near ${JSON.stringify(xml.slice(Math.max(0, at - 60), at + 60))}`)
+    const illegal = /[^\t\n\r -퟿-�\u{10000}-\u{10FFFF}]/u.exec(xml)
+    if (illegal) throw problem('a character XML forbids', illegal.index)
+    const entity = /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);)/i.exec(xml)
+    if (entity) throw problem('an & that starts no entity', entity.index)
+    const open: { name: string; prefixes: Set<string> }[] = []
+    let roots = 0
+    let end = 0
+    for (let at = xml.indexOf('<'); at >= 0; at = xml.indexOf('<', end)) {
+        if (open.length === 0 && xml.slice(end, at).trim()) throw problem('text outside the root element', end)
+        XML_MARKUP.lastIndex = at
+        const match = XML_MARKUP.exec(xml)
+        if (!match) throw problem('a broken tag', at)
+        end = XML_MARKUP.lastIndex
+        const [, closing, name, attributes = '', selfClosing] = match
+        if (closing) {
+            if (open.pop()?.name !== closing) throw problem(`</${closing}> closes the wrong element`, at)
+        } else if (name) {
+            if (open.length === 0) roots += 1
+            if (roots > 1) throw problem('a second root element', at)
+            const prefixes = new Set(open.at(-1)?.prefixes ?? ['xml'])
+            const names = [...attributes.matchAll(XML_ATTRIBUTE)].map((attribute) => attribute[1]!)
+            if (new Set(names).size !== names.length) throw problem('an attribute given twice', at)
+            for (const attribute of names) if (attribute.startsWith('xmlns:')) prefixes.add(attribute.slice(6))
+            for (const qualified of [name, ...names]) {
+                const prefix = qualified.includes(':') ? qualified.split(':')[0]! : null
+                if (prefix && prefix !== 'xmlns' && !prefixes.has(prefix)) throw problem(`the undeclared prefix ${prefix}`, at)
+            }
+            if (!selfClosing) open.push({ name, prefixes })
+        }
+    }
+    if (open.length > 0) throw problem(`<${open.at(-1)!.name}> never closed`, xml.length)
+    if (xml.slice(end).trim()) throw problem('text outside the root element', end)
+    if (roots !== 1) throw problem('no root element', 0)
+}
+
+/** Unzips a .docx. Every XML part is checked with {@link assertWellFormed}, so each test also checks Word can open the file. */
 function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Record<string, string> } {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const names: string[] = []
@@ -108,11 +158,17 @@ function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Reco
         names.push(name)
         if (name.endsWith('.xml') || name.endsWith('.rels')) {
             parts[name] = new TextDecoder().decode(method === 0 ? bytes : inflateRawSync(bytes))
+            assertWellFormed(name, parts[name])
             xml.push(parts[name])
         }
         offset = start + compressed
     }
     return { xml: xml.join('\n'), names, parts }
+}
+
+/** The pictures in the package, without the folder entry. */
+function mediaFiles(names: string[]): string[] {
+    return names.filter((name) => name.startsWith('word/media/') && !name.endsWith('/'))
 }
 
 /** The `<w:r>` that holds `text`, up to its `<w:t>`, so a check looks at that run's own formatting. */
@@ -267,8 +323,30 @@ describe('renderExportDocx', () => {
         notifyWarning.mockClear()
     })
 
+    it('checks every part is well-formed XML, so a file Word would refuse fails the tests', () => {
+        for (const broken of [
+            '<a><b></a>',
+            '<a>bell\u0007</a>',
+            '<a>half \ud83d pair</a>',
+            '<a>R&D</a>',
+            '<a>x < y</a>',
+            '<a x="1" x="2"/>',
+            '<a x=1/>',
+            '<w:a/>',
+            '<a/><b/>',
+            'text<a/>',
+            '<a>',
+        ]) {
+            expect(() => assertWellFormed('test.xml', broken), broken).toThrow()
+        }
+        expect(() =>
+            assertWellFormed('test.xml', '<?xml version="1.0"?>\n<w:a xmlns:w="x" w:b="&amp;&#10;"><!-- c --><w:c/>2 &gt; 1 😀</w:a>')
+        ).not.toThrow()
+    })
+
     it('writes the body: marks, links, images, lists, tables, code, diagrams, and notes', async () => {
-        const { xml, names } = await render(RICH)
+        const { xml, names, parts } = await render(RICH)
+        const body = parts['word/document.xml']!
         expect(xml).toContain('Paragraph with ')
         expect(xml).toContain('bold')
         expect(xml).toContain('https://example.com')
@@ -295,29 +373,45 @@ describe('renderExportDocx', () => {
         expect(xml).not.toContain('&lt;div&gt;')
         expect(xml).not.toContain('&lt;span&gt;')
         expect(xml).toContain('>raw</w:t>')
-        expect(xml).toContain('Segoe UI')
+        expect(runWith(body, 'Paragraph with ')).toContain('w:ascii="Segoe UI"')
         // The default mono stack starts with Mac-only fonts. Windows has neither, so Word gets Consolas.
-        expect(xml).toContain('w:ascii="Consolas"')
+        expect(runWith(body, 'const value = 1')).toContain('w:ascii="Consolas"')
         expect(xml).not.toContain('Menlo')
-        expect(xml).toContain('F6F8FA')
+        expect(blockWith(body, 'const value = 1')).toContain('w:fill="F6F8FA"')
         // Heading runs carry their own size. A body-sized run was flattening every level.
-        expect(xml).toMatch(/w:val="Heading1"[\s\S]{0,800}w:val="36"/)
-        expect(xml).toMatch(/w:val="Heading2"[\s\S]{0,800}w:val="30"/)
-        expect(xml).toMatch(/w:val="Heading3"[\s\S]{0,800}w:val="27"/)
+        expect(runWith(body, 'Alpha')).toContain('<w:sz w:val="36"/>')
+        expect(runWith(body, 'Beta')).toContain('<w:sz w:val="30"/>')
+        expect(runWith(body, 'Gamma')).toContain('<w:sz w:val="27"/>')
         // Markers hang inside the text column. left equals hanging, so the bullet sits on the content edge.
-        expect(xml).toContain('w:left="360"')
-        expect(xml).toContain('w:hanging="360"')
-        expect(xml).toContain('w:w="180"')
-        expect(xml).toContain('w:w="120"')
-        expect(xml).not.toContain('w:val="both"')
-        expect(names.some((name) => name.startsWith('word/media/'))).toBe(true)
+        expect(blockWith(body, 'bullet')).toContain('<w:ind w:left="360" w:hanging="360"/>')
+        // Table cells have the PDF's 0.5rem × 0.75rem padding.
+        expect(blockWith(body, 'a', '<w:tc>')).toContain(
+            '<w:tcMar><w:top w:type="dxa" w:w="120"/><w:left w:type="dxa" w:w="180"/><w:bottom w:type="dxa" w:w="120"/><w:right w:type="dxa" w:w="180"/></w:tcMar>'
+        )
+        expect(body).not.toContain('w:val="both"')
+        expect(mediaFiles(names).length).toBeGreaterThan(0)
         expect(svgToPngBlob).toHaveBeenCalled()
-        expect(xml).not.toContain('w:val="nextPage"')
-        expect(xml).not.toContain('w:val="both"')
+        expect(body).not.toContain('w:val="nextPage"')
         // Line height is a multiple of the font size (11pt × 1.6 = 352 twips), the same box the PDF uses.
-        expect(xml).toContain('w:lineRule="atLeast"')
-        expect(xml).toContain('w:line="352"')
-        expect(xml).toMatch(/w:val="Heading1"[\s\S]{0,250}w:line="576"/)
+        expect(blockWith(body, 'Paragraph with ')).toContain('<w:spacing w:after="120" w:line="352" w:lineRule="atLeast"/>')
+        expect(blockWith(body, 'Alpha')).toMatch(/w:line="576" w:lineRule="atLeast"/)
+    })
+
+    it('starts each ordered list at its own number, even when a paragraph splits them', async () => {
+        const { parts } = await render('1. one\n2. two\n\nBetween lists.\n\n3. three\n4. four\n\n- dot')
+        const body = parts['word/document.xml']!
+        const numbering = parts['word/numbering.xml']!
+        const numId = (text: string) => /<w:numId w:val="(\d+)"\/>/.exec(blockWith(body, text))?.[1]
+        /** The number a list's first item shows, from its w:num's start override. */
+        const start = (id: string | undefined) =>
+            new RegExp(`<w:num w:numId="${id}">[\\s\\S]*?<w:startOverride w:val="(\\d+)"/>`).exec(numbering)?.[1]
+        expect(numId('two')).toBe(numId('one'))
+        expect(numId('four')).toBe(numId('three'))
+        expect(numId('three')).not.toBe(numId('one'))
+        expect(start(numId('one'))).toBe('1')
+        // "3." keeps its number instead of carrying on from the first list or restarting at 1.
+        expect(start(numId('three'))).toBe('3')
+        expect(blockWith(body, 'Between lists.')).not.toContain('<w:numPr>')
     })
 
     it('draws diagrams at their own size, like the PDF, and fits them to the real page', async () => {
@@ -982,14 +1076,30 @@ describe('renderExportDocx', () => {
     })
 
     it('writes each page-number preset', async () => {
-        for (const format of ['none', 'number', 'n-of-total'] as const) {
-            const { xml } = await render('# Hi', (draft) => {
-                draft.frontMatter.titlePage = format === 'none'
+        /** The footer's text and fields in order: fields as {PAGE}, text as it is. */
+        const footerText = async (format: PdfExportProfile['footer']['pageNumbers'], template = '') => {
+            const { parts } = await render('# Hi', (draft) => {
                 draft.footer.enabled = true
                 draft.footer.pageNumbers = format
+                draft.footer.right.text = template
             })
-            expect(xml.length).toBeGreaterThan(0)
+            const footer = parts['word/footer1.xml']!
+            return [...footer.matchAll(/<w:instrText[^>]*>([^<]*)<\/w:instrText>|<w:t[^>]*>([^<]*)<\/w:t>/g)]
+                .map((match) => (match[1] !== undefined ? `{${match[1].trim()}}` : match[2]))
+                .join('')
         }
+        expect(await footerText('none')).toBe('')
+        expect(await footerText('number')).toBe('{PAGE}')
+        expect(await footerText('page-n')).toBe('Page {PAGE}')
+        expect(await footerText('n-of-total')).toBe('{PAGE} / {NUMPAGES}')
+        expect(await footerText('custom', 'Sheet {{page}} of {{total}}')).toBe('Sheet {PAGE} of {NUMPAGES}')
+        // A cover page without a footer still gives the body its own footer.
+        const covered = await render('# Hi', (draft) => {
+            draft.frontMatter.titlePage = true
+            draft.footer.enabled = true
+            draft.footer.pageNumbers = 'number'
+        })
+        expect(covered.parts['word/footer1.xml']).toContain('>PAGE</w:instrText>')
         const staticFooter = await render('# Hi', (draft) => {
             draft.footer.enabled = true
             draft.footer.pageNumbers = 'custom'
@@ -1156,12 +1266,25 @@ describe('renderExportDocx', () => {
             }
         )
         expect(xml).toContain('w:leader="dot"')
-        expect(xml).toContain('Alpha')
-        expect(xml).toContain('Beta')
-        expect(xml).toContain('Deep')
         expect(xml).toContain('Inside')
         expect(xml).toContain('nested')
         expect(xml).toContain('quoted')
+        // Every entry gets a number, in page order. The contents fill two pages, and the 100-line block
+        // before Alpha runs over two more. Seventy headings take about four and a half pages.
+        const pages = ['alpha', 'beta', 'section-1', 'section-70', 'deep'].map((id) => tocPage(xml, id))
+        expect(pages).toEqual([4, 9, 9, 14, 14])
+        // Pictures with a size in their header keep it; ones without get the 640×480 box; broken ones are their alt text.
+        expect(drawingSize(xml, 'pixel')).toEqual({ width: 1, height: 1 })
+        expect(drawingSize(xml, 'bmp')).toEqual({ width: 4, height: 3 })
+        expect(drawingSize(xml, 'fill')).toEqual({ width: 1, height: 1 })
+        expect(drawingSize(xml, 'rst')).toEqual({ width: 1, height: 1 })
+        for (const sizeless of ['gif', 'flat', 'junk', 'short-jpeg', 'app', 'sos', 'flat-jpeg', 'short']) {
+            expect(drawingSize(xml, sizeless), sizeless).toEqual({ width: 640, height: 480 })
+        }
+        for (const dropped of ['plain', 'remote', 'bad']) {
+            expect(xml).toContain(`>${dropped}</w:t>`)
+            expect(xml).not.toContain(`descr="${dropped}"`)
+        }
     })
 
     it('writes contents page numbers as PAGEREF fields, counting pictures Word shows as alt text as one line', async () => {
@@ -1266,7 +1389,7 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'header left')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'footer left')).toEqual({ width: 37, height: 28 })
         expect(drawingSize(xml, 'chart')).toEqual({ width: 32, height: 16 })
-        expect(names.filter((name) => name.startsWith('word/media/')).length).toBeGreaterThanOrEqual(3)
+        expect(mediaFiles(names).length).toBeGreaterThanOrEqual(3)
         expect(notifyWarning).not.toHaveBeenCalled()
     })
 
@@ -1389,8 +1512,18 @@ describe('renderExportDocx', () => {
         for (const mode of ['ok', 'no-context', 'no-blob', 'throw'] as const) {
             stubCoverCanvas(mode)
             const logo = mode === 'ok' ? PNG_URL : JPG_URL
-            const { xml } = await render('# Alpha', edit, { logoDataUrl: logo, header: { left: '', right: '' }, footer: { left: '', right: '' } })
+            const { xml, names } = await render('# Alpha', edit, {
+                logoDataUrl: logo,
+                header: { left: '', right: '' },
+                footer: { left: '', right: '' },
+            })
             expect(xml).toContain('Alpha')
+            // The square picture is page-wide (793px), so it is cut down to the 150mm (567px) cover cap.
+            expect(drawingSize(xml, 'Logo'), mode).toEqual({ width: 793, height: 567 })
+            // A cropped cover is a new PNG. When the canvas can't crop, the original picture is kept as it is.
+            const media = mediaFiles(names)
+            expect(media, mode).toHaveLength(1)
+            expect(media[0], mode).toMatch(mode === 'ok' ? /\.png$/ : /\.jpe?g$/)
         }
     })
 })
