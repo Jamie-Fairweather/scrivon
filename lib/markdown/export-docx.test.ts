@@ -481,6 +481,28 @@ describe('renderExportDocx', () => {
         expect(runWith(plain.xml, 'Page ')).toContain('<w:sz w:val="19"/>')
     })
 
+    it('blends see-through colours onto what is behind them, since Word has no alpha', async () => {
+        highlightFencedCodeTokens.mockImplementationOnce(async () => [[{ text: 'faded', color: '#ffffff80' }]])
+        const { xml } = await render(['# Alpha', '', 'A [site](https://example.com).', '', fence('js', 'faded')].join('\n'), (draft) => {
+            draft.brand.accentColor = '#ff000080'
+            draft.brand.linkColor = '#f008'
+            draft.header.enabled = true
+            draft.header.backgroundColor = '#11223380'
+            draft.header.textColor = '#ffffff80'
+            draft.header.left.text = 'Head'
+            draft.content.codeTheme = 'github-dark'
+        })
+        // Half-transparent red on white paper.
+        expect(runWith(xml, 'Alpha')).toContain('<w:color w:val="FF7F7F"/>')
+        // 4-digit #f008 is #ff000088.
+        expect(runWith(xml, 'site')).toContain('<w:color w:val="FF7777"/>')
+        // The bar is tinted, not dropped to white, and its text is blended onto the bar.
+        expect(xml).toContain('w:fill="889099"')
+        expect(runWith(xml, 'Head')).toContain('<w:color w:val="C4C8CC"/>')
+        // Code tokens blend onto the dark code background.
+        expect(runWith(xml, 'faded')).toContain('<w:color w:val="86888B"/>')
+    })
+
     it('writes each page-number preset', async () => {
         for (const format of ['none', 'number', 'n-of-total'] as const) {
             const { xml } = await render('# Hi', (draft) => {

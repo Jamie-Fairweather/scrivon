@@ -145,16 +145,29 @@ function fontTableXml(monoFont: string): string {
     ].join('')
 }
 
-function hexColor(value: string, fallback: string): string {
-    const raw = value.trim().replace(/^#/, '')
-    if (/^[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase()
-    if (/^[0-9a-fA-F]{3}$/.test(raw))
-        return raw
+/**
+ * CSS hex (3, 4, 6 or 8 digits) to Word's 6-digit colour. Word has no see-through text or shading,
+ * so a colour with alpha is blended onto what sits behind it: the white page unless `backdrop` says otherwise.
+ */
+function hexColor(value: string, fallback: string, backdrop = 'FFFFFF'): string {
+    let raw = value.trim().replace(/^#/, '')
+    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(raw)) return fallback
+    if (raw.length <= 4)
+        raw = raw
             .split('')
             .map((char) => `${char}${char}`)
             .join('')
-            .toUpperCase()
-    return fallback
+    const alpha = raw.length === 8 ? parseInt(raw.slice(6, 8), 16) / 255 : 1
+    return [0, 2, 4]
+        .map((offset) => {
+            const channel = parseInt(raw.slice(offset, offset + 2), 16)
+            const behind = parseInt(backdrop.slice(offset, offset + 2), 16)
+            return Math.round(channel * alpha + behind * (1 - alpha))
+                .toString(16)
+                .padStart(2, '0')
+        })
+        .join('')
+        .toUpperCase()
 }
 
 function readU32BE(bytes: Uint8Array, offset: number): number {
@@ -637,7 +650,9 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const fallback = codeColor(theme)
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
-            token.text ? [new TextRun({ text: token.text, font: state.monoFont, size: 18, color: hexColor(token.color ?? fallback, fallback) })] : []
+            token.text
+                ? [new TextRun({ text: token.text, font: state.monoFont, size: 18, color: hexColor(token.color ?? fallback, fallback, fill) })]
+                : []
         )
         return new Paragraph({
             shading: { type: ShadingType.CLEAR, fill },
@@ -776,7 +791,8 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
     const bleeds = kind === 'header' ? layout.headerBleeds : layout.footerBleeds
     const sidesBleed = layout.headerBleeds || layout.footerBleeds
     const images = kind === 'header' ? assets.header : assets.footer
-    const color = hexColor(chrome.textColor, CHROME_TEXT_COLOR)
+    const fill = chrome.backgroundColor.trim() ? hexColor(chrome.backgroundColor, 'FFFFFF') : undefined
+    const color = hexColor(chrome.textColor, CHROME_TEXT_COLOR, fill)
     const maxHeight = chrome.heightMm > 0 ? mmToPx(chrome.heightMm) : 28
     const leftImage = embeddedImage(images.left, 160, maxHeight, `${kind} left`)
     const rightImage = embeddedImage(images.right, 160, maxHeight, `${kind} right`)
@@ -787,7 +803,7 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
     const width = bleeds ? state.pageWidthTwip : state.contentTwip
     const leftWidth = Math.max(1, Math.round(width / 2))
     const rightWidth = Math.max(1, width - leftWidth)
-    const shading = chrome.backgroundColor.trim() ? { type: ShadingType.CLEAR, fill: hexColor(chrome.backgroundColor, 'FFFFFF') } : undefined
+    const shading = fill ? { type: ShadingType.CLEAR, fill } : undefined
     const cell = (cellWidth: number, children: (TextRun | ImageRun)[], align: (typeof AlignmentType)[keyof typeof AlignmentType]) =>
         new TableCell({
             width: { size: cellWidth, type: WidthType.DXA },
