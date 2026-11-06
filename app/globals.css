@@ -6,12 +6,10 @@
 
 :root {
     --titlebar-height: 2rem;
+    /* Browser-drawn parts (native scrollbars, form controls) follow the theme; .dark switches it. */
+    color-scheme: light;
     font-size: 16px;
-    line-height: 24px;
     font-weight: 400;
-
-    color: #0f0f0f;
-    background-color: #f6f6f6;
 
     /* Never fake bold, but let fonts without an italic face (Geist Mono, CJK/Arabic fallbacks) slant. */
     font-synthesis: style;
@@ -202,6 +200,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --destructive-foreground: var(--color-red-400);
     --info: var(--color-blue-500);
     --info-foreground: var(--color-blue-400);
@@ -248,6 +247,9 @@
 @layer base {
     * {
         @apply border-border outline-ring/50;
+        /* Plain overflow boxes get thin themed scrollbars that match the ScrollArea thumbs. */
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, var(--foreground) 20%, transparent) transparent;
     }
     html,
     body {

@@ -7,6 +7,7 @@ export function applyThemeToDocument(themeId: AppThemeId, root: HTMLElement = do
     const tokens = resolveThemeTokens(theme.colors)
 
     root.classList.toggle('dark', theme.kind === 'dark')
+    root.style.colorScheme = theme.kind
     applySemanticVars(root, tokens)
     root.dataset.appTheme = themeId
 }
@@ -14,4 +15,5 @@ export function applyThemeToDocument(themeId: AppThemeId, root: HTMLElement = do
 export function clearThemeFromDocument(root: HTMLElement = document.documentElement) {
     delete root.dataset.appTheme
     clearSemanticVars(root)
+    root.style.removeProperty('color-scheme')
 }

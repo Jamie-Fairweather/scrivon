@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import { getThemeBootScript, jsonForInlineScript } from './theme-boot-script'
 
 describe('jsonForInlineScript', () => {
@@ -38,5 +40,38 @@ describe('getThemeBootScript', () => {
             })
         )
         expect(names).toContain('--background')
+    })
+})
+
+describe('getThemeBootScript at runtime', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        const root = document.documentElement
+        root.removeAttribute('style')
+        root.removeAttribute('data-app-theme')
+        root.classList.remove('dark')
+    })
+
+    function runBootScript(savedThemeId: string) {
+        const saved = new Map([[SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: savedThemeId } })]])
+        vi.stubGlobal('localStorage', { getItem: (key: string) => saved.get(key) ?? null })
+        new Function(getThemeBootScript())()
+    }
+
+    it('applies the saved dark theme with a dark colour scheme before React loads', () => {
+        runBootScript('nord')
+
+        const root = document.documentElement
+        expect(root.dataset.appTheme).toBe('nord')
+        expect(root.classList.contains('dark')).toBe(true)
+        expect(root.style.colorScheme).toBe('dark')
+        expect(root.style.getPropertyValue('--background')).not.toBe('')
+    })
+
+    it('uses a light colour scheme for a saved light theme', () => {
+        runBootScript('solarized-light')
+
+        expect(document.documentElement.classList.contains('dark')).toBe(false)
+        expect(document.documentElement.style.colorScheme).toBe('light')
     })
 })
