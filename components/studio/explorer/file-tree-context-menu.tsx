@@ -1,45 +1,20 @@
 'use client'
 
 import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useCallback } from 'react'
-import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
-import { useFileTreeActions } from '@/components/studio/explorer/use-file-tree-actions'
-import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
+import { useCallback, type RefObject } from 'react'
+import { useFileTreeActions, useFileTreeEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
-import { getParentPath, isSupportedDocument } from '@/lib/tauri/fs'
-import { documentExtension, withDocumentExtension } from '@/lib/workspace/file-types'
+import { isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
-    const { confirmDelete } = useDeleteConfirm()
-    const { promptName } = useNamePrompt()
-    const { openFile, renameEntry, deleteEntry, duplicateFile, getNameError } = useWorkspaceSession()
+    const { openFile, duplicateFile } = useWorkspaceSession()
+    const { renameWithPrompt, deleteWithConfirm } = useFileTreeEntryActions()
     const parentPath = node.kind === 'directory' ? node.path : null
     const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
-
-    const handleRename = async () => {
-        const folder = getParentPath(node.path)
-        // A file renamed without an extension keeps its current one ('notes.md' -> 'meeting' -> 'meeting.md').
-        const extension = node.kind === 'file' ? documentExtension(node.name) : null
-        const finalName = (value: string) => (extension ? withDocumentExtension(value, extension) : value)
-        const name = await promptName({
-            title: 'Rename',
-            defaultValue: node.name,
-            placeholder: node.name,
-            validate: (value) => getNameError(folder, finalName(value), node.kind, node.path),
-        })
-        if (!name) return
-        const newName = finalName(name)
-        if (newName !== node.name) await renameEntry(node.path, newName, node.kind === 'directory')
-    }
-
-    const handleDelete = async () => {
-        const ok = await confirmDelete(node.name, node.kind === 'directory')
-        if (ok) await deleteEntry(node.path, node.kind === 'directory')
-    }
 
     if (node.kind === 'file') {
         return (
@@ -47,7 +22,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 <MenuItem disabled={!isSupportedDocument(node.name)} onClick={() => void openFile(node.path)}>
                     Open
                 </MenuItem>
-                <MenuItem onClick={() => void handleRename()}>
+                <MenuItem onClick={() => void renameWithPrompt(node)}>
                     <Pencil />
                     Rename
                 </MenuItem>
@@ -55,7 +30,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                     <Copy />
                     Duplicate
                 </MenuItem>
-                <MenuItem variant="destructive" onClick={() => void handleDelete()}>
+                <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                     <Trash2 />
                     Delete
                 </MenuItem>
@@ -77,11 +52,11 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 <Plus />
                 New Folder
             </MenuItem>
-            <MenuItem onClick={() => void handleRename()}>
+            <MenuItem onClick={() => void renameWithPrompt(node)}>
                 <Pencil />
                 Rename
             </MenuItem>
-            <MenuItem variant="destructive" onClick={() => void handleDelete()}>
+            <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                 <Trash2 />
                 Delete
             </MenuItem>
@@ -89,7 +64,11 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
     )
 }
 
-export function FileTreeContextMenu({ node }: { node: FileNode }) {
+/**
+ * The '...' button at the end of a row, for the mouse. Keyboard users reach the same menu with Shift+F10 or the
+ * menu key on the row, so the button is left out of the Tab order and hidden from screen readers.
+ */
+export function FileTreeContextMenu({ node, rowRef }: { node: FileNode; rowRef: RefObject<HTMLElement | null> }) {
     return (
         <Menu>
             <MenuTrigger
@@ -97,8 +76,10 @@ export function FileTreeContextMenu({ node }: { node: FileNode }) {
                     <Button
                         variant="ghost"
                         size="icon-xs"
+                        tabIndex={-1}
+                        aria-hidden
                         // Shown on hover, when the row has keyboard focus, and while its own menu is open.
-                        className="size-6 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100
+                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100
                             data-popup-open:opacity-100"
                         aria-label={`Actions for ${node.name}`}
                     >
@@ -106,11 +87,16 @@ export function FileTreeContextMenu({ node }: { node: FileNode }) {
                     </Button>
                 }
             />
-            <MenuPopup align="start" className="min-w-44">
+            {/* Closing the menu puts focus back on the row, so the arrow keys keep working. */}
+            <MenuPopup align="start" className="min-w-44" finalFocus={rowRef}>
                 <FileTreeMenuItems node={node} />
             </MenuPopup>
         </Menu>
     )
+}
+
+function isMenuKey(e: React.KeyboardEvent): boolean {
+    return e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')
 }
 
 export function FileTreeRowContextMenu({ node, children }: { node: FileNode; children: React.ReactNode }) {
@@ -127,8 +113,21 @@ export function FileTreeRowContextMenu({ node, children }: { node: FileNode; chi
         [openAt]
     )
 
+    // Shift+F10 or the menu key on the focused row opens its menu just below the row.
+    const onKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            const target = e.target as HTMLElement
+            if (target.getAttribute('role') !== 'treeitem' || !e.currentTarget.contains(target) || !isMenuKey(e)) return
+            e.preventDefault()
+            e.stopPropagation()
+            const rect = target.getBoundingClientRect()
+            openAt({ x: rect.left, y: rect.bottom })
+        },
+        [openAt]
+    )
+
     return (
-        <span onContextMenu={onContextMenu} className="contents">
+        <span onContextMenu={onContextMenu} onKeyDown={onKeyDown} className="contents">
             {children}
             <ContextMenuAtPoint open={open} onOpenChange={onOpenChange} anchor={anchor} align="start" className="min-w-44">
                 <FileTreeMenuItems node={node} />
