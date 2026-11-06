@@ -1,12 +1,11 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/studio/canvas/use-canvas-fit-on-load'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { usePanZoom } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
-import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
 import { CircleAlert } from 'lucide-react'
@@ -84,40 +83,19 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
     const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, viewKey)
-    const [contentBounds, setContentBounds] = useState<SvgContentBounds | null>(null)
-    const [boundsForSvg, setBoundsForSvg] = useState<string | null>(null)
-
-    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : null
-    const fitDimensions = effectiveBounds ?? dimensions
-
-    const handleBoundsMeasured = useCallback(
-        (bounds: SvgContentBounds, measuredForSvg: string) => {
-            if (measuredForSvg !== svgForDisplay) return
-            setContentBounds(bounds)
-            setBoundsForSvg(measuredForSvg)
-        },
-        [svgForDisplay]
-    )
 
     useEffect(() => {
         pruneSvgCache(openTabIds)
     }, [openTabIds])
 
     useEffect(() => {
-        queueMicrotask(() => {
-            setContentBounds(null)
-            setBoundsForSvg(null)
-        })
-    }, [viewKey, hasSource])
+        dimensionsRef.current = dimensions
+    }, [dimensions])
 
     useEffect(() => {
-        dimensionsRef.current = fitDimensions
-    }, [fitDimensions])
-
-    useEffect(() => {
-        setCanFitToView(Boolean(fitDimensions))
+        setCanFitToView(Boolean(dimensions))
         return () => setCanFitToView(false)
-    }, [fitDimensions, setCanFitToView])
+    }, [dimensions, setCanFitToView])
 
     useEffect(() => {
         return registerFitToView(() => {
@@ -126,8 +104,8 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
         })
     }, [registerFitToView, fitToView])
 
-    useCanvasFitOnRequest(canvasFitRequestId, viewKey, source, fitDimensions, fitToView, lastHandledFitRequestRef)
-    useCanvasFitOnFirstView(fitDimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
+    useCanvasFitOnRequest(canvasFitRequestId, viewKey, source, dimensions, fitToView, lastHandledFitRequestRef)
+    useCanvasFitOnFirstView(dimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
     const emptyMessage = !viewKey ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
     const showDiagram = hasSource && Boolean(svgForDisplay)
@@ -143,13 +121,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div ref={transformRef} className={cn('origin-center transition-opacity', showDiagram && error && 'opacity-40')}>
                     {showDiagram ? (
-                        <DiagramIframe
-                            key={viewKey ?? 'none'}
-                            svg={svgForDisplay!}
-                            label={diagramLabel}
-                            bounds={effectiveBounds}
-                            onBoundsMeasured={handleBoundsMeasured}
-                        />
+                        <DiagramIframe key={viewKey ?? 'none'} svg={svgForDisplay!} label={diagramLabel} />
                     ) : error ? (
                         <DiagramError message={error} />
                     ) : showEmpty ? (
