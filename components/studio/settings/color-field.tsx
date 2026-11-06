@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
     COLOR_CHECKERBOARD,
@@ -41,6 +41,7 @@ function swatchStyle(hex: string | null) {
  */
 export function ColorField({ id, value, placeholder = '#000000', allowEmpty = false, onChange }: ColorFieldProps) {
     const [draft, setDraft] = useState(value)
+    const valueId = useId()
     const normalized = normalizeColorHex(value)
     const swatch = normalized ?? (allowEmpty && !value.trim() ? null : FALLBACK_HEX)
 
@@ -52,6 +53,8 @@ export function ColorField({ id, value, placeholder = '#000000', allowEmpty = fa
         >
             <PopoverTrigger
                 id={id}
+                // With an `id` a <label> names the button, which hides its text; keep the value read out as its description.
+                aria-describedby={id ? valueId : undefined}
                 className={cn(
                     `inline-flex h-8.5 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-background px-[calc(--spacing(3)-1px)]
                     text-left text-sm text-foreground shadow-xs/5 transition-shadow outline-none focus-visible:border-ring focus-visible:ring-[3px]
@@ -59,7 +62,9 @@ export function ColorField({ id, value, placeholder = '#000000', allowEmpty = fa
                 )}
             >
                 <span className="size-4 shrink-0 rounded-sm border border-border" style={swatchStyle(swatch)} />
-                <span className={cn('truncate', !value.trim() && 'text-muted-foreground')}>{value.trim() || placeholder}</span>
+                <span id={valueId} className={cn('truncate', !value.trim() && 'text-muted-foreground')}>
+                    {value.trim() || placeholder}
+                </span>
             </PopoverTrigger>
             <PopoverPopup className="w-72 p-3" align="start">
                 <ColorPicker

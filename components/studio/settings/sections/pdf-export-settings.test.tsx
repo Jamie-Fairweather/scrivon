@@ -39,7 +39,7 @@ describe('PdfExportSettings groups', () => {
     it('disables the cover image settings until the title page is on', () => {
         renderSection()
         const titlePage = group('Title page')
-        const browse = titlePage.getByRole('button', { name: 'Browse' })
+        const browse = titlePage.getByRole('button', { name: 'Browse for cover image' })
         const bleed = titlePage.getByRole('switch', { name: 'Cover image ignores margins' })
         expect(browse).toBeDisabled()
         expect(bleed).toHaveAttribute('data-disabled')
@@ -63,11 +63,11 @@ describe('PdfExportSettings groups', () => {
     it('disables the header fields while the header is off', () => {
         renderSection()
         const header = group('Header')
-        expect(header.getAllByRole('button', { name: 'Browse' })[0]).toBeDisabled()
+        expect(header.getByRole('button', { name: 'Browse for header left image' })).toBeDisabled()
         expect(header.getByRole('textbox', { name: 'Left text' })).toBeDisabled()
 
         fireEvent.click(header.getByRole('switch', { name: 'Show header' }))
-        expect(header.getAllByRole('button', { name: 'Browse' })[0]).toBeEnabled()
+        expect(header.getByRole('button', { name: 'Browse for header left image' })).toBeEnabled()
         expect(header.getByRole('textbox', { name: 'Left text' })).toBeEnabled()
     })
 
@@ -76,13 +76,42 @@ describe('PdfExportSettings groups', () => {
         const footer = group('Footer')
         const pageNumbers = footer.getByRole('combobox', { name: 'Page numbers' })
         expect(pageNumbers).not.toHaveAttribute('data-disabled')
-        expect(footer.getAllByRole('button', { name: 'Browse' })[0]).toBeDisabled()
+        expect(footer.getByRole('button', { name: 'Browse for footer left image' })).toBeDisabled()
 
         // The export draws the footer whenever it has page numbers, so its fields apply then too.
         const user = userEvent.setup()
         await user.click(pageNumbers)
         await user.click(await screen.findByRole('option', { name: 'Number' }))
-        await waitFor(() => expect(footer.getAllByRole('button', { name: 'Browse' })[0]).toBeEnabled())
+        await waitFor(() => expect(footer.getByRole('button', { name: 'Browse for footer left image' })).toBeEnabled())
+    })
+})
+
+describe('PdfExportSettings labels', () => {
+    const group = (name: string) => within(screen.getByRole('group', { name }))
+
+    it('names the header and footer colour buttons and still reads their value', () => {
+        renderSection()
+        for (const name of ['Header', 'Footer']) {
+            const background = group(name).getByRole('button', { name: 'Background colour' })
+            expect(background).toHaveAccessibleDescription('Transparent')
+            expect(group(name).getByRole('button', { name: 'Font colour' })).toHaveAccessibleDescription('Default')
+        }
+        expect(screen.getByRole('button', { name: 'Brand colour' })).toHaveAccessibleDescription('#262626')
+    })
+
+    it('says which image each Browse button is for', () => {
+        renderSection()
+        for (const name of ['cover image', 'header left image', 'header right image', 'footer left image', 'footer right image']) {
+            expect(screen.getByRole('button', { name: `Browse for ${name}` })).toBeInTheDocument()
+        }
+    })
+
+    it('labels the custom page-number text box', async () => {
+        renderSection()
+        const user = userEvent.setup()
+        await user.click(group('Footer').getByRole('combobox', { name: 'Page numbers' }))
+        await user.click(await screen.findByRole('option', { name: 'Custom text' }))
+        expect(await group('Footer').findByRole('textbox', { name: 'Custom text' })).toBeInTheDocument()
     })
 })
 

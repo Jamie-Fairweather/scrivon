@@ -389,7 +389,7 @@ export function PdfExportSettings() {
                         <ImagePathField
                             id="pdf-logo"
                             value={active.brand.logoPath}
-                            title="Choose cover image"
+                            label="cover image"
                             onChange={(logoPath) => setSection('brand', { logoPath })}
                         />
                     </Field>
@@ -549,8 +549,9 @@ function ChromeFields({
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field>
-                        <FieldLabel>Background colour</FieldLabel>
+                        <FieldLabel htmlFor={`pdf-${lower}-bg`}>Background colour</FieldLabel>
                         <ColorField
+                            id={`pdf-${lower}-bg`}
                             value={chrome.backgroundColor}
                             placeholder="Transparent"
                             allowEmpty
@@ -558,8 +559,14 @@ function ChromeFields({
                         />
                     </Field>
                     <Field>
-                        <FieldLabel>Font colour</FieldLabel>
-                        <ColorField value={chrome.textColor} placeholder="Default" allowEmpty onChange={(textColor) => onChange({ textColor })} />
+                        <FieldLabel htmlFor={`pdf-${lower}-text`}>Font colour</FieldLabel>
+                        <ColorField
+                            id={`pdf-${lower}-text`}
+                            value={chrome.textColor}
+                            placeholder="Default"
+                            allowEmpty
+                            onChange={(textColor) => onChange({ textColor })}
+                        />
                     </Field>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -618,7 +625,7 @@ function ChromeSideFields({
                 <FieldLabel>{side} image</FieldLabel>
                 <ImagePathField
                     value={value.imagePath}
-                    title={`Choose ${title.toLowerCase()} ${side.toLowerCase()} image`}
+                    label={`${title.toLowerCase()} ${side.toLowerCase()} image`}
                     onChange={(imagePath) => onChange({ ...value, imagePath })}
                 />
             </Field>
@@ -653,6 +660,7 @@ function FooterPageNumbers({
             </Field>
             {format === 'custom' ? (
                 <Field>
+                    <FieldLabel>Custom text</FieldLabel>
                     <FieldDescription>
                         Use {'{{page}}'}, {'{{total}}'}, {'{{title}}'} or {'{{date}}'} placeholders.
                     </FieldDescription>
