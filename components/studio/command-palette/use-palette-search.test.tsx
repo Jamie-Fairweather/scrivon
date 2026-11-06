@@ -191,3 +191,35 @@ describe('usePaletteSearch commands in the default results', () => {
         expect(groupIds(result.current.groups)).toEqual(['files'])
     })
 })
+
+describe('usePaletteSearch unavailable commands', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/notes.md')]
+        state.session.recentWorkspaces = []
+        state.tabs.tabs = []
+        state.tabs.activeTabId = null
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('keeps a matching command that cannot run on top, instead of a weaker match that would run on Enter', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('close tab'))
+        const first = result.current.groups[0]?.items[0]
+        expect(first?.kind === 'action' && first.value).toBe('action:close-tab')
+        expect(first?.kind === 'action' && first.disabled).toBe(true)
+    })
+
+    it('lists unavailable commands last in the > list', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('>'))
+        const items = result.current.groups.find((group) => group.id === 'actions')?.items ?? []
+        const disabled = items.map((item) => item.kind === 'action' && Boolean(item.disabled))
+        expect(disabled.indexOf(true)).toBeGreaterThan(0)
+        expect(disabled.slice(disabled.indexOf(true)).every(Boolean)).toBe(true)
+    })
+})

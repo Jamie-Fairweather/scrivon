@@ -49,11 +49,13 @@ export const MAX_MIXED_COMMANDS = 5
 
 /**
  * The best few commands for the default results, so F1 finds commands without typing '>'.
- * Only runnable commands are listed; with no folder open, recent folders already have their own group.
+ * With nothing typed only runnable commands are suggested. While typing, a matching command that
+ * can't run stays in place with its reason, rather than letting a weaker match take its spot and
+ * run on Enter. With no folder open, recent folders already have their own group.
  */
 function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, hasWorkspace: boolean): PaletteGroup | null {
     const items = searchActions(actions, query)
-        .filter((action) => !action.disabled && (hasWorkspace || !action.value.startsWith('action:recent-workspace:')))
+        .filter((action) => (query || !action.disabled) && (hasWorkspace || !action.value.startsWith('action:recent-workspace:')))
         .slice(0, MAX_MIXED_COMMANDS)
     if (items.length === 0) return null
     return { id: 'actions', label: 'Commands', items }
