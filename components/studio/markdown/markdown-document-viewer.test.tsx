@@ -365,6 +365,18 @@ describe('MarkdownDocumentViewer', () => {
             expect(workspace.openFile).toHaveBeenCalledWith('C:\\notes\\docs\\other.md')
         })
 
+        it('routes a middle click like a click, instead of opening a new window', () => {
+            vi.mocked(isTauri).mockReturnValue(true)
+            render(viewer(DOC_A, source))
+            const link = screen.getByRole('link', { name: 'site' })
+            const notPrevented = fireEvent(link, new MouseEvent('auxclick', { button: 1, bubbles: true, cancelable: true }))
+            expect(notPrevented).toBe(false)
+            expect(openUrl).toHaveBeenCalledWith('https://example.com')
+
+            fireEvent(link, new MouseEvent('auxclick', { button: 2, bubbles: true, cancelable: true }))
+            expect(openUrl).toHaveBeenCalledTimes(1)
+        })
+
         it('opens web links in the system browser', () => {
             vi.mocked(isTauri).mockReturnValue(true)
             render(viewer(DOC_A, source))

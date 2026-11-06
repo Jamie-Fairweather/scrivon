@@ -236,7 +236,12 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                     event.preventDefault()
                     if (href) onLinkClick(href)
                 }
-                return <a {...rest} href={href} onClick={onClick} className={cn(inlineLinkClassName, linkClassName)} />
+                // A middle click would otherwise open the link in a new webview window inside the app.
+                const onAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
+                    if (event.button !== 1) return
+                    onClick(event)
+                }
+                return <a {...rest} href={href} onClick={onClick} onAuxClick={onAuxClick} className={cn(inlineLinkClassName, linkClassName)} />
             },
             img(props) {
                 const { src, alt, ...rest } = withoutNode(props)
