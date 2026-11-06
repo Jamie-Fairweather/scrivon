@@ -2,18 +2,43 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const dialog = vi.hoisted(() => ({
     pickSavePath: vi.fn<(options: { defaultPath?: string }) => Promise<string | null>>(async () => null),
-    showError: vi.fn(async () => undefined),
     writeBinaryFile: vi.fn(async () => undefined),
     writeTextFileAtPath: vi.fn(async () => undefined),
 }))
 
+const notify = vi.hoisted(() => ({
+    notifyError: vi.fn(),
+    notifyWarning: vi.fn(),
+}))
+
+const render = vi.hoisted(() => ({ fakeSvg: null as string | null }))
+
 vi.mock('@/lib/tauri/dialog', () => dialog)
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
+vi.mock('@/lib/notify', () => notify)
+vi.mock('@/lib/mermaid/render', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/mermaid/render')>()
+    return {
+        ...actual,
+        renderMermaidDiagramForExport: (source: string, themeId: Parameters<typeof actual.renderMermaidDiagramForExport>[1]) =>
+            render.fakeSvg ?? actual.renderMermaidDiagramForExport(source, themeId),
+    }
+})
 
-import { diagramFileStem, exportBaseName, exportSvg, markdownDiagramPosition, savePathBesideDocument } from '@/lib/mermaid/export'
+import {
+    diagramFileStem,
+    exportBaseName,
+    exportPng,
+    exportSvg,
+    fitPngScale,
+    markdownDiagramPosition,
+    savePathBesideDocument,
+} from '@/lib/mermaid/export'
 
 beforeEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
+    render.fakeSvg = null
 })
 
 describe('exportBaseName', () => {
@@ -85,7 +110,7 @@ describe('exportSvg', () => {
             markdown: '```mermaid\ngraph TD\n  A --> B\n```',
         })
 
-        expect(dialog.showError).not.toHaveBeenCalled()
+        expect(notify.notifyError).not.toHaveBeenCalled()
         expect(dialog.pickSavePath).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: 'D:\\docs\\notes-diagram.svg' }))
     })
 
@@ -93,5 +118,81 @@ describe('exportSvg', () => {
         await exportSvg('graph TD\n  A --> B', 'scrivon-light', { tabName: 'CI/CD Pipeline.mmd', tabPath: 'example:ci-cd' })
 
         expect(dialog.pickSavePath).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: 'CI-CD Pipeline.svg' }))
+    })
+})
+
+describe('PNG size limits (B106)', () => {
+    const DIAGRAM = 'graph LR\n  A --> B'
+
+    it('keeps the requested scale when it fits', () => {
+        expect(fitPngScale({ width: 800, height: 600 }, 4)).toBe(4)
+    })
+
+    it('shrinks the scale so neither side passes 16,384 px', () => {
+        const scale = fitPngScale({ width: 8312, height: 200 }, 4)
+        expect(8312 * scale).toBeCloseTo(16_384, 6)
+    })
+
+    it('shrinks the scale so the image stays under 100 million pixels', () => {
+        const scale = fitPngScale({ width: 6000, height: 6000 }, 4)
+        expect(6000 * scale * 6000 * scale).toBeCloseTo(100_000_000, 0)
+    })
+
+    /** A stand-in canvas: records the size it was given and encodes anything. */
+    function stubCanvas() {
+        const canvas = {
+            width: 0,
+            height: 0,
+            getContext: () => ({ fillStyle: '', fillRect: () => {}, drawImage: () => {} }),
+            toBlob: (done: (blob: Blob | null) => void) => done(new Blob(['png'])),
+        }
+        class LoadedImage {
+            onload: (() => void) | null = null
+            set src(_url: string) {
+                queueMicrotask(() => this.onload?.())
+            }
+        }
+        vi.stubGlobal('document', { createElement: () => canvas })
+        vi.stubGlobal('Image', LoadedImage)
+        return canvas
+    }
+
+    it('saves a smaller PNG and says so when 4x is too big', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8000 400" width="8000" height="400"></svg>'
+        const canvas = stubCanvas()
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\wide.png')
+
+        await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'wide.mmd' }, 4)
+
+        expect(notify.notifyError).not.toHaveBeenCalled()
+        expect(canvas.width).toBe(16_384)
+        expect(canvas.height).toBe(819)
+        expect(dialog.writeBinaryFile).toHaveBeenCalled()
+        expect(notify.notifyWarning).toHaveBeenCalledWith('Saved a smaller PNG', {
+            description: 'This diagram is too big for 4×, so it was saved at 16384 × 819 px.',
+        })
+    })
+
+    it('says to use SVG when even 1x is too big, instead of a vague canvas error', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42000 300" width="42000" height="300"></svg>'
+        stubCanvas()
+
+        await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'huge.mmd' }, 1)
+
+        expect(dialog.pickSavePath).not.toHaveBeenCalled()
+        expect(notify.notifyError).toHaveBeenCalledWith(
+            'Export failed',
+            new Error('This diagram is too big to save as a PNG. Save it as SVG instead.')
+        )
+    })
+
+    it('does not warn when the user cancels the save dialog', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8000 400" width="8000" height="400"></svg>'
+        stubCanvas()
+
+        await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'wide.mmd' }, 4)
+
+        expect(notify.notifyWarning).not.toHaveBeenCalled()
+        expect(notify.notifyError).not.toHaveBeenCalled()
     })
 })

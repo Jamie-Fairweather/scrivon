@@ -1,5 +1,6 @@
 import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
-import { pickSavePath, showError, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
+import { notifyError, notifyWarning } from '@/lib/notify'
+import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
@@ -111,21 +112,23 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
 
 type SaveFilters = { name: string; extensions: string[] }[]
 
+/** Returns false when the user cancels the save dialog. */
 async function saveBytes(
     bytes: Uint8Array,
     filename: string,
     documentPath: string | undefined,
     mimeType: string,
     filters: SaveFilters
-): Promise<void> {
+): Promise<boolean> {
     if (isTauri()) {
         const path = await pickSavePath({ title: 'Save diagram', defaultPath: savePathBesideDocument(filename, documentPath), filters })
-        if (!path) return
+        if (!path) return false
         await writeBinaryFile(path, bytes)
-        return
+        return true
     }
 
     triggerBrowserDownload(new Blob([Uint8Array.from(bytes)], { type: mimeType }), filename)
+    return true
 }
 
 async function saveText(content: string, filename: string, documentPath: string | undefined, filters: SaveFilters): Promise<void> {
@@ -138,6 +141,17 @@ async function saveText(content: string, filename: string, documentPath: string 
 
     triggerBrowserDownload(new Blob([content], { type: 'image/svg+xml;charset=utf-8' }), filename)
 }
+
+/**
+ * Chromium can't draw a canvas wider or taller than 32,767 px or bigger than about 268 million
+ * pixels, and fails without saying why. Stay well inside that so big exports also don't run the
+ * app out of memory (100 million pixels is about 400 MB).
+ */
+const MAX_CANVAS_SIDE = 16_384
+const MAX_CANVAS_AREA = 100_000_000
+
+const PNG_TOO_LARGE_MESSAGE = 'This diagram is too big to save as a PNG. Save it as SVG instead.'
+const PNG_FAILED_MESSAGE = "Couldn't create the PNG. Try a smaller size, or save as SVG."
 
 function loadSvgImage(svg: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
@@ -159,19 +173,26 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
     return new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (blob) resolve(blob)
-            else reject(new Error('Failed to encode PNG.'))
+            else reject(new Error(PNG_FAILED_MESSAGE))
         }, 'image/png')
     })
 }
 
-export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: PngExportScale): Promise<Blob> {
+/** The largest scale, up to `requested`, at which the diagram still fits on a canvas. */
+export function fitPngScale(dims: { width: number; height: number }, requested: number): number {
+    return Math.min(requested, MAX_CANVAS_SIDE / dims.width, MAX_CANVAS_SIDE / dims.height, Math.sqrt(MAX_CANVAS_AREA / (dims.width * dims.height)))
+}
+
+/** Draws the SVG to a PNG at `scale`, or smaller if that would be too big for a canvas (see fitPngScale). */
+export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: number): Promise<Blob> {
     const dims = getSvgDimensions(svg)
     if (!dims) {
         throw new Error('Could not determine diagram dimensions.')
     }
 
-    const width = Math.round(dims.width * scale)
-    const height = Math.round(dims.height * scale)
+    const drawScale = fitPngScale(dims, scale)
+    const width = Math.round(dims.width * drawScale)
+    const height = Math.round(dims.height * drawScale)
     if (width <= 0 || height <= 0) {
         throw new Error('Invalid diagram dimensions.')
     }
@@ -207,20 +228,34 @@ export async function exportSvg(source: string, themeId: AppThemeId, target: Dia
         const filename = `${diagramFileStem(source, target)}.svg`
         await saveText(svg, filename, target.tabPath, SVG_FILTERS)
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        await showError('Export failed', message)
+        notifyError('Export failed', err)
     }
 }
 
 export async function exportPng(source: string, themeId: AppThemeId, target: DiagramExportTarget, scale: PngExportScale): Promise<void> {
     try {
         const svg = buildExportSvg(source, themeId)
-        const blob = await svgToPngBlob(svg, themeId, scale)
+        const dims = getSvgDimensions(svg)
+        if (!dims) {
+            throw new Error('Could not determine diagram dimensions.')
+        }
+
+        // Shrink to fit rather than fail, but not below 1x: smaller than that, SVG is the better choice.
+        const drawScale = fitPngScale(dims, scale)
+        if (drawScale < 1) {
+            throw new Error(PNG_TOO_LARGE_MESSAGE)
+        }
+
+        const blob = await svgToPngBlob(svg, themeId, drawScale)
         const filename = `${diagramFileStem(source, target)}.png`
         const bytes = new Uint8Array(await blob.arrayBuffer())
-        await saveBytes(bytes, filename, target.tabPath, 'image/png', PNG_FILTERS)
+        const saved = await saveBytes(bytes, filename, target.tabPath, 'image/png', PNG_FILTERS)
+
+        if (saved && drawScale < scale) {
+            const size = `${Math.round(dims.width * drawScale)} × ${Math.round(dims.height * drawScale)} px`
+            notifyWarning('Saved a smaller PNG', { description: `This diagram is too big for ${scale}×, so it was saved at ${size}.` })
+        }
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        await showError('Export failed', message)
+        notifyError('Export failed', err)
     }
 }
