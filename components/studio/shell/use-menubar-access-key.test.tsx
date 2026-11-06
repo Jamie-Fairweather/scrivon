@@ -80,6 +80,30 @@ describe('useMenubarAccessKey', () => {
         expect(editor).toHaveFocus()
     })
 
+    it('ignores Alt+wheel, which is the editor fast scroll', () => {
+        render(<Harness />)
+        const editor = screen.getByLabelText('editor')
+        editor.focus()
+
+        fireEvent.keyDown(editor, { key: 'Alt', altKey: true })
+        fireEvent.wheel(editor, { deltaY: 120, altKey: true })
+        fireEvent.keyUp(editor, { key: 'Alt' })
+
+        expect(editor).toHaveFocus()
+    })
+
+    it('ignores Alt when another key is released while it is held (Alt+PrtSc)', () => {
+        render(<Harness />)
+        const editor = screen.getByLabelText('editor')
+        editor.focus()
+
+        fireEvent.keyDown(editor, { key: 'Alt', altKey: true })
+        fireEvent.keyUp(editor, { key: 'PrintScreen', altKey: true })
+        fireEvent.keyUp(editor, { key: 'Alt' })
+
+        expect(editor).toHaveFocus()
+    })
+
     it('ignores Shift+F10 (context menu key)', () => {
         render(<Harness />)
         const editor = screen.getByLabelText('editor')

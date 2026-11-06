@@ -75,7 +75,11 @@ export function useMenubarAccessKey(menubarRef: RefObject<HTMLElement | null>) {
         }
 
         const onKeyUp = (event: KeyboardEvent) => {
-            if (event.key !== 'Alt') return
+            // Some keys only reach the page as a keyup (PrintScreen in Alt+PrtSc), so any other key cancels too.
+            if (event.key !== 'Alt') {
+                altAlone = false
+                return
+            }
             const wasAlone = altAlone
             altAlone = false
             if (!wasAlone || blocked()) return
@@ -99,6 +103,8 @@ export function useMenubarAccessKey(menubarRef: RefObject<HTMLElement | null>) {
         window.addEventListener('keydown', onKeyDown)
         window.addEventListener('keyup', onKeyUp, true)
         window.addEventListener('pointerdown', cancelAlt, true)
+        // Alt+wheel is the editor's fast scroll, not a menu shortcut.
+        window.addEventListener('wheel', cancelAlt, { capture: true, passive: true })
         window.addEventListener('blur', cancelAlt)
         document.addEventListener('focusin', onFocusIn)
 
@@ -107,6 +113,7 @@ export function useMenubarAccessKey(menubarRef: RefObject<HTMLElement | null>) {
             window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('keyup', onKeyUp, true)
             window.removeEventListener('pointerdown', cancelAlt, true)
+            window.removeEventListener('wheel', cancelAlt, true)
             window.removeEventListener('blur', cancelAlt)
             document.removeEventListener('focusin', onFocusIn)
         }
