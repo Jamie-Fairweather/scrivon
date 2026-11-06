@@ -54,14 +54,16 @@ export function DocumentExportMenu() {
     }
 
     const tabName = activeTab?.name
+    // With no Markdown or Mermaid tab open the menu would have nothing in it.
     const triggerDisabled =
-        exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
+        !tabKind || exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
+    const triggerTitle = tabKind ? 'Export document' : 'Open a document to export'
 
     return (
         <>
             <Menu>
                 <MenuTrigger
-                    render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title="Export document" disabled={triggerDisabled} />}
+                    render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title={triggerTitle} disabled={triggerDisabled} />}
                 >
                     {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 </MenuTrigger>
