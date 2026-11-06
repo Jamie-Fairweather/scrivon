@@ -83,32 +83,24 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             .catch(() => setRecentWorkspaces([]))
     }, [])
 
+    /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
     const refreshTree = useCallback(async () => {
         if (!workspaceRoot) return
-        const next = await listWorkspaceTree(workspaceRoot)
-        setTree(next)
+        try {
+            setTree(await listWorkspaceTree(workspaceRoot))
+        } catch (err) {
+            notifyError("Couldn't refresh the file list", err)
+        }
     }, [workspaceRoot])
 
-    const openWorkspace = useCallback(
-        async (requestedPath: string) => {
-            if (!isDesktop) return
+    const removeRecent = useCallback(async (path: string) => {
+        const next = await removeRecentWorkspace(path)
+        setRecentWorkspaces(next)
+    }, [])
 
-            const path = normalizePath(requestedPath)
-            if (workspaceRoot) {
-                // Leaving the open folder closes its tabs, so unsaved or unsavable edits must be dealt with first.
-                if (!(await coordinator.confirmCloseTabs.current())) return
-                await coordinator.persistWorkspaceTabSession.current()
-            }
-            await allowWorkspacePath(path)
-
-            const nextTree = await listWorkspaceTree(path)
-            const recents = await addRecentWorkspace(path)
-
-            setWorkspaceRoot(path)
-            setTree(nextTree)
-            setRecentWorkspaces(recents)
-            coordinator.clearTabs.current()
-
+    /** Reopens the tabs saved for this folder. Files that can't be read any more are skipped. */
+    const restoreTabSession = useCallback(
+        async (path: string) => {
             const tabSession = await getWorkspaceTabSession(path)
             if (tabSession && tabSession.tabIds.length > 0) {
                 // Older sessions can hold the same file twice with different separators.
@@ -139,11 +131,60 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 }
             }
         },
-        [isDesktop, workspaceRoot, coordinator]
+        [coordinator]
+    )
+
+    const openWorkspace = useCallback(
+        async (requestedPath: string) => {
+            if (!isDesktop) return
+
+            const path = normalizePath(requestedPath)
+            let nextTree: FileNode[]
+            let recents: string[]
+            try {
+                if (workspaceRoot) {
+                    // Leaving the open folder closes its tabs, so unsaved or unsavable edits must be dealt with first.
+                    if (!(await coordinator.confirmCloseTabs.current())) return
+                    await coordinator.persistWorkspaceTabSession.current()
+                }
+                await allowWorkspacePath(path)
+                nextTree = await listWorkspaceTree(path)
+                recents = await addRecentWorkspace(path)
+            } catch (err) {
+                // Nothing has switched yet, so the folder that was open (if any) stays open.
+                // A recent folder that was moved, deleted or is on a missing drive can be dropped from the list.
+                const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
+                const removeFromRecent = () => void removeRecent(path).catch((e: unknown) => notifyError("Couldn't update recent folders", e))
+                notifyError(
+                    `Couldn't open ${getBaseName(path) || path}`,
+                    err,
+                    isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {}
+                )
+                return
+            }
+
+            setWorkspaceRoot(path)
+            setTree(nextTree)
+            setRecentWorkspaces(recents)
+            coordinator.clearTabs.current()
+
+            try {
+                await restoreTabSession(path)
+            } catch (err) {
+                notifyError("Couldn't reopen the files you had open", err)
+            }
+        },
+        [isDesktop, workspaceRoot, recentWorkspaces, removeRecent, restoreTabSession, coordinator]
     )
 
     const pickAndOpenWorkspace = useCallback(async () => {
-        const path = await pickWorkspaceFolder()
+        let path: string | null
+        try {
+            path = await pickWorkspaceFolder()
+        } catch (err) {
+            notifyError("Couldn't open the folder", err)
+            return
+        }
         if (path) await openWorkspace(path)
     }, [openWorkspace])
 
@@ -154,11 +195,6 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         setTree([])
         coordinator.clearTabs.current()
     }, [coordinator])
-
-    const removeRecent = useCallback(async (path: string) => {
-        const next = await removeRecentWorkspace(path)
-        setRecentWorkspaces(next)
-    }, [])
 
     const suggestName = useCallback(
         (parentPath: string, name: string) =>
@@ -191,6 +227,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await createWorkspaceFile(path, resolvedContent)
             } catch (err) {
                 notifyError(failed, err)
+                await refreshTree()
                 return
             }
             await refreshTree()
@@ -212,6 +249,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await createWorkspaceDirectory(path)
             } catch (err) {
                 notifyError(failed, err)
+                await refreshTree()
                 return
             }
             await refreshTree()
@@ -235,6 +273,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await renameWorkspacePath(oldPath, newPath)
             } catch (err) {
                 notifyError(failed, err)
+                await refreshTree()
                 return
             }
             await refreshTree()
@@ -245,7 +284,14 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const deleteEntry = useCallback(
         async (path: string, isDirectory: boolean) => {
-            await removeWorkspacePath(path)
+            try {
+                await removeWorkspacePath(path)
+            } catch (err) {
+                // Its tabs stay open: the file (or some of the folder) may still be there.
+                notifyError(`Couldn't delete ${getBaseName(path)}`, err)
+                await refreshTree()
+                return
+            }
             await refreshTree()
             coordinator.closeTabsForDelete.current(path, isDirectory)
         },
@@ -261,7 +307,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             const siblingNames = collectFileNames(tree)
             const newName = uniqueFileName(baseName, siblingNames)
             const destPath = joinPath(parent, newName)
-            await duplicateWorkspaceFile(path, destPath)
+            try {
+                await duplicateWorkspaceFile(path, destPath)
+            } catch (err) {
+                notifyError(`Couldn't duplicate ${baseName}`, err)
+                await refreshTree()
+                return
+            }
             await refreshTree()
             await coordinator.openFile.current(destPath)
         },

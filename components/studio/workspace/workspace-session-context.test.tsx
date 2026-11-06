@@ -1,12 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { exists, mkdir, readDir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs'
-import { notifyError } from '@/lib/notify'
+import { exists, mkdir, readDir, readTextFile, remove, rename, writeTextFile } from '@tauri-apps/plugin-fs'
+import { notifyError, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
-import { getWorkspaceTabSession } from '@/lib/tauri/store'
+import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
@@ -74,6 +74,8 @@ function createWindowsDisk(files: Record<string, string>) {
             contents.set(key(to), { path: String(to), text: file.text })
         },
         list: async (dir: string): Promise<Entry[]> => {
+            if (!isFolder(key(dir)))
+                throw `failed to read directory at path: ${dir} with error: The system cannot find the path specified. (os error 3)`
             const prefix = `${key(dir)}\\`
             const names = new Map<string, boolean>()
             const paths = [...[...contents.values()].map((f) => f.path), ...folders.values()]
@@ -473,5 +475,74 @@ describe('renaming', () => {
         expect(rename).toHaveBeenCalledWith('C:\\ws\\draft.md', 'C:\\ws\\Draft.md')
         expect(result.current.tabs.tabs.map((t) => t.name)).toEqual(['Draft.md'])
         expect(notifyError).not.toHaveBeenCalled()
+    })
+})
+
+describe('file system errors', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\sub\\a.mmd': 'graph TD' })
+        mountDisk(disk)
+    })
+
+    async function openWorkspace(result: { current: ReturnType<typeof useHarness> }, path = 'C:\\ws') {
+        await act(async () => {
+            await result.current.session.openWorkspace(path)
+        })
+    }
+
+    it('says why a delete failed and keeps the tabs of what is still there', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\sub\\a.mmd')
+        })
+        vi.mocked(remove).mockRejectedValueOnce('The directory is not empty. (os error 145)')
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't delete sub", 'The directory is not empty. (os error 145)')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\sub\\a.mmd'])
+    })
+
+    it('says a recent folder could not be opened, keeps the open one, and offers to drop it from the list', async () => {
+        vi.mocked(getRecentWorkspaces).mockResolvedValueOnce(['D:\\gone'])
+        vi.mocked(addRecentWorkspace).mockResolvedValueOnce(['C:\\ws', 'D:\\gone'])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+        await openWorkspace(result)
+
+        await openWorkspace(result, 'D:\\gone')
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.session.tree.map((n) => n.name)).toEqual(['sub'])
+        expect(notifyError).toHaveBeenCalledWith("Couldn't open gone", expect.anything(), {
+            action: { label: 'Remove from Recent', onClick: expect.any(Function) },
+        })
+        const options = vi.mocked(notifyError).mock.calls.at(-1)![2] as NotifyOptions
+        await act(async () => {
+            options.action!.onClick()
+        })
+        expect(removeRecentWorkspace).toHaveBeenCalledWith('D:\\gone')
+    })
+
+    it('still opens a created file when the file list fails to reload', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        vi.mocked(readDir).mockRejectedValueOnce('Access is denied. (os error 5)')
+
+        await act(async () => {
+            await result.current.session.createFile('C:\\ws', 'flow.mmd', 'graph LR')
+        })
+
+        expect(await disk.read('C:\\ws\\flow.mmd')).toBe('graph LR')
+        expect(notifyError).toHaveBeenCalledWith("Couldn't refresh the file list", 'Access is denied. (os error 5)')
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\flow.mmd')
     })
 })
