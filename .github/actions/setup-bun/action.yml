@@ -5,10 +5,13 @@ runs:
     using: composite
     steps:
         - name: Setup Bun
-          uses: oven-sh/setup-bun@v2
+          uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+          with:
+              # Same Bun as local development; bump together with bun.lock changes that need it.
+              bun-version: 1.4.2
 
         - name: Cache Bun dependencies
-          uses: actions/cache@v4
+          uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
           with:
               path: |
                   ~/.bun/install/cache
@@ -18,7 +21,7 @@ runs:
                   bun-${{ runner.os }}-
 
         - name: Cache Next.js build
-          uses: actions/cache@v4
+          uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
           with:
               path: .next/cache
               key: next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('next.config.mjs', 'postcss.config.mjs', 'tsconfig.json', 'app/**', 'components/**', 'hooks/**', 'lib/**', 'scripts/**') }}

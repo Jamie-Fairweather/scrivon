@@ -9,3 +9,18 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
+
+  # Workflows pin actions to full commit SHAs; this keeps the pins (and their version comments) current.
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/" # .github/workflows
+      - "/.github/actions/*" # composite actions
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

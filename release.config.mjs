@@ -25,6 +25,8 @@ const exec = [
     '@semantic-release/exec',
     {
         prepareCmd: 'node scripts/sync-version.mjs',
+        // Release workflow step outputs (new_release_published / new_release_version) for the Windows build job.
+        successCmd: 'node scripts/write-release-outputs.mjs ${nextRelease.version}',
     },
 ]
 

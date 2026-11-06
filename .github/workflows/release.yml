@@ -11,21 +11,25 @@ concurrency:
     group: release-${{ github.ref }}
     cancel-in-progress: false
 
+# Every job sets its own permissions. Third-party actions are pinned to full commit SHAs
+# (Dependabot keeps them current) because these jobs hold the updater signing key and the release PAT.
 permissions:
-    contents: write
-    issues: write
-    pull-requests: write
+    contents: read
 
 jobs:
     release:
         name: semantic-release
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            issues: write
+            pull-requests: write
         outputs:
             published: ${{ steps.semrel.outputs.new_release_published }}
             version: ${{ steps.semrel.outputs.new_release_version }}
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
               with:
                   fetch-depth: 0
                   token: ${{ secrets.RELEASE_BOT_TOKEN }}
@@ -34,9 +38,12 @@ jobs:
             - name: Setup Bun and dependencies
               uses: ./.github/actions/setup-bun
 
+            # Runs the semantic-release version locked in bun.lock (no install at run time).
+            # On a release, the exec plugin's successCmd writes new_release_published and
+            # new_release_version to this step's outputs (scripts/write-release-outputs.mjs).
             - name: Run semantic-release
               id: semrel
-              uses: cycjimmy/semantic-release-action@v4
+              run: bun run release
               env:
                   GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
                   HUSKY: 0
@@ -46,20 +53,25 @@ jobs:
         needs: release
         if: needs.release.outputs.published == 'true'
         runs-on: windows-latest
+        permissions:
+            contents: write
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
               with:
                   ref: v${{ needs.release.outputs.version }}
+                  persist-credentials: false
 
             - name: Setup Bun and dependencies
               uses: ./.github/actions/setup-bun
 
             - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: stable
 
             - name: Rust cache
-              uses: swatinem/rust-cache@v2
+              uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
 
@@ -83,7 +95,7 @@ jobs:
                   VERSION: ${{ needs.release.outputs.version }}
 
             - name: Build and upload installers
-              uses: tauri-apps/tauri-action@v0
+              uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

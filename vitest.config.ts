@@ -38,7 +38,7 @@ export default defineConfig({
                 extends: true,
                 test: {
                     name: 'unit',
-                    include: ['lib/**/*.test.ts', 'hooks/**/*.test.ts', 'components/**/*.test.ts'],
+                    include: ['lib/**/*.test.ts', 'hooks/**/*.test.ts', 'components/**/*.test.ts', 'scripts/**/*.test.ts'],
                     environment: 'node',
                 },
             },
