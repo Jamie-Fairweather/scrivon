@@ -18,6 +18,8 @@ type PdfExportDialogProps = {
     onOpenChange: (open: boolean) => void
     source: string
     tabName: string | undefined
+    /** The document's file path, so the save dialog starts in its folder. */
+    tabPath?: string
     format?: ExportFormat
     /**
      * Whether an export is running. Kept by the owner, not the dialog, so it outlives the dialog
@@ -27,7 +29,16 @@ type PdfExportDialogProps = {
     onExportingChange: (exporting: boolean) => void
 }
 
-export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 'pdf', exporting, onExportingChange }: PdfExportDialogProps) {
+export function PdfExportDialog({
+    open,
+    onOpenChange,
+    source,
+    tabName,
+    tabPath,
+    format = 'pdf',
+    exporting,
+    onExportingChange,
+}: PdfExportDialogProps) {
     // Closing mid-export would leave the save picker popping up later with no dialog behind it.
     const handleOpenChange = (next: boolean) => {
         if (!next && exporting) return
@@ -41,6 +52,7 @@ export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 
                     key={format}
                     source={source}
                     tabName={tabName}
+                    tabPath={tabPath}
                     initialFormat={format}
                     busy={exporting}
                     onBusyChange={onExportingChange}
@@ -59,6 +71,7 @@ const FORMAT_OPTIONS: { label: string; value: ExportFormat }[] = [
 function PdfExportForm({
     source,
     tabName,
+    tabPath,
     initialFormat,
     busy,
     onBusyChange,
@@ -66,6 +79,7 @@ function PdfExportForm({
 }: {
     source: string
     tabName: string | undefined
+    tabPath: string | undefined
     initialFormat: ExportFormat
     busy: boolean
     onBusyChange: (busy: boolean) => void
@@ -100,7 +114,7 @@ function PdfExportForm({
         onBusyChange(true)
         setError('')
         try {
-            const result = await exportMarkdown(source, tabName, { format, profile, overrides })
+            const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath })
             if (!mounted.current) {
                 // The dialog went away mid-export: still say how it ended, but leave whatever is open now alone.
                 if (result.status === 'saved') notifyExportSaved(result.path, result.missingImages)

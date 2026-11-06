@@ -26,6 +26,7 @@ function Owner({ shown = true, onOpenChange }: { shown?: boolean; onOpenChange: 
             onOpenChange={onOpenChange}
             source={'# Report\n\nBody'}
             tabName="report.md"
+            tabPath={'D:\\docs\\report.md'}
             exporting={exporting}
             onExportingChange={setExporting}
         />
@@ -60,7 +61,12 @@ describe('PdfExportDialog', () => {
         expect(exportMarkdown).toHaveBeenCalledWith(
             '# Report\n\nBody',
             'report.md',
-            expect.objectContaining({ format: 'pdf', overrides: expect.objectContaining({ title: 'Quarterly report' }) })
+            expect.objectContaining({
+                format: 'pdf',
+                overrides: expect.objectContaining({ title: 'Quarterly report' }),
+                // The save dialog starts in the document's folder.
+                documentPath: 'D:\\docs\\report.md',
+            })
         )
         expect(onOpenChange).not.toHaveBeenCalled()
         expect(screen.getByLabelText('Title')).toHaveValue('Quarterly report')

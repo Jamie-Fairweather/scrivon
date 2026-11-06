@@ -27,6 +27,8 @@ export type ExportMarkdownOptions = {
     format?: ExportFormat
     profile?: PdfExportProfile
     overrides?: PdfExportMetadataOverrides
+    /** The document's file path, so the save dialog starts in its folder. */
+    documentPath?: string
 }
 
 export type ExportMarkdownToPdfOptions = ExportMarkdownOptions
@@ -44,6 +46,20 @@ export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
     const base = tabName.replace(/\.md$/i, '')
     return base || 'document'
+}
+
+/** A full path to a file on disk: `D:\…`, `\\server\…` or `/…`. Example tabs use ids like `example:intro`. */
+const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+
+/**
+ * Where the save dialog starts: next to the document when it is a file on disk, so the export
+ * lands beside it. Otherwise just the file name, and the dialog picks the folder.
+ */
+export function exportSavePath(documentPath: string | undefined, fileName: string): string {
+    if (!documentPath || !ABSOLUTE_PATH.test(documentPath)) return fileName
+    const slash = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'))
+    const separator = documentPath.includes('\\') ? '\\' : '/'
+    return `${documentPath.slice(0, slash)}${separator}${fileName}`
 }
 
 function waitForPaint(): Promise<void> {
@@ -123,9 +139,9 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
     URL.revokeObjectURL(url)
 }
 
-async function saveDocx(bytes: Uint8Array, filename: string): Promise<ExportResult> {
+async function saveDocx(bytes: Uint8Array, filename: string, documentPath: string | undefined): Promise<ExportResult> {
     if (isTauri()) {
-        const path = await pickSavePath({ title: 'Save Word document', defaultPath: filename, filters: DOCX_FILTERS })
+        const path = await pickSavePath({ title: 'Save Word document', defaultPath: exportSavePath(documentPath, filename), filters: DOCX_FILTERS })
         if (!path) return { status: 'cancelled' }
         await writeBinaryFile(path, bytes)
         return { status: 'saved', path }
@@ -154,12 +170,12 @@ async function renderAndSave(
     options: ExportMarkdownOptions & { profile: PdfExportProfile },
     assets: PdfExportResolvedAssets
 ): Promise<ExportResult> {
-    const { profile, overrides } = options
+    const { profile, overrides, documentPath } = options
     if (options.format === 'docx') {
         const document = buildExportDocument(source, { profile, tabName, overrides, assets })
         const { renderExportDocx } = await import('@/lib/markdown/export-docx')
         const bytes = await renderExportDocx(document)
-        return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
+        return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, documentPath)
     }
 
     // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
@@ -168,7 +184,7 @@ async function renderAndSave(
     const filename = `${markdownExportBaseName(tabName)}.pdf`
 
     if (stamped) {
-        const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
+        const path = await pickSavePath({ title: 'Save PDF', defaultPath: exportSavePath(documentPath, filename), filters: PDF_FILTERS })
         if (!path) return { status: 'cancelled' }
         await savePdfWithWebView2(html, path, print)
         return { status: 'saved', path }

@@ -4,6 +4,7 @@ import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 
 const tabs = vi.hoisted(() => ({ activeTab: null as DocumentTab | null }))
+const dialogProps = vi.hoisted(() => ({ current: null as { tabPath?: string } | null }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTab: tabs.activeTab, activeTabId: tabs.activeTab?.id ?? null }),
@@ -12,7 +13,12 @@ vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({ useMark
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ themeId: 'light' }) }))
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: null, isPending: false }) }))
 vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn() }))
-vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({ PdfExportDialog: () => null }))
+vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({
+    PdfExportDialog: (props: { tabPath?: string }) => {
+        dialogProps.current = props
+        return null
+    },
+}))
 
 function tab(name: string, content: string): DocumentTab {
     return { id: name, path: `D:\\docs\\${name}`, name, content, isDirty: false, isSaving: false }
@@ -21,6 +27,7 @@ function tab(name: string, content: string): DocumentTab {
 describe('DocumentExportMenu', () => {
     beforeEach(() => {
         tabs.activeTab = null
+        dialogProps.current = null
     })
 
     it('disables the export button when no document is open, instead of opening an empty menu', () => {
@@ -36,5 +43,7 @@ describe('DocumentExportMenu', () => {
         const button = screen.getByRole('button', { name: 'Export document' })
         expect(button).not.toBeDisabled()
         expect(button).toHaveAttribute('title', 'Export document')
+        // The export dialog gets the file's path so its save dialog starts in the same folder.
+        expect(dialogProps.current?.tabPath).toBe('D:\\docs\\notes.md')
     })
 })

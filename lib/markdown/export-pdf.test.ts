@@ -72,6 +72,30 @@ describe('export-pdf helpers', () => {
         document.body.innerHTML = ''
     })
 
+    it('starts the save dialog next to the document when it is a file on disk', async () => {
+        const { exportSavePath } = await import('@/lib/markdown/export-pdf')
+        expect(exportSavePath('D:\\Projects\\spec\\spec.md', 'spec.pdf')).toBe('D:\\Projects\\spec\\spec.pdf')
+        expect(exportSavePath('\\\\server\\share\\notes.md', 'notes.docx')).toBe('\\\\server\\share\\notes.docx')
+        expect(exportSavePath('/home/ada/notes.md', 'notes.pdf')).toBe('/home/ada/notes.pdf')
+        expect(exportSavePath('C:/docs/a.md', 'a.pdf')).toBe('C:/docs/a.pdf')
+        // An example tab or a missing path has no folder, so the dialog picks one.
+        expect(exportSavePath('example:markdown-intro', 'intro.pdf')).toBe('intro.pdf')
+        expect(exportSavePath(undefined, 'intro.pdf')).toBe('intro.pdf')
+    })
+
+    it('opens the pdf and word save dialogs in the document folder', async () => {
+        isWindowsTauri.mockReturnValue(true)
+        isTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue(null)
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await exportMarkdown('# Hi', 'spec.md', { documentPath: 'D:\\Projects\\spec\\spec.md' })
+        await exportMarkdown('# Hi', 'spec.md', { format: 'docx', documentPath: 'D:\\Projects\\spec\\spec.md' })
+        expect(pickSavePath.mock.calls.map(([options]) => options.defaultPath)).toEqual([
+            'D:\\Projects\\spec\\spec.pdf',
+            'D:\\Projects\\spec\\spec.docx',
+        ])
+    })
+
     it('derives export base names', async () => {
         const { markdownExportBaseName } = await import('@/lib/markdown/export-pdf')
         expect(markdownExportBaseName(undefined)).toBe('document')

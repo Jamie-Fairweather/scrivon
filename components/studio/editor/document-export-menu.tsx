@@ -126,6 +126,7 @@ export function DocumentExportMenu() {
                     onOpenChange={setPdfDialogOpen}
                     source={markdownSource}
                     tabName={tabName}
+                    tabPath={activeTab?.path}
                     format={exportFormat}
                     exporting={exporting}
                     onExportingChange={setExporting}
