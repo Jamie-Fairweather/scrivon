@@ -1,4 +1,5 @@
 import { samePath } from '@/lib/tauri/fs'
+import { isSupportedDocument } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
@@ -94,4 +95,18 @@ export function findNameClash(siblings: FileNode[], name: string, ignorePath?: s
 
 export function nameTakenMessage(node: FileNode): string {
     return `A ${node.kind === 'directory' ? 'folder' : 'file'} named "${node.name}" already exists here.`
+}
+
+export const UNSUPPORTED_FILE_NAME_MESSAGE = 'File name must end with .md, .mmd or .mermaid.'
+
+/**
+ * Why `name` can't be used for a new or renamed entry among `siblings`, or null when it can.
+ * `ignorePath` is the entry being renamed, which may keep its own name.
+ */
+export function entryNameError(name: string, kind: FileNode['kind'], siblings: FileNode[], ignorePath?: string): string | null {
+    const invalid = validateFileName(name)
+    if (invalid) return invalid
+    if (kind === 'file' && !isSupportedDocument(name.trim())) return UNSUPPORTED_FILE_NAME_MESSAGE
+    const clash = findNameClash(siblings, name, ignorePath)
+    return clash ? nameTakenMessage(clash) : null
 }

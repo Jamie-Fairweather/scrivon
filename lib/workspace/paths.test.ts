@@ -3,6 +3,7 @@ import {
     childrenOf,
     collectFileNames,
     collectFilePaths,
+    entryNameError,
     findNameClash,
     findNodeByPath,
     nameTakenMessage,
@@ -138,5 +139,21 @@ describe('findNameClash', () => {
     it('says whether the clash is a file or a folder', () => {
         expect(nameTakenMessage(sampleTree[0]!)).toBe('A folder named "docs" already exists here.')
         expect(nameTakenMessage(sampleTree[1]!)).toBe('A file named "root.mmd" already exists here.')
+    })
+})
+
+describe('entryNameError', () => {
+    const docs = childrenOf(sampleTree, '/ws', '/ws/docs')
+
+    it('checks the characters, then the file extension, then the siblings', () => {
+        expect(entryNameError('my:flow.mmd', 'file', docs)).toBe('Name contains invalid characters')
+        expect(entryNameError('notes.txt', 'file', docs)).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(entryNameError('notes.txt', 'directory', docs)).toBeNull()
+        expect(entryNameError('flow.mermaid', 'file', docs)).toBeNull()
+        expect(entryNameError('Diagram.MMD', 'file', docs)).toBe('A file named "diagram.mmd" already exists here.')
+    })
+
+    it('lets a renamed entry keep its own name in another letter case', () => {
+        expect(entryNameError('Diagram.mmd', 'file', docs, '/ws/docs/diagram.mmd')).toBeNull()
     })
 })

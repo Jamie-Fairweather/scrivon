@@ -3,7 +3,7 @@ import { useMemo, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { exists, mkdir, readDir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure, confirmUnsavedChanges } from '@/lib/tauri/dialog'
+import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getWorkspaceTabSession } from '@/lib/tauri/store'
@@ -380,6 +380,31 @@ describe('creating files and folders', () => {
         expect(result.current.session.suggestName('C:\\ws', 'diagram.mmd')).toBe('diagram 2.mmd')
         expect(result.current.session.suggestName('C:\\ws\\docs', 'diagram.mmd')).toBe('diagram.mmd')
         expect(result.current.session.suggestName('C:\\ws', 'docs')).toBe('docs 2')
+    })
+
+    it('says why a name can’t be used, for the name prompt to show as the user types', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        const { getNameError } = result.current.session
+
+        expect(getNameError('C:\\ws', 'Diagram.mmd', 'file')).toBe('A file named "diagram.mmd" already exists here.')
+        expect(getNameError('C:\\ws', 'my:flow.mmd', 'file')).toBe('Name contains invalid characters')
+        expect(getNameError('C:\\ws', 'notes', 'file')).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(getNameError('C:\\ws\\docs', 'diagram.mmd', 'file')).toBeNull()
+        expect(getNameError('C:\\ws', 'Diagram.mmd', 'file', 'C:\\ws\\diagram.mmd')).toBeNull()
+    })
+
+    it('reports a bad name in a notice instead of a blocking message box', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.createFile('C:\\ws', 'my:flow.mmd')
+        })
+
+        expect(showError).not.toHaveBeenCalled()
+        expect(writeTextFile).not.toHaveBeenCalled()
+        expect(notifyError).toHaveBeenCalledWith("Couldn't create my:flow.mmd", undefined, { description: 'Name contains invalid characters' })
     })
 })
 

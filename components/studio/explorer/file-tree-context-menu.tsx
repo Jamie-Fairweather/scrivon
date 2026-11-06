@@ -9,18 +9,24 @@ import { useWorkspaceSession } from '@/components/studio/workspace/workspace-pro
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
-import { isSupportedDocument } from '@/lib/tauri/fs'
+import { getParentPath, isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { confirmDelete } = useDeleteConfirm()
     const { promptName } = useNamePrompt()
-    const { openFile, renameEntry, deleteEntry, duplicateFile } = useWorkspaceSession()
+    const { openFile, renameEntry, deleteEntry, duplicateFile, getNameError } = useWorkspaceSession()
     const parentPath = node.kind === 'directory' ? node.path : null
     const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
 
     const handleRename = async () => {
-        const name = await promptName('Rename', node.name)
+        const folder = getParentPath(node.path)
+        const name = await promptName({
+            title: 'Rename',
+            defaultValue: node.name,
+            placeholder: node.name,
+            validate: (value) => getNameError(folder, value, node.kind, node.path),
+        })
         if (name && name !== node.name) await renameEntry(node.path, name, node.kind === 'directory')
     }
 
