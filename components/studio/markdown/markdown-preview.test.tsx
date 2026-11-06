@@ -1,6 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { MarkdownPreview } from './markdown-preview'
+import { extractMermaidBlockSources } from './mermaid-block-sources'
 
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
     useMermaidSvg: () => ({ svgForDisplay: null, dimensions: null, error: null, isPending: false }),
@@ -101,6 +103,38 @@ describe('MarkdownPreview', () => {
             expect(container.querySelector('[data-mode]')).toBeNull()
             expect(container.querySelector('p code')).toHaveTextContent('hi')
         })
+    })
+
+    it('numbers diagrams from 0 in order, even when React renders each block twice', () => {
+        const onExpandBlock = vi.fn()
+        const source = [
+            '```mermaid',
+            'flowchart TD',
+            '```',
+            '',
+            'Text[^1]',
+            '',
+            '[^1]: ```mermaid',
+            '    pie',
+            '    ```',
+            '',
+            '```mermaid',
+            'flowchart LR',
+            '```',
+        ].join('\n')
+        render(
+            <StrictMode>
+                <MarkdownPreview source={source} tabId="doc.md" {...callbacks} onExpandBlock={onExpandBlock} />
+            </StrictMode>
+        )
+
+        const buttons = screen.getAllByRole('button', { name: /^Expand diagram/ })
+        expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['Expand diagram 1', 'Expand diagram 2', 'Expand diagram 3'])
+        buttons.forEach((button) => fireEvent.click(button))
+        // The order MarkdownDocumentViewer finds the blocks in again; the footnote's diagram comes last.
+        const sources = extractMermaidBlockSources(source)
+        expect(sources).toEqual(['flowchart TD', 'flowchart LR', 'pie'])
+        expect(onExpandBlock.mock.calls).toEqual(sources.map((blockSource, ordinal) => [`doc.md:${ordinal}:mermaid`, ordinal, blockSource]))
     })
 
     it('leaves YAML front matter out, as export does', () => {

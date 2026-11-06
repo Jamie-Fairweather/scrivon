@@ -4,9 +4,10 @@ import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
+import { mermaidBlockOrdinal, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 
-const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype, { allowDangerousHtml: true })
+const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype, { allowDangerousHtml: true }).use(rehypeFencedBlockOrdinals)
 
 function textOf(node: Element | ElementContent): string {
     if (node.type === 'text') return node.value
@@ -14,23 +15,17 @@ function textOf(node: Element | ElementContent): string {
     return ''
 }
 
-function isMermaidCode(node: Element): boolean {
-    if (node.tagName !== 'code') return false
-    const classes = node.properties.className
-    const list = Array.isArray(classes) ? classes : typeof classes === 'string' ? classes.split(/\s+/) : []
-    return list.some((name) => /^language-mermaid$/i.test(String(name)))
-}
-
 /**
- * The source of every Mermaid block in the document, in the order MarkdownPreview numbers them. It walks the
- * same HTML tree react-markdown renders, so blocks moved to the end (footnotes) or dropped (unused footnote
- * definitions) line up with the preview.
+ * The source of every Mermaid block in the document, by the ordinal MarkdownPreview gives it. Both number the
+ * blocks with the same plugin on the same HTML tree react-markdown renders, so blocks moved to the end (footnotes)
+ * or dropped (unused footnote definitions) line up with the preview.
  */
 export function extractMermaidBlockSources(markdown: string): string[] {
     const tree = processor.runSync(processor.parse(markdownPreviewBody(markdown))) as HastRoot
     const sources: string[] = []
     visit(tree, 'element', (node: Element) => {
-        if (isMermaidCode(node)) sources.push(textOf(node).replace(/\n$/, ''))
+        const ordinal = mermaidBlockOrdinal(node)
+        if (ordinal !== null) sources[ordinal] = textOf(node).replace(/\n$/, '')
     })
     return sources
 }

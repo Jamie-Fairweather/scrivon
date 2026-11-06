@@ -1,7 +1,6 @@
 'use client'
 
 import { memo, useEffect, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
-import { nextFencedCodeBlockOrdinal, nextMermaidBlockOrdinal, resetMarkdownBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import type { Element } from 'hast'
 import { ImageOff } from 'lucide-react'
 import type { Root } from 'mdast'
@@ -10,6 +9,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
+import { fencedCodeBlockOrdinal, mermaidBlockOrdinal, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
@@ -38,21 +38,6 @@ function codeLanguage(className: string | undefined): string | undefined {
     return /language-([^\s]+)/i.exec(className ?? '')?.[1]?.toLowerCase()
 }
 
-/**
- * A `<pre>`'s code element when it's empty, which only an empty fenced block is. With no text, the code override
- * can't tell it from inline code.
- */
-function emptyFencedCode(pre: Element | undefined): Element | null {
-    const code = pre?.children[0]
-    if (code?.type !== 'element' || code.tagName !== 'code') return null
-    return code.children.every((child) => child.type === 'text' && child.value === '') ? code : null
-}
-
-function hastClassName(element: Element): string | undefined {
-    const value = element.properties.className
-    return Array.isArray(value) ? value.join(' ') : typeof value === 'string' ? value : undefined
-}
-
 function extractText(children: ReactNode): string {
     if (typeof children === 'string') return children
     if (Array.isArray(children)) return children.map(extractText).join('')
@@ -67,6 +52,7 @@ function remarkHeadingIds() {
 }
 
 const remarkPlugins = [remarkGfm, remarkHeadingIds]
+const rehypePlugins = [rehypeFencedBlockOrdinals]
 
 /** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
 function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
@@ -193,20 +179,8 @@ const staticMarkdownComponents: Components = {
             {children}
         </td>
     ),
-    pre: ({ children, node }) => {
-        // An empty fenced block would otherwise pass for empty inline code and vanish; show it as an empty block, as
-        // export does. (An empty Mermaid block already shows as one.)
-        const emptyCode = emptyFencedCode(node)
-        if (emptyCode) {
-            const lang = codeLanguage(hastClassName(emptyCode))
-            if (lang !== 'mermaid') {
-                // Counted like any block, so later blocks keep their ids when this one gets text.
-                nextFencedCodeBlockOrdinal()
-                return <FencedCodeBlock code="" language={lang} />
-            }
-        }
-        return <>{children}</>
-    },
+    // Each fenced block draws its own frame (the code override), so the <pre> adds nothing.
+    pre: ({ children }) => <>{children}</>,
 }
 
 /**
@@ -223,8 +197,6 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     onRemoteImageBlocked,
     className,
 }: MarkdownPreviewProps) {
-    resetMarkdownBlockOrdinals()
-
     const components = useMemo((): Components => {
         return {
             ...staticMarkdownComponents,
@@ -260,13 +232,13 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 )
             },
             code(props: CodeComponentProps) {
-                const { className: codeClassName, children } = props
-                const lang = codeLanguage(codeClassName)
+                const { className: codeClassName, children, node } = props
                 const text = extractText(children)
-                const isBlock = lang === 'mermaid' || text.includes('\n')
+                // Numbered on the syntax tree (rehypeFencedBlockOrdinals): every fenced block, even an empty one, has
+                // a number and inline code has none. Counting here would go wrong when React renders a block twice.
+                const ordinal = mermaidBlockOrdinal(node)
 
-                if (lang === 'mermaid' && isBlock) {
-                    const ordinal = nextMermaidBlockOrdinal()
+                if (ordinal !== null) {
                     const blockId = mermaidBlockId(tabId, ordinal)
                     return (
                         <EmbeddedMermaidBlock
@@ -280,11 +252,13 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                     )
                 }
 
-                if (!isBlock) {
+                const codeOrdinal = fencedCodeBlockOrdinal(node)
+                if (codeOrdinal === null) {
                     return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
                 }
 
-                const blockId = fencedCodeBlockId(tabId, nextFencedCodeBlockOrdinal(), lang)
+                const lang = codeLanguage(codeClassName)
+                const blockId = fencedCodeBlockId(tabId, codeOrdinal, lang)
                 return <FencedCodeBlock key={blockId} code={text.replace(/\n$/, '')} language={lang} />
             },
         }
@@ -296,7 +270,12 @@ export const MarkdownPreview = memo(function MarkdownPreview({
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
             <article className="w-full max-w-3xl min-w-0 break-words">
-                <ReactMarkdown remarkPlugins={remarkPlugins} components={components} urlTransform={markdownUrlTransform}>
+                <ReactMarkdown
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={components}
+                    urlTransform={markdownUrlTransform}
+                >
                     {body}
                 </ReactMarkdown>
             </article>
