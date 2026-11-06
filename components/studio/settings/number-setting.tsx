@@ -1,6 +1,7 @@
 'use client'
 
 import type { KeyboardEvent, ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
 
@@ -14,6 +15,8 @@ type NumberSettingProps = {
     step: number
     disabled?: boolean
     onChange: (value: number) => void
+    /** For the stepper, which is a fixed width so a small number doesn't get a full-width control. */
+    className?: string
 }
 
 /** Changes that come from typing. They wait until the field is committed (blur or Enter). */
@@ -38,7 +41,7 @@ function commitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
  * does. Values are kept within min and max and rounded to the step's decimal places. Cleared
  * input is ignored and the previous value stays.
  */
-export function NumberSetting({ id, label, description, value, min, max, step, disabled, onChange }: NumberSettingProps) {
+export function NumberSetting({ id, label, description, value, min, max, step, disabled, onChange, className }: NumberSettingProps) {
     const decimals = decimalsOf(step)
 
     const apply = (next: number | null) => {
@@ -53,6 +56,7 @@ export function NumberSetting({ id, label, description, value, min, max, step, d
             {description ? <FieldDescription>{description}</FieldDescription> : null}
             <NumberField
                 id={id}
+                className={cn('w-40', className)}
                 value={value}
                 min={min}
                 max={max}

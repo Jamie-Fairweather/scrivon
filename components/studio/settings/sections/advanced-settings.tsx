@@ -1,10 +1,9 @@
 'use client'
 
 import { isTauri } from '@/lib/tauri/platform'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { Switch } from '@/components/ui/switch'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 
 export function AdvancedSettings() {
     const { settings, updateSettings } = useAppSettings()
@@ -28,42 +27,30 @@ export function AdvancedSettings() {
                 }
             />
 
-            <Field>
-                <div className="flex items-center justify-between gap-4">
-                    <div>
-                        <FieldLabel>Restore panel layout</FieldLabel>
-                        <FieldDescription>Remember explorer and editor visibility when reopening the app.</FieldDescription>
-                    </div>
-                    <Switch
-                        checked={settings.layout.restorePanelsOnOpen}
-                        onCheckedChange={(checked) =>
-                            updateSettings((current) => ({
-                                ...current,
-                                layout: { ...current.layout, restorePanelsOnOpen: checked === true },
-                            }))
-                        }
-                    />
-                </div>
-            </Field>
+            <SwitchSetting
+                label="Restore panel layout"
+                description="Remember explorer and editor visibility when reopening the app."
+                checked={settings.layout.restorePanelsOnOpen}
+                onChange={(restorePanelsOnOpen) =>
+                    updateSettings((current) => ({
+                        ...current,
+                        layout: { ...current.layout, restorePanelsOnOpen },
+                    }))
+                }
+            />
 
             {desktop ? (
-                <Field>
-                    <div className="flex items-center justify-between gap-4">
-                        <div>
-                            <FieldLabel>Check for updates on launch</FieldLabel>
-                            <FieldDescription>Automatically check for app updates after startup.</FieldDescription>
-                        </div>
-                        <Switch
-                            checked={settings.updates.checkOnLaunch}
-                            onCheckedChange={(checked) =>
-                                updateSettings((current) => ({
-                                    ...current,
-                                    updates: { ...current.updates, checkOnLaunch: checked === true },
-                                }))
-                            }
-                        />
-                    </div>
-                </Field>
+                <SwitchSetting
+                    label="Check for updates on launch"
+                    description="Automatically check for app updates after startup."
+                    checked={settings.updates.checkOnLaunch}
+                    onChange={(checkOnLaunch) =>
+                        updateSettings((current) => ({
+                            ...current,
+                            updates: { ...current.updates, checkOnLaunch },
+                        }))
+                    }
+                />
             ) : null}
         </div>
     )
