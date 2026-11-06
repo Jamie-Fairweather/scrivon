@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
-import { applyThemeToDocument, clearThemeFromDocument } from './apply-document-theme'
+import { applyThemeToDocument } from './apply-document-theme'
 
 afterEach(() => {
-    clearThemeFromDocument()
-    document.documentElement.classList.remove('dark')
+    const root = document.documentElement
+    root.removeAttribute('style')
+    root.removeAttribute('data-app-theme')
+    root.classList.remove('dark')
 })
 
 describe('applyThemeToDocument', () => {
@@ -24,17 +26,5 @@ describe('applyThemeToDocument', () => {
         const root = document.documentElement
         expect(root.style.colorScheme).toBe('light')
         expect(root.classList.contains('dark')).toBe(false)
-    })
-})
-
-describe('clearThemeFromDocument', () => {
-    it('removes the colour scheme and theme variables', () => {
-        applyThemeToDocument('dracula')
-        clearThemeFromDocument()
-
-        const root = document.documentElement
-        expect(root.style.colorScheme).toBe('')
-        expect(root.style.getPropertyValue('--background')).toBe('')
-        expect(root.dataset.appTheme).toBeUndefined()
     })
 })
