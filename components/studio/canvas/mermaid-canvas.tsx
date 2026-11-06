@@ -9,6 +9,8 @@ import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/wor
 import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
+import { CircleAlert } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardPanel } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +28,33 @@ const DiagramError = memo(function DiagramError({ message }: { message: string }
                 <pre className="overflow-auto text-sm whitespace-pre-wrap text-muted-foreground">{message}</pre>
             </CardPanel>
         </Card>
+    )
+})
+
+function stopCanvasGesture(event: React.SyntheticEvent) {
+    event.stopPropagation()
+}
+
+/** Shown over the last diagram that worked, outside the pan/zoom layer so the message can be read, selected and scrolled. */
+const DiagramErrorBanner = memo(function DiagramErrorBanner({ message }: { message: string }) {
+    return (
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
+            <div
+                className="pointer-events-auto w-full max-w-xl cursor-auto rounded-xl bg-background shadow-sm select-text"
+                onPointerDown={stopCanvasGesture}
+                onWheel={stopCanvasGesture}
+                onDoubleClick={stopCanvasGesture}
+            >
+                <Alert variant="error" role="status">
+                    <CircleAlert aria-hidden />
+                    <AlertTitle>Diagram has an error</AlertTitle>
+                    <AlertDescription>
+                        <pre className="max-h-32 overflow-auto font-mono text-xs whitespace-pre-wrap">{message}</pre>
+                        <p className="text-xs">Showing the last version that worked.</p>
+                    </AlertDescription>
+                </Alert>
+            </div>
+        </div>
     )
 })
 
@@ -99,7 +128,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     useCanvasFitOnFirstView(fitDimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
     const emptyMessage = !viewKey ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
-    const showDiagram = hasSource && Boolean(svgForDisplay) && !error
+    const showDiagram = hasSource && Boolean(svgForDisplay)
     const showEmpty = !error && !showDiagram && !isPending
 
     return (
@@ -110,21 +139,22 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
             {...handlers}
         >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div ref={transformRef} className="origin-center">
-                    {error ? (
-                        <DiagramError message={error} />
-                    ) : showDiagram ? (
+                <div ref={transformRef} className={cn('origin-center transition-opacity', showDiagram && error && 'opacity-40')}>
+                    {showDiagram ? (
                         <DiagramIframe
                             key={viewKey ?? 'none'}
                             svg={svgForDisplay!}
                             bounds={effectiveBounds}
                             onBoundsMeasured={handleBoundsMeasured}
                         />
+                    ) : error ? (
+                        <DiagramError message={error} />
                     ) : showEmpty ? (
                         <DiagramEmpty message={emptyMessage} />
                     ) : null}
                 </div>
             </div>
+            {showDiagram && error ? <DiagramErrorBanner message={error} /> : null}
         </div>
     )
 }

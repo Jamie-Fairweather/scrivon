@@ -62,4 +62,43 @@ describe('useMermaidSvg', () => {
 
         expect(again.result.current.svgForDisplay).toBe(expectedSvg(V3))
     })
+
+    it('reports a syntax error even when an earlier render is still on screen (U02)', () => {
+        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        waitForRender()
+
+        rerender({ source: BROKEN })
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), error: null, isStale: true, isPending: false })
+
+        waitForRender()
+        expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
+        expect(result.current.isStale).toBe(true)
+        expect(result.current.error).toMatch(/\S/)
+
+        rerender({ source: V2 })
+        waitForRender()
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), error: null, isStale: false })
+    })
+
+    it('does not bring a deleted diagram back when typing starts again (U02)', () => {
+        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        waitForRender()
+
+        rerender({ source: '   ' })
+        expect(result.current.svgForDisplay).toBeNull()
+
+        rerender({ source: 'f' })
+        expect(result.current.svgForDisplay).toBeNull()
+        waitForRender()
+        expect(result.current.svgForDisplay).toBeNull()
+        expect(result.current.error).toMatch(/\S/)
+    })
+
+    it('shows the error straight away for a document that never rendered', () => {
+        const { result } = renderHook(() => useMermaidSvg(BROKEN, 'b.mmd'))
+        waitForRender()
+
+        expect(result.current).toMatchObject({ svgForDisplay: null, isStale: false, isPending: false })
+        expect(result.current.error).toMatch(/\S/)
+    })
 })

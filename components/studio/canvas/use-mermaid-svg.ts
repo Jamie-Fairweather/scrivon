@@ -4,33 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
-import { clearSvgCache, readCachedSvg, readLatestSvg, storeSvg } from '@/lib/mermaid/svg-cache'
+import { clearSvgCache, forgetDocumentSvgs, readCachedSvg, readLatestSvg, storeSvg } from '@/lib/mermaid/svg-cache'
 
 const RENDER_DEBOUNCE_MS = 200
 
-type DiagramDisplay = { source: string; svg: string; documentKey: string; themeId: string }
+type DiagramDisplay = { trimmedSource: string; svg: string; documentKey: string; themeId: string }
 type RenderError = { message: string; documentKey: string; themeId: string; trimmedSource: string }
-
-function resolveSvgForDisplay(
-    themeId: string,
-    documentKey: string,
-    trimmedSource: string,
-    display: DiagramDisplay | null,
-    hasRenderError: boolean
-): string | null {
-    const exact = readCachedSvg(themeId, documentKey, trimmedSource)
-    if (exact) return exact
-
-    if (display?.documentKey === documentKey && display.themeId === themeId) {
-        return display.svg
-    }
-
-    const stale = readLatestSvg(themeId, documentKey)
-    if (stale) return stale
-
-    if (hasRenderError) return null
-    return null
-}
 
 export function useMermaidSvg(source: string, documentKey: string | null) {
     const { themeId } = useAppTheme()
@@ -60,6 +39,11 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
     }, [themeId])
 
     useEffect(() => {
+        // A cleared document starts over, so its old diagram can't come back once typing resumes.
+        if (documentKey && !trimmedSource) forgetDocumentSvgs(documentKey)
+    }, [documentKey, trimmedSource])
+
+    useEffect(() => {
         if (!canRender || !documentKey) return
         if (readCachedSvg(themeId, documentKey, trimmedSource)) return
 
@@ -82,7 +66,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 if (themeIdRef.current !== renderThemeId) return
 
                 storeSvg(renderThemeId, renderForKey, renderTrimmed, svg)
-                setDisplay({ source: renderSource, svg, documentKey: renderForKey, themeId: renderThemeId })
+                setDisplay({ trimmedSource: renderTrimmed, svg, documentKey: renderForKey, themeId: renderThemeId })
                 setError(null)
             } catch (err) {
                 if (cancelled) return
@@ -103,19 +87,19 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         }
     }, [canRender, documentKey, source, themeId, trimmedSource])
 
-    const exactCachedSvg = canRender && documentKey ? readCachedSvg(themeId, documentKey, trimmedSource) : null
+    const displayIsCurrent = display?.documentKey === documentKey && display.themeId === themeId && display.trimmedSource === trimmedSource
+    const currentSvg =
+        canRender && documentKey ? (readCachedSvg(themeId, documentKey, trimmedSource) ?? (displayIsCurrent ? display.svg : null)) : null
     const hasRenderError = Boolean(
-        error &&
-        documentKey &&
-        !exactCachedSvg &&
-        error.documentKey === documentKey &&
-        error.themeId === themeId &&
-        error.trimmedSource === trimmedSource
+        error && documentKey && !currentSvg && error.documentKey === documentKey && error.themeId === themeId && error.trimmedSource === trimmedSource
     )
-    const svgForDisplay = canRender && documentKey ? resolveSvgForDisplay(themeId, documentKey, trimmedSource, display, hasRenderError) : null
-    const errorMessage = hasRenderError && !svgForDisplay && error ? error.message : null
+    // While the current text is still rendering or doesn't parse, keep showing the newest diagram that worked.
+    const svgForDisplay = currentSvg ?? (canRender && documentKey ? readLatestSvg(themeId, documentKey) : null)
+    const errorMessage = hasRenderError && error ? error.message : null
+    /** True when svgForDisplay is an older render, not the current text. */
+    const isStale = Boolean(svgForDisplay) && !currentSvg
     const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
     const isPending = canRender && !hasRenderError && !svgForDisplay
 
-    return { svgForDisplay, dimensions, error: errorMessage, isPending }
+    return { svgForDisplay, dimensions, error: errorMessage, isStale, isPending }
 }
