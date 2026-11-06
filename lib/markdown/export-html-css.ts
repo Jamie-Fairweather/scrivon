@@ -92,9 +92,14 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
 
 /**
  * Marker text rendered (practically invisibly) inside the footer's page-number
- * slot. WebView2 never resolves CSS page counters, so the Rust side locates this
- * marker in the printed PDF to learn which pages carry a footer and exactly
- * where the number belongs, then stamps the real value right-aligned to it.
+ * slot. Chromium (WebView2 included) only resolves `counter(page)`/`counter(pages)`
+ * inside `@page` margin boxes, and the footer is an in-page bar (repeating table
+ * row or fixed element, with images, backgrounds and edge-to-edge bands), so its
+ * number is stamped after printing: the Rust side locates this marker in the PDF
+ * to learn which pages carry a footer and exactly where the number belongs, then
+ * draws the real value right-aligned to it. TOC numbers are always stamped, since
+ * `target-counter()` is unsupported. The print-dialog path, which has no stamper,
+ * uses a margin box instead ({@link printDialogPageNumberCss}).
  * Must match `FOOTER_MARK` in `src-tauri/src/page_numbers.rs`.
  */
 export const PDF_PAGE_NUMBER_MARK = 'SFPN'
