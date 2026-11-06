@@ -1,19 +1,24 @@
 'use client'
 
-import { useMemo, type ComponentProps, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { nextFencedCodeBlockOrdinal, nextMermaidBlockOrdinal, resetMarkdownBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import type { Element } from 'hast'
-import type { Components } from 'react-markdown'
+import type { Root } from 'mdast'
+import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
+import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
+import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { cn } from '@/lib/utils'
 
 type MarkdownPreviewProps = {
     source: string
     tabId: string | null
     onExpandBlock: (blockId: string, source: string) => void
+    /** Called with the link's href when a link is clicked. The webview's own navigation is always prevented. */
+    onLinkClick: (href: string) => void
     className?: string
 }
 
@@ -27,7 +32,21 @@ function extractText(children: ReactNode): string {
     return String(children ?? '')
 }
 
-const remarkPlugins = [remarkGfm]
+/** Gives headings the same ids PDF and Word export use, so `#section` links have something to jump to. */
+function remarkHeadingIds() {
+    return (tree: Root) => {
+        collectPdfExportOutline(tree)
+    }
+}
+
+const remarkPlugins = [remarkGfm, remarkHeadingIds]
+
+/** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
+function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
+    const rest = { ...props }
+    delete rest.node
+    return rest
+}
 
 type TableCellProps = {
     children?: ReactNode
@@ -48,23 +67,33 @@ function fencedCodeBlockId(tabId: string | null, fallbackIndex: number, lang?: s
 }
 
 const staticMarkdownComponents: Components = {
-    h1: ({ children }) => <h1 className="mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0">{children}</h1>,
-    h2: ({ children }) => <h2 className="mt-6 mb-3 text-xl font-semibold text-foreground">{children}</h2>,
-    h3: ({ children }) => <h3 className="mt-4 mb-2 text-lg font-semibold text-foreground">{children}</h3>,
-    h4: ({ children }) => <h4 className="mt-3 mb-2 text-base font-semibold text-foreground">{children}</h4>,
+    h1: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <h1 {...rest} className={cn('mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0', className)} />
+    },
+    h2: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <h2 {...rest} className={cn('mt-6 mb-3 text-xl font-semibold text-foreground', className)} />
+    },
+    h3: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <h3 {...rest} className={cn('mt-4 mb-2 text-lg font-semibold text-foreground', className)} />
+    },
+    h4: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <h4 {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
+    },
     p: ({ children }) => <p className="mb-3 text-sm leading-relaxed text-foreground/90">{children}</p>,
     ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90">{children}</ul>,
     ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 ps-5 text-sm text-foreground/90">{children}</ol>,
-    li: ({ children }) => <li className="break-words">{children}</li>,
+    li: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <li {...rest} className={cn('break-words', className)} />
+    },
     blockquote: ({ children }) => (
         <blockquote className="mb-3 border-l-2 border-border ps-4 text-sm text-muted-foreground italic">{children}</blockquote>
     ),
     hr: () => <hr className="my-6 border-border" />,
-    a: ({ href, children }) => (
-        <a href={href} target="_blank" rel="noopener noreferrer" className="text-foreground underline-offset-4 hover:underline">
-            {children}
-        </a>
-    ),
     table: ({ children }) => (
         <div className="mb-4 overflow-x-auto rounded-lg border border-border">
             <table className="w-full border-collapse text-sm">{children}</table>
@@ -86,12 +115,24 @@ const staticMarkdownComponents: Components = {
     pre: ({ children }) => <>{children}</>,
 }
 
-export function MarkdownPreview({ source, tabId, onExpandBlock, className }: MarkdownPreviewProps) {
+export function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, className }: MarkdownPreviewProps) {
     resetMarkdownBlockOrdinals()
 
     const components = useMemo((): Components => {
         return {
             ...staticMarkdownComponents,
+            a(props) {
+                const { className: linkClassName, href, ...rest } = withoutNode(props)
+                const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+                    // Routed by the app: left to the webview, relative and #anchor links would open
+                    // a dead http://tauri.localhost page in the system browser.
+                    event.preventDefault()
+                    if (href) onLinkClick(href)
+                }
+                return (
+                    <a {...rest} href={href} onClick={onClick} className={cn('text-foreground underline-offset-4 hover:underline', linkClassName)} />
+                )
+            },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children } = props
                 const match = /language-([^\s]+)/i.exec(codeClassName ?? '')
@@ -120,12 +161,12 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, className }: Mar
                 return <FencedCodeBlock key={blockId} blockId={blockId} code={text.replace(/\n$/, '')} language={lang} />
             },
         }
-    }, [onExpandBlock, tabId])
+    }, [onExpandBlock, onLinkClick, tabId])
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             <article className="w-full max-w-3xl min-w-0">
-                <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+                <ReactMarkdown remarkPlugins={remarkPlugins} components={components} urlTransform={markdownUrlTransform}>
                     {source}
                 </ReactMarkdown>
             </article>
