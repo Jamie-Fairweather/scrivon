@@ -170,13 +170,47 @@ const HANGUL = /\p{Script=Hangul}/gu
 const ARABIC = /\p{Script=Arabic}/gu
 const HEBREW = /\p{Script=Hebrew}/gu
 
+/** Common characters written differently in Traditional and Simplified Chinese, for {@link chineseLanguageTag}. */
+const TRADITIONAL_ONLY =
+    /[們這個來時說國會對學為與經過還發開關問題點實現種從動機進長樣電話讀書寫體間應該當頭見覺業務區歷東車門錢買賣認識興環檔檢選單輸設計顯網頁圖資訊軟價產]/gu
+const SIMPLIFIED_ONLY =
+    /[们这个来时说国会对学为与经过还发开关问题点实现种从动机进长样电话读书写体间应该当头见觉业务区历东车门钱买卖认识兴环档检选单输设计显网页图资讯软价产]/gu
+
+/** Which Han script a Chinese language tag asks for, or '' when it doesn't say (`zh`). */
+function hanScriptOfTag(tag: string): 'Hant' | 'Hans' | '' {
+    if (/-(?:hant|tw|hk|mo)(?:-|$)/i.test(tag)) return 'Hant'
+    if (/-(?:hans|cn|sg|my)(?:-|$)/i.test(tag)) return 'Hans'
+    return ''
+}
+
+/**
+ * The tag for Chinese text. A bare `zh` would make the browser use Simplified glyph shapes,
+ * so this says which script: the user's own Chinese language (`zh-TW`) unless the text is
+ * plainly in the other script, else `zh-Hant` or `zh-Hans` from the text, Simplified by default.
+ */
+function chineseLanguageTag(text: string, systemLanguages: readonly string[]): string {
+    const traditional = text.match(TRADITIONAL_ONLY)?.length ?? 0
+    const simplified = text.match(SIMPLIFIED_ONLY)?.length ?? 0
+    const script = traditional > simplified ? 'Hant' : simplified > traditional ? 'Hans' : ''
+    const system = systemLanguages.find((tag) => /^zh(?:-|$)/i.test(tag))
+    if (system && (!script || hanScriptOfTag(system) === script)) return system
+    return script === 'Hant' ? 'zh-Hant' : 'zh-Hans'
+}
+
+/** The user's preferred languages, most preferred first. */
+function systemLanguages(): readonly string[] {
+    if (typeof navigator === 'undefined') return []
+    return navigator.languages?.length ? navigator.languages : [navigator.language]
+}
+
 /**
  * The language a document's prose is most likely in, from the scripts its letters use, so the
  * PDF can be tagged with it: the browser picks the font for shared Han characters by language,
  * which gives Japanese text Chinese glyph shapes when tagged `en`. Only scripts that point at one
  * language are guessed; anything else, or a mix where no such script leads, stays `en`.
+ * Chinese also says which script (see {@link chineseLanguageTag}).
  */
-export function guessDocumentLanguage(text: string): string {
+export function guessDocumentLanguage(text: string, languages: readonly string[] = systemLanguages()): string {
     const count = (pattern: RegExp) => text.match(pattern)?.length ?? 0
     const letters = count(LETTER)
     if (letters === 0) return 'en'
@@ -188,7 +222,7 @@ export function guessDocumentLanguage(text: string): string {
     if (cjk * 3 >= letters - cjk) {
         if (hangul >= kana + han) return 'ko'
         // Japanese mixes kana into its kanji; Chinese has next to none.
-        return kana * 10 >= han ? 'ja' : 'zh'
+        return kana * 10 >= han ? 'ja' : chineseLanguageTag(text, languages)
     }
     if (count(ARABIC) * 2 > letters) return 'ar'
     if (count(HEBREW) * 2 > letters) return 'he'

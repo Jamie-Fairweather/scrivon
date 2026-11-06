@@ -119,10 +119,30 @@ describe('guessDocumentLanguage', () => {
         expect(guessDocumentLanguage('骨角器と直線の写真について説明します。')).toBe('ja')
         // Technical Japanese with plenty of English terms is still Japanese.
         expect(guessDocumentLanguage('Scrivon の export 機能で PDF と Word を作成します。')).toBe('ja')
-        expect(guessDocumentLanguage('这是一个关于导出文档的说明。')).toBe('zh')
+        expect(guessDocumentLanguage('这是一个关于导出文档的说明。', ['en-US'])).toBe('zh-Hans')
         expect(guessDocumentLanguage('문서를 내보내는 방법을 설명합니다.')).toBe('ko')
         expect(guessDocumentLanguage('هذا مستند باللغة العربية.')).toBe('ar')
         expect(guessDocumentLanguage('זהו מסמך בעברית.')).toBe('he')
+    })
+
+    it('says which script Chinese is in, keeping the user’s own Chinese language when it fits', () => {
+        const traditional = '這是一個關於匯出文件的說明。'
+        const simplified = '这是一个关于导出文档的说明。'
+        // A bare `zh` would print Traditional text with Simplified glyph shapes.
+        expect(guessDocumentLanguage(traditional, ['en-US'])).toBe('zh-Hant')
+        expect(guessDocumentLanguage(simplified, ['en-US'])).toBe('zh-Hans')
+        // The user's own variant wins when the text agrees with it or doesn't say.
+        expect(guessDocumentLanguage(traditional, ['zh-TW'])).toBe('zh-TW')
+        expect(guessDocumentLanguage(traditional, ['en-GB', 'zh-HK'])).toBe('zh-HK')
+        expect(guessDocumentLanguage('中文文件', ['zh-TW', 'en'])).toBe('zh-TW')
+        expect(guessDocumentLanguage(simplified, ['zh-CN'])).toBe('zh-CN')
+        expect(guessDocumentLanguage(traditional, ['zh'])).toBe('zh-Hant')
+        // ...but not when the text is plainly in the other script.
+        expect(guessDocumentLanguage(traditional, ['zh-CN'])).toBe('zh-Hant')
+        expect(guessDocumentLanguage(simplified, ['zh-TW'])).toBe('zh-Hans')
+        // Text that doesn't say, on a system that doesn't either, gets Simplified, as a bare `zh` would.
+        expect(guessDocumentLanguage('中文文件', ['en-US'])).toBe('zh-Hans')
+        expect(guessDocumentLanguage('中文文件', [])).toBe('zh-Hans')
     })
 
     it('stays English for Latin text, a stray foreign word, or no letters at all', () => {
