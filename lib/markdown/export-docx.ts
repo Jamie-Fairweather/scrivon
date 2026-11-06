@@ -66,6 +66,7 @@ import type {
 import { visit } from 'unist-util-visit'
 import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
+import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
@@ -612,6 +613,24 @@ type RenderState = {
     inFootnote: boolean
     /** Text width, in pixels, of the table cell being rendered, so its pictures fit inside it. Null outside tables. */
     cellPx: number | null
+    /** The contents entries, worded as their headings are in the body. */
+    toc: PdfExportOutlineItem[]
+}
+
+/**
+ * The contents entries with each heading's words as the body shows them. The outline's text keeps raw HTML,
+ * so a hidden comment or tag in a heading would be printed on the Contents page; an entry with no words left is dropped.
+ */
+function tocEntries(document: ExportDocument): PdfExportOutlineItem[] {
+    const words = new Map<string, string>()
+    visit(document.tree, 'heading', (node: Heading) => {
+        const id = headingId(node)
+        if (id) words.set(id, plainText(node).trim())
+    })
+    return document.toc.flatMap((item) => {
+        const text = words.get(item.id) ?? ''
+        return text ? [{ ...item, text }] : []
+    })
 }
 
 function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
@@ -649,6 +668,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         quoteDepth: 0,
         inFootnote: false,
         cellPx: null,
+        toc: tocEntries(document),
     }
 }
 
@@ -1373,9 +1393,9 @@ function logoHasBleed(state: RenderState): boolean {
  * floating image would sit in the margin, which Word on the web clips.
  */
 function coverIsInline(state: RenderState): boolean {
-    const { profile, toc } = state.document
+    const { profile } = state.document
     if (!logoHasBleed(state) || headerShowsOnTitle(profile)) return false
-    const next: 'toc' | 'body' = toc.length > 0 ? 'toc' : 'body'
+    const next: 'toc' | 'body' = state.toc.length > 0 ? 'toc' : 'body'
     return (
         chromeVisible(profile, 'header', 'title') !== chromeVisible(profile, 'header', next) ||
         chromeVisible(profile, 'footer', 'title') !== chromeVisible(profile, 'footer', next)
@@ -1749,12 +1769,12 @@ function tocRowTwip(state: RenderState, item: { level: number; text: string }, f
  * entry's PAGEREF field, because Word on the web never updates fields.
  */
 function headingPages(state: RenderState): Map<string, number> {
-    const { profile, toc, tree } = state.document
+    const { profile, tree } = state.document
     let page = (profile.frontMatter.titlePage ? 1 : 0) + 1
     const tocHeight = pageContentTwip(state, 'toc')
     let used = TOC_TITLE_TWIP
     let first = true
-    for (const item of toc) {
+    for (const item of state.toc) {
         const height = tocRowTwip(state, item, first)
         first = false
         if (used + height > tocHeight) {
@@ -1808,7 +1828,7 @@ function tocBlocks(state: RenderState): Paragraph[] {
     const pages = headingPages(state)
     const tab = state.contentTwip
     let first = true
-    const entries = state.document.toc.map((item) => {
+    const entries = state.toc.map((item) => {
         const level = Math.min(Math.max(item.level, 1), 6)
         const spacing = tocEntrySpacing(level, first)
         first = false
@@ -1958,7 +1978,7 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
     const body = await renderBlocks(state, document.tree.children, true)
     const groups: { id: FrontGroup; children: Block[] }[] = []
     if (document.profile.frontMatter.titlePage) groups.push({ id: 'title', children: await titleBlocks(state) })
-    if (document.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
+    if (state.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
     groups.push({ id: 'body', children: body })
     const watermark = await createWatermarkPng(document.profile.content.watermark, document.profile.typography.bodyFont, state.contentPx)
 

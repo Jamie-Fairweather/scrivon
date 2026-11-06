@@ -619,6 +619,24 @@ describe('renderExportDocx', () => {
         expect(blockWith(xml, 'split')).toContain('<w:br/>')
     })
 
+    it('leaves raw HTML and comments in headings off the Contents page too', async () => {
+        const { parts } = await render(
+            '# Pricing <!-- internal: 40% margin -->\n\n## Keys <kbd>Ctrl</kbd>\n\n## <!-- only a comment -->',
+            (draft) => {
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocExcludeH1 = false
+            }
+        )
+        const body = parts['word/document.xml']!
+        expect(body).not.toContain('&lt;')
+        expect(body).not.toMatch(/<w:t[^>]*>[^<]*margin/)
+        // Each row reads as its heading does in the body, and a heading that is only a comment gets no row.
+        const rows = [...body.matchAll(/<w:hyperlink [^>]*>([\s\S]*?)<\/w:hyperlink>/g)].map((row) =>
+            [...row[1]!.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((text) => text[1]).join('|')
+        )
+        expect(rows).toEqual(['Pricing|2', 'Keys Ctrl|2'])
+    })
+
     it('leaves out characters XML forbids, so Word can open the file', async () => {
         const { xml, parts } = await render(
             [
