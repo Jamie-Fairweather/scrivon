@@ -34,8 +34,9 @@ export function StudioLayout() {
                             <EditorTabBar />
 
                             <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                                {layout.editorOpen && editorLayout.hydrated && (
-                                    <CodeEditorPanel width={editorLayout.width} onWidthChange={editorLayout.onWidthChange} />
+                                {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
+                                {editorLayout.hydrated && (
+                                    <CodeEditorPanel open={layout.editorOpen} width={editorLayout.width} onWidthChange={editorLayout.onWidthChange} />
                                 )}
 
                                 {viewerKind === 'markdown' ? (

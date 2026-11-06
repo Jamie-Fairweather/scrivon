@@ -16,6 +16,7 @@ import { registerCoordinatorRefs } from '@/components/studio/workspace/register-
 import { documentKind } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
+import { cn } from '@/lib/utils'
 
 function EditorLoading() {
     return <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">Loading editor…</div>
@@ -56,6 +57,8 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 }
 
 type CodeEditorPanelProps = {
+    /** When false the panel is hidden but stays mounted, so undo history and scroll survive. */
+    open?: boolean
     width: number
     onWidthChange: (width: number) => void
 }
@@ -71,7 +74,7 @@ function languageForTab(tab: DocumentTab) {
     return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
@@ -274,7 +277,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
     }, [tokens, isLight])
 
     return (
-        <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-code" style={{ width }}>
+        <div className={cn('relative flex h-full shrink-0 flex-col border-r border-border bg-code', !open && 'hidden')} style={{ width }}>
             <div className="min-h-0 flex-1 overflow-hidden bg-code">
                 {editorPath ? (
                     <MonacoEditor

@@ -165,8 +165,8 @@ function tab(path: string, content: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content, isDirty: false, isSaving: false }
 }
 
-function Panel() {
-    return <CodeEditorPanel width={400} onWidthChange={() => {}} />
+function Panel({ open = true }: { open?: boolean }) {
+    return <CodeEditorPanel open={open} width={400} onWidthChange={() => {}} />
 }
 
 async function mountEditor() {
@@ -247,5 +247,40 @@ describe('CodeEditorPanel accessibility', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.ariaLabel).toMatch(/^b\.mmd, Mermaid editor\./)
+    })
+})
+
+describe('CodeEditorPanel keeps editing state', () => {
+    it('keeps the buffer (and its undo history) when the open file is renamed', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type(' edited'))
+        const model = editor.getModel()
+
+        const c = '/w/c.md'
+        setTabs(view, { tabs: [tab(c, 'A edited')], activeTabId: c })
+
+        expect(editor.getModel()).toBe(model)
+        expect(model!.disposed).toBe(false)
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(c, 'A edited!')
+    })
+
+    it('keeps the editor and its buffer when the editor pane is hidden and shown again', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const model = editor.getModel()
+        const panel = view.container.firstElementChild as HTMLElement
+
+        view.rerender(<Panel open={false} />)
+        expect(panel).toHaveClass('hidden')
+        view.rerender(<Panel open />)
+
+        expect(panel).not.toHaveClass('hidden')
+        expect(editors).toHaveLength(1)
+        expect(editor.getModel()).toBe(model)
+        expect(model!.disposed).toBe(false)
     })
 })
