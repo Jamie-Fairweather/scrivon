@@ -1,22 +1,20 @@
 use tauri::Wry;
-use tauri_plugin_prevent_default::Builder;
+use tauri_plugin_prevent_default::{Builder, Flags};
+
+/// Browser shortcuts the app turns off. Shift+Tab (`FOCUS_MOVE`) is left out on
+/// purpose: blocking it stops keyboard users moving focus backwards anywhere.
+fn blocked_shortcuts() -> Flags {
+    let flags = Flags::all().difference(Flags::FOCUS_MOVE);
+
+    // Keep devtools and reload available while developing.
+    #[cfg(debug_assertions)]
+    let flags = flags.difference(Flags::DEV_TOOLS | Flags::RELOAD);
+
+    flags
+}
 
 pub fn plugin() -> tauri::plugin::TauriPlugin<Wry> {
-    let builder = {
-        #[cfg(debug_assertions)]
-        {
-            use tauri_plugin_prevent_default::Flags;
-
-            // Keep devtools and reload available while developing.
-            Builder::new().with_flags(Flags::all().difference(Flags::DEV_TOOLS | Flags::RELOAD))
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            Builder::new()
-        }
-    };
-
-    with_platform_options(builder).build()
+    with_platform_options(Builder::new().with_flags(blocked_shortcuts())).build()
 }
 
 #[cfg(windows)]
@@ -33,4 +31,15 @@ fn with_platform_options(builder: Builder) -> Builder {
 #[cfg(not(windows))]
 fn with_platform_options(builder: Builder) -> Builder {
     builder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shift_tab_still_moves_focus_backwards() {
+        assert!(!blocked_shortcuts().contains(Flags::FOCUS_MOVE));
+        assert!(blocked_shortcuts().contains(Flags::FIND | Flags::PRINT | Flags::CONTEXT_MENU));
+    }
 }
