@@ -505,6 +505,34 @@ function plainText(node: TextNode): string {
     return node.children.map((child) => plainText(child as TextNode)).join('')
 }
 
+/** Letters of right-to-left scripts: Hebrew, Arabic, Syriac, Thaana, N'Ko and the rest, with their presentation forms. */
+const RTL_LETTER = /[֐-ࣿיִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u
+
+/** Whether a block reads right to left. Like the browser's `dir="auto"`, its first letter decides. */
+function isRtl(text: string): boolean {
+    const first = /\p{L}/u.exec(text)?.[0]
+    return first !== undefined && RTL_LETTER.test(first)
+}
+
+/**
+ * Whether Word should mark a run right-to-left: it has right-to-left letters and no left-to-right ones, as Word
+ * marks text typed in Hebrew or Arabic. A run with Latin words in it is left unmarked, since the mark would
+ * also turn the spaces between those words right-to-left and swap their order.
+ */
+function runIsRtl(text: string): boolean {
+    let rtl = false
+    for (const [letter] of text.matchAll(/\p{L}/gu)) {
+        if (!RTL_LETTER.test(letter)) return false
+        rtl = true
+    }
+    return rtl
+}
+
+/** Paragraph direction for Word: set only for right-to-left text, so other paragraphs stay as they were. */
+function bidi(text: string): true | undefined {
+    return isRtl(text) || undefined
+}
+
 type RenderState = {
     document: ExportDocument
     prepared: Map<Code, PreparedCode>
@@ -647,6 +675,7 @@ function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
         color,
         shading: marks.code ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
         underline: marks.link ? { type: UnderlineType.SINGLE, color: state.link } : undefined,
+        rightToLeft: runIsRtl(text) || undefined,
     })
 }
 
@@ -743,6 +772,7 @@ function renderParagraph(state: RenderState, node: MdParagraph): Paragraph {
     return new Paragraph({
         ...paragraphOptions(state),
         alignment: justify ? AlignmentType.JUSTIFIED : undefined,
+        bidirectional: bidi(plainText(node)),
         children: renderInlines(state, node.children, quoteMarks(state)),
     })
 }
@@ -761,6 +791,7 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
         keepNext: true,
+        bidirectional: bidi(plainText(node)),
         spacing: {
             ...HEADING_SPACING[depth - 1],
             line: lineBoxTwip(HEADING_HALF_POINTS[depth - 1]!, state.document.profile.typography.lineHeight),
@@ -823,6 +854,7 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
                     spacing: { after: 60, ...bodyLineSpacing(state) },
                     indent: listIndent(state, depth, !bare && !markerPlaced),
                     border: quoteBorder(state),
+                    bidirectional: bidi(plainText(child)),
                     numbering: bare || markerPlaced ? undefined : { reference, level: 0 },
                     children: inlines,
                 })
@@ -841,6 +873,7 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
                 spacing: { after: 60, ...bodyLineSpacing(state) },
                 indent: listIndent(state, depth, true),
                 border: quoteBorder(state),
+                bidirectional: bidi(plainText(item)),
                 numbering: { reference, level: 0 },
             })
         )
@@ -868,6 +901,8 @@ function renderTable(state: RenderState, table: MdTable): Table {
         indent: state.extraLeft > 0 ? { size: state.extraLeft, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
+        // A right-to-left header row puts the first column on the right.
+        visuallyRightToLeft: bidi(plainText(table.children[0]!)),
         rows: table.children.map((row, rowIndex) => renderTableRow(state, row, widths, table.align, rowIndex === 0)),
     })
 }
@@ -952,6 +987,7 @@ function renderTableCell(
                 new Paragraph({
                     spacing: { after: 0, ...bodyLineSpacing(state) },
                     alignment: align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.END : AlignmentType.START,
+                    bidirectional: bidi(plainText(cell)),
                     children: renderInlines(state, cell.children, header ? { bold: true } : {}),
                 }),
             ],
@@ -1059,24 +1095,21 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     return blocks
 }
 
-function footnoteParagraph(children: ReturnType<typeof renderInlines>): Paragraph {
-    return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, children })
+function footnoteParagraph(children: ReturnType<typeof renderInlines>, text: string): Paragraph {
+    return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, bidirectional: bidi(text), children })
 }
 
 /** Word footnotes hold only paragraphs, so a table in one is written a row per line, its cells split by bars. */
 function tableAsText(state: RenderState, table: MdTable): Paragraph[] {
     const columns = tableColumns(table)
-    return table.children.map((row) =>
-        footnoteParagraph([
-            textRun(
-                state,
-                row.children
-                    .slice(0, columns)
-                    .map((cell) => plainText(cell).trim())
-                    .join(' | ') || ' '
-            ),
-        ])
-    )
+    return table.children.map((row) => {
+        const text =
+            row.children
+                .slice(0, columns)
+                .map((cell) => plainText(cell).trim())
+                .join(' | ') || ' '
+        return footnoteParagraph([textRun(state, text)], text)
+    })
 }
 
 /**
@@ -1089,10 +1122,10 @@ async function renderFootnote(state: RenderState, node: FootnoteDefinition): Pro
     try {
         const paragraphs: Paragraph[] = []
         for (const child of node.children) {
-            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children)))
+            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children), plainText(child)))
             else for (const block of await renderBlocks(state, [child])) if (block instanceof Paragraph) paragraphs.push(block)
         }
-        return paragraphs.length > 0 ? paragraphs : [footnoteParagraph([textRun(state, ' ')])]
+        return paragraphs.length > 0 ? paragraphs : [footnoteParagraph([textRun(state, ' ')], '')]
     } finally {
         Object.assign(state, saved)
     }
@@ -1424,7 +1457,17 @@ async function titleBlocks(state: RenderState): Promise<Block[]> {
         new Paragraph({
             indent,
             spacing: { before, after: 200, line: lineBoxTwip(48, profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST },
-            children: [new TextRun({ text: metadata.title, bold: true, font: state.headingFont, size: 48, color: state.accent })],
+            bidirectional: bidi(metadata.title),
+            children: [
+                new TextRun({
+                    text: metadata.title,
+                    bold: true,
+                    font: state.headingFont,
+                    size: 48,
+                    color: state.accent,
+                    rightToLeft: runIsRtl(metadata.title) || undefined,
+                }),
+            ],
         })
     )
     for (const line of [metadata.subtitle, metadata.author, metadata.date]) {
@@ -1433,7 +1476,16 @@ async function titleBlocks(state: RenderState): Promise<Block[]> {
             new Paragraph({
                 indent,
                 spacing: { after: 80 },
-                children: [new TextRun({ text: line, font: state.bodyFont, size: state.bodyHalfPoints, color: '525252' })],
+                bidirectional: bidi(line),
+                children: [
+                    new TextRun({
+                        text: line,
+                        font: state.bodyFont,
+                        size: state.bodyHalfPoints,
+                        color: '525252',
+                        rightToLeft: runIsRtl(line) || undefined,
+                    }),
+                ],
             })
         )
     }

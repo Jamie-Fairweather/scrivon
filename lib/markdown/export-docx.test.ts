@@ -655,6 +655,54 @@ describe('renderExportDocx', () => {
         expect(drawingSize(redrawn.xml, 'icon')).toEqual({ width: 40, height: 20 })
     })
 
+    it('marks Hebrew and Arabic paragraphs, lists, tables, and runs right-to-left', async () => {
+        const { xml, parts } = await render(
+            [
+                '---',
+                'title: דוח שנתי',
+                '---',
+                '',
+                '# כותרת ראשית',
+                '',
+                'שלום עולם, זה טקסט. With English words.',
+                '',
+                '1. פריט ראשון',
+                '2. فقرة ثانية',
+                '',
+                '| שם | ערך |',
+                '| --- | --- |',
+                '| א | ב |',
+                '',
+                'English with a **שלום** word.[^n]',
+                '',
+                '[^n]: הערה קצרה.',
+            ].join('\n'),
+            (draft) => {
+                draft.frontMatter.titlePage = true
+            }
+        )
+        for (const text of ['דוח שנתי', 'כותרת ראשית', 'פריט ראשון', 'فقرة ثانية', 'שם', 'א']) {
+            expect(blockWith(xml, text)).toContain('<w:bidi/>')
+            expect(runWith(xml, text)).toContain('<w:rtl/>')
+        }
+        // A run with English words in it isn't marked, so the spaces between them keep their order; its paragraph still is.
+        expect(blockWith(xml, 'שלום עולם, זה טקסט. With English words.')).toContain('<w:bidi/>')
+        expect(runWith(xml, 'שלום עולם, זה טקסט. With English words.')).not.toContain('<w:rtl/>')
+        // The table's first column is on the right.
+        expect(blockWith(xml, 'שם', '<w:tbl>')).toContain('<w:bidiVisual/>')
+        // An English paragraph stays left-to-right, though a Hebrew word in it is marked.
+        expect(blockWith(xml, 'English with a ')).not.toContain('<w:bidi/>')
+        expect(runWith(xml, 'שלום')).toContain('<w:rtl/>')
+        expect(blockWith(parts['word/footnotes.xml']!, 'הערה קצרה.')).toContain('<w:bidi/>')
+    })
+
+    it('leaves left-to-right documents without direction marks', async () => {
+        const { xml } = await render('# Title\n\nPlain text.\n\n- item\n\n| a |\n| --- |\n| b |')
+        expect(xml).not.toContain('<w:bidi/>')
+        expect(xml).not.toContain('<w:rtl/>')
+        expect(xml).not.toContain('bidiVisual')
+    })
+
     it('sizes table columns by their content and keeps pictures inside their cell', async () => {
         const notes = 'A long note that would wrap over many lines if every column had the same width. '.repeat(3)
         const { xml } = await render(
