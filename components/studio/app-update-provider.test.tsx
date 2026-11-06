@@ -11,6 +11,7 @@ import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/wo
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
+import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
 import { AppUpdateProvider, useAppUpdate } from './app-update-provider'
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn(async () => '1.0.0') }))
@@ -22,7 +23,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
 vi.mock('@/lib/updater/release-notes', () => ({ fetchUpdateReleaseNotes: vi.fn(async () => null) }))
-vi.mock('@/lib/updater/update-toast', () => ({ showUpdateAvailableToast: vi.fn() }))
+vi.mock('@/lib/updater/update-toast', () => ({ showUpdateAvailableToast: vi.fn(), dismissUpdateToast: vi.fn() }))
 
 const flushAllSaves = vi.fn<() => Promise<boolean>>()
 const persistWorkspaceTabSession = vi.fn<() => Promise<void>>()
@@ -227,5 +228,39 @@ describe('AppUpdateProvider release notes', () => {
 
         expect(fetchUpdateReleaseNotes).toHaveBeenCalledWith({ version: '1.4.2', notes: null }, null)
         await waitFor(() => expect(result.current.update?.notes).toBe('## [1.4.2]'))
+    })
+})
+
+describe('AppUpdateProvider update toast', () => {
+    async function findUpdate() {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === 'check_for_app_update' ? { version: '9.9.9', notes: null } : undefined))
+        const hook = renderHook(() => useAppUpdate(), { wrapper })
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4_000)
+        })
+        expect(showUpdateAvailableToast).toHaveBeenCalledWith('9.9.9', expect.any(Function))
+        return hook
+    }
+
+    it('closes the update toast when the dialog is opened from the menu-bar button', async () => {
+        const { result } = await findUpdate()
+        expect(dismissUpdateToast).not.toHaveBeenCalled()
+
+        act(() => result.current.openUpdateDialog())
+
+        expect(result.current.dialogOpen).toBe(true)
+        expect(dismissUpdateToast).toHaveBeenCalled()
+    })
+
+    it("closes the update toast when the toast's own View button opens the dialog", async () => {
+        const { result } = await findUpdate()
+        const onView = vi.mocked(showUpdateAvailableToast).mock.calls[0]![1]
+
+        act(() => onView())
+
+        expect(result.current.dialogOpen).toBe(true)
+        expect(dismissUpdateToast).toHaveBeenCalled()
     })
 })

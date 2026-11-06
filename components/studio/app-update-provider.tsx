@@ -6,7 +6,7 @@ import { useDocumentSave, useWorkspaceCoordinator } from '@/components/studio/wo
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
-import { showUpdateAvailableToast } from '@/lib/updater/update-toast'
+import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -86,6 +86,12 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
             window.clearTimeout(timer)
         }
     }, [settings.updates.checkOnLaunch])
+
+    // The toast never times out, so close it once the dialog is open (from the toast or the
+    // menu-bar button); otherwise it floats over the dialog for the rest of the session.
+    useEffect(() => {
+        if (dialogOpen) dismissUpdateToast()
+    }, [dialogOpen])
 
     const openUpdateDialog = useCallback(() => {
         if (update) setDialogOpen(true)
