@@ -91,6 +91,21 @@ describe('typesAltGraphCharacter', () => {
         }
     })
 
+    it("is false for a non-Latin layout's own letter, which Windows reports as AltGr under Ctrl+Alt", () => {
+        // Russian Ctrl+Alt+S and Ctrl+Alt+[, Greek Ctrl+Alt+D
+        for (const [key, code] of [
+            ['ы', 'KeyS'],
+            ['х', 'BracketLeft'],
+            ['δ', 'KeyD'],
+        ]) {
+            expect(typesAltGraphCharacter({ ...pressed(key), code })).toBe(false)
+        }
+        // Symbols AltGr types there (Russian AltGr+8 = ₽) are still characters.
+        expect(typesAltGraphCharacter({ ...pressed('₽'), code: 'Digit8' })).toBe(true)
+        // Without a physical key to match by, the letter can't be a shortcut either.
+        expect(typesAltGraphCharacter(pressed('ы'))).toBe(true)
+    })
+
     it('is false without AltGr', () => {
         expect(typesAltGraphCharacter(pressed('@', false))).toBe(false)
         expect(typesAltGraphCharacter({ key: '@' })).toBe(false)

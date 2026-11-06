@@ -115,6 +115,17 @@ describe('KeyboardSettings recording', () => {
         expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
     })
 
+    it('records Ctrl+Alt+letter on a Russian layout, where Windows reports it as AltGr', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        press('ы', { ctrlKey: true, altKey: true, code: 'KeyS', altGraph: true })
+
+        expect(within(editor).queryByRole('alert')).not.toBeInTheDocument()
+        expect(within(editor).getByText('Ctrl+Alt+S')).toBeInTheDocument()
+    })
+
     it('waits through AltGr and lock keys for the real key', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')

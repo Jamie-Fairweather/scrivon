@@ -98,12 +98,22 @@ export function isComposingKeyEvent(event: { key: string; isComposing?: boolean;
  * True when AltGr makes this key type something, like AltGr+Q typing "@" on a German keyboard or
  * AltGr+E typing "ę" on a Polish one. Windows reports AltGr as Ctrl+Alt, so a Ctrl+Alt shortcut
  * there would stop that character being typed. A key that still gives its own letter or digit
- * (Ctrl+Alt+T on a German keyboard) types nothing, so it can be a shortcut.
+ * (Ctrl+Alt+T on a German keyboard) types nothing, so it can be a shortcut. That includes a
+ * non-Latin layout's own letter: Russian has AltGr characters, so Ctrl+Alt+S counts as AltGr
+ * there, but it still says "ы" and matches by its physical key.
  */
-export function typesAltGraphCharacter(event: { key: string; getModifierState?: (key: string) => boolean }): boolean {
+export function typesAltGraphCharacter(event: {
+    key: string
+    code?: string
+    shiftKey?: boolean
+    getModifierState?: (key: string) => boolean
+}): boolean {
     if (typeof event.getModifierState !== 'function' || !event.getModifierState('AltGraph')) return false
     if (event.key === 'Dead') return true
-    return [...event.key].length === 1 && !/^[a-z0-9]$/i.test(event.key)
+    if ([...event.key].length !== 1 || /^[a-z0-9]$/i.test(event.key)) return false
+    // Latin letters (ę) and symbols (@, €) are what AltGr types; a non-Latin letter is the key's own.
+    const isNonLatinLetter = /^\p{L}$/u.test(event.key) && !LATIN_OR_ASCII.test(event.key)
+    return !(isNonLatinLetter && physicalKeyFallback(event) !== null)
 }
 
 /**

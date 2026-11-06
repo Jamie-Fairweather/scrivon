@@ -140,6 +140,13 @@ describe('matchKeybind', () => {
             expect(matchKeybind(event, withCtrlAlt, { hasWorkspace: true })).toBe('view.toggleExplorer')
         })
 
+        it('fires a Ctrl+Alt shortcut on a non-Latin layout that reports Ctrl+Alt as AltGr', () => {
+            // Recorded as Ctrl+Alt+S on an English layout, pressed on a Russian one.
+            const withCtrlAlt = { ...bindings, 'view.toggleExplorer': [{ key: 's', ctrl: true, alt: true }] }
+            const russian = keyEvent('ы', { ctrl: true, alt: true, altGraph: true, code: 'KeyS' }, editorTarget)
+            expect(matchKeybind(russian, withCtrlAlt, { hasWorkspace: true })).toBe('view.toggleExplorer')
+        })
+
         it('never fires on AltGr or a lock key on its own', () => {
             const withJunk = {
                 ...bindings,
