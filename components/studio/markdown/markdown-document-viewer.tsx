@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
-import { isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
+import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
@@ -35,16 +35,22 @@ function scrollViewport(root: HTMLElement | null): HTMLElement | null {
     return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
 }
 
-/** The heading or footnote a `#fragment` points at: an exact id match first, then one that differs only in case. */
+/**
+ * The heading or footnote a `#fragment` points at: an exact id match first, then one that differs only in case,
+ * then one that matches once both are reduced to export's id rules (GitHub-style links such as `#foo--bar`).
+ */
 function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | null {
     if (!root) return null
     const lower = id.toLowerCase()
-    let looseMatch: HTMLElement | null = null
+    const key = anchorKey(id)
+    let caseMatch: HTMLElement | null = null
+    let keyMatch: HTMLElement | null = null
     for (const element of root.querySelectorAll<HTMLElement>('[id]')) {
         if (element.id === id) return element
-        if (!looseMatch && element.id.toLowerCase() === lower) looseMatch = element
+        if (!caseMatch && element.id.toLowerCase() === lower) caseMatch = element
+        if (!keyMatch && key && anchorKey(element.id) === key) keyMatch = element
     }
-    return looseMatch
+    return caseMatch ?? keyMatch
 }
 
 /** The Expand button of a block, found again if the element that had focus was replaced. */

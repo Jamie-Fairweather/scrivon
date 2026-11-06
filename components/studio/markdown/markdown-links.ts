@@ -48,6 +48,22 @@ function decode(text: string): string {
 }
 
 /**
+ * A heading id or `#fragment` reduced the way export makes heading ids (lower case, only letters, digits, `_`,
+ * spaces and `-`, one `-` between words), with no `-` at either end. GitHub's own ids keep each `-` and non-English
+ * letters (`## Foo & Bar` is `#foo--bar`, `## 🚀 Start` is `#-start`), so a README's table of contents still finds
+ * its headings this way.
+ */
+export function anchorKey(text: string): string {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
+/**
  * Keeps Windows paths such as `C:\docs\a.md` (react-markdown's default would blank them, reading `C:` as an
  * unsafe URL scheme) and otherwise applies react-markdown's safe default.
  */

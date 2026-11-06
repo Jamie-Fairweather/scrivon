@@ -320,6 +320,25 @@ describe('MarkdownDocumentViewer', () => {
             expect(openUrl).not.toHaveBeenCalled()
         })
 
+        it('follows a README’s GitHub-style table of contents', () => {
+            const readme = [
+                '- [a](#foo--bar)',
+                '- [b](#install---windows)',
+                '- [c](#-quick-start)',
+                '- [d](#%C3%BCber)',
+                '',
+                '## Foo & Bar',
+                '## Install - Windows',
+                '## 🚀 Quick start',
+                '## Über',
+            ].join('\n')
+            const { container } = render(viewer(DOC_A, readme))
+            const headings = Array.from(container.querySelectorAll('h2'))
+            for (const name of ['a', 'b', 'c', 'd']) fireEvent.click(screen.getByRole('link', { name }))
+            expect(notifyInfo).not.toHaveBeenCalled()
+            expect(scrollIntoView.mock.contexts).toEqual(headings)
+        })
+
         it('tells the user when an anchor has no target', () => {
             render(viewer(DOC_A, '[missing](#nowhere)'))
             fireEvent.click(screen.getByRole('link', { name: 'missing' }))

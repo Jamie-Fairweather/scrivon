@@ -1,6 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import type { FileNode } from '@/lib/workspace/types'
-import { isPathInside, isSamePath, markdownUrlTransform, resolveMarkdownLink, workspaceFilePath, type MarkdownLinkContext } from './markdown-links'
+import {
+    anchorKey,
+    isPathInside,
+    isSamePath,
+    markdownUrlTransform,
+    resolveMarkdownLink,
+    workspaceFilePath,
+    type MarkdownLinkContext,
+} from './markdown-links'
+
+describe('anchorKey', () => {
+    it('reduces GitHub’s heading ids and export’s to the same key', () => {
+        // [GitHub's id, export's id] for one heading.
+        for (const [github, exported] of [
+            ['foo--bar', 'foo-bar'], // ## Foo & Bar
+            ['install---windows', 'install-windows'], // ## Install - Windows
+            ['-quick-start', 'quick-start'], // ## 🚀 Quick start
+            ['über', 'ber'], // ## Über
+            ['api-v2', 'api-v2'],
+            ['Setup', 'setup'],
+        ]) {
+            expect(anchorKey(github!)).toBe(anchorKey(exported!))
+        }
+        expect(anchorKey('🚀')).toBe('')
+    })
+})
 
 const inWorkspace: MarkdownLinkContext = { documentPath: 'C:\\notes/docs/guide.md', workspaceRoot: 'C:\\notes' }
 
