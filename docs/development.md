@@ -114,6 +114,8 @@ Stable releases only. The desktop app checks [latest stable `latest.json`](https
 
 The installers find an existing install through these values in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json): `productName`, `mainBinaryName`, `identifier`, `bundle.publisher` and `bundle.windows.wix.upgradeCode`. The `identifier` also names the folder where settings are kept. Don't change them. In 1.4.1 a new identifier silently changed the publisher from `diagram` to `github`, so updates lost track of installs in a custom folder and left the old copy behind. [`src-tauri/windows/installer-hooks.nsh`](../src-tauri/windows/installer-hooks.nsh) cleans that up; if one of these values ever has to change, add the same kind of clean-up there first.
 
+That is why **Settings → Apps** and the exe's **Properties → Details** still name the publisher `github`. A real name needs more than a hook: the setup `.exe` reads the install folder, and the folder the old copy's uninstaller runs in, from `HKCU\Software\<publisher>\Scrivon` before any hook runs, so it would need a custom NSIS template (`bundle.windows.nsis.template`) that also checks the old key. The other bundle details (`copyright`, `homepage`, descriptions) are safe to change.
+
 ### Updater signing key
 
 Updates are signed with a minisign key. Every installed copy only accepts updates signed with the private key that matches `plugins.updater.pubkey` in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json).

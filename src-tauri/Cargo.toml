@@ -1,9 +1,11 @@
 [package]
 name = "scrivon"
 version = "1.4.2"
-description = "A Tauri App"
+description = "Local-first editor for Mermaid diagrams and Markdown"
 authors = ["Jamie Fairweather"]
 license = "MIT"
+homepage = "https://github.com/Jamie-Fairweather/scrivon"
+repository = "https://github.com/Jamie-Fairweather/scrivon"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
