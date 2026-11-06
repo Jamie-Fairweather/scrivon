@@ -3,6 +3,7 @@
     "private": true,
     "version": "1.4.2",
     "license": "MIT",
+    "packageManager": "bun@1.4.2",
     "type": "module",
     "scripts": {
         "dev": "next dev -p 3000",

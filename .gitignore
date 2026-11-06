@@ -46,6 +46,12 @@ coverage/
 .yarn/
 .bun/
 
+# Lockfiles of other package managers: this repo uses Bun, and bun.lock is the only lockfile
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
+pnpm-lock.yaml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -7,7 +7,7 @@ runs:
         - name: Setup Bun
           uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
           with:
-              # Same Bun as local development; bump together with bun.lock changes that need it.
+              # Same Bun as local development: keep in step with "packageManager" in package.json.
               bun-version: 1.4.2
 
         - name: Cache Bun dependencies
