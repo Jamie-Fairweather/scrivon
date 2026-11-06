@@ -13,6 +13,12 @@ describe('searchFiles', () => {
         expect(results[0]?.path).toContain('readme.md')
     })
 
+    it('finds a file when the folder is typed before the file name', () => {
+        const paths = ['/workspace/docs/readme.md', '/workspace/notes.md', '/workspace/api/auth-flow.md']
+        expect(searchFiles(paths, root, 'docs readme').map((item) => item.path)).toEqual(['/workspace/docs/readme.md'])
+        expect(searchFiles(paths, root, 'api auth').map((item) => item.path)).toEqual(['/workspace/api/auth-flow.md'])
+    })
+
     it('uses backslash-relative paths on Windows-style roots', () => {
         const results = searchFiles(['C:\\workspace\\readme.md'], 'C:\\workspace', 'readme')
         expect(results[0]?.relativePath).toBe('readme.md')
