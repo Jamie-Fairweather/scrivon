@@ -2,33 +2,6 @@ import { createHighlighter, type BundledLanguage, type Highlighter, type Special
 
 const THEMES = ['github-dark', 'github-light'] as const
 
-const BUNDLED_LANGS = [
-    'bash',
-    'c',
-    'cpp',
-    'csharp',
-    'css',
-    'go',
-    'html',
-    'java',
-    'javascript',
-    'json',
-    'kotlin',
-    'markdown',
-    'php',
-    'python',
-    'ruby',
-    'rust',
-    'shell',
-    'sql',
-    'swift',
-    'toml',
-    'tsx',
-    'typescript',
-    'xml',
-    'yaml',
-] as const satisfies BundledLanguage[]
-
 const LANG_ALIASES: Record<string, BundledLanguage | 'text'> = {
     js: 'javascript',
     jsx: 'javascript',
@@ -52,9 +25,11 @@ let highlighterPromise: Promise<Highlighter> | null = null
 
 function getHighlighter(): Promise<Highlighter> {
     if (!highlighterPromise) {
-        highlighterPromise = createHighlighter({
-            themes: [...THEMES],
-            langs: [...BUNDLED_LANGS],
+        // No grammars up front: ensureLanguage loads each one the first time a block uses it, so a document with
+        // one bash snippet doesn't load two dozen grammars. A failed start is forgotten so the next block retries.
+        highlighterPromise = createHighlighter({ themes: [...THEMES], langs: [] }).catch((err: unknown) => {
+            highlighterPromise = null
+            throw err
         })
     }
     return highlighterPromise
