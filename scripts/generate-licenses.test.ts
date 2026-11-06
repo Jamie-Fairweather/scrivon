@@ -1,9 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { THIRD_PARTY_PACKAGES } from '@/lib/legal/third-party-licenses'
-import { findLicenseFiles, readLicenseTexts, renderLicensesModule, rustCratesFromMetadata, spdxIds, withUniqueNames } from './generate-licenses.mjs'
+import {
+    findLicenseFiles,
+    readLicenseTexts,
+    removeSourceMaps,
+    renderLicensesModule,
+    rustCratesFromMetadata,
+    spdxIds,
+    withUniqueNames,
+} from './generate-licenses.mjs'
 
 let dir: string
 
@@ -147,6 +155,30 @@ describe('generated module', () => {
         ])
 
         expect(entries.map((e: { name: string }) => e.name)).toEqual(['url', 'url (Rust crate)', 'tauri'])
+    })
+})
+
+describe('removeSourceMaps', () => {
+    it('deletes the maps from the export and the comments that point at them', () => {
+        const chunks = join(dir, '_next', 'static', 'chunks')
+        mkdirSync(chunks, { recursive: true })
+        writeFileSync(join(chunks, 'app.js'), 'console.log(1)\n//# sourceMappingURL=app.js.map')
+        writeFileSync(join(chunks, 'app.js.map'), '{"sources":[]}')
+        writeFileSync(join(chunks, 'plain.js'), 'const url = "//# sourceMappingURL=x.js.map"; run(url)\n')
+        writeFileSync(join(chunks, 'style.css'), 'a{color:red}\n/*# sourceMappingURL=style.css.map */\n')
+        writeFileSync(join(chunks, 'style.css.map'), '{}')
+        writeFileSync(join(chunks, 'min.css'), 'b{color:blue}\n/*# sourceMappingURL=min.css.map*/')
+        writeFileSync(join(chunks, 'min.css.map'), '{}')
+        writeFileSync(join(dir, 'index.html'), '<html></html>')
+
+        expect(removeSourceMaps(dir)).toBe(3)
+
+        expect(readdirSync(chunks).sort()).toEqual(['app.js', 'min.css', 'plain.js', 'style.css'])
+        expect(readFileSync(join(chunks, 'app.js'), 'utf8')).toBe('console.log(1)')
+        expect(readFileSync(join(chunks, 'plain.js'), 'utf8')).toBe('const url = "//# sourceMappingURL=x.js.map"; run(url)\n')
+        expect(readFileSync(join(chunks, 'style.css'), 'utf8')).toBe('a{color:red}')
+        expect(readFileSync(join(chunks, 'min.css'), 'utf8')).toBe('b{color:blue}')
+        expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe('<html></html>')
     })
 })
 

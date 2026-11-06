@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runProductionBuild } from './next-build.mjs'
@@ -48,6 +48,26 @@ function walkFiles(dir, files = []) {
         else files.push(path)
     }
     return files
+}
+
+/**
+ * Deletes the source maps that next-build.mjs only turns on so this script can trace packages, and the
+ * comments that point at them. Tauri embeds every file in out/ into the exe, so leaving them would ship
+ * them in every installer and update.
+ */
+export function removeSourceMaps(dir) {
+    let removed = 0
+    for (const file of walkFiles(dir)) {
+        if (file.endsWith('.map')) {
+            rmSync(file)
+            removed++
+        } else if (/\.(?:[cm]?js|css)$/.test(file)) {
+            const text = readFileSync(file, 'utf8')
+            const stripped = text.replace(/\n?(?:\/\/# sourceMappingURL=\S+\.map|\/\*# sourceMappingURL=\S+?\.map\s*\*\/)\s*$/, '')
+            if (stripped !== text) writeFileSync(file, stripped)
+        }
+    }
+    return removed
 }
 
 function parsePackageFromSource(source) {
@@ -404,6 +424,9 @@ function main() {
     mkdirSync(dirname(outPath), { recursive: true })
     writeFileSync(outPath, renderLicensesModule(entries, appPkg.version))
     console.log(`Wrote ${npmPackages.length} npm packages, ${rustCrates.length} Rust crates and ${BUNDLED_FONTS.length} fonts to ${outPath}`)
+
+    const removedMaps = removeSourceMaps(shippedDir)
+    console.log(`Removed ${removedMaps} source maps from ${shippedDir} so they are not bundled into the app`)
 }
 
 // Run only when called as a script, so tests can import the helpers above.
