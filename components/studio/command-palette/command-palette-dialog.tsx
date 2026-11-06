@@ -11,6 +11,7 @@ import {
     CommandCollection,
     CommandDialog,
     CommandDialogPopup,
+    CommandDialogPrimitive,
     CommandEmpty,
     CommandFooter,
     CommandGroup,
@@ -66,8 +67,12 @@ function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: s
 
     if (item.kind === 'action') {
         return (
-            <CommandItem disabled={item.disabled} onClick={handleClick} title={item.disabledReason} value={item.value}>
+            <CommandItem disabled={item.disabled} onClick={handleClick} value={item.value}>
                 <span className="flex-1 truncate">{item.label}</span>
+                {/* Shown in the row (not a tooltip) so keyboard and screen-reader users get it too. */}
+                {item.disabled && item.disabledReason ? (
+                    <span className="ms-2 shrink-0 text-xs text-muted-foreground">{item.disabledReason}</span>
+                ) : null}
                 {item.shortcut ? <CommandShortcut>{item.shortcut}</CommandShortcut> : null}
             </CommandItem>
         )
@@ -78,7 +83,12 @@ function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: s
             <CommandItem onClick={handleClick} value={item.value}>
                 <DocumentIcon kind={item.name.endsWith('.md') ? 'markdown' : 'mermaid'} />
                 <span className="flex-1 truncate">{item.name}</span>
-                {item.isDirty ? <span className="size-2 shrink-0 rounded-full bg-accent" aria-label="Unsaved changes" /> : null}
+                {item.isDirty ? (
+                    <>
+                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-accent" />
+                        <span className="sr-only">Unsaved changes</span>
+                    </>
+                ) : null}
             </CommandItem>
         )
     }
@@ -128,6 +138,21 @@ const MODE_PLACEHOLDERS: Record<PaletteMode, string> = {
     all: 'Search files, text, and commands…',
     files: 'Go to file…',
     text: 'Find in workspace…',
+}
+
+/** Accessible name of the search box, so it isn't named only by its placeholder. */
+const MODE_INPUT_LABELS: Record<PaletteMode, string> = {
+    all: 'Search files, text, and commands',
+    files: 'Go to file',
+    text: 'Find in workspace',
+}
+
+/** What the screen-reader status announces: the search progress, then how many results there are. */
+function statusMessageFor(groups: PaletteGroup[], isSearchingText: boolean): string {
+    if (isSearchingText) return 'Searching file contents…'
+    const count = groups.reduce((total, group) => total + group.items.length, 0)
+    if (count === 0) return '' // The empty message announces itself.
+    return count === 1 ? '1 result' : `${count} results`
 }
 
 /** Label of the filter chip shown while the palette is narrowed to one kind of result. */
@@ -214,11 +239,13 @@ export function CommandPaletteDialog({
     const emptyMessage = emptyMessageFor(hasWorkspace, mode, query)
     // Point to the '>' prefix until the user is already in commands.
     const showCommandsHint = !parsePaletteQuery(query).actionsOnly
+    const statusMessage = statusMessageFor(groups, isSearchingText)
 
     const endAddon =
         isSearchingText || filterLabel ? (
             <span className="flex items-center gap-2">
-                {isSearchingText ? <Spinner className="size-4 text-muted-foreground" /> : null}
+                {/* The status region below announces searching, so the spinner stays silent. */}
+                {isSearchingText ? <Spinner aria-hidden className="size-4 text-muted-foreground" /> : null}
                 {filterLabel ? (
                     <Badge
                         aria-label={`${filterLabel} only. Show all results`}
@@ -239,8 +266,13 @@ export function CommandPaletteDialog({
     return (
         <CommandDialog onOpenChange={onOpenChange} open={open}>
             <CommandDialogPopup>
+                <CommandDialogPrimitive.Title className="sr-only">Command palette</CommandDialogPrimitive.Title>
+                <div aria-live="polite" className="sr-only" role="status">
+                    {statusMessage}
+                </div>
                 <Command itemToStringValue={paletteItemToStringValue} items={groups} mode="none" onValueChange={onQueryChange} value={query}>
                     <CommandInput
+                        aria-label={MODE_INPUT_LABELS[mode]}
                         // Make room for the filter chip so typed text doesn't run under it.
                         className={filterLabel ? '*:data-[slot=autocomplete-input]:pe-24 sm:*:data-[slot=autocomplete-input]:pe-24' : undefined}
                         endAddon={endAddon}

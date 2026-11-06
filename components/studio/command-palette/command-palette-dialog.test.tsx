@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
+import type { ActionPaletteItem, PaletteItem } from '@/components/studio/command-palette/types'
 
 type DialogProps = ComponentProps<typeof CommandPaletteDialog>
 
@@ -89,5 +90,54 @@ describe('CommandPaletteDialog pre-filled query', () => {
         await waitFor(() => expect(input).toHaveFocus())
         expect(input.selectionStart).toBe(0)
         expect(input.selectionEnd).toBe('flowchart'.length)
+    })
+})
+
+const saveAll: ActionPaletteItem = {
+    kind: 'action',
+    value: 'action:save-all',
+    searchText: 'save all files',
+    label: 'Save All',
+    disabled: true,
+    disabledReason: 'Nothing to save',
+    run: () => {},
+}
+
+const dirtyTab: PaletteItem = {
+    kind: 'tab',
+    value: 'tab:/ws/notes.md',
+    searchText: 'notes.md',
+    path: '/ws/notes.md',
+    name: 'notes.md',
+    isDirty: true,
+}
+
+describe('CommandPaletteDialog accessibility', () => {
+    it('names the dialog and the search box', () => {
+        renderDialog({ mode: 'files' })
+        expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+        expect(screen.getByRole('combobox', { name: 'Go to file' })).toBeInTheDocument()
+    })
+
+    it('shows why a command is disabled in the row itself', () => {
+        renderDialog({ query: '>save', groups: [{ id: 'actions', label: 'Commands', items: [saveAll] }] })
+        expect(screen.getByRole('option', { name: /Save All.*Nothing to save/ })).toBeInTheDocument()
+    })
+
+    it('tells screen readers which open tabs have unsaved changes', () => {
+        renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [dirtyTab] }] })
+        // Real text, not an aria-label on a plain span (which screen readers often skip).
+        const option = screen.getByRole('option', { name: /notes\.md.*Unsaved changes/ })
+        expect(within(option).getByText('Unsaved changes')).toBeInTheDocument()
+    })
+
+    it('announces how many results there are', () => {
+        renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [dirtyTab] }] })
+        expect(screen.getByText('1 result')).toBeInTheDocument()
+    })
+
+    it('announces when file contents are still being searched', () => {
+        renderDialog({ mode: 'text', query: 'oauth', isSearchingText: true })
+        expect(screen.getByText('Searching file contents…')).toBeInTheDocument()
     })
 })
