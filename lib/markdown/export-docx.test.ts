@@ -306,6 +306,22 @@ describe('renderExportDocx', () => {
         expect(xml).toMatch(/w:val="Heading1"[\s\S]{0,250}w:line="576"/)
     })
 
+    it('draws diagrams at their own size, like the PDF, and fits them to the real page', async () => {
+        const diagram = async (width: number, height: number) => {
+            renderMermaidDiagramForExport.mockImplementationOnce(() => `<svg viewBox="0 0 ${width} ${height}"></svg>`)
+            // The PNG is rasterised at 2x.
+            svgToPngBlob.mockImplementationOnce(async () => new Blob([Uint8Array.from(sizedPng(width * 2, height * 2))]))
+            const { xml } = await render(fence('mermaid', 'graph TD'))
+            return drawingSize(xml, 'Diagram')
+        }
+        // A small flowchart stays 300px wide instead of doubling to 600px.
+        expect(await diagram(300, 150)).toEqual({ width: 300, height: 150 })
+        // A wide one uses the full 718px text width, not a fixed 640px.
+        expect(await diagram(900, 300)).toEqual({ width: 718, height: 239 })
+        // A tall sequence diagram may use the page height (1039px on A4 with 10mm margins), not a fixed 480px.
+        expect(await diagram(600, 1300)).toEqual({ width: 480, height: 1039 })
+    })
+
     it('picks a code font Windows has and marks it fixed-pitch for Word', async () => {
         const monaco = await render('Some `code`.', (draft) => {
             draft.typography.monoFont = 'Monaco, Consolas, monospace'

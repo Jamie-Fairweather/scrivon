@@ -68,6 +68,7 @@ import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/expo
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
+import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { AppThemeId } from '@/lib/theme/catalog'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
@@ -75,7 +76,8 @@ type Block = Paragraph | Table
 type ImageKind = 'png' | 'jpg' | 'gif' | 'bmp'
 type PreparedCode =
     | { kind: 'code'; lines: HighlightedToken[][] }
-    | { kind: 'diagram'; png: Uint8Array | null; source: string }
+    /** `size` is the SVG's own size, which the PDF draws it at. The PNG is drawn at 2x that. */
+    | { kind: 'diagram'; png: Uint8Array | null; size: { width: number; height: number } | null; source: string }
     | { kind: 'error'; message: string }
 
 type Marks = {
@@ -834,12 +836,26 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     })
 }
 
+/**
+ * A diagram's size on the page: the SVG's own size, as in the PDF, shrunk only to fit the text width and the page height.
+ * Null when there is no usable picture, so the source is shown instead.
+ */
+function diagramDisplaySize(state: RenderState, prepared: Extract<PreparedCode, { kind: 'diagram' }>): { width: number; height: number } | null {
+    const pixels = prepared.png ? imageSize('png', prepared.png) : null
+    if (!pixels) return null
+    // Without an SVG size, half the 2x picture is the same thing.
+    const natural = prepared.size ?? { width: pixels.width / 2, height: pixels.height / 2 }
+    // Leave room for the paragraph's 120-twip (8px) space after, so a full-height diagram still fits on one page.
+    const pageHeightPx = Math.max(1, Math.floor(pageContentTwip(state, 'body') / 15) - 8)
+    return fit(natural, availablePx(state), pageHeightPx)
+}
+
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     if (prepared.kind === 'error') {
         return [new Paragraph({ ...paragraphOptions(state), children: [textRun(state, prepared.message, { code: true })] })]
     }
     if (prepared.kind === 'diagram') {
-        const size = prepared.png ? imageSize('png', prepared.png) : null
+        const size = diagramDisplaySize(state, prepared)
         if (!prepared.png || !size)
             return renderCodeLines(
                 state,
@@ -852,7 +868,7 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
                     new ImageRun({
                         type: 'png',
                         data: prepared.png,
-                        transformation: fit(size, Math.min(availablePx(state), 640), 480),
+                        transformation: size,
                         altText: { name: 'Diagram', description: 'Diagram' },
                     }),
                 ],
@@ -1304,11 +1320,8 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
 
 function codeTwip(state: RenderState, node: Code): number {
     const prepared = state.prepared.get(node)
-    if (prepared?.kind === 'diagram' && prepared.png) {
-        const size = imageSize('png', prepared.png)
-        const fitted = fit(size ?? { width: 640, height: 200 }, Math.min(state.contentPx, 640), 480)
-        return pxToTwip(fitted.height) + 120
-    }
+    const diagram = prepared?.kind === 'diagram' ? diagramDisplaySize(state, prepared) : null
+    if (diagram) return pxToTwip(diagram.height) + 120
     if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, state.contentTwip, 0, 120)
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
     return 160 + lines * 276
@@ -1540,7 +1553,7 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         try {
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
-            return { kind: 'diagram', png: await diagramPng(svg, profile.content.mermaidThemeId), source: text }
+            return { kind: 'diagram', png: await diagramPng(svg, profile.content.mermaidThemeId), size: getSvgDimensions(svg), source: text }
         } catch (err) {
             return { kind: 'error', message: errorMessage(err) }
         }
