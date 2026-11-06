@@ -2,13 +2,11 @@
 
 import Image from 'next/image'
 import { Menubar } from '@base-ui/react/menubar'
-import { useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
-import { getCurrentWindow } from '@tauri-apps/api/window'
-import { isTauri } from '@/lib/tauri/platform'
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
 import {
     TITLEBAR_ABOVE_DIALOGS_CLASS,
@@ -64,18 +62,6 @@ export function StudioMenuBar() {
     useMenubarAccessKey(menubarRef)
 
     const hasWorkspace = Boolean(workspaceRoot)
-
-    const onDragRegionMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-        if (!isTauri() || event.button !== 0) return
-
-        const appWindow = getCurrentWindow()
-        if (event.detail === 2) {
-            void appWindow.toggleMaximize()
-            return
-        }
-
-        void appWindow.startDragging()
-    }
 
     return (
         <header
@@ -169,7 +155,8 @@ export function StudioMenuBar() {
             <OpenSourceLicensesDialog open={licensesOpen} onOpenChange={setLicensesOpen} />
 
             {isDesktop ? (
-                <div className="min-h-0 min-w-0 flex-1 self-stretch" data-tauri-drag-region onMouseDown={onDragRegionMouseDown} />
+                // Tauri's built-in drag script handles both dragging and double-click to maximise here.
+                <div className="min-h-0 min-w-0 flex-1 self-stretch" data-tauri-drag-region />
             ) : (
                 <div className="min-w-0 flex-1" />
             )}
