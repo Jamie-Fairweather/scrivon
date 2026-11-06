@@ -13,7 +13,7 @@ import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
-import { MIN_EDITOR_WIDTH, clampEditorWidth, maxEditorWidth } from '@/components/studio/editor/editor-width'
+import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { documentKind } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -241,7 +241,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             let next: number
             if (e.key === 'ArrowLeft') next = effectiveWidth - step
             else if (e.key === 'ArrowRight') next = effectiveWidth + step
-            else if (e.key === 'Home') next = MIN_EDITOR_WIDTH
+            else if (e.key === 'Home') next = minEditorWidth(availableWidth)
             else if (e.key === 'End') next = maxEditorWidth(availableWidth)
             else if (e.key === 'Enter' && onResetWidth) {
                 e.preventDefault()
@@ -473,7 +473,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 aria-orientation="vertical"
                 aria-label="Resize editor"
                 aria-valuenow={shownWidth}
-                aria-valuemin={MIN_EDITOR_WIDTH}
+                aria-valuemin={minEditorWidth(availableWidth)}
                 aria-valuemax={maxEditorWidth(availableWidth)}
                 aria-valuetext={`${shownWidth} pixels wide`}
                 tabIndex={0}
