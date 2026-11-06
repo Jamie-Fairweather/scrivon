@@ -77,6 +77,14 @@ type CodeEditorPanelProps = {
 const KEYBOARD_RESIZE_STEP = 16
 const KEYBOARD_RESIZE_BIG_STEP = 64
 
+/** Selects a search hit (a bare caret when it has no length), scrolls it into view and focuses the editor. */
+function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column: number, length = 0) {
+    const range = { startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column + Math.max(0, length) }
+    editor.setSelection(range)
+    editor.revealRangeInCenter(range)
+    editor.focus()
+}
+
 function languageForTab(tab: DocumentTab) {
     if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
@@ -96,7 +104,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const activeTabIdRef = useRef<string | null>(null)
     const activeTabRef = useRef<DocumentTab | null>(null)
     const suppressChangeRef = useRef(false)
-    const pendingRevealRef = useRef<{ path: string; line: number; column: number } | null>(null)
+    const pendingRevealRef = useRef<{ path: string; line: number; column: number; length?: number } | null>(null)
 
     // Each open tab gets its own Monaco model; see lib/monaco/model-keys.ts.
     const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs])
@@ -110,24 +118,16 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         activeTabRef.current = activeTab
     }, [activeTab])
 
-    const revealPosition = useCallback((path: string, line: number, column: number) => {
+    const revealPosition = useCallback((path: string, line: number, column: number, length?: number) => {
         const editor = editorRef.current
         const activePath = activeTabIdRef.current
 
         if (!editor || activePath !== path) {
-            pendingRevealRef.current = { path, line, column }
+            pendingRevealRef.current = { path, line, column, length }
             return
         }
 
-        const position = { lineNumber: line, column }
-        editor.revealPositionInCenter(position)
-        editor.setSelection({
-            startLineNumber: line,
-            startColumn: column,
-            endLineNumber: line,
-            endColumn: column,
-        })
-        editor.focus()
+        revealMatch(editor, line, column, length)
         pendingRevealRef.current = null
     }, [])
 
@@ -140,7 +140,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     useEffect(() => {
         const pending = pendingRevealRef.current
         if (!pending || activeTab?.path !== pending.path || !editorRef.current) return
-        revealPosition(pending.path, pending.line, pending.column)
+        revealPosition(pending.path, pending.line, pending.column, pending.length)
     }, [activeTab?.path, revealPosition])
 
     // Measure the row shared with the preview, so a saved width that no longer fits (smaller
@@ -333,15 +333,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
             if (pending && activeTabIdRef.current === pending.path) {
-                const position = { lineNumber: pending.line, column: pending.column }
-                editor.revealPositionInCenter(position)
-                editor.setSelection({
-                    startLineNumber: pending.line,
-                    startColumn: pending.column,
-                    endLineNumber: pending.line,
-                    endColumn: pending.column,
-                })
-                editor.focus()
+                revealMatch(editor, pending.line, pending.column, pending.length)
                 pendingRevealRef.current = null
             }
         },

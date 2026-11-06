@@ -75,9 +75,16 @@ class FakeEditor {
     }
     restoreViewState() {}
     addCommand() {}
-    focus() {}
+    selection: unknown = null
+    focused = false
+    focus() {
+        this.focused = true
+    }
     revealPositionInCenter() {}
-    setSelection() {}
+    revealRangeInCenter() {}
+    setSelection(selection: unknown) {
+        this.selection = selection
+    }
     dispose() {
         this.setModel(null)
     }
@@ -151,7 +158,11 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceCoordinator: () => ({}),
 }))
 
-vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
+type RevealInEditor = (path: string, line: number, column: number, length?: number) => void
+const coordinatorHandlers: { revealInEditor?: RevealInEditor } = {}
+vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({
+    registerCoordinatorRefs: (_refs: unknown, handlers: typeof coordinatorHandlers) => Object.assign(coordinatorHandlers, handlers),
+}))
 type ThemeState = { isLight: boolean; tokens: Record<string, string> }
 const LIGHT_THEME: ThemeState = { isLight: true, tokens: { name: 'light' } }
 let theme = LIGHT_THEME
@@ -474,5 +485,30 @@ describe('CodeEditorPanel links', () => {
         tabsState = { tabs: [tab('/w/a.md', 'https://mermaid.js.org')], activeTabId: '/w/a.md' }
         await mountEditor()
         expect(fakeMonaco.editor.registerLinkOpener).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('CodeEditorPanel search hits', () => {
+    it('selects the matched text when jumping to a hit in the open file', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'one\nsee TODO here')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+
+        act(() => coordinatorHandlers.revealInEditor!('/w/a.md', 2, 5, 4))
+
+        expect(editor.selection).toEqual({ startLineNumber: 2, startColumn: 5, endLineNumber: 2, endColumn: 9 })
+        expect(editor.focused).toBe(true)
+    })
+
+    it('selects the hit once its file becomes the active tab', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
+        expect(editor.selection).toBeNull()
+
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
+        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
     })
 })
