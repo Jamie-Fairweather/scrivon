@@ -35,7 +35,13 @@ fn allow_workspace(
 /// when the app was started from that shortcut. After an update the installer
 /// starts the exe directly, so the window got a second taskbar button.
 /// Must run before any window exists.
+///
+/// Not called yet: shortcuts (and pins made from them) migrated by the 1.4.1
+/// rename still carry the old ID, so setting this now would split every launch
+/// from them off their pin. Call it at the top of `run()`, for release builds
+/// only, once the installer re-tags existing shortcuts with the new ID.
 #[cfg(all(windows, any(test, not(debug_assertions))))]
+#[cfg_attr(not(test), allow(dead_code))]
 fn set_taskbar_id(identifier: &str) {
     #[link(name = "shell32")]
     extern "system" {
@@ -53,9 +59,6 @@ fn set_taskbar_id(identifier: &str) {
 pub fn run() {
     let context = tauri::generate_context!();
     crash_report::install(&context.config().identifier);
-    // Installed copies only: a dev build shouldn't share the installed app's taskbar icon.
-    #[cfg(all(windows, not(debug_assertions)))]
-    set_taskbar_id(&context.config().identifier);
 
     let result = tauri::Builder::default()
         .manage(PendingUpdate(Mutex::new(None)))
