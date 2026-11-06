@@ -125,6 +125,14 @@ function blockWith(xml: string, text: string, tag = '<w:p>'): string {
     return xml.slice(xml.lastIndexOf(tag, end), end)
 }
 
+/** The page number the contents entry for `id` shows: the stored result of its PAGEREF field. */
+function tocPage(xml: string, id: string): number | null {
+    const at = xml.indexOf(`<w:instrText>PAGEREF ${id} \\h</w:instrText>`)
+    if (at < 0) return null
+    const match = /<w:fldChar w:fldCharType="separate"\/><w:t xml:space="preserve">(\d+)<\/w:t><w:fldChar w:fldCharType="end"\/>/.exec(xml.slice(at))
+    return match ? Number(match[1]) : null
+}
+
 /** Display size, in pixels, of the drawing whose alt text is `descr`. */
 function drawingSize(xml: string, descr: string): { width: number; height: number } | null {
     const at = xml.indexOf(`descr="${descr}"`)
@@ -477,7 +485,8 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('relativeFrom="page"')
         // Contents is laid out in the file: dotted leaders and a page number, not an empty Word TOC field.
         expect(xml).toContain('w:leader="dot"')
-        expect(xml).toMatch(/Alpha<\/w:t>[\s\S]{0,400}<w:tab\/>[\s\S]{0,250}>3<\/w:t>/)
+        expect(xml).toMatch(/Alpha<\/w:t>[\s\S]{0,400}<w:tab\/>[\s\S]{0,400}PAGEREF alpha/)
+        expect(tocPage(xml, 'alpha')).toBe(3)
         expect(xml).not.toContain('TOC \\h \\o')
     })
 
@@ -764,6 +773,32 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('Inside')
         expect(xml).toContain('nested')
         expect(xml).toContain('quoted')
+    })
+
+    it('writes contents page numbers as PAGEREF fields, counting pictures Word shows as alt text as one line', async () => {
+        const toc = (draft: PdfExportProfile) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        }
+        const relative = Array.from({ length: 12 }, (_, index) => [`![shot](./images/shot${index}.png)`, '']).flat()
+        const linked = await render(['# Start', '', ...relative, '# End'].join('\n'), toc)
+        // The contents is page 1. Twelve one-line alt texts fit on page 2 with both headings.
+        expect(tocPage(linked.xml, 'start')).toBe(2)
+        expect(tocPage(linked.xml, 'end')).toBe(2)
+        // The number keeps the contents' styling, and the link still jumps to the heading.
+        expect(runWith(linked.xml, '2')).toContain('<w:color w:val="404040"/>')
+        expect(linked.xml).toContain('w:anchor="end"')
+
+        // Real pictures still take their height: 12 at 480px don't fit on one page.
+        const embedded = Array.from({ length: 12 }, (_, index) => [`![shot${index}](${dataUrl('image/png', sizedPng(640, 480))})`, '']).flat()
+        const pictures = await render(['# Start', '', ...embedded, '# End'].join('\n'), toc)
+        expect(tocPage(pictures.xml, 'start')).toBe(2)
+        expect(tocPage(pictures.xml, 'end')).toBeGreaterThan(4)
+
+        // Long headings wrap in the contents and push later rows onto the next contents page.
+        const long = Array.from({ length: 40 }, (_, index) => `## ${'Wrapped heading words '.repeat(6)}${index}`)
+        const wrapped = await render(['# Start', '', ...long].join('\n'), toc)
+        expect(tocPage(wrapped.xml, 'start')).toBe(3)
     })
 
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {

@@ -2,6 +2,7 @@ import {
     AlignmentType,
     Bookmark,
     BorderStyle,
+    BuilderElement,
     Document,
     ExternalHyperlink,
     Footer,
@@ -22,6 +23,7 @@ import {
     PageOrientation,
     Paragraph,
     ShadingType,
+    StringContainer,
     Tab,
     TabStopType,
     Table,
@@ -1288,18 +1290,23 @@ function placeBlock(cursor: { page: number; used: number }, pageHeight: number, 
     cursor.used += block
 }
 
-function textBlockTwip(state: RenderState, text: string, halfPoints: number, width: number, before: number, after: number): number {
-    const line = lineBoxTwip(halfPoints, state.document.profile.typography.lineHeight)
+/** How many lines `text` wraps to in `width` twips. */
+function lineCount(text: string, halfPoints: number, width: number): number {
     const charTwip = Math.max(60, Math.round(halfPoints * 4.5))
     const perLine = Math.max(8, Math.floor(Math.max(width, charTwip) / charTwip))
     const length = Math.max(1, text.replace(/\s+/g, ' ').trim().length)
-    return before + Math.ceil(length / perLine) * line + after
+    return Math.ceil(length / perLine)
 }
 
-function imageTwip(state: RenderState, dataUrl: string): number {
-    const size = decodeImage(state.images, dataUrl)?.size
-    const fitted = fit(size ?? { width: Math.min(state.contentPx, 640), height: 200 }, Math.min(state.contentPx, 640), 480)
-    return pxToTwip(fitted.height)
+function textBlockTwip(state: RenderState, text: string, halfPoints: number, width: number, before: number, after: number): number {
+    const line = lineBoxTwip(halfPoints, state.document.profile.typography.lineHeight)
+    return before + lineCount(text, halfPoints, width) * line + after
+}
+
+/** Height of a body picture, sized the way {@link renderImage} draws it. */
+function imageTwip(image: DecodedImage, width: number): number {
+    const maxWidth = Math.min(Math.max(1, Math.floor(width / 15)), 640)
+    return pxToTwip(fit(image.size ?? { width: maxWidth, height: 480 }, maxWidth, 480).height)
 }
 
 function paragraphTwip(state: RenderState, node: MdParagraph, width: number): number {
@@ -1307,8 +1314,13 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     const parts: string[] = []
     const walk = (nodes: PhrasingContent[]) => {
         for (const child of nodes) {
-            if (child.type === 'image') image = Math.max(image, imageTwip(state, child.url))
-            else if (child.type === 'text') parts.push(child.value)
+            if (child.type === 'image') {
+                // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
+                const decoded = decodeImage(state.images, child.url)
+                if (decoded) image = Math.max(image, imageTwip(decoded, width))
+                else parts.push(child.alt || child.url)
+            } else if (child.type === 'imageReference') parts.push(child.alt || child.identifier)
+            else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
             else if ('children' in child) walk(child.children)
         }
     }
@@ -1406,15 +1418,33 @@ function measureList(
     }
 }
 
-/** Page each contents entry lands on. Word on the web never fills a TOC field, so the number is written in. */
+/** The "Contents" title: a 20pt line, its 200-twip space after, and the rule under it. */
+const TOC_TITLE_TWIP = 840
+
+/**
+ * Height of one contents row. Its line spacing is "auto 260": 260/240 of the font's own single line,
+ * which is about 1.3x the font size. A long heading wraps, leaving room on the right for the leader and number.
+ */
+function tocRowTwip(state: RenderState, item: { level: number; text: string }, first: boolean): number {
+    const level = Math.min(Math.max(item.level, 1), 6)
+    const halfPoints = tocHalfPoints(state, level)
+    const line = Math.round((halfPoints * 10 * 1.3 * 260) / 240)
+    const width = Math.max(1, state.contentTwip - (level - 1) * 240 - 720)
+    return tocEntrySpacing(level, first).before + lineCount(item.text, halfPoints, width) * line
+}
+
+/**
+ * Page each contents entry lands on, from a rough layout of the document. It is the stored result of each
+ * entry's PAGEREF field, because Word on the web never updates fields.
+ */
 function headingPages(state: RenderState): Map<string, number> {
     const { profile, toc, tree } = state.document
     let page = (profile.frontMatter.titlePage ? 1 : 0) + 1
     const tocHeight = pageContentTwip(state, 'toc')
-    let used = 560
+    let used = TOC_TITLE_TWIP
     let first = true
     for (const item of toc) {
-        const height = tocEntrySpacing(item.level, first).before + 260
+        const height = tocRowTwip(state, item, first)
         first = false
         if (used + height > tocHeight) {
             page += 1
@@ -1429,10 +1459,38 @@ function headingPages(state: RenderState): Map<string, number> {
     return pages
 }
 
-function tocRun(state: RenderState, text: string, level: number, pageNumber = false): TextRun {
-    const size = level >= 4 ? Math.round(state.bodyHalfPoints * 0.9) : level === 3 ? Math.round(state.bodyHalfPoints * 0.94) : state.bodyHalfPoints
+function tocHalfPoints(state: RenderState, level: number): number {
+    return level >= 4 ? Math.round(state.bodyHalfPoints * 0.9) : level === 3 ? Math.round(state.bodyHalfPoints * 0.94) : state.bodyHalfPoints
+}
+
+function tocRunStyle(state: RenderState, level: number, pageNumber: boolean) {
     const color = pageNumber ? '404040' : level <= 1 ? '171717' : level >= 4 ? '525252' : level === 3 ? '404040' : '262626'
-    return new TextRun({ text, bold: level <= 1 && !pageNumber, font: state.bodyFont, size, color })
+    return { bold: level <= 1 && !pageNumber, font: state.bodyFont, size: tocHalfPoints(state, level), color }
+}
+
+function tocRun(state: RenderState, text: string, level: number): TextRun {
+    return new TextRun({ text, ...tocRunStyle(state, level, false) })
+}
+
+function fieldChar(type: 'begin' | 'separate' | 'end') {
+    return new BuilderElement<{ type: string }>({ name: 'w:fldChar', attributes: { type: { key: 'w:fldCharType', value: type } } })
+}
+
+/**
+ * The entry's page number as a PAGEREF field to the heading's bookmark. The estimate is the field's stored
+ * result, so Word on the web shows it, and desktop Word puts in the real page when fields are updated (F9).
+ */
+function tocPageRun(state: RenderState, id: string, page: number, level: number): TextRun {
+    return new TextRun({
+        children: [
+            fieldChar('begin'),
+            new StringContainer('w:instrText', `PAGEREF ${id} \\h`),
+            fieldChar('separate'),
+            String(page),
+            fieldChar('end'),
+        ],
+        ...tocRunStyle(state, level, true),
+    })
 }
 
 function tocBlocks(state: RenderState): Paragraph[] {
@@ -1454,7 +1512,7 @@ function tocBlocks(state: RenderState): Paragraph[] {
                     children: [
                         tocRun(state, item.text, level),
                         new TextRun({ children: [new Tab()], font: state.bodyFont, size: state.bodyHalfPoints }),
-                        tocRun(state, String(pages.get(item.id) ?? 1), level, true),
+                        tocPageRun(state, item.id, pages.get(item.id) ?? 1, level),
                     ],
                 }),
             ],
