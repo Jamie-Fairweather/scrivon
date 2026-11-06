@@ -49,7 +49,6 @@ import type {
     Definition,
     FootnoteDefinition,
     Heading,
-    Html,
     Image,
     Link,
     LinkReference,
@@ -489,10 +488,14 @@ function errorMessage(err: unknown): string {
     return err instanceof Error ? err.message : String(err)
 }
 
-function plainText(node: { value?: string; children?: unknown[] }): string {
+type TextNode = { type?: string; value?: string; children?: unknown[] }
+
+/** The words of a node. Raw HTML is left out, as it is everywhere in the Word file. */
+function plainText(node: TextNode): string {
+    if (node.type === 'html') return ''
     if (typeof node.value === 'string') return node.value
     if (!Array.isArray(node.children)) return ''
-    return node.children.map((child) => plainText(child as { value?: string; children?: unknown[] })).join('')
+    return node.children.map((child) => plainText(child as TextNode)).join('')
 }
 
 type RenderState = {
@@ -665,8 +668,10 @@ function renderInlines(
         } else if (node.type === 'footnoteReference') {
             // Word has no footnotes inside footnotes.
             if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
-        } else {
-            children.push(textRun(state, (node as Html).value, marks))
+        } else if (node.type === 'html') {
+            // Raw HTML is left out, as in the PDF; the words between tags are their own text nodes and stay.
+            // Only a line break tag is kept, since tables use it to break lines in a cell. Comments stay hidden.
+            if (/^<br\s*\/?>$/i.test(node.value.trim())) children.push(new TextRun({ break: 1 }))
         }
     }
     return children
@@ -945,12 +950,11 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
                     spacing: { before: 200, after: 200 },
                 })
             )
-        } else if (node.type === 'html') {
-            blocks.push(new Paragraph({ ...paragraphOptions(state), children: [textRun(state, (node as Html).value, quoteMarks(state))] }))
         } else if (node.type === 'footnoteDefinition') {
             const id = footnoteId(state, node.identifier)
             state.footnotes[id] = { children: await renderFootnote(state, node) }
         }
+        // Raw HTML blocks, comments included, are left out, as in the PDF. Link definitions have nothing to show.
     }
     return blocks
 }
@@ -1477,8 +1481,6 @@ function measureFlow(
             placeBlock(cursor, pageHeight, table)
         } else if (node.type === 'thematicBreak') {
             placeBlock(cursor, pageHeight, 400)
-        } else if (node.type === 'html') {
-            placeBlock(cursor, pageHeight, textBlockTwip(state, node.value, state.bodyHalfPoints, width, 0, 120))
         }
     }
 }

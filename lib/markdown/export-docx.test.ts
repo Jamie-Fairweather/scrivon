@@ -291,8 +291,10 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('descr="Diagram"')
         expect(xml).toContain('The note')
         expect(xml).toContain('Beta')
-        expect(xml).toContain('block')
-        expect(xml).toContain('raw')
+        // Raw HTML is left out, as in the PDF, but the words between inline tags stay.
+        expect(xml).not.toContain('&lt;div&gt;')
+        expect(xml).not.toContain('&lt;span&gt;')
+        expect(xml).toContain('>raw</w:t>')
         expect(xml).toContain('Segoe UI')
         // The default mono stack starts with Mac-only fonts. Windows has neither, so Word gets Consolas.
         expect(xml).toContain('w:ascii="Consolas"')
@@ -398,6 +400,33 @@ describe('renderExportDocx', () => {
         // A nested quote steps in again instead of sitting on its parent's line.
         expect(blockWith(xml, 'inner-quote')).toContain('w:left="480"')
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
+    })
+
+    it('leaves raw HTML and comments out of the Word file, as the PDF does', async () => {
+        const { xml } = await render(
+            [
+                '<!-- TODO: internal pricing notes -->',
+                '',
+                'Press <kbd>Ctrl</kbd> now.<!-- inline secret --> Done.',
+                '',
+                '| a |',
+                '| --- |',
+                '| one<br>split |',
+                '',
+                '<details><summary>More</summary>',
+                '',
+                'Hidden body.',
+                '',
+                '</details>',
+            ].join('\n')
+        )
+        expect(xml).not.toContain('pricing')
+        expect(xml).not.toContain('secret')
+        expect(xml).not.toContain('&lt;')
+        // The words around and between tags stay, and <br> still breaks the line in the cell.
+        expect(xml).toContain('>Ctrl</w:t>')
+        expect(xml).toContain('>Hidden body.</w:t>')
+        expect(blockWith(xml, 'split')).toContain('<w:br/>')
     })
 
     it('leaves out characters XML forbids, so Word can open the file', async () => {
