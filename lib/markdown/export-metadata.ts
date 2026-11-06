@@ -1,3 +1,8 @@
+import type { Heading, Root } from 'mdast'
+import remarkGfm from 'remark-gfm'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
+import { nodeText } from '@/lib/markdown/export-outline'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
 const FRONT_MATTER_KEYS = new Set(['title', 'subtitle', 'author', 'date'])
@@ -78,9 +83,19 @@ export function parsePdfExportFrontMatter(source: string): { matter: Partial<Pdf
     return { matter, body: match[2]! }
 }
 
+/**
+ * The plain text of the document's first top-level H1, ATX or setext. Read from the parsed
+ * tree, so a `# comment` in fenced code never wins and inline markup drops out.
+ */
+function firstHeadingText(body: string): string {
+    const tree = unified().use(remarkParse).use(remarkGfm).parse(body) as Root
+    const heading = tree.children.find((node): node is Heading => node.type === 'heading' && node.depth === 1)
+    return heading ? nodeText(heading).replace(/\s+/g, ' ').trim() : ''
+}
+
 export function fallbackPdfExportTitle(body: string, tabName: string | undefined): string {
-    const heading = body.match(/^#\s+(.+)$/m)
-    if (heading?.[1]?.trim()) return heading[1].trim()
+    const heading = firstHeadingText(body)
+    if (heading) return heading
     if (!tabName) return 'Document'
     const base = tabName.replace(/\.md$/i, '').trim()
     return base || 'Document'

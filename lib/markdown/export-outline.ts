@@ -20,7 +20,8 @@ function slugify(text: string, used: Map<string, number>): string {
     return count === 0 ? base : `${base}-${count}`
 }
 
-function nodeText(node: { value?: string; children?: unknown[] }): string {
+/** The plain text of an mdast node: its inline markup dropped, image and break nodes left out. */
+export function nodeText(node: { value?: string; children?: unknown[] }): string {
     if (typeof node.value === 'string') return node.value
     if (!Array.isArray(node.children)) return ''
     return node.children.map((child) => nodeText(child as { value?: string; children?: unknown[] })).join('')

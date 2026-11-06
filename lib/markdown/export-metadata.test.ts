@@ -69,6 +69,22 @@ describe('fallbackPdfExportTitle', () => {
         expect(fallbackPdfExportTitle('No heading', '.md')).toBe('Document')
         expect(fallbackPdfExportTitle('No heading', undefined)).toBe('Document')
     })
+
+    it('skips hashes inside fenced code', () => {
+        expect(fallbackPdfExportTitle('```bash\n# install deps\n```\n\n# Real Title', 'x.md')).toBe('Real Title')
+        expect(fallbackPdfExportTitle('```bash\n# install deps\n```\n', 'notes.md')).toBe('notes')
+    })
+
+    it('reads the heading as plain text', () => {
+        expect(fallbackPdfExportTitle('# Using `foo` **bold** [link](http://x)', 'x.md')).toBe('Using foo bold link')
+        expect(fallbackPdfExportTitle('# Title #', 'x.md')).toBe('Title')
+        expect(fallbackPdfExportTitle('# ![logo](logo.png) Project', 'x.md')).toBe('Project')
+    })
+
+    it('counts setext headings and ignores lower levels', () => {
+        expect(fallbackPdfExportTitle('Setext Title\n============\n\nBody', 'x.md')).toBe('Setext Title')
+        expect(fallbackPdfExportTitle('## Section\n\nSub\n---\n\n# Main', 'x.md')).toBe('Main')
+    })
 })
 
 describe('pdfPageNumberTemplate', () => {
