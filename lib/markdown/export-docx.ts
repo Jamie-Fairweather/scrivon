@@ -922,9 +922,29 @@ function imageText(state: RenderState, node: Image | ImageReference): string {
     return node.alt || (node.type === 'imageReference' ? node.identifier : '')
 }
 
+/** The tallest a body picture can be, in pixels: the page's text height, less the paragraph's 120-twip (8px) space after, so it fits on one page. */
+function pageHeightPx(state: RenderState): number {
+    return Math.max(1, Math.floor(pageContentTwip(state, 'body') / 15) - 8)
+}
+
+/** The box a picture whose file doesn't give its size is shown in. */
+const UNSIZED_IMAGE = { width: 640, height: 480 } as const
+
+/** A body picture's size: its own, as in the PDF, shrunk only to fit `maxWidth` (the text width where it sits) and the page. */
+function bodyImageSize(state: RenderState, image: DecodedImage, maxWidth: number): { width: number; height: number } {
+    return fit(image.size ?? UNSIZED_IMAGE, maxWidth, pageHeightPx(state))
+}
+
 /** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
 function renderImage(state: RenderState, url: string, alt: string | null | undefined): ImageRun | null {
-    return embeddedImage(decodeImage(state.images, url), Math.min(availablePx(state), 640), 480, alt || 'Picture', alt ?? '')
+    const image = decodeImage(state.images, url)
+    if (!image) return null
+    return new ImageRun({
+        type: image.kind,
+        data: image.bytes,
+        transformation: bodyImageSize(state, image, availablePx(state)),
+        altText: { name: alt || 'Picture', description: alt ?? '' },
+    })
 }
 
 function paragraphOptions(state: RenderState) {
@@ -1227,17 +1247,19 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
 }
 
 /**
- * A diagram's size on the page: the SVG's own size, as in the PDF, shrunk only to fit the text width and the page height.
- * Null when there is no usable picture, so the source is shown instead.
+ * A diagram's size on the page: the SVG's own size, as in the PDF, shrunk only to fit `maxWidth` (the text width
+ * where it is drawn) and the page height. Null when there is no usable picture, so the source is shown instead.
  */
-function diagramDisplaySize(state: RenderState, prepared: Extract<PreparedCode, { kind: 'diagram' }>): { width: number; height: number } | null {
+function diagramDisplaySize(
+    state: RenderState,
+    prepared: Extract<PreparedCode, { kind: 'diagram' }>,
+    maxWidth = availablePx(state)
+): { width: number; height: number } | null {
     const pixels = prepared.png ? imageSize('png', prepared.png) : null
     if (!pixels) return null
     // Without an SVG size, half the 2x picture is the same thing.
     const natural = prepared.size ?? { width: pixels.width / 2, height: pixels.height / 2 }
-    // Leave room for the paragraph's 120-twip (8px) space after, so a full-height diagram still fits on one page.
-    const pageHeightPx = Math.max(1, Math.floor(pageContentTwip(state, 'body') / 15) - 8)
-    return fit(natural, availablePx(state), pageHeightPx)
+    return fit(natural, maxWidth, pageHeightPx(state))
 }
 
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
@@ -1757,10 +1779,17 @@ function textBlockTwip(state: RenderState, text: string, halfPoints: number, wid
     return before + lineCount(text, halfPoints, width) * line + after
 }
 
+/**
+ * Width, in pixels, a picture or diagram gets in a text column `width` twips wide, as the renderer works it out from
+ * the nesting. Never wider than the page's text width, so rounding can't make it bigger than the drawing.
+ */
+function measuredPx(state: RenderState, width: number): number {
+    return Math.max(1, Math.min(state.contentPx, Math.floor(width / 15)))
+}
+
 /** Height of a body picture, sized the way {@link renderImage} draws it. */
-function imageTwip(image: DecodedImage, width: number): number {
-    const maxWidth = Math.min(Math.max(1, Math.floor(width / 15)), 640)
-    return pxToTwip(fit(image.size ?? { width: maxWidth, height: 480 }, maxWidth, 480).height)
+function imageTwip(state: RenderState, image: DecodedImage, width: number): number {
+    return pxToTwip(bodyImageSize(state, image, measuredPx(state, width)).height)
 }
 
 function paragraphTwip(state: RenderState, node: MdParagraph, width: number): number {
@@ -1772,7 +1801,7 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
                 // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
                 const url = imageUrl(state, child)
                 const decoded = url === undefined ? null : decodeImage(state.images, url)
-                if (decoded) image = Math.max(image, imageTwip(decoded, width))
+                if (decoded) image = Math.max(image, imageTwip(state, decoded, width))
                 else parts.push(imageText(state, child))
             } else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
             else if ('children' in child) walk(child.children)
@@ -1784,11 +1813,12 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
 }
 
-function codeTwip(state: RenderState, node: Code): number {
+/** Height of a code block or diagram in a text column `width` twips wide: a diagram in a list or quote is drawn narrower, so shorter. */
+function codeTwip(state: RenderState, node: Code, width: number): number {
     const prepared = state.prepared.get(node)
-    const diagram = prepared?.kind === 'diagram' ? diagramDisplaySize(state, prepared) : null
+    const diagram = prepared?.kind === 'diagram' ? diagramDisplaySize(state, prepared, measuredPx(state, width)) : null
     if (diagram) return pxToTwip(diagram.height) + 120
-    if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, state.contentTwip, 0, 120)
+    if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, width, 0, 120)
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
     return 160 + lines * 276
 }
@@ -1826,7 +1856,7 @@ function measureFlow(
         } else if (node.type === 'blockquote') {
             measureFlow(state, node.children, Math.max(200, width - QUOTE_STEP), pages, cursor, pageHeight, false)
         } else if (node.type === 'code') {
-            placeBlock(cursor, pageHeight, codeTwip(state, node))
+            placeBlock(cursor, pageHeight, codeTwip(state, node, width))
         } else if (node.type === 'table') {
             // Each cell wraps in its own column's width, as renderTable sizes them; its margins add 120 above.
             const widths = columnWidths(node, tableColumns(node), width)

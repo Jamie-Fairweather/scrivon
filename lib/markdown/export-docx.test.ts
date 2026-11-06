@@ -440,6 +440,38 @@ describe('renderExportDocx', () => {
         expect(await diagram(600, 1300)).toEqual({ width: 480, height: 1039 })
     })
 
+    it('shows pictures at their own size, shrunk only to fit the text width and the page', async () => {
+        const toc = (draft: PdfExportProfile) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        }
+        const picture = (alt: string, width: number, height: number) => `![${alt}](${dataUrl('image/png', sizedPng(width, height))})`
+        const { xml } = await render(
+            ['# Start', '', picture('wide', 1000, 500), '', picture('small', 300, 100), '', picture('tall', 400, 2000), '', '# End'].join('\n'),
+            toc
+        )
+        // Not the old fixed 640×480 box: the 718px text width and the 1039px page height, as the PDF has no smaller cap.
+        expect(drawingSize(xml, 'wide')).toEqual({ width: 718, height: 359 })
+        expect(drawingSize(xml, 'small')).toEqual({ width: 300, height: 100 })
+        expect(drawingSize(xml, 'tall')).toEqual({ width: 208, height: 1039 })
+        // The contents estimate measures them the same way: the full-page picture takes page 3, so End is on page 4.
+        expect(tocPage(xml, 'Start')).toBe(2)
+        expect(tocPage(xml, 'End')).toBe(4)
+    })
+
+    it('estimates contents page numbers with a diagram in a list at the width it is drawn', async () => {
+        renderMermaidDiagramForExport.mockImplementationOnce(() => '<svg viewBox="0 0 1436 2000"></svg>')
+        svgToPngBlob.mockImplementationOnce(async () => new Blob([Uint8Array.from(sizedPng(2872, 4000))]))
+        const { xml } = await render(['# Start', '', '- item', '', '  ```mermaid', '  graph TD', '  ```', '', '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        // In the list it is 694px wide, so 967px tall, not the 1000px it would be at the full 718px.
+        expect(drawingSize(xml, 'Flowchart')).toEqual({ width: 694, height: 967 })
+        // It doesn't fit under the first lines, so it starts page 3, and End still fits below it there.
+        expect(tocPage(xml, 'End')).toBe(3)
+    })
+
     it('gives each diagram its own alt text, and leaves a picture with none without a made-up one', async () => {
         const { xml } = await render(
             [
