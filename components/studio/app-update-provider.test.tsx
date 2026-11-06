@@ -2,6 +2,7 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -9,9 +10,10 @@ import { useDocumentSave, useWorkspaceCoordinator } from '@/components/studio/wo
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
-import { fetchReleaseNotes } from '@/lib/updater/release-notes'
+import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { AppUpdateProvider, useAppUpdate } from './app-update-provider'
 
+vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn(async () => '1.0.0') }))
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn(async () => undefined) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
@@ -19,7 +21,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceCoordinator: vi.fn(),
 }))
 vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
-vi.mock('@/lib/updater/release-notes', () => ({ fetchReleaseNotes: vi.fn(async () => null) }))
+vi.mock('@/lib/updater/release-notes', () => ({ fetchUpdateReleaseNotes: vi.fn(async () => null) }))
 vi.mock('@/lib/updater/update-toast', () => ({ showUpdateAvailableToast: vi.fn() }))
 
 const flushAllSaves = vi.fn<() => Promise<boolean>>()
@@ -44,6 +46,7 @@ beforeEach(() => {
     vi.mocked(useWorkspaceCoordinator).mockReturnValue(coordinator)
     vi.mocked(useDocumentSave).mockReturnValue({ flushAllSaves } as unknown as ReturnType<typeof useDocumentSave>)
     vi.mocked(invoke).mockResolvedValue(undefined)
+    vi.mocked(getVersion).mockResolvedValue('1.0.0')
 })
 
 afterEach(() => {
@@ -154,7 +157,7 @@ describe('AppUpdateProvider release notes', () => {
         vi.mocked(isTauri).mockReturnValue(true)
         vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === 'check_for_app_update' ? { version: '9.9.9', notes: null } : undefined))
         let resolveNotes: (notes: string | null) => void = () => {}
-        vi.mocked(fetchReleaseNotes).mockImplementation(
+        vi.mocked(fetchUpdateReleaseNotes).mockImplementation(
             () =>
                 new Promise((resolve) => {
                     resolveNotes = resolve
@@ -175,5 +178,54 @@ describe('AppUpdateProvider release notes', () => {
 
         expect(result.current.notesLoading).toBe(false)
         expect(result.current.update?.notes).toBe('## Fixes')
+    })
+
+    it('shows the manifest notes at once, then the notes for every version since the installed one', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(getVersion).mockResolvedValue('1.3.0')
+        vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+            cmd === 'check_for_app_update' ? { version: '1.4.2', notes: '## [1.4.2]' } : undefined
+        )
+        let resolveNotes: (notes: string | null) => void = () => {}
+        vi.mocked(fetchUpdateReleaseNotes).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveNotes = resolve
+                })
+        )
+
+        const { result } = renderHook(() => useAppUpdate(), { wrapper })
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4_000)
+        })
+
+        expect(result.current.update?.notes).toBe('## [1.4.2]')
+        expect(result.current.notesLoading).toBe(true)
+        expect(fetchUpdateReleaseNotes).toHaveBeenCalledWith({ version: '1.4.2', notes: '## [1.4.2]' }, '1.3.0')
+
+        const combined = '## [1.4.2]\n\n## [1.4.1]\n\n## [1.4.0]'
+        await act(async () => {
+            resolveNotes(combined)
+        })
+
+        expect(result.current.notesLoading).toBe(false)
+        expect(result.current.update?.notes).toBe(combined)
+    })
+
+    it('still loads notes when the installed version cannot be read', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(getVersion).mockRejectedValue(new Error('no permission'))
+        vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === 'check_for_app_update' ? { version: '1.4.2', notes: null } : undefined))
+        vi.mocked(fetchUpdateReleaseNotes).mockResolvedValue('## [1.4.2]')
+
+        const { result } = renderHook(() => useAppUpdate(), { wrapper })
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4_000)
+        })
+
+        expect(fetchUpdateReleaseNotes).toHaveBeenCalledWith({ version: '1.4.2', notes: null }, null)
+        await waitFor(() => expect(result.current.update?.notes).toBe('## [1.4.2]'))
     })
 })

@@ -5,8 +5,9 @@ import { UpdateAvailableDialog, type AppUpdateInfo } from '@/components/studio/d
 import { useDocumentSave, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
-import { fetchReleaseNotes } from '@/lib/updater/release-notes'
+import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { showUpdateAvailableToast } from '@/lib/updater/update-toast'
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -63,12 +64,13 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 setUpdate(result)
                 showUpdateAvailableToast(result.version, () => setDialogOpen(true))
 
-                if (result.notes?.trim()) return
-
                 // The update is already found and shown, so finish loading its notes even if the
                 // "check on launch" setting is switched off meanwhile (that only stops new checks).
+                // The manifest only has notes for the new version, so also fetch every version in
+                // between for someone skipping releases; the manifest notes show until that arrives.
                 setNotesLoading(true)
-                const notes = await fetchReleaseNotes(result.version)
+                const currentVersion = await getVersion().catch(() => null)
+                const notes = await fetchUpdateReleaseNotes(result, currentVersion)
                 if (notes) {
                     setUpdate((current) => (current ? { ...current, notes } : null))
                 }
