@@ -41,12 +41,16 @@ const DiagramError = memo(function DiagramError({ message }: { message: string }
     )
 })
 
-/** Shown over the last diagram that worked, outside the pan/zoom layer so the message can be read, selected and scrolled. */
+/**
+ * Shown over the last diagram that worked, outside the pan/zoom layer so the message can be read,
+ * selected and scrolled. In a narrow canvas it keeps clear of the top-right corner, where the
+ * expanded Markdown diagram has its Back button. A wide one has room to centre it past that.
+ */
 const DiagramErrorBanner = memo(function DiagramErrorBanner({ message }: { message: string }) {
     return (
-        <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
+        <div className="@container pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
             <div
-                className="pointer-events-auto w-full max-w-xl cursor-auto rounded-xl bg-background shadow-sm select-text"
+                className="pointer-events-auto mr-21 w-full max-w-xl cursor-auto rounded-xl bg-background shadow-sm select-text @3xl:mr-0"
                 data-canvas-no-gestures
                 onPointerDown={stopCanvasGesture}
                 onDoubleClick={stopCanvasGesture}
