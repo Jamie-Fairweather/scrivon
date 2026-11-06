@@ -47,6 +47,7 @@ import type {
     Blockquote,
     Code,
     Definition,
+    FootnoteDefinition,
     Heading,
     Html,
     Image,
@@ -492,6 +493,8 @@ type RenderState = {
     extraLeft: number
     /** How many quotes the blocks being rendered sit inside. */
     quoteDepth: number
+    /** Set while a footnote's text is rendered: smaller type, and no footnotes inside it. */
+    inFootnote: boolean
 }
 
 function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
@@ -524,6 +527,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         pageWidthTwip: widthTwip,
         extraLeft: 0,
         quoteDepth: 0,
+        inFootnote: false,
     }
 }
 
@@ -581,6 +585,11 @@ function footnoteId(state: RenderState, identifier: string): number {
     return id
 }
 
+/** Footnote text is set a little smaller than the body, as Word does. */
+function footnoteHalfPoints(state: RenderState): number {
+    return Math.max(16, Math.round(state.bodyHalfPoints * 0.85))
+}
+
 function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     const heading = marks.headingSize
     const color = marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined
@@ -590,7 +599,9 @@ function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
         italics: marks.italics || marks.quote,
         strike: marks.strike,
         font: marks.code ? state.monoFont : heading !== undefined ? state.headingFont : state.bodyFont,
-        size: marks.code ? Math.max(16, Math.round(state.bodyHalfPoints * 0.85)) : (heading ?? state.bodyHalfPoints),
+        size: marks.code
+            ? Math.max(16, Math.round(state.bodyHalfPoints * 0.85))
+            : (heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)),
         color,
         shading: marks.code ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
         underline: marks.link ? { type: UnderlineType.SINGLE, color: state.link } : undefined,
@@ -624,7 +635,8 @@ function renderInlines(
         } else if (node.type === 'imageReference') {
             children.push(textRun(state, node.alt || node.identifier, marks))
         } else if (node.type === 'footnoteReference') {
-            children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
+            // Word has no footnotes inside footnotes.
+            if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
         } else {
             children.push(textRun(state, (node as Html).value, marks))
         }
@@ -896,7 +908,7 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
         else if (node.type === 'blockquote') blocks.push(...(await renderBlockquote(state, node)))
         else if (node.type === 'code') blocks.push(...renderPrepared(state, state.prepared.get(node)!))
-        else if (node.type === 'table') blocks.push(renderTable(state, node))
+        else if (node.type === 'table') blocks.push(...(state.inFootnote ? tableAsText(state, node) : [renderTable(state, node)]))
         else if (node.type === 'thematicBreak') {
             blocks.push(
                 new Paragraph({
@@ -909,11 +921,49 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
             blocks.push(new Paragraph({ ...paragraphOptions(state), children: [textRun(state, (node as Html).value, quoteMarks(state))] }))
         } else if (node.type === 'footnoteDefinition') {
             const id = footnoteId(state, node.identifier)
-            const note = plainText(node).trim()
-            state.footnotes[id] = { children: [new Paragraph({ children: [new TextRun(note || ' ')] })] }
+            state.footnotes[id] = { children: await renderFootnote(state, node) }
         }
     }
     return blocks
+}
+
+function footnoteParagraph(children: ReturnType<typeof renderInlines>): Paragraph {
+    return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, children })
+}
+
+/** Word footnotes hold only paragraphs, so a table in one is written a row per line, its cells split by bars. */
+function tableAsText(state: RenderState, table: MdTable): Paragraph[] {
+    const columns = tableColumns(table)
+    return table.children.map((row) =>
+        footnoteParagraph([
+            textRun(
+                state,
+                row.children
+                    .slice(0, columns)
+                    .map((cell) => plainText(cell).trim())
+                    .join(' | ') || ' '
+            ),
+        ])
+    )
+}
+
+/**
+ * A footnote's text with its links, formatting, pictures and paragraphs, in the smaller footnote size.
+ * It sits at the foot of the page, so the indent and quote bar of whatever it was written in don't carry over.
+ */
+async function renderFootnote(state: RenderState, node: FootnoteDefinition): Promise<Paragraph[]> {
+    const saved = { extraLeft: state.extraLeft, quoteDepth: state.quoteDepth, inFootnote: state.inFootnote }
+    Object.assign(state, { extraLeft: 0, quoteDepth: 0, inFootnote: true })
+    try {
+        const paragraphs: Paragraph[] = []
+        for (const child of node.children) {
+            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children)))
+            else for (const block of await renderBlocks(state, [child])) if (block instanceof Paragraph) paragraphs.push(block)
+        }
+        return paragraphs.length > 0 ? paragraphs : [footnoteParagraph([textRun(state, ' ')])]
+    } finally {
+        Object.assign(state, saved)
+    }
 }
 
 function chromeVisible(profile: PdfExportProfile, kind: 'header' | 'footer', group: 'title' | 'toc' | 'body'): boolean {

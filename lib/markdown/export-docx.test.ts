@@ -90,10 +90,11 @@ function fence(lang: string, body: string): string {
     return `\`\`\`${lang}\n${body}\n\`\`\``
 }
 
-function readDocx(data: Uint8Array): { xml: string; names: string[] } {
+function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Record<string, string> } {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const names: string[] = []
     const xml: string[] = []
+    const parts: Record<string, string> = {}
     let offset = 0
     while (offset + 30 <= data.length && view.getUint32(offset, true) === 0x04034b50) {
         const method = view.getUint16(offset + 8, true)
@@ -105,10 +106,13 @@ function readDocx(data: Uint8Array): { xml: string; names: string[] } {
         const start = nameStart + nameLength + extraLength
         const bytes = data.subarray(start, start + compressed)
         names.push(name)
-        if (name.endsWith('.xml') || name.endsWith('.rels')) xml.push(new TextDecoder().decode(method === 0 ? bytes : inflateRawSync(bytes)))
+        if (name.endsWith('.xml') || name.endsWith('.rels')) {
+            parts[name] = new TextDecoder().decode(method === 0 ? bytes : inflateRawSync(bytes))
+            xml.push(parts[name])
+        }
         offset = start + compressed
     }
-    return { xml: xml.join('\n'), names }
+    return { xml: xml.join('\n'), names, parts }
 }
 
 /** The `<w:r>` that holds `text`, up to its `<w:t>`, so a check looks at that run's own formatting. */
@@ -394,6 +398,47 @@ describe('renderExportDocx', () => {
         // A nested quote steps in again instead of sitting on its parent's line.
         expect(blockWith(xml, 'inner-quote')).toContain('w:left="480"')
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
+    })
+
+    it('keeps links, formatting, pictures, and paragraphs in footnotes', async () => {
+        const { parts } = await render(
+            [
+                '> Quoted claim[^c] and a table note[^t].',
+                '',
+                '[^c]: See [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110), **bold**, `code`, and again[^c].',
+                '',
+                `    Second paragraph with ![pixel](${PNG_URL}).`,
+                '',
+                '    - listed',
+                '',
+                '[^t]: Rows:',
+                '',
+                '    | a | b |',
+                '    | --- | --- |',
+                '    | 1 | 2 |',
+            ].join('\n')
+        )
+        const notes = parts['word/footnotes.xml']!
+        const note = notes.slice(notes.indexOf('<w:footnote w:id="1">'), notes.indexOf('<w:footnote w:id="2">'))
+        // The link keeps its URL, so a citation still points somewhere.
+        expect(note).toContain('<w:hyperlink')
+        expect(parts['word/_rels/footnotes.xml.rels']).toContain('https://www.rfc-editor.org/rfc/rfc9110')
+        expect(runWith(note, 'bold')).toContain('<w:b/>')
+        expect(runWith(note, 'code')).toContain('w:ascii="Consolas"')
+        // Each paragraph is its own paragraph in the small footnote style, not run together.
+        expect(note.match(/<w:pStyle w:val="FootnoteText"\/>/g)).toHaveLength(2)
+        expect(runWith(note, 'Second paragraph with ')).toContain('<w:sz w:val="19"/>')
+        expect(note).toContain('descr="pixel"')
+        expect(note).toContain('listed')
+        // A footnote can't hold a footnote, and the quote it was cited from doesn't style it.
+        expect(note).not.toContain('w:footnoteReference')
+        expect(note).not.toContain('<w:i/>')
+        expect(note).not.toContain('<w:pBdr>')
+        // A table in a footnote is written as text, a row per line.
+        const table = notes.slice(notes.indexOf('<w:footnote w:id="2">'))
+        expect(table).toContain('>a | b</w:t>')
+        expect(table).toContain('>1 | 2</w:t>')
+        expect(table).not.toContain('<w:tbl>')
     })
 
     it('gives every table row the header column count, as the PDF does', async () => {
