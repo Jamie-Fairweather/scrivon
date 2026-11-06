@@ -9,6 +9,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel } from '@/lib/monaco/editor-aria'
 import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
+import { registerExternalLinkOpener } from '@/lib/monaco/link-opener'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
@@ -279,6 +280,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const onMonacoBeforeMount = useCallback((monaco: Monaco) => {
         monacoRef.current = monaco
         defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
+        registerExternalLinkOpener(monaco)
     }, [])
 
     /** Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. */
