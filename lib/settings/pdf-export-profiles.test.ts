@@ -284,9 +284,11 @@ describe('pdfBodyHeightMm', () => {
         expect(pdfBodyHeightMm(profile)).toBe(210 - 120 - 120)
     })
 
-    it('counts a footer that only shows for its page numbers', () => {
+    it('leaves out the size, gap and bleed of a switched-off footer that prints only page numbers', () => {
         const profile = createDefaultPdfExportProfile()
-        profile.footer = { ...profile.footer, heightMm: 20, gapMm: 0, pageNumbers: 'number' }
-        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 30)
+        profile.footer = { ...profile.footer, heightMm: 20, gapMm: 15, ignoreMargins: true, pageNumbers: 'number' }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 10)
+        profile.footer = { ...profile.footer, enabled: true }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 35)
     })
 })

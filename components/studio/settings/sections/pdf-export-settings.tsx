@@ -496,14 +496,14 @@ export function PdfExportSettings() {
             <ChromeFields
                 title="Header"
                 chrome={active.header}
-                shown={layout.showHeader}
+                drawn={layout.showHeader}
                 bodyHeightMm={bodyHeightMm}
                 onChange={(header) => setSection('header', header)}
             />
             <ChromeFields
                 title="Footer"
                 chrome={active.footer}
-                shown={layout.showFooter}
+                drawn={layout.showFooter}
                 bodyHeightMm={bodyHeightMm}
                 onChange={(footer) => setSection('footer', footer)}
             />
@@ -597,14 +597,17 @@ function PageSpaceWarning({ bodyHeightMm }: { bodyHeightMm: number }) {
 function ChromeFields({
     title,
     chrome,
-    shown,
+    drawn,
     bodyHeightMm,
     onChange,
 }: {
     title: string
     chrome: PdfExportChrome | PdfExportFooter
-    /** Whether the export draws this bar; its other fields are disabled while it doesn't. */
-    shown: boolean
+    /**
+     * Whether the export draws this bar at all. A switched-off footer still prints its page
+     * numbers, and "Hide on" still applies to them, but none of its other fields do.
+     */
+    drawn: boolean
     /** Page height left for the text, for the warning next to this bar's size fields. */
     bodyHeightMm: number
     /** Only the footer ever receives `pageNumbers`. */
@@ -616,8 +619,7 @@ function ChromeFields({
         <SettingsGroup title={title}>
             <SwitchSetting
                 label={`Show ${lower}`}
-                // The export draws the footer whenever it has page numbers, so say so rather than grey out fields that still apply.
-                description={footer ? 'Page numbers show the footer even when this is off.' : undefined}
+                description={footer ? "Page numbers still print when this is off; the rest of the footer doesn't." : undefined}
                 checked={chrome.enabled}
                 onChange={(enabled) => onChange({ enabled })}
             />
@@ -629,7 +631,7 @@ function ChromeFields({
                     onTextChange={(text) => onChange({ right: { ...footer.right, text } })}
                 />
             ) : null}
-            <DependentFields enabled={shown}>
+            <DependentFields enabled={chrome.enabled}>
                 <p className="text-sm text-muted-foreground">Images always sit outermost, nearest the page edge.</p>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <ChromeSideFields side="Left" title={title} value={chrome.left} onChange={(left) => onChange({ left })} />
@@ -680,13 +682,15 @@ function ChromeFields({
                         onChange={(gapMm) => onChange({ gapMm })}
                     />
                 </div>
-                {shown ? <PageSpaceWarning bodyHeightMm={bodyHeightMm} /> : null}
+                {chrome.enabled ? <PageSpaceWarning bodyHeightMm={bodyHeightMm} /> : null}
                 <SwitchSetting
                     label="Ignore margins"
                     description="Bleed to the page edge."
                     checked={chrome.ignoreMargins}
                     onChange={(ignoreMargins) => onChange({ ignoreMargins })}
                 />
+            </DependentFields>
+            <DependentFields enabled={drawn}>
                 <Field>
                     <FieldLabel>Hide on</FieldLabel>
                     <OptionSelect

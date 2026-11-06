@@ -97,12 +97,15 @@ export const PDF_MIN_BODY_HEIGHT_MM = 40
  * Page height left for the document text once the top and bottom margins and any shown
  * header/footer (bar height plus gap) are taken off. A bar that ignores margins sits inside
  * the margin band, so it only takes more room once it is taller than the margin.
+ * With the Footer switch off, page numbers still print, but on their own: the export drops
+ * the footer's height, gap and edge-to-edge band (applyPdfFooterSwitch), so they don't count.
  * Negative when they add up to more than the page.
  */
 export function pdfBodyHeightMm(profile: PdfExportProfile): number {
     const sheet = pdfPageSizeMm(profile)
     const pageHeight = profile.page.orientation === 'landscape' ? sheet.width : sheet.height
-    const layout = resolvePdfExportLayout(profile)
+    const footer = profile.footer.enabled ? profile.footer : { ...profile.footer, heightMm: 0, gapMm: 0, ignoreMargins: false }
+    const layout = resolvePdfExportLayout({ ...profile, footer })
     const band = (margin: number, bar: PdfExportChrome, shown: boolean, bleeds: boolean) => {
         if (!shown) return margin
         const barMm = bar.heightMm + bar.gapMm
@@ -110,8 +113,6 @@ export function pdfBodyHeightMm(profile: PdfExportProfile): number {
     }
     const { top, bottom } = profile.page.marginsMm
     return (
-        pageHeight -
-        band(top, profile.header, layout.showHeader, layout.headerBleeds) -
-        band(bottom, profile.footer, layout.showFooter, layout.footerBleeds)
+        pageHeight - band(top, profile.header, layout.showHeader, layout.headerBleeds) - band(bottom, footer, layout.showFooter, layout.footerBleeds)
     )
 }

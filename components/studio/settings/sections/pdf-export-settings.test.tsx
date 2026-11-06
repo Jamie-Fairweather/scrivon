@@ -104,18 +104,26 @@ describe('PdfExportSettings groups', () => {
         expect(header.getByRole('textbox', { name: 'Left text' })).toBeEnabled()
     })
 
-    it('keeps footer page numbers usable while the footer is off, and enables the rest once they show', async () => {
+    it('keeps footer page numbers usable while the footer is off, but nothing the export then leaves out', async () => {
         renderSection()
         const footer = group('Footer')
         const pageNumbers = footer.getByRole('combobox', { name: 'Page numbers' })
+        const hideOn = footer.getByRole('combobox', { name: 'Hide on' })
+        const browse = footer.getByRole('button', { name: 'Browse for footer left image' })
         expect(pageNumbers).not.toHaveAttribute('data-disabled')
-        expect(footer.getByRole('button', { name: 'Browse for footer left image' })).toBeDisabled()
+        expect(hideOn).toHaveAttribute('data-disabled')
+        expect(browse).toBeDisabled()
 
-        // The export draws the footer whenever it has page numbers, so its fields apply then too.
+        // With the switch off the export prints the page number alone, so only "Hide on" starts to apply.
         const user = userEvent.setup()
         await user.click(pageNumbers)
         await user.click(await screen.findByRole('option', { name: 'Number' }))
-        await waitFor(() => expect(footer.getByRole('button', { name: 'Browse for footer left image' })).toBeEnabled())
+        await waitFor(() => expect(hideOn).not.toHaveAttribute('data-disabled'))
+        expect(browse).toBeDisabled()
+        expect(footer.getByRole('switch', { name: 'Ignore margins' })).toHaveAttribute('data-disabled')
+
+        fireEvent.click(footer.getByRole('switch', { name: 'Show footer' }))
+        expect(browse).toBeEnabled()
     })
 })
 
@@ -145,6 +153,17 @@ describe('PdfExportSettings page space', () => {
             footer: { ...profile.footer, ...bar(true) },
         }))
         expect(group('Page').getByText(/taller than the page, so there is no room left for the text/)).toBeInTheDocument()
+    })
+
+    it('does not count the size of a switched-off footer that only prints page numbers', () => {
+        renderWithProfile((profile) => ({
+            ...profile,
+            page: { ...profile.page, orientation: 'landscape' },
+            header: { ...profile.header, ...bar(false) },
+            footer: { ...profile.footer, heightMm: 60, gapMm: 60, pageNumbers: 'number' },
+        }))
+        // Landscape A4: 210 - (10 + 120) - 10 leaves 70 mm, so no warning.
+        expect(screen.queryByText(/page height for the text|no room left for the text/)).toBeNull()
     })
 })
 
