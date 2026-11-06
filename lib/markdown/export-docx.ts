@@ -714,11 +714,19 @@ function edgeDistance(bleeds: boolean, marginMm: number): number {
     return convertMillimetersToTwip(Math.min(8, marginMm))
 }
 
+/** The PDF bar's default text colour. */
+const CHROME_TEXT_COLOR = '404040'
+
+/** The PDF bar's `font-size: 0.85em`. */
+function chromeHalfPoints(state: RenderState): number {
+    return Math.round(state.bodyHalfPoints * 0.85)
+}
+
 function pageNumberRuns(state: RenderState, color: string): TextRun[] {
     const { profile, metadata } = state.document
     const format = profile.footer.pageNumbers
     const run = (text?: string, field?: (typeof PageNumber)[keyof typeof PageNumber]) =>
-        new TextRun({ text, children: field ? [field] : undefined, font: state.bodyFont, size: state.bodyHalfPoints, color })
+        new TextRun({ text, children: field ? [field] : undefined, font: state.bodyFont, size: chromeHalfPoints(state), color })
     if (format === 'none') return []
     if (format === 'page-n') return [run('Page '), run(undefined, PageNumber.CURRENT)]
     if (format === 'n-of-total') return [run(undefined, PageNumber.CURRENT), run(' / '), run(undefined, PageNumber.TOTAL_PAGES)]
@@ -768,13 +776,13 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
     const bleeds = kind === 'header' ? layout.headerBleeds : layout.footerBleeds
     const sidesBleed = layout.headerBleeds || layout.footerBleeds
     const images = kind === 'header' ? assets.header : assets.footer
-    const color = hexColor(chrome.textColor, '262626')
+    const color = hexColor(chrome.textColor, CHROME_TEXT_COLOR)
     const maxHeight = chrome.heightMm > 0 ? mmToPx(chrome.heightMm) : 28
     const leftImage = embeddedImage(images.left, 160, maxHeight, `${kind} left`)
     const rightImage = embeddedImage(images.right, 160, maxHeight, `${kind} right`)
     const leftText = resolvePdfChromeText(chrome.left.text, metadata)
     const rightRuns = kind === 'footer' ? pageNumberRuns(state, color) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
-    const leftChildren = [...(leftImage ? [leftImage] : []), ...(leftText ? [textRun(state, leftText)] : [])]
+    const leftChildren = [...(leftImage ? [leftImage] : []), ...textRuns(state, leftText, color)]
     const rightChildren = [...rightRuns, ...(rightImage ? [rightImage] : [])]
     const width = bleeds ? state.pageWidthTwip : state.contentTwip
     const leftWidth = Math.max(1, Math.round(width / 2))
@@ -808,7 +816,7 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
 }
 
 function textRuns(state: RenderState, text: string, color: string): TextRun[] {
-    return text ? [new TextRun({ text, font: state.bodyFont, size: state.bodyHalfPoints, color })] : []
+    return text ? [new TextRun({ text, font: state.bodyFont, size: chromeHalfPoints(state), color })] : []
 }
 
 function watermarkBlocks(state: RenderState, png: Uint8Array | null): Paragraph[] {

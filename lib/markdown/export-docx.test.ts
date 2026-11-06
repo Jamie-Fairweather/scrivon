@@ -108,6 +108,13 @@ function readDocx(data: Uint8Array): { xml: string; names: string[] } {
     return { xml: xml.join('\n'), names }
 }
 
+/** The `<w:r>` that holds `text`, up to its `<w:t>`, so a check looks at that run's own formatting. */
+function runWith(xml: string, text: string): string {
+    const end = xml.indexOf(`>${text}</w:t>`)
+    if (end < 0) return ''
+    return xml.slice(xml.lastIndexOf('<w:r>', end), end)
+}
+
 function profile(edit?: (draft: PdfExportProfile) => void): PdfExportProfile {
     const draft = createDefaultPdfExportProfile()
     edit?.(draft)
@@ -448,6 +455,30 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('Page ')
         expect(xml).not.toContain('w:header="0"')
         expect(xml).toContain('w:val="center"')
+    })
+
+    it('colours and sizes both sides of the header and footer like the PDF bar', async () => {
+        const { xml } = await render('# Hi', (draft) => {
+            draft.header.enabled = true
+            draft.header.backgroundColor = '#112233'
+            draft.header.textColor = '#ffffff'
+            draft.header.left.text = 'Head'
+            draft.header.right.text = 'Right side'
+        })
+        for (const text of ['Head', 'Right side']) {
+            expect(runWith(xml, text)).toContain('<w:color w:val="FFFFFF"/>')
+            // 0.85 × 11pt, in half-points.
+            expect(runWith(xml, text)).toContain('<w:sz w:val="19"/>')
+        }
+
+        const plain = await render('# Hi', (draft) => {
+            draft.footer.enabled = true
+            draft.footer.left.text = 'Foot'
+            draft.footer.pageNumbers = 'page-n'
+        })
+        expect(runWith(plain.xml, 'Foot')).toContain('<w:color w:val="404040"/>')
+        expect(runWith(plain.xml, 'Page ')).toContain('<w:color w:val="404040"/>')
+        expect(runWith(plain.xml, 'Page ')).toContain('<w:sz w:val="19"/>')
     })
 
     it('writes each page-number preset', async () => {
