@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { notifyInfo } from '@/lib/notify'
@@ -62,6 +62,8 @@ describe('MarkdownDocumentViewer', () => {
     let scrollIntoView: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
+        // happy-dom has no Web Animations API; Base UI's scroll area calls it after scrolling.
+        if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
         workspace.tabs = [fileTab(DOC_A)]
         workspace.workspaceRoot = 'C:\\notes'
         scrollIntoView = vi.fn()
@@ -132,6 +134,24 @@ describe('MarkdownDocumentViewer', () => {
             expect(screen.queryByRole('region', { name: 'Expanded diagram' })).toBeNull()
             expect(container.querySelector('[inert]')).toBeNull()
             expect(screen.getByRole('button', { name: 'Expand diagram 2: Login flow' })).toHaveFocus()
+        })
+
+        it('follows edits to the expanded block, and closes when it is deleted', async () => {
+            const { rerender } = render(viewer(DOC_A, twoDiagrams))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 1' }))
+            expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart TD\n  A --> B')
+
+            const edited = twoDiagrams.replace('A --> B', 'A --> Changed')
+            rerender(viewer(DOC_A, edited))
+            await waitFor(() => expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart TD\n  A --> Changed'))
+
+            const withNewBlockAbove = edited.replace('# Diagrams', '# Diagrams\n\n```mermaid\npie\n  "x": 1\n```')
+            rerender(viewer(DOC_A, withNewBlockAbove))
+            await waitFor(() => expect(screen.getAllByRole('button', { name: /^Expand diagram/ })).toHaveLength(3))
+            expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart TD\n  A --> Changed')
+
+            rerender(viewer(DOC_A, withNewBlockAbove.replace('```mermaid\nflowchart TD\n  A --> Changed\n```', '')))
+            await waitFor(() => expect(screen.queryByTestId('expanded-canvas')).toBeNull())
         })
 
         it('returns focus to the Expand button after Back', () => {

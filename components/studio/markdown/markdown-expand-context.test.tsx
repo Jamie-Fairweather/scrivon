@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect } from 'react'
 import { describe, expect, it } from 'vitest'
 import { MarkdownExpandProvider, useMarkdownExpand, type ExpandedMermaidBlock } from './markdown-expand-context'
 
-const block = (blockId: string): ExpandedMermaidBlock => ({ blockId, source: 'flowchart TD\n  A --> B', canvasKey: `canvas:${blockId}` })
+const block = (blockId: string): ExpandedMermaidBlock => ({ blockId, ordinal: 0, source: 'flowchart TD\n  A --> B', canvasKey: `canvas:${blockId}` })
 
 let mounts = 0
 let api: ReturnType<typeof useMarkdownExpand> | null = null

@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 type MarkdownPreviewProps = {
     source: string
     tabId: string | null
-    onExpandBlock: (blockId: string, source: string) => void
+    onExpandBlock: (blockId: string, ordinal: number, source: string) => void
     /** Called with the link's href when a link is clicked. The webview's own navigation is always prevented. */
     onLinkClick: (href: string) => void
     className?: string
@@ -59,7 +59,7 @@ function cellAlignStyle(align: string | null | undefined): CSSProperties | undef
     return undefined
 }
 
-function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
+export function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
     return `${tabId ?? 'none'}:${fallbackIndex}:mermaid`
 }
 

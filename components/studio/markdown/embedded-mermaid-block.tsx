@@ -17,7 +17,7 @@ type EmbeddedMermaidBlockProps = {
     /** Position among the document's diagrams, from 0. Gives each Expand button its own name. */
     ordinal: number
     tabId: string | null
-    onExpand: (blockId: string, source: string) => void
+    onExpand: (blockId: string, ordinal: number, source: string) => void
     className?: string
 }
 
@@ -106,7 +106,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                     size="xs"
                     className="h-7 gap-1 shadow-sm"
                     disabled={!trimmed}
-                    onClick={() => onExpand(blockId, source)}
+                    onClick={() => onExpand(blockId, ordinal, source)}
                     aria-label={expandDiagramLabel(ordinal, source)}
                     title="Expand diagram"
                 >

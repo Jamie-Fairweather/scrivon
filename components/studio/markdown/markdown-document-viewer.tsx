@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { clearFencedCodeBlockContainers } from '@/components/studio/markdown/fenced-code-block'
 import { resolveMarkdownLink } from '@/components/studio/markdown/markdown-links'
-import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
+import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
+import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { Button } from '@/components/ui/button'
@@ -98,7 +99,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     }, [])
 
     const onExpandBlock = useCallback(
-        (blockId: string, blockSource: string) => {
+        (blockId: string, ordinal: number, blockSource: string) => {
             if (!tabId) return
             const viewport = scrollViewport(scrollAreaRef.current)
             if (viewport) scrollTopByTabRef.current.set(tabId, viewport.scrollTop)
@@ -107,6 +108,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             returnFocusRef.current = { blockId, element: inPreview ? focused : null }
             setExpanded({
                 blockId,
+                ordinal,
                 source: blockSource,
                 canvasKey: `${tabId}:expanded:${blockId}`,
             })
@@ -115,6 +117,33 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     )
 
     const onCloseExpanded = useCallback(() => setExpanded(null), [setExpanded])
+
+    const expandedOrdinal = expanded?.ordinal ?? null
+    /** The document's Mermaid sources, only worked out while a diagram is expanded. */
+    const liveMermaidSources = useMemo(
+        () => (expandedOrdinal === null ? null : extractMermaidBlockSources(previewSource)),
+        [expandedOrdinal, previewSource]
+    )
+    const mermaidCountRef = useRef<{ canvasKey: string; count: number } | null>(null)
+
+    // Keeps the expanded diagram, and the export that reads it, in step with edits to its block in the document.
+    useEffect(() => {
+        if (!expanded || !liveMermaidSources) return
+        const previous = mermaidCountRef.current
+        const previousCount = previous?.canvasKey === expanded.canvasKey ? previous.count : null
+        mermaidCountRef.current = { canvasKey: expanded.canvasKey, count: liveMermaidSources.length }
+
+        const located = locateMermaidBlock(expanded, liveMermaidSources, previousCount)
+        if (!located) {
+            setExpanded(null)
+            return
+        }
+        if (located.ordinal === expanded.ordinal && located.source === expanded.source) return
+
+        const blockId = located.ordinal === expanded.ordinal ? expanded.blockId : mermaidBlockId(tabId, located.ordinal)
+        if (blockId !== expanded.blockId && returnFocusRef.current) returnFocusRef.current = { blockId, element: null }
+        setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source, blockId })
+    }, [expanded, liveMermaidSources, setExpanded, tabId])
 
     const onOverlayKeyDown = useCallback(
         (event: KeyboardEvent<HTMLDivElement>) => {

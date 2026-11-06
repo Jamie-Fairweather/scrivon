@@ -4,6 +4,9 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 
 export type ExpandedMermaidBlock = {
     blockId: string
+    /** Position among the document's Mermaid blocks, used to follow the block's live source while expanded. */
+    ordinal: number
+    /** The block's current source; kept in step with the document, and what diagram export uses. */
     source: string
     canvasKey: string
 }
