@@ -14,7 +14,6 @@ const PLAIN_PRE_CLASS = 'm-0 bg-transparent p-3'
 const PLAIN_CODE_CLASS = 'font-mono text-xs text-foreground'
 
 type FencedCodeBlockProps = {
-    blockId: string
     code: string
     language?: string
     className?: string
@@ -27,17 +26,7 @@ type IdleHighlight = {
     html: string
 }
 
-type BlockDisplay = {
-    mode: 'plain' | 'highlight'
-    code: string
-    language?: string
-    theme: ShikiTheme
-    html?: string
-}
-
 const globalHighlightCache = new Map<string, string>()
-const blockDisplayCache = new Map<string, BlockDisplay>()
-const containerByBlockId = new Map<string, HTMLDivElement>()
 
 function highlightCacheKey(theme: ShikiTheme, language: string | undefined, code: string): string {
     return `${theme}\0${language ?? ''}\0${code}`
@@ -95,12 +84,7 @@ function writeHighlightedHtml(container: HTMLDivElement, html: string): void {
     container.innerHTML = html
 }
 
-export function clearFencedCodeBlockContainers(): void {
-    containerByBlockId.clear()
-    blockDisplayCache.clear()
-}
-
-export function FencedCodeBlock({ blockId, code, language, className }: FencedCodeBlockProps) {
+export function FencedCodeBlock({ code, language, className }: FencedCodeBlockProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const { isLight } = useAppTheme()
     const theme: ShikiTheme = isLight ? 'github-light' : 'github-dark'
@@ -113,22 +97,10 @@ export function FencedCodeBlock({ blockId, code, language, className }: FencedCo
         const container = containerRef.current
         if (!container) return
 
-        containerByBlockId.set(blockId, container)
-
         const html = resolveHighlightHtml(code, language, theme, idleHighlight)
-        if (html) {
-            writeHighlightedHtml(container, html)
-            blockDisplayCache.set(blockId, { mode: 'highlight', code, language, theme, html })
-        } else {
-            writePlainCode(container, code)
-            blockDisplayCache.set(blockId, { mode: 'plain', code, language, theme })
-        }
-
-        return () => {
-            containerByBlockId.delete(blockId)
-            blockDisplayCache.delete(blockId)
-        }
-    }, [blockId, code, language, theme, idleHighlight])
+        if (html) writeHighlightedHtml(container, html)
+        else writePlainCode(container, code)
+    }, [code, language, theme, idleHighlight])
 
     useEffect(() => {
         if (globalHighlightCache.has(highlightCacheKey(theme, language, code))) {
@@ -152,7 +124,7 @@ export function FencedCodeBlock({ blockId, code, language, className }: FencedCo
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [blockId, code, language, theme])
+    }, [code, language, theme])
 
     return <div ref={containerRef} className={cn(WRAPPER_CLASS, className)} />
 }

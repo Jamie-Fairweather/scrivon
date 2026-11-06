@@ -184,7 +184,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({ source, tabId, on
                 }
 
                 const blockId = fencedCodeBlockId(tabId, nextFencedCodeBlockOrdinal(), lang)
-                return <FencedCodeBlock key={blockId} blockId={blockId} code={text.replace(/\n$/, '')} language={lang} />
+                return <FencedCodeBlock key={blockId} code={text.replace(/\n$/, '')} language={lang} />
             },
         }
     }, [onExpandBlock, onLinkClick, tabId])

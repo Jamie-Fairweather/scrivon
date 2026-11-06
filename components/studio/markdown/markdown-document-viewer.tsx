@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type Keyboard
 import { X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
-import { clearFencedCodeBlockContainers } from '@/components/studio/markdown/fenced-code-block'
 import { resolveMarkdownLink } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
@@ -87,10 +86,6 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const overlayRef = useRef<HTMLDivElement>(null)
     /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
     const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
-
-    useEffect(() => {
-        clearFencedCodeBlockContainers()
-    }, [tabId])
 
     useEffect(() => {
         const viewport = scrollViewport(scrollAreaRef.current)
