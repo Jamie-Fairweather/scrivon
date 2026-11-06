@@ -205,6 +205,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
             clearTabs: () => {
+                // The refs change straight away, so anything that runs before React re-renders sees no tabs.
+                tabsRef.current = []
+                activeTabIdRef.current = null
                 setTabs([])
                 setActiveTabId(null)
             },
@@ -213,9 +216,14 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 return tab?.isDirty ? tab.content : undefined
             },
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
-                setTabs(nextTabs)
-                setActiveTabId(nextActiveId)
-                for (const tab of nextTabs) explainReadOnlyFile(tab)
+                // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.
+                const opened = tabsRef.current
+                const restored = nextTabs.filter((t) => !opened.some((o) => samePath(o.path, t.path)))
+                const merged = [...restored, ...opened]
+                tabsRef.current = merged
+                setTabs(merged)
+                if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
+                for (const tab of restored) explainReadOnlyFile(tab)
             },
         })
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile])

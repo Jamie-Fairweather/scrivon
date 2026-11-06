@@ -26,7 +26,7 @@ import { allowWorkspacePath } from '@/lib/tauri/scope'
 import { deleteUnsavedBackup, listUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
-import { notifyError, notifyWarning } from '@/lib/notify'
+import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
@@ -37,6 +37,8 @@ type WorkspaceSessionContextValue = {
     hydrated: boolean
     workspaceRoot: string | null
     workspaceName: string | null
+    /** The folder being opened right now (reading a big one takes a while), or null. */
+    openingWorkspace: string | null
     tree: FileNode[]
     recentWorkspaces: string[]
     pickAndOpenWorkspace: () => Promise<void>
@@ -62,6 +64,9 @@ type WorkspaceSessionContextValue = {
 const WorkspaceSessionContext = createContext<WorkspaceSessionContextValue | null>(null)
 
 const RECOVERED_CHANGES_NOTICE_ID = 'recovered-changes'
+const OPENING_NOTICE_ID = 'opening-folder'
+/** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
+const OPENING_NOTICE_DELAY_MS = 400
 
 /** The copies of unsaved text kept from earlier; none when they can't be read (they are only a safety net). */
 async function listBackupsSafely(): Promise<UnsavedBackup[]> {
@@ -214,9 +219,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     /**
      * Reopens the tabs saved for this folder. Files that can't be read any more are skipped, unless they
      * have unsaved text kept from when Scrivon last closed: that text is always brought back, unsaved.
+     * Nothing is shown if `isCurrent` says another folder was opened in the meantime.
      */
     const restoreTabSession = useCallback(
-        async (path: string) => {
+        async (path: string, isCurrent: () => boolean) => {
             const tabSession = await getWorkspaceTabSession(path)
             const backups = (await listBackupsSafely()).filter((b) => isPathInside(b.path, path))
             // Older sessions can hold the same file twice with different separators.
@@ -251,6 +257,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 )
             ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
 
+            if (!isCurrent()) return
             if (restoredTabs.length > 0) {
                 const savedActiveId = tabSession?.activeTabId
                 const activeTab = savedActiveId ? restoredTabs.find((t) => samePath(t.path, savedActiveId)) : undefined
@@ -270,49 +277,74 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [coordinator]
     )
 
+    // Every open or close of a folder gets the next number. An open that a newer one has replaced (the user
+    // clicked another folder while a big one was still being read) stops where it is and changes nothing.
+    const workspaceRequest = useRef(0)
+    const [openingWorkspace, setOpeningWorkspace] = useState<string | null>(null)
+
     const openWorkspace = useCallback(
         async (requestedPath: string) => {
             if (!isDesktop) return
 
             const path = normalizePath(requestedPath)
-            let nextTree: FileNode[]
-            let recents: string[]
+            const request = ++workspaceRequest.current
+            const isCurrent = () => request === workspaceRequest.current
+            const name = getBaseName(path) || path
+            setOpeningWorkspace(path)
+            // Reading a big folder takes a while; saying so stops the user thinking nothing happened.
+            const slowNotice = setTimeout(() => {
+                if (isCurrent()) notifyInfo(`Opening ${name}…`, { id: OPENING_NOTICE_ID, description: 'Reading the list of files.', timeout: 0 })
+            }, OPENING_NOTICE_DELAY_MS)
+
             try {
-                if (workspaceRoot) {
-                    // Leaving the open folder closes its tabs, so unsaved or unsavable edits must be dealt with first.
-                    if (!(await coordinator.confirmCloseTabs.current())) return
-                    await coordinator.persistWorkspaceTabSession.current()
+                let nextTree: FileNode[]
+                try {
+                    await allowWorkspacePath(path)
+                    nextTree = await listWorkspaceTree(path)
+                    if (!isCurrent()) return
+                    // Leaving the open folder closes its tabs, so unsaved or unsavable edits are dealt with first. That
+                    // happens only now, right before switching, so nothing typed while the new folder was read is lost.
+                    if (workspaceRootRef.current && !(await coordinator.confirmCloseTabs.current())) return
+                    if (!isCurrent()) return
+                } catch (err) {
+                    if (!isCurrent()) return
+                    // Nothing has switched yet, so the folder that was open (if any) stays open.
+                    // A recent folder that was moved, deleted or is on a missing drive can be dropped from the list.
+                    const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
+                    const removeFromRecent = () => void removeRecent(path).catch((e: unknown) => notifyError("Couldn't update recent folders", e))
+                    notifyError(`Couldn't open ${name}`, err, isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {})
+                    return
                 }
-                await allowWorkspacePath(path)
-                nextTree = await listWorkspaceTree(path)
-                recents = await addRecentWorkspace(path)
-            } catch (err) {
-                // Nothing has switched yet, so the folder that was open (if any) stays open.
-                // A recent folder that was moved, deleted or is on a missing drive can be dropped from the list.
-                const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
-                const removeFromRecent = () => void removeRecent(path).catch((e: unknown) => notifyError("Couldn't update recent folders", e))
-                notifyError(
-                    `Couldn't open ${getBaseName(path) || path}`,
-                    err,
-                    isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {}
-                )
-                return
-            }
 
-            setWorkspaceRoot(path)
-            treeRead.current += 1
-            setTree(nextTree)
-            setRecentWorkspaces(recents)
-            coordinator.clearTabs.current()
-            warnAboutUnreadableFolders(nextTree)
+                // The old folder's tabs are noted before they are cleared; saving that list is best-effort.
+                const leaving = workspaceRootRef.current ? coordinator.persistWorkspaceTabSession.current() : null
+                workspaceRootRef.current = path
+                setWorkspaceRoot(path)
+                treeRead.current += 1
+                setTree(nextTree)
+                coordinator.clearTabs.current()
+                warnAboutUnreadableFolders(nextTree)
+                void leaving?.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
+                void addRecentWorkspace(path)
+                    .then((recents) => {
+                        if (isCurrent()) setRecentWorkspaces(recents)
+                    })
+                    .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
 
-            try {
-                await restoreTabSession(path)
-            } catch (err) {
-                notifyError("Couldn't reopen the files you had open", err)
+                try {
+                    await restoreTabSession(path, isCurrent)
+                } catch (err) {
+                    if (isCurrent()) notifyError("Couldn't reopen the files you had open", err)
+                }
+            } finally {
+                clearTimeout(slowNotice)
+                if (isCurrent()) {
+                    setOpeningWorkspace(null)
+                    dismissNotification(OPENING_NOTICE_ID)
+                }
             }
         },
-        [isDesktop, workspaceRoot, recentWorkspaces, removeRecent, restoreTabSession, coordinator]
+        [isDesktop, recentWorkspaces, removeRecent, restoreTabSession, coordinator]
     )
 
     useEffect(() => {
@@ -332,10 +364,17 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const closeWorkspace = useCallback(async () => {
         if (!(await coordinator.confirmCloseTabs.current())) return
-        await coordinator.persistWorkspaceTabSession.current()
+        // Closing is the newest request: a folder still being opened, or a file list still being read, is dropped.
+        workspaceRequest.current += 1
+        treeRead.current += 1
+        setOpeningWorkspace(null)
+        dismissNotification(OPENING_NOTICE_ID)
+        const leaving = coordinator.persistWorkspaceTabSession.current()
+        workspaceRootRef.current = null
         setWorkspaceRoot(null)
         setTree([])
         coordinator.clearTabs.current()
+        await leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
     }, [coordinator])
 
     const suggestName = useCallback(
@@ -471,6 +510,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             hydrated,
             workspaceRoot,
             workspaceName,
+            openingWorkspace,
             tree,
             recentWorkspaces: recentWorkspaces ?? [],
             pickAndOpenWorkspace,
@@ -492,6 +532,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             hydrated,
             workspaceRoot,
             workspaceName,
+            openingWorkspace,
             tree,
             recentWorkspaces,
             pickAndOpenWorkspace,

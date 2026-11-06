@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
-import { notifyError, notifyWarning, type NotifyOptions } from '@/lib/notify'
+import { dismissNotification, notifyError, notifyInfo, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure, confirmOverwriteDiskChange, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
@@ -39,6 +39,8 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyError: vi.fn(() => 'toast'),
     notifyWarning: vi.fn(() => 'toast'),
+    notifyInfo: vi.fn(() => 'toast'),
+    dismissNotification: vi.fn(),
 }))
 
 vi.mock('@/lib/tauri/dialog', () => ({
@@ -1013,5 +1015,159 @@ describe('unsaved text kept from a crash', () => {
                 ),
             { timeout: 3000 }
         )
+    })
+})
+
+describe('opening folders one after another', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({
+            'C:\\big\\a.md': 'A',
+            'C:\\small\\b.md': 'B',
+            'C:\\ws\\notes.md': 'mine',
+            'C:\\ws\\other.md': 'other',
+        })
+        mountDisk(disk)
+    })
+
+    afterEach(() => {
+        vi.mocked(getWorkspaceTabSession).mockReset()
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue(null)
+    })
+
+    /** Makes reading the file list of `folder` wait until the test lets it finish. */
+    function slowFolder(folder: string) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (String(dir).toLowerCase().startsWith(folder.toLowerCase())) await done
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        return finish
+    }
+
+    it('opens the folder clicked last, even when an earlier one finishes reading later', async () => {
+        vi.mocked(getWorkspaceTabSession).mockImplementation(async (root: string) =>
+            root === 'C:\\big' ? { tabIds: ['C:\\big\\a.md'], activeTabId: 'C:\\big\\a.md' } : { tabIds: ['C:\\small\\b.md'], activeTabId: null }
+        )
+        const finishBig = slowFolder('C:\\big')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let openingBig!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\small')
+        })
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+
+        await act(async () => {
+            finishBig()
+            await openingBig
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\small\\b.md'])
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('saves what was typed in the open folder while the next one was being read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        const finishBig = slowFolder('C:\\big')
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\big')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'typed while waiting'))
+        await act(async () => {
+            finishBig()
+            await opening
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\big')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('typed while waiting')
+    })
+
+    it('says when a folder is slow to open, and clears that once it is open', async () => {
+        const finishBig = slowFolder('C:\\big')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\big')
+        })
+        expect(result.current.session.openingWorkspace).toBe('C:\\big')
+        await waitFor(() => expect(notifyInfo).toHaveBeenCalledWith('Opening big…', expect.objectContaining({ id: 'opening-folder', timeout: 0 })))
+
+        await act(async () => {
+            finishBig()
+            await opening
+        })
+        expect(dismissNotification).toHaveBeenCalledWith('opening-folder')
+        expect(result.current.session.openingWorkspace).toBeNull()
+        expect(result.current.session.workspaceRoot).toBe('C:\\big')
+    })
+
+    it('drops a folder still being opened when the open one is closed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        const finishBig = slowFolder('C:\\big')
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.closeWorkspace()
+        })
+        await act(async () => {
+            finishBig()
+            await opening
+        })
+
+        expect(result.current.session.workspaceRoot).toBeNull()
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('keeps a file the user opened while the saved tabs were still loading', async () => {
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue({ tabIds: ['C:\\ws\\notes.md'], activeTabId: 'C:\\ws\\notes.md' })
+        let finishNotes!: () => void
+        const notesRead = new Promise<void>((resolve) => (finishNotes = resolve))
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            if (String(path).endsWith('notes.md')) await notesRead
+            return disk.readBytes(path)
+        })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\ws')
+        })
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\other.md')
+        })
+        await act(async () => {
+            finishNotes()
+            await opening
+        })
+
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md', 'C:\\ws\\other.md'])
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\other.md')
     })
 })
