@@ -69,15 +69,16 @@ describe('PdfExportDialog', () => {
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
         expect(onOpenChange).toHaveBeenCalledWith(false)
-        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf')
+        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
     })
 
-    it('says nothing extra when the print dialog or a download took over', async () => {
-        exportMarkdown.mockResolvedValue({ status: 'saved' })
+    it('passes any images the export left out to the saved notice', async () => {
+        const missing = [{ slot: 'Logo', path: 'G:/logo.png', reason: 'Could not read image: not found' }]
+        exportMarkdown.mockResolvedValue({ status: 'saved', missingImages: missing })
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
         expect(onOpenChange).toHaveBeenCalledWith(false)
-        expect(notifyExportSaved).not.toHaveBeenCalled()
+        expect(notifyExportSaved).toHaveBeenCalledWith(undefined, missing)
     })
 
     it('shows progress and cannot be closed or edited while exporting', async () => {

@@ -1,11 +1,17 @@
 import { invoke } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
-import { resolvePdfExportAssets } from '@/lib/markdown/export-assets'
+import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
-import { errorMessage, notifyError, notifySuccess } from '@/lib/notify'
+import { errorMessage, notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type { PdfExportDocument, PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
+import type {
+    PdfExportDocument,
+    PdfExportMetadataOverrides,
+    PdfExportProfile,
+    PdfExportResolvedAssets,
+    PdfPrintOptions,
+} from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 
@@ -23,8 +29,14 @@ export type ExportMarkdownOptions = {
 
 export type ExportMarkdownToPdfOptions = ExportMarkdownOptions
 
-/** How an export ended: saved (or handed to the print dialog / a download), cancelled at the save picker, or failed. */
-export type ExportResult = { status: 'saved'; path?: string } | { status: 'cancelled' } | { status: 'failed'; message: string }
+/**
+ * How an export ended: saved (or handed to the print dialog / a download), cancelled at the
+ * save picker, or failed. A saved export lists any profile images it had to leave out.
+ */
+export type ExportResult =
+    | { status: 'saved'; path?: string; missingImages?: PdfExportMissingImage[] }
+    | { status: 'cancelled' }
+    | { status: 'failed'; message: string }
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
@@ -125,8 +137,36 @@ export async function buildMarkdownExportHtml(
     options: ExportMarkdownOptions = {}
 ): Promise<PdfExportDocument> {
     const profile = options.profile ?? createDefaultPdfExportProfile()
-    const assets = await resolvePdfExportAssets(profile)
+    const { assets } = await resolvePdfExportAssets(profile)
     return markdownToExportHtml(source, { profile, tabName, overrides: options.overrides, assets })
+}
+
+async function renderAndSave(
+    source: string,
+    tabName: string | undefined,
+    options: ExportMarkdownOptions & { profile: PdfExportProfile },
+    assets: PdfExportResolvedAssets
+): Promise<ExportResult> {
+    const { profile, overrides } = options
+    if (options.format === 'docx') {
+        const document = buildExportDocument(source, { profile, tabName, overrides, assets })
+        const { renderExportDocx } = await import('@/lib/markdown/export-docx')
+        const bytes = await renderExportDocx(document)
+        return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
+    }
+
+    const { html, print } = await markdownToExportHtml(source, { profile, tabName, overrides, assets })
+    const filename = `${markdownExportBaseName(tabName)}.pdf`
+
+    if (isWindowsTauri()) {
+        const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
+        if (!path) return { status: 'cancelled' }
+        await savePdfWithWebView2(html, path, print)
+        return { status: 'saved', path }
+    }
+
+    await printExportHtml(html)
+    return { status: 'saved' }
 }
 
 /**
@@ -135,45 +175,44 @@ export async function buildMarkdownExportHtml(
  */
 export async function exportMarkdown(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<ExportResult> {
     try {
-        if (options.format === 'docx') {
-            const profile = options.profile ?? createDefaultPdfExportProfile()
-            const assets = await resolvePdfExportAssets(profile)
-            const document = buildExportDocument(source, { profile, tabName, overrides: options.overrides, assets })
-            const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-            const bytes = await renderExportDocx(document)
-            return await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
-        }
-
-        const { html, print } = await buildMarkdownExportHtml(source, tabName, options)
-        const filename = `${markdownExportBaseName(tabName)}.pdf`
-
-        if (isWindowsTauri()) {
-            const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
-            if (!path) return { status: 'cancelled' }
-            await savePdfWithWebView2(html, path, print)
-            return { status: 'saved', path }
-        }
-
-        await printExportHtml(html)
-        return { status: 'saved' }
+        const profile = options.profile ?? createDefaultPdfExportProfile()
+        const { assets, missing } = await resolvePdfExportAssets(profile)
+        const result = await renderAndSave(source, tabName, { ...options, profile }, assets)
+        return result.status === 'saved' && missing.length > 0 ? { ...result, missingImages: missing } : result
     } catch (err) {
         return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
     }
 }
 
-/** Tells the user the export was saved and where, with a button that shows the file in its folder. */
-export function notifyExportSaved(path: string): void {
-    const name = path.split(/[\\/]/).pop() || path
-    notifySuccess(`Saved ${name}`, {
-        description: path,
-        timeout: SAVED_NOTICE_MS,
-        action: {
-            label: 'Show in folder',
-            onClick: () => {
-                revealItemInDir(path).catch((err: unknown) => notifyError('Could not show the file', err))
-            },
+function fileName(path: string): string {
+    return path.split(/[\\/]/).pop() || path
+}
+
+function describeMissingImages(missing: PdfExportMissingImage[]): string {
+    return missing.map(({ slot, path, reason }) => `${slot} (${fileName(path)}): ${reason}`).join('; ')
+}
+
+/**
+ * Tells the user the export was saved and where, with a button that shows the file in its
+ * folder, and names any profile images that had to be left out.
+ */
+export function notifyExportSaved(path: string | undefined, missingImages: PdfExportMissingImage[] = []): void {
+    if (!path) {
+        // The print dialog or the browser's download took over; only left-out images need a word.
+        if (missingImages.length > 0) notifyWarning('Some images were left out', { description: describeMissingImages(missingImages) })
+        return
+    }
+    const action = {
+        label: 'Show in folder',
+        onClick: () => {
+            revealItemInDir(path).catch((err: unknown) => notifyError('Could not show the file', err))
         },
-    })
+    }
+    if (missingImages.length > 0) {
+        notifyWarning(`Saved ${fileName(path)} without some images`, { description: describeMissingImages(missingImages), action })
+        return
+    }
+    notifySuccess(`Saved ${fileName(path)}`, { description: path, timeout: SAVED_NOTICE_MS, action })
 }
 
 /** {@link exportMarkdown} that tells the user when the export fails. */

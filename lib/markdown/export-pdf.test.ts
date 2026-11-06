@@ -7,7 +7,8 @@ const invoke = vi.hoisted(() => vi.fn())
 const pickSavePath = vi.hoisted(() => vi.fn())
 const notifyError = vi.hoisted(() => vi.fn())
 const notifySuccess = vi.hoisted(() => vi.fn())
-const revealItemInDir = vi.hoisted(() => vi.fn(async (_path: string) => undefined))
+const notifyWarning = vi.hoisted(() => vi.fn())
+const revealItemInDir = vi.hoisted(() => vi.fn<(path: string) => Promise<void>>(async () => undefined))
 const writeBinaryFile = vi.hoisted(() => vi.fn())
 const isWindowsTauri = vi.hoisted(() => vi.fn(() => false))
 const isTauri = vi.hoisted(() => vi.fn(() => false))
@@ -29,11 +30,19 @@ const EXPORT_DOCUMENT = vi.hoisted(() => ({
 }))
 const markdownToExportHtml = vi.hoisted(() => vi.fn(async () => EXPORT_DOCUMENT))
 const EMPTY_ASSETS = vi.hoisted(() => ({ logoDataUrl: '', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
-const resolvePdfExportAssets = vi.hoisted(() => vi.fn(async () => EMPTY_ASSETS))
+const MISSING_LOGO = vi.hoisted(() => ({ slot: 'Logo', path: 'G:/brand/logo.png', reason: 'Could not read image: not found' }))
+const resolvePdfExportAssets = vi.hoisted(() =>
+    vi.fn<() => Promise<{ assets: typeof EMPTY_ASSETS; missing: (typeof MISSING_LOGO)[] }>>(async () => ({ assets: EMPTY_ASSETS, missing: [] }))
+)
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, writeBinaryFile }))
-vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyError, notifySuccess }))
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
+    notifyError,
+    notifySuccess,
+    notifyWarning,
+}))
 vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir }))
 vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri, isTauri }))
 vi.mock('@/lib/markdown/markdown-to-export-html', () => ({ markdownToExportHtml }))
@@ -47,6 +56,7 @@ describe('export-pdf helpers', () => {
         pickSavePath.mockReset()
         notifyError.mockReset()
         notifySuccess.mockReset()
+        notifyWarning.mockReset()
         revealItemInDir.mockReset()
         revealItemInDir.mockResolvedValue(undefined)
         isWindowsTauri.mockReturnValue(false)
@@ -58,7 +68,7 @@ describe('export-pdf helpers', () => {
         markdownToExportHtml.mockReset()
         markdownToExportHtml.mockImplementation(async () => EXPORT_DOCUMENT)
         resolvePdfExportAssets.mockReset()
-        resolvePdfExportAssets.mockResolvedValue(EMPTY_ASSETS)
+        resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [] })
         document.body.innerHTML = ''
     })
 
@@ -282,5 +292,43 @@ describe('export-pdf helpers', () => {
         revealItemInDir.mockRejectedValueOnce(new Error('gone'))
         options.action.onClick()
         await vi.waitFor(() => expect(notifyError).toHaveBeenCalledWith('Could not show the file', expect.any(Error)))
+    })
+
+    it('reports profile images it had to leave out of a saved export', async () => {
+        resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [MISSING_LOGO] })
+        isWindowsTauri.mockReturnValue(true)
+        isTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue('C:/out.pdf')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf', missingImages: [MISSING_LOGO] })
+        // The images are read once and handed to the renderer.
+        expect(resolvePdfExportAssets).toHaveBeenCalledTimes(1)
+        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', expect.objectContaining({ assets: EMPTY_ASSETS }))
+
+        pickSavePath.mockResolvedValue('C:/out.docx')
+        await expect(exportMarkdown('# Hi', 'hi.md', { format: 'docx' })).resolves.toMatchObject({ status: 'saved', missingImages: [MISSING_LOGO] })
+
+        // Nothing was saved, so there is nothing to report.
+        pickSavePath.mockResolvedValue(null)
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'cancelled' })
+    })
+
+    it('names the left-out images when the export is saved', async () => {
+        const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
+        notifyExportSaved('C:/out/q3.pdf', [MISSING_LOGO])
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(notifyWarning).toHaveBeenCalledWith('Saved q3.pdf without some images', {
+            description: 'Logo (logo.png): Could not read image: not found',
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        // Printed or downloaded: no path to show, but the user still hears about the images.
+        notifyWarning.mockReset()
+        notifyExportSaved(undefined, [MISSING_LOGO])
+        expect(notifyWarning).toHaveBeenCalledWith('Some images were left out', { description: 'Logo (logo.png): Could not read image: not found' })
+        notifyWarning.mockReset()
+        notifyExportSaved(undefined)
+        expect(notifyWarning).not.toHaveBeenCalled()
+        expect(notifySuccess).not.toHaveBeenCalled()
     })
 })
