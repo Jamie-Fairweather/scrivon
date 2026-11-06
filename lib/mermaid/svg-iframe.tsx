@@ -87,7 +87,7 @@ const LiveDiagramIframe = memo(function LiveDiagramIframe({ svg, bounds, onBound
     )
 })
 
-/** Isolated iframe preview — keeps Mermaid &lt;style&gt;/@import out of the app document. */
+/** Isolated iframe preview — keeps Mermaid &lt;style&gt; out of the app document. */
 const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
     const [activeSlot, setActiveSlot] = useState(0)
     const [slots, setSlots] = useState<[SlotState, SlotState]>(() => [
