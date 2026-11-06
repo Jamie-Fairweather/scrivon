@@ -3,7 +3,7 @@ import { notifyError, notifyWarning } from '@/lib/notify'
 import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
-import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
+import { renderMermaidDiagramForExport, type ExportRenderOptions } from '@/lib/mermaid/render'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 
 export type PngExportScale = 1 | 2 | 4
@@ -89,12 +89,12 @@ export function savePathBesideDocument(fileName: string, documentPath: string | 
     return `${documentPath.slice(0, slash + 1)}${fileName}`
 }
 
-export function buildExportSvg(source: string, themeId: AppThemeId): string {
+export function buildExportSvg(source: string, themeId: AppThemeId, options?: ExportRenderOptions): string {
     const trimmed = source.trim()
     if (!trimmed) {
         throw new Error('Nothing to export.')
     }
-    const svg = renderMermaidDiagramForExport(trimmed, themeId)
+    const svg = renderMermaidDiagramForExport(trimmed, themeId, options)
     // Text with nothing to draw yet (just `graph TD`, say) renders a 0×0 picture: don't save an empty file.
     if (!getSvgDimensions(svg)) {
         throw new Error('The diagram is empty, so there is nothing to export.')
@@ -229,7 +229,8 @@ const PNG_FILTERS = [{ name: 'PNG', extensions: ['png'] }]
 
 export async function exportSvg(source: string, themeId: AppThemeId, target: DiagramExportTarget): Promise<void> {
     try {
-        const svg = buildExportSvg(source, themeId)
+        // Other apps open this file, and some would hide halo'd labels (see ExportRenderOptions).
+        const svg = buildExportSvg(source, themeId, { labelHalo: false })
         const filename = `${diagramFileStem(source, target)}.svg`
         await saveText(svg, filename, target.tabPath, SVG_FILTERS)
     } catch (err) {

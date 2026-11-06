@@ -624,7 +624,7 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
   else Single panel
     Renderer->>Renderer: closePanel(lastId)
     Note over Renderer: Stack becomes []
-    Renderer->>Renderer: Auto-select fires → new panel created!
+    Renderer->>Renderer: Auto-select → new panel created!
     Note over Renderer: Panel reopens
     Timer-->>Main: 3s elapsed → window.destroy()
   end`,

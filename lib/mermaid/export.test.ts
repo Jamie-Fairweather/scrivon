@@ -20,8 +20,8 @@ vi.mock('@/lib/mermaid/render', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/mermaid/render')>()
     return {
         ...actual,
-        renderMermaidDiagramForExport: (source: string, themeId: Parameters<typeof actual.renderMermaidDiagramForExport>[1]) =>
-            render.fakeSvg ?? actual.renderMermaidDiagramForExport(source, themeId),
+        renderMermaidDiagramForExport: (...args: Parameters<typeof actual.renderMermaidDiagramForExport>) =>
+            render.fakeSvg ?? actual.renderMermaidDiagramForExport(...args),
     }
 })
 
@@ -132,6 +132,25 @@ describe('empty diagrams (U39)', () => {
 
         expect(dialog.pickSavePath).not.toHaveBeenCalled()
         expect(notify.notifyError).toHaveBeenCalledWith('Export failed', new Error('The diagram is empty, so there is nothing to export.'))
+    })
+})
+
+describe('sequence label halo (U82)', () => {
+    const SEQUENCE = 'sequenceDiagram\n  Alice->>Bob: Hello\n  Bob-->>Alice: Reply'
+
+    it('keeps the halo for PNG, baked to the background colour', () => {
+        expect(buildExportSvg(SEQUENCE, 'scrivon-light')).toMatch(/\.message text \{ paint-order: stroke; stroke: #ffffff;/)
+    })
+
+    it('leaves it out of saved .svg files, since some apps would draw it over the letters', async () => {
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\seq.svg')
+
+        await exportSvg(SEQUENCE, 'scrivon-light', { tabName: 'seq.mmd' })
+
+        expect(notify.notifyError).not.toHaveBeenCalled()
+        const [, content] = dialog.writeTextFileAtPath.mock.calls[0] as unknown as [string, string]
+        expect(content).toContain('Hello')
+        expect(content).not.toContain('paint-order')
     })
 })
 

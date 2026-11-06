@@ -29,10 +29,34 @@ export function stripRemoteFontImports(svg: string): string {
     return svg.replace(STYLE_BLOCK, (_all, css: string) => `<style>${css.replace(REMOTE_FONT_IMPORT, '')}</style>`)
 }
 
-export function renderMermaidDiagram(source: string, themeId: AppThemeId): string {
-    return stripRemoteFontImports(renderMermaidSVG(source, getMermaidRenderOptions(themeId)))
+const SEQUENCE_MESSAGE = /<g class="message"/
+const MESSAGE_LABEL_HALO = '  .message text { paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }\n'
+
+/**
+ * beautiful-mermaid draws sequence lifelines before the message labels and gives the labels no
+ * background, so a dashed lifeline runs straight through any label that crosses another actor.
+ * A halo in the background colour, painted under the letters, hides the line behind the text.
+ */
+export function addMessageLabelHalo(svg: string): string {
+    if (!SEQUENCE_MESSAGE.test(svg)) return svg
+    return svg.replace('</style>', `${MESSAGE_LABEL_HALO}</style>`)
 }
 
-export function renderMermaidDiagramForExport(source: string, themeId: AppThemeId): string {
-    return stripRemoteFontImports(renderMermaidSVG(source, getMermaidExportRenderOptions(themeId)))
+export type ExportRenderOptions = {
+    /**
+     * Give sequence message labels a halo (see addMessageLabelHalo). Default true. Turn it off for
+     * a standalone .svg file: apps without SVG 2 `paint-order` (Office, older Illustrator) would
+     * paint the halo over the letters and hide them. PNG, PDF and Word are drawn by the app's own
+     * browser engine, which supports it.
+     */
+    labelHalo?: boolean
+}
+
+export function renderMermaidDiagram(source: string, themeId: AppThemeId): string {
+    return addMessageLabelHalo(stripRemoteFontImports(renderMermaidSVG(source, getMermaidRenderOptions(themeId))))
+}
+
+export function renderMermaidDiagramForExport(source: string, themeId: AppThemeId, { labelHalo = true }: ExportRenderOptions = {}): string {
+    const svg = stripRemoteFontImports(renderMermaidSVG(source, getMermaidExportRenderOptions(themeId)))
+    return labelHalo ? addMessageLabelHalo(svg) : svg
 }
