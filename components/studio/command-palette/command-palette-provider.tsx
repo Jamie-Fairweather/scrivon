@@ -20,6 +20,14 @@ export function useCommandPalette(): CommandPaletteContextValue {
     return ctx
 }
 
+/**
+ * True while the code editor has keyboard focus. Monaco keeps its selection after the user clicks
+ * into the explorer or preview, so only a selection in the editor being worked in seeds the query.
+ */
+function editorHasFocus(): boolean {
+    return document.activeElement?.closest('.monaco-editor') != null
+}
+
 type CommandPaletteProviderProps = {
     children: ReactNode
     coordinator: WorkspaceCoordinatorRefs
@@ -44,7 +52,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
             // Reopened while still fading out: start fresh rather than from the last query.
             resetSearch()
             // Like VS Code, only Find in Workspace starts from the editor selection.
-            const seed = nextMode === 'text' ? queryFromEditorSelection(coordinator.getEditorSelectedText.current()) : null
+            const seed = nextMode === 'text' && editorHasFocus() ? queryFromEditorSelection(coordinator.getEditorSelectedText.current()) : null
             if (seed) setQuery(seed)
             openRef.current = true
             setMounted(true)

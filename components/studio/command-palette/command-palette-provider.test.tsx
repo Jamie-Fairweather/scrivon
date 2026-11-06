@@ -51,8 +51,17 @@ function renderProvider(selection: string | null) {
     render(
         <CommandPaletteProvider coordinator={coordinator}>
             <CaptureOpenMode />
+            {/* Stands in for Monaco: its focused element sits inside `.monaco-editor`. */}
+            <div className="monaco-editor">
+                <div data-testid="editor" tabIndex={0} />
+            </div>
+            <button type="button">Explorer</button>
         </CommandPaletteProvider>
     )
+}
+
+function focusEditor() {
+    act(() => screen.getByTestId('editor').focus())
 }
 
 describe('CommandPaletteProvider query seeding', () => {
@@ -62,24 +71,36 @@ describe('CommandPaletteProvider query seeding', () => {
 
     it('does not copy the editor selection into the command palette', () => {
         renderProvider('flowchart')
+        focusEditor()
         act(() => palette.openMode('all'))
         expect(screen.getByRole('combobox')).toHaveValue('')
     })
 
     it('does not copy the editor selection into Go to File', () => {
         renderProvider('flowchart')
+        focusEditor()
         act(() => palette.openMode('files'))
         expect(screen.getByRole('combobox')).toHaveValue('')
     })
 
     it('starts Find in Workspace from a single-line selection', () => {
         renderProvider('  flowchart ')
+        focusEditor()
         act(() => palette.openMode('text'))
         expect(screen.getByRole('combobox')).toHaveValue('flowchart')
     })
 
+    it('ignores a selection left in the editor after the user moved to another part of the app', () => {
+        renderProvider('flowchart')
+        focusEditor()
+        act(() => screen.getByRole('button', { name: 'Explorer' }).focus())
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('')
+    })
+
     it('ignores a multi-line selection', () => {
         renderProvider('graph TD\n  A --> B')
+        focusEditor()
         act(() => palette.openMode('text'))
         expect(screen.getByRole('combobox')).toHaveValue('')
     })
