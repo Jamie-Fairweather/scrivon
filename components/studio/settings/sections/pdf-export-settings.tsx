@@ -7,6 +7,8 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    PDF_MIN_BODY_HEIGHT_MM,
+    pdfBodyHeightMm,
     renamePdfExportProfile,
     setActivePdfExportProfile,
     updatePdfExportProfile,
@@ -212,6 +214,7 @@ export function PdfExportSettings() {
         patch((profile) => ({ ...profile, [key]: { ...profile[key], ...changes } }))
 
     const layout = resolvePdfExportLayout(active)
+    const bodyHeightMm = pdfBodyHeightMm(active)
 
     return (
         <div className="space-y-8">
@@ -296,6 +299,7 @@ export function PdfExportSettings() {
                         />
                     ))}
                 </div>
+                <PageSpaceWarning bodyHeightMm={bodyHeightMm} />
             </SettingsGroup>
 
             <SettingsGroup title="Text">
@@ -430,8 +434,20 @@ export function PdfExportSettings() {
                 </DependentFields>
             </SettingsGroup>
 
-            <ChromeFields title="Header" chrome={active.header} shown={layout.showHeader} onChange={(header) => setSection('header', header)} />
-            <ChromeFields title="Footer" chrome={active.footer} shown={layout.showFooter} onChange={(footer) => setSection('footer', footer)} />
+            <ChromeFields
+                title="Header"
+                chrome={active.header}
+                shown={layout.showHeader}
+                bodyHeightMm={bodyHeightMm}
+                onChange={(header) => setSection('header', header)}
+            />
+            <ChromeFields
+                title="Footer"
+                chrome={active.footer}
+                shown={layout.showFooter}
+                bodyHeightMm={bodyHeightMm}
+                onChange={(footer) => setSection('footer', footer)}
+            />
 
             <SettingsGroup title="Content">
                 <Field>
@@ -502,16 +518,31 @@ function DependentFields({ enabled, children }: { enabled: boolean; children: Re
     )
 }
 
+/** Warns when the margins and header/footer leave little or no page height for the text. */
+function PageSpaceWarning({ bodyHeightMm }: { bodyHeightMm: number }) {
+    if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return null
+    return (
+        <p className="text-xs text-warning-foreground">
+            {bodyHeightMm <= 0
+                ? 'Margins, header and footer are taller than the page, so there is no room left for the text.'
+                : `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`}
+        </p>
+    )
+}
+
 function ChromeFields({
     title,
     chrome,
     shown,
+    bodyHeightMm,
     onChange,
 }: {
     title: string
     chrome: PdfExportChrome | PdfExportFooter
     /** Whether the export draws this bar; its other fields are disabled while it doesn't. */
     shown: boolean
+    /** Page height left for the text, for the warning next to this bar's size fields. */
+    bodyHeightMm: number
     /** Only the footer ever receives `pageNumbers`. */
     onChange: (changes: Partial<PdfExportFooter>) => void
 }) {
@@ -585,6 +616,7 @@ function ChromeFields({
                         onChange={(gapMm) => onChange({ gapMm })}
                     />
                 </div>
+                {shown ? <PageSpaceWarning bodyHeightMm={bodyHeightMm} /> : null}
                 <SwitchSetting
                     label="Ignore margins"
                     description="Bleed to the page edge."

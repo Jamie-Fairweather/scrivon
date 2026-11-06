@@ -1,5 +1,6 @@
+import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type { PdfExportProfile, PdfExportSettings } from '@/lib/settings/pdf-export-types'
+import type { PdfExportChrome, PdfExportProfile, PdfExportSettings } from '@/lib/settings/pdf-export-types'
 
 function newProfileId(): string {
     return crypto.randomUUID()
@@ -86,4 +87,30 @@ export function deletePdfExportProfile(settings: PdfExportSettings, profileId: s
     if (profiles.length === settings.profiles.length) return settings
     const activeProfileId = settings.activeProfileId === profileId ? profiles[0]!.id : settings.activeProfileId
     return { profiles, activeProfileId }
+}
+
+/** Below this much page height for the text, the settings warn that the page is nearly full. */
+export const PDF_MIN_BODY_HEIGHT_MM = 40
+
+/**
+ * Page height left for the document text once the top and bottom margins and any shown
+ * header/footer (bar height plus gap) are taken off. A bar that ignores margins sits inside
+ * the margin band, so it only takes more room once it is taller than the margin.
+ * Negative when they add up to more than the page.
+ */
+export function pdfBodyHeightMm(profile: PdfExportProfile): number {
+    const sheet = pdfPageSizeMm(profile)
+    const pageHeight = profile.page.orientation === 'landscape' ? sheet.width : sheet.height
+    const layout = resolvePdfExportLayout(profile)
+    const band = (margin: number, bar: PdfExportChrome, shown: boolean, bleeds: boolean) => {
+        if (!shown) return margin
+        const barMm = bar.heightMm + bar.gapMm
+        return bleeds ? Math.max(margin, barMm) : margin + barMm
+    }
+    const { top, bottom } = profile.page.marginsMm
+    return (
+        pageHeight -
+        band(top, profile.header, layout.showHeader, layout.headerBleeds) -
+        band(bottom, profile.footer, layout.showFooter, layout.footerBleeds)
+    )
 }

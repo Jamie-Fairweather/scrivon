@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultPdfExportSettings, DEFAULT_PDF_EXPORT_PROFILE_ID } from '@/lib/settings/pdf-export-defaults'
+import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, DEFAULT_PDF_EXPORT_PROFILE_ID } from '@/lib/settings/pdf-export-defaults'
 import { normalizePdfExportProfile, normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
 import {
     createPdfExportProfile,
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    pdfBodyHeightMm,
     renamePdfExportProfile,
     setActivePdfExportProfile,
     uniqueProfileName,
@@ -213,5 +214,43 @@ describe('pdf export profile CRUD', () => {
         settings = deletePdfExportProfile(settings, extraId)
         expect(settings.activeProfileId).toBe(DEFAULT_PDF_EXPORT_PROFILE_ID)
         expect(settings.profiles).toHaveLength(1)
+    })
+})
+
+describe('pdfBodyHeightMm', () => {
+    const bar = (heightMm: number, gapMm: number, ignoreMargins: boolean) => ({ enabled: true, heightMm, gapMm, ignoreMargins })
+
+    it('is the page height minus the top and bottom margins when no bar shows', () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 10)
+        // A hidden bar takes no room, whatever its size.
+        profile.header = { ...profile.header, heightMm: 60, gapMm: 60 }
+        expect(pdfBodyHeightMm(profile)).toBe(277)
+        profile.page = { ...profile.page, size: 'letter', orientation: 'landscape' }
+        expect(pdfBodyHeightMm(profile)).toBeCloseTo(215.9 - 20)
+    })
+
+    it('adds a bar inside the margins, and counts a bleeding bar only past the margin', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, ...bar(20, 5, false) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - (10 + 25) - 10)
+        profile.header = { ...profile.header, ...bar(5, 2, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 10)
+        profile.footer = { ...profile.footer, ...bar(30, 10, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 40)
+    })
+
+    it('goes negative when the bars outgrow a landscape A4 page', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page = { ...profile.page, orientation: 'landscape' }
+        profile.header = { ...profile.header, ...bar(60, 60, true) }
+        profile.footer = { ...profile.footer, ...bar(60, 60, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(210 - 120 - 120)
+    })
+
+    it('counts a footer that only shows for its page numbers', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer = { ...profile.footer, heightMm: 20, gapMm: 0, pageNumbers: 'number' }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 30)
     })
 })

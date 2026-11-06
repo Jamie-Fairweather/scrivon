@@ -1,12 +1,21 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useEffect } from 'react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
+import { updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
+
+type UpdateSettings = ReturnType<typeof useAppSettings>['updateSettings']
+let updateSettings: UpdateSettings
 
 /** Shows the saved profile names so tests can check what actually got stored. */
 function SavedNames() {
-    const { settings } = useAppSettings()
+    const { settings, updateSettings: update } = useAppSettings()
+    useEffect(() => {
+        updateSettings = update
+    }, [update])
     return <output data-testid="saved-names">{settings.pdfExport.profiles.map((profile) => profile.name).join('|')}</output>
 }
 
@@ -16,6 +25,17 @@ function renderSection() {
             <PdfExportSettings />
             <SavedNames />
         </SettingsProvider>
+    )
+}
+
+/** Renders the section, then applies `change` to the active profile. */
+function renderWithProfile(change: (profile: PdfExportProfile) => PdfExportProfile) {
+    renderSection()
+    act(() =>
+        updateSettings((current) => ({
+            ...current,
+            pdfExport: updatePdfExportProfile(current.pdfExport, current.pdfExport.activeProfileId, change),
+        }))
     )
 }
 
@@ -83,6 +103,35 @@ describe('PdfExportSettings groups', () => {
         await user.click(pageNumbers)
         await user.click(await screen.findByRole('option', { name: 'Number' }))
         await waitFor(() => expect(footer.getByRole('button', { name: 'Browse for footer left image' })).toBeEnabled())
+    })
+})
+
+describe('PdfExportSettings page space', () => {
+    const group = (name: string) => within(screen.getByRole('group', { name }))
+    const bar = (ignoreMargins: boolean) => ({ enabled: true, heightMm: 60, gapMm: 60, ignoreMargins })
+
+    it('says nothing while the text has room', () => {
+        renderSection()
+        expect(screen.queryByText(/page height for the text|no room left for the text/)).toBeNull()
+    })
+
+    it('warns next to the margins and the bar sizes when little room is left', () => {
+        renderWithProfile((profile) => ({ ...profile, header: { ...profile.header, ...bar(false) }, footer: { ...profile.footer, ...bar(false) } }))
+        // A4 portrait: 297 - (10 + 120) - (10 + 120).
+        const message = 'Margins, header and footer leave only 37 mm of page height for the text.'
+        expect(group('Page').getByText(message)).toBeInTheDocument()
+        expect(group('Header').getByText(message)).toBeInTheDocument()
+        expect(group('Footer').getByText(message)).toBeInTheDocument()
+    })
+
+    it('says when the bars are taller than a landscape page', () => {
+        renderWithProfile((profile) => ({
+            ...profile,
+            page: { ...profile.page, orientation: 'landscape' },
+            header: { ...profile.header, ...bar(true) },
+            footer: { ...profile.footer, ...bar(true) },
+        }))
+        expect(group('Page').getByText(/taller than the page, so there is no room left for the text/)).toBeInTheDocument()
     })
 })
 
