@@ -209,7 +209,7 @@ function DeleteProfileButton({ profile, disabled, onDelete }: { profile: PdfExpo
                 <AlertDialogHeader>
                     <AlertDialogTitle>{`Delete profile "${target.name}"?`}</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This removes its page, font, colour, logo and header/footer settings. This cannot be undone.
+                        This removes its page, font, colour, cover image and header/footer settings. This cannot be undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
