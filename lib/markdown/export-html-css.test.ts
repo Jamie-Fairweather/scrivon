@@ -49,6 +49,25 @@ describe('buildPdfExportCss', () => {
         expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
     })
 
+    it('sizes headings, the title and code relative to the body size', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.typography.bodySizePt = 16
+        const css = buildPdfExportCss(profile)
+        expect(css).toContain('font-size: 16pt;')
+        // em follows the body size; rem would stay at the browser's 16px root whatever the setting.
+        const sizes = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].map((tag) => {
+            const match = css.match(new RegExp(`\\n\\s*${tag} \\{[^}]*font-size: ([\\d.]+)em;`))
+            expect(match, tag).not.toBeNull()
+            return Number(match![1])
+        })
+        expect(sizes.slice(0, 5).every((size) => size >= 1)).toBe(true)
+        expect([...sizes].sort((a, b) => b - a)).toEqual(sizes)
+        expect(css).not.toMatch(/font-size: [\d.]+rem/)
+        expect(css).not.toMatch(/\.code-block pre[^{]*\{[^}]*font-size: 12px/)
+        expect(css).toMatch(/\.pdf-title-page h1 \{[^}]*font-size: [\d.]+em;/)
+        expect(css).toMatch(/\.pdf-toc-page h1 \{[^}]*font-size: [\d.]+em;/)
+    })
+
     it('justifies only top-level body paragraphs', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true

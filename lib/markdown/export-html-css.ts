@@ -257,10 +257,13 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     font-family: ${profile.typography.headingFont};
     color: ${accent};
   }
-  h1 { margin: 0 0 1rem; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
-  h2 { margin: 1.5rem 0 0.75rem; font-size: 1.25rem; font-weight: 600; }
-  h3 { margin: 1.25rem 0 0.5rem; font-size: 1.125rem; font-weight: 600; }
-  h4 { margin: 1rem 0 0.5rem; font-size: 1rem; font-weight: 600; }
+  /* Sizes follow the body size (em), never the browser's fixed 16px root; at 11pt they match the old look. */
+  h1 { margin: 0 0 1rem; font-size: 1.64em; font-weight: 600; letter-spacing: -0.02em; }
+  h2 { margin: 1.5rem 0 0.75rem; font-size: 1.36em; font-weight: 600; }
+  h3 { margin: 1.25rem 0 0.5rem; font-size: 1.23em; font-weight: 600; }
+  h4 { margin: 1rem 0 0.5rem; font-size: 1.09em; font-weight: 600; }
+  h5 { margin: 1rem 0 0.5rem; font-size: 1em; font-weight: 600; }
+  h6 { margin: 1rem 0 0.5rem; font-size: 0.9em; font-weight: 600; }
   p { margin: 0 0 0.75rem; }
   ${profile.typography.justify ? '.pdf-body > p { text-align: justify; }' : ''}
   ul, ol { margin: 0 0 0.75rem; padding-left: 1.25rem; }
@@ -308,7 +311,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     border: 1px solid #e5e5e5;
     border-radius: 8px;
     font-family: ${profile.typography.monoFont};
-    font-size: 12px;
+    font-size: 0.82em;
     line-height: 1.45;
     /* Paper can't scroll: long lines wrap instead of being cut off at the box edge. */
     white-space: pre-wrap;
@@ -330,7 +333,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     border: 1px solid #e5e5e5;
     border-radius: 8px;
     font-family: ${profile.typography.monoFont};
-    font-size: 12px;
+    font-size: 0.82em;
     line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -416,7 +419,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
   }
   .pdf-title-page h1 {
     margin: 0;
-    font-size: 2rem;
+    font-size: 2.18em;
   }
   .pdf-title-meta {
     color: #525252;
@@ -426,7 +429,7 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     margin: 0;
     padding-bottom: 0.4rem;
     border-bottom: 2px solid ${accent};
-    font-size: 1.65rem;
+    font-size: 1.8em;
     letter-spacing: -0.02em;
     line-height: 1.15;
   }
