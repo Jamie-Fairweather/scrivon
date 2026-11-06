@@ -263,6 +263,17 @@ SHIKI_FAIL
         expect(empty).not.toContain('class="pdf-chrome-table')
     })
 
+    it('tags the html with the document language', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const japanese = '# 写真\n\n骨角器と直線の写真について説明します。'
+        expect((await markdownToExportHtml(japanese, { assets: EMPTY_ASSETS })).html).toContain('<html lang="ja">')
+        const tagged = `---\nlang: zh-Hant\n---\n${japanese}`
+        expect((await markdownToExportHtml(tagged, { assets: EMPTY_ASSETS })).html).toContain('<html lang="zh-Hant">')
+        // Code doesn't count: English prose with Chinese code comments is still English.
+        const code = '# Setup\n\nRun the script below.\n\n```js\n// 这是一个关于导出文档的很长很长的注释说明\n```'
+        expect((await markdownToExportHtml(code, { assets: EMPTY_ASSETS })).html).toContain('<html lang="en">')
+    })
+
     it('leaves the stamper marks out of a print-dialog export and counts pages with CSS instead', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

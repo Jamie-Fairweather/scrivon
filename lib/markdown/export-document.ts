@@ -1,10 +1,11 @@
-import type { Root } from 'mdast'
+import type { Root, Text } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
+import { visit } from 'unist-util-visit'
 import { applyPdfFooterSwitch } from '@/lib/markdown/export-html-css'
 import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
-import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { guessDocumentLanguage, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
@@ -30,11 +31,22 @@ const EMPTY_ASSETS: PdfExportResolvedAssets = {
  */
 export type ExportDocument = {
     metadata: PdfExportMetadata
+    /** Language tag of the text: the front matter's `lang:`, else a guess from its script (`en` when unsure). */
+    lang: string
     profile: PdfExportProfile
     assets: PdfExportResolvedAssets
     tree: Root
     outline: PdfExportOutlineItem[]
     toc: PdfExportOutlineItem[]
+}
+
+/** The document's prose for guessing its language. Code is left out: it reads as English whatever the text is in. */
+function proseText(tree: Root): string {
+    const parts: string[] = []
+    visit(tree, 'text', (node: Text) => {
+        parts.push(node.value)
+    })
+    return parts.join(' ')
 }
 
 /**
@@ -46,7 +58,7 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     const given = options.assets ?? EMPTY_ASSETS
     // A switched-off footer shows only its page number, never its images.
     const assets = profile.footer.enabled ? given : { ...given, footer: EMPTY_ASSETS.footer }
-    const { metadata, body } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
+    const { metadata, body, lang } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
     const trimmed = body.trim()
     if (!trimmed) {
         throw new Error('Nothing to export.')
@@ -56,5 +68,5 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
 
-    return { metadata, profile, assets, tree, outline, toc }
+    return { metadata, lang: lang ?? guessDocumentLanguage(proseText(tree)), profile, assets, tree, outline, toc }
 }

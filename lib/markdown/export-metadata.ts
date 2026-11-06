@@ -64,23 +64,64 @@ function isFrontMatterBlock(block: string): boolean {
     return true
 }
 
-export function parsePdfExportFrontMatter(source: string): { matter: Partial<PdfExportMetadata>; body: string } {
+/** A BCP-47 language tag such as `ja`, `en-GB` or `zh-Hant-TW`. */
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/
+
+/**
+ * Front matter `title`/`subtitle`/`author`/`date`, plus `lang` when it is a valid language tag.
+ * `lang` is absent when the front matter doesn't set one.
+ */
+export function parsePdfExportFrontMatter(source: string): { matter: Partial<PdfExportMetadata>; body: string; lang?: string } {
     // The closing fence is a `---` line of its own: `----` or a `---|---` table divider doesn't close it.
     const match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/)
     if (!match || !isFrontMatterBlock(match[1]!)) return { matter: {}, body: source }
 
     const matter: Partial<PdfExportMetadata> = {}
+    let lang: string | undefined
     for (const line of match[1]!.split(/\r?\n/)) {
         const colon = line.indexOf(':')
         if (colon <= 0) continue
         const key = line.slice(0, colon).trim().toLowerCase()
-        if (!FRONT_MATTER_KEYS.has(key)) continue
         const value = stripQuotes(line.slice(colon + 1))
-        if (!value) continue
+        if (key === 'lang' && LANGUAGE_TAG.test(value)) lang = value
+        if (!FRONT_MATTER_KEYS.has(key) || !value) continue
         matter[key as keyof PdfExportMetadata] = value
     }
 
-    return { matter, body: match[2]! }
+    return lang ? { matter, body: match[2]!, lang } : { matter, body: match[2]! }
+}
+
+/** Letters per script, for {@link guessDocumentLanguage}. */
+const LETTER = /\p{L}/gu
+const KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/gu
+const HAN = /\p{Script=Han}/gu
+const HANGUL = /\p{Script=Hangul}/gu
+const ARABIC = /\p{Script=Arabic}/gu
+const HEBREW = /\p{Script=Hebrew}/gu
+
+/**
+ * The language a document's prose is most likely in, from the scripts its letters use, so the
+ * PDF can be tagged with it: the browser picks the font for shared Han characters by language,
+ * which gives Japanese text Chinese glyph shapes when tagged `en`. Only scripts that point at one
+ * language are guessed; anything else, or a mix where no such script leads, stays `en`.
+ */
+export function guessDocumentLanguage(text: string): string {
+    const count = (pattern: RegExp) => text.match(pattern)?.length ?? 0
+    const letters = count(LETTER)
+    if (letters === 0) return 'en'
+    const kana = count(KANA)
+    const han = count(HAN)
+    const hangul = count(HANGUL)
+    const cjk = kana + han + hangul
+    // One CJK character carries about what three Latin letters do, so a quarter of the letters is a lead.
+    if (cjk * 3 >= letters - cjk) {
+        if (hangul >= kana + han) return 'ko'
+        // Japanese mixes kana into its kanji; Chinese has next to none.
+        return kana * 10 >= han ? 'ja' : 'zh'
+    }
+    if (count(ARABIC) * 2 > letters) return 'ar'
+    if (count(HEBREW) * 2 > letters) return 'he'
+    return 'en'
 }
 
 /**
@@ -105,8 +146,8 @@ export function resolvePdfExportMetadata(
     source: string,
     tabName: string | undefined,
     overrides: PdfExportMetadataOverrides = {}
-): { metadata: PdfExportMetadata; body: string } {
-    const { matter, body } = parsePdfExportFrontMatter(source)
+): { metadata: PdfExportMetadata; body: string; lang?: string } {
+    const { matter, body, lang } = parsePdfExportFrontMatter(source)
     const title = overrides.title?.trim() || matter.title?.trim() || fallbackPdfExportTitle(body, tabName)
     return {
         metadata: {
@@ -116,5 +157,6 @@ export function resolvePdfExportMetadata(
             date: overrides.date?.trim() || matter.date?.trim() || '',
         },
         body,
+        lang,
     }
 }

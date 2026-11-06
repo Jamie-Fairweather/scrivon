@@ -244,7 +244,7 @@ export async function markdownToExportHtml(source: string, options: MarkdownToEx
 
 /** PDF renderer for an {@link ExportDocument}. Replaces fenced code in `tree` with HTML placeholders. */
 export async function renderExportPdf(document: ExportDocument, { stamped = true }: PdfRenderOptions = {}): Promise<PdfExportDocument> {
-    const { profile, assets, metadata, tree, toc: tocItems } = document
+    const { profile, assets, metadata, lang, tree, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
     const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
@@ -261,7 +261,7 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
     const css = stamped ? buildPdfExportCss(profile) : `${buildPdfExportCss(profile)}\n  ${printDialogPageNumberCss(profile, metadata)}`
 
     const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(lang)}">
 <head>
   <meta charset="utf-8" />
   <meta name="color-scheme" content="light only" />

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { fallbackPdfExportTitle, parsePdfExportFrontMatter, pdfPageNumberTemplate, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import {
+    fallbackPdfExportTitle,
+    guessDocumentLanguage,
+    parsePdfExportFrontMatter,
+    pdfPageNumberTemplate,
+    resolvePdfExportMetadata,
+} from '@/lib/markdown/export-metadata'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 
 describe('parsePdfExportFrontMatter', () => {
@@ -59,6 +65,35 @@ text
         expect(parsePdfExportFrontMatter('---\ntitle: Report\n---|---\na|b\n').matter).toEqual({})
         expect(parsePdfExportFrontMatter('---\r\ntitle: Report\r\n---  \r\n# Body')).toEqual({ matter: { title: 'Report' }, body: '# Body' })
         expect(parsePdfExportFrontMatter('---\ntitle: Report\n---')).toEqual({ matter: { title: 'Report' }, body: '' })
+    })
+})
+
+describe('front matter lang', () => {
+    it('reads a valid language tag and ignores anything else', () => {
+        expect(parsePdfExportFrontMatter('---\nlang: ja\n---\nBody')).toEqual({ matter: {}, body: 'Body', lang: 'ja' })
+        expect(parsePdfExportFrontMatter("---\nlang: 'zh-Hant-TW'\ntitle: T\n---\nBody").lang).toBe('zh-Hant-TW')
+        expect(parsePdfExportFrontMatter('---\nlang: "><script>\n---\nBody').lang).toBeUndefined()
+        expect(parsePdfExportFrontMatter('---\nlang: Japanese language\n---\nBody').lang).toBeUndefined()
+        expect(resolvePdfExportMetadata('---\nlang: en-GB\n---\n# Hi', undefined).lang).toBe('en-GB')
+    })
+})
+
+describe('guessDocumentLanguage', () => {
+    it('tags text by the script that leads it', () => {
+        expect(guessDocumentLanguage('骨角器と直線の写真について説明します。')).toBe('ja')
+        // Technical Japanese with plenty of English terms is still Japanese.
+        expect(guessDocumentLanguage('Scrivon の export 機能で PDF と Word を作成します。')).toBe('ja')
+        expect(guessDocumentLanguage('这是一个关于导出文档的说明。')).toBe('zh')
+        expect(guessDocumentLanguage('문서를 내보내는 방법을 설명합니다.')).toBe('ko')
+        expect(guessDocumentLanguage('هذا مستند باللغة العربية.')).toBe('ar')
+        expect(guessDocumentLanguage('זהו מסמך בעברית.')).toBe('he')
+    })
+
+    it('stays English for Latin text, a stray foreign word, or no letters at all', () => {
+        expect(guessDocumentLanguage('A plain English document about exports.')).toBe('en')
+        expect(guessDocumentLanguage('The Japanese word for photograph is 写真, and it is used everywhere in this long guide.')).toBe('en')
+        expect(guessDocumentLanguage('Привет, мир')).toBe('en')
+        expect(guessDocumentLanguage('123 — !!!')).toBe('en')
     })
 })
 
