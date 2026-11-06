@@ -59,8 +59,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         [persist]
     )
 
-    const openSettings = useCallback((section: SettingsSection = 'general') => {
-        setActiveSection(section)
+    // Without a section, reopen on the one last used rather than jumping back to General.
+    const openSettings = useCallback((section?: SettingsSection) => {
+        if (section) setActiveSection(section)
         setSettingsOpen(true)
     }, [])
 

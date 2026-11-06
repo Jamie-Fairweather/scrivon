@@ -6,6 +6,18 @@ import type { KeybindActionId, KeybindBindings } from '@/lib/settings/types'
 
 export type KeybindHandlers = Partial<Record<KeybindActionId, () => boolean | void>>
 
+// Base UI marks an open dialog's popup with data-open. Toasts are role="dialog" too but say
+// aria-modal="false", and Monaco's find widget is role="dialog" without data-open.
+const OPEN_MODAL_SELECTOR = [
+    '[role="dialog"][data-open]:not([aria-modal="false"])',
+    '[role="alertdialog"][data-open]:not([aria-modal="false"])',
+].join(', ')
+
+/** App shortcuts must not act behind a modal (Settings, confirmations, prompts, the palette). */
+function isModalDialogOpen(): boolean {
+    return typeof document !== 'undefined' && document.querySelector(OPEN_MODAL_SELECTOR) !== null
+}
+
 export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHandlers, options: { enabled?: boolean; hasWorkspace?: boolean } = {}) {
     const { enabled = true, hasWorkspace = false } = options
     const handlersRef = useRef(handlers)
@@ -18,6 +30,8 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
         if (!enabled) return
 
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || isModalDialogOpen()) return
+
             const actionId = matchKeybind(event, bindings, { hasWorkspace })
             if (!actionId) return
 

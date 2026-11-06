@@ -75,6 +75,24 @@ describe('SettingsProvider persistence', () => {
         expect(stored().editor.tabSize).toBe(4)
     })
 
+    it('reopens settings on the last used section', () => {
+        const { result } = renderSettings()
+
+        expect(result.current.activeSection).toBe('general')
+        act(() => {
+            result.current.openSettings('keyboard')
+        })
+        act(() => {
+            result.current.closeSettings()
+        })
+        act(() => {
+            result.current.openSettings()
+        })
+
+        expect(result.current.settingsOpen).toBe(true)
+        expect(result.current.activeSection).toBe('keyboard')
+    })
+
     it('reloads the latest settings after a restart', () => {
         const { result, unmount } = renderSettings()
 
