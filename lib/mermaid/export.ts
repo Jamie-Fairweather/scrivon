@@ -7,10 +7,85 @@ import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 
 export type PngExportScale = 1 | 2 | 4
 
-export function exportBaseName(tabName: string | undefined): string {
-    if (!tabName) return 'diagram'
-    const base = tabName.replace(/\.(mmd|mermaid)$/i, '')
-    return base || 'diagram'
+/** Where a diagram being exported comes from. */
+export type DiagramExportTarget = {
+    /** The tab's name, e.g. 'flow.mmd', or 'notes.md' for a diagram expanded from Markdown. */
+    tabName?: string
+    /** The document's path on disk. The save dialog opens in its folder. */
+    tabPath?: string
+    /** For a diagram expanded from Markdown: the document's text, used to number its diagrams. */
+    markdown?: string
+}
+
+// Characters Windows does not allow in file names, including control characters.
+const INVALID_FILE_NAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]+/g
+const RESERVED_FILE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/**
+ * Turns a tab name into a file name Windows accepts. Example titles such as 'CI/CD Pipeline' or
+ * 'Inheritance (<|--)' would otherwise be split into folders or rejected by the save dialog.
+ */
+export function safeFileStem(name: string, fallback: string): string {
+    const stem = name
+        .replace(INVALID_FILE_NAME_CHARS, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s.-]+|[\s.-]+$/g, '')
+    if (!stem) return fallback
+    return RESERVED_FILE_NAME.test(stem) ? `${stem}_` : stem
+}
+
+/** The tab name without its extension ('notes.md' -> 'notes'), made safe to use as a file name. */
+export function exportBaseName(tabName: string | undefined, fallback = 'diagram'): string {
+    return safeFileStem((tabName ?? '').replace(/\.[^./\\]+$/, ''), fallback)
+}
+
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})[ \t]*mermaid(?:[ \t].*)?$/
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+
+/** Which of the document's top-level mermaid code blocks holds `source` (from 1), and how many there are. */
+export function markdownDiagramPosition(markdown: string, source: string): { index: number; count: number } {
+    const wanted = source.trim()
+    let count = 0
+    let index = 0
+    let fence: string | null = null
+    let body: string[] = []
+
+    for (const line of markdown.split(/\r?\n/)) {
+        if (fence === null) {
+            const open = FENCE_OPEN.exec(line)
+            if (open) {
+                fence = open[1]
+                body = []
+            }
+            continue
+        }
+        const close = FENCE_CLOSE.exec(line)
+        if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
+            count++
+            if (!index && body.join('\n').trim() === wanted) index = count
+            fence = null
+            continue
+        }
+        body.push(line)
+    }
+    return { index, count }
+}
+
+/** File name without extension, e.g. 'flow', or 'notes-diagram-2' for the second diagram in notes.md. */
+export function diagramFileStem(source: string, target: DiagramExportTarget): string {
+    if (target.markdown === undefined) return exportBaseName(target.tabName)
+
+    const stem = `${exportBaseName(target.tabName, 'document')}-diagram`
+    const { index, count } = markdownDiagramPosition(target.markdown, source)
+    return index && count > 1 ? `${stem}-${index}` : stem
+}
+
+/** Suggests saving next to the document. Example and unsaved tabs have no folder, so they get the bare name. */
+export function savePathBesideDocument(fileName: string, documentPath: string | undefined): string {
+    if (!documentPath || !/^(?:[a-z]:[\\/]|\\\\|\/)/i.test(documentPath)) return fileName
+    const slash = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'))
+    return `${documentPath.slice(0, slash + 1)}${fileName}`
 }
 
 export function buildExportSvg(source: string, themeId: AppThemeId): string {
@@ -34,9 +109,17 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
     URL.revokeObjectURL(url)
 }
 
-async function saveBytes(bytes: Uint8Array, filename: string, mimeType: string, filters: { name: string; extensions: string[] }[]): Promise<void> {
+type SaveFilters = { name: string; extensions: string[] }[]
+
+async function saveBytes(
+    bytes: Uint8Array,
+    filename: string,
+    documentPath: string | undefined,
+    mimeType: string,
+    filters: SaveFilters
+): Promise<void> {
     if (isTauri()) {
-        const path = await pickSavePath({ title: 'Save diagram', defaultPath: filename, filters })
+        const path = await pickSavePath({ title: 'Save diagram', defaultPath: savePathBesideDocument(filename, documentPath), filters })
         if (!path) return
         await writeBinaryFile(path, bytes)
         return
@@ -45,9 +128,9 @@ async function saveBytes(bytes: Uint8Array, filename: string, mimeType: string, 
     triggerBrowserDownload(new Blob([Uint8Array.from(bytes)], { type: mimeType }), filename)
 }
 
-async function saveText(content: string, filename: string, filters: { name: string; extensions: string[] }[]): Promise<void> {
+async function saveText(content: string, filename: string, documentPath: string | undefined, filters: SaveFilters): Promise<void> {
     if (isTauri()) {
-        const path = await pickSavePath({ title: 'Save diagram', defaultPath: filename, filters })
+        const path = await pickSavePath({ title: 'Save diagram', defaultPath: savePathBesideDocument(filename, documentPath), filters })
         if (!path) return
         await writeTextFileAtPath(path, content)
         return
@@ -118,24 +201,24 @@ export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: PngE
 const SVG_FILTERS = [{ name: 'SVG', extensions: ['svg'] }]
 const PNG_FILTERS = [{ name: 'PNG', extensions: ['png'] }]
 
-export async function exportSvg(source: string, themeId: AppThemeId, tabName: string | undefined): Promise<void> {
+export async function exportSvg(source: string, themeId: AppThemeId, target: DiagramExportTarget): Promise<void> {
     try {
         const svg = buildExportSvg(source, themeId)
-        const filename = `${exportBaseName(tabName)}.svg`
-        await saveText(svg, filename, SVG_FILTERS)
+        const filename = `${diagramFileStem(source, target)}.svg`
+        await saveText(svg, filename, target.tabPath, SVG_FILTERS)
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         await showError('Export failed', message)
     }
 }
 
-export async function exportPng(source: string, themeId: AppThemeId, tabName: string | undefined, scale: PngExportScale): Promise<void> {
+export async function exportPng(source: string, themeId: AppThemeId, target: DiagramExportTarget, scale: PngExportScale): Promise<void> {
     try {
         const svg = buildExportSvg(source, themeId)
         const blob = await svgToPngBlob(svg, themeId, scale)
-        const filename = `${exportBaseName(tabName)}.png`
+        const filename = `${diagramFileStem(source, target)}.png`
         const bytes = new Uint8Array(await blob.arrayBuffer())
-        await saveBytes(bytes, filename, 'image/png', PNG_FILTERS)
+        await saveBytes(bytes, filename, target.tabPath, 'image/png', PNG_FILTERS)
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         await showError('Export failed', message)

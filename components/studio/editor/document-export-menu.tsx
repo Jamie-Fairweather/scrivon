@@ -54,6 +54,7 @@ export function DocumentExportMenu() {
     }
 
     const tabName = activeTab?.name
+    const diagramTarget = { tabName, tabPath: activeTab?.path, markdown: isMarkdownTab ? markdownSource : undefined }
     const triggerDisabled =
         exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
 
@@ -93,7 +94,7 @@ export function DocumentExportMenu() {
                             <>
                                 <MenuItem
                                     disabled={diagramDisabled}
-                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, tabName))}
+                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, diagramTarget))}
                                 >
                                     Save SVG
                                 </MenuItem>
@@ -105,7 +106,9 @@ export function DocumentExportMenu() {
                                                 <MenuItem
                                                     key={scale}
                                                     disabled={diagramDisabled}
-                                                    onClick={() => void runExport(() => exportPng(diagramExportSource, themeId, tabName, scale))}
+                                                    onClick={() =>
+                                                        void runExport(() => exportPng(diagramExportSource, themeId, diagramTarget, scale))
+                                                    }
                                                 >
                                                     {label}
                                                 </MenuItem>
