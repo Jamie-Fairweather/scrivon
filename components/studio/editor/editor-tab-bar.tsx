@@ -1,7 +1,7 @@
 'use client'
 
-import type { CSSProperties } from 'react'
-import { Focus, Loader2, Lock, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, type CSSProperties, type KeyboardEvent } from 'react'
+import { CircleAlert, Focus, Loader2, Lock, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { DocumentExportMenu } from '@/components/studio/editor/document-export-menu'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
@@ -17,25 +17,33 @@ type EditorTabBarProps = {
     style?: CSSProperties
 }
 
-function TabCloseButton({
-    tab,
-    isActive,
-    onClose,
-}: {
-    tab: { name: string; isDirty: boolean; isSaving: boolean; readOnly?: boolean }
-    isActive: boolean
-    onClose: () => void
-}) {
+type TabState = { name: string; isDirty: boolean; isSaving: boolean; saveError?: string; readOnly?: boolean }
+
+/** What a screen reader should hear after the tab's name. */
+function tabStatusText(tab: TabState): string {
+    const parts: string[] = []
+    if (tab.readOnly) parts.push('read-only example')
+    else if (tab.isDirty) parts.push('unsaved changes')
+    if (tab.isSaving) parts.push('saving')
+    if (tab.saveError) parts.push(`save failed: ${tab.saveError}`)
+    return parts.join(', ')
+}
+
+function TabCloseButton({ tab, isActive, onClose }: { tab: TabState; isActive: boolean; onClose: () => void }) {
     const showCloseSlot = isActive || (!tab.readOnly && tab.isDirty) || tab.isSaving
+    const unsaved = !tab.readOnly && tab.isDirty
 
     return (
         <button
             type="button"
+            // One tab stop for the whole strip (arrow keys move between tabs); Ctrl+W and the
+            // tab's context menu close it from the keyboard.
+            tabIndex={-1}
             className={cn(
                 'mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground',
-                showCloseSlot ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100'
+                showCloseSlot ? 'opacity-100' : 'opacity-0 group-focus-within/tab:opacity-100 group-hover/tab:opacity-100'
             )}
-            aria-label={`Close ${tab.name}`}
+            aria-label={`Close ${tab.name}${unsaved ? ', unsaved changes' : ''}`}
             onClick={(e) => {
                 e.stopPropagation()
                 onClose()
@@ -62,28 +70,71 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     const markdownNeedsExpand = tabKind === 'markdown' && !expanded
     const fitDisabled = !canFitToView || markdownNeedsExpand
 
+    const tabRefs = useRef(new Map<string, HTMLButtonElement>())
+    // The tab reachable with Tab: the active one, or the first if none is active.
+    const focusableTabId = tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null)
+
+    useEffect(() => {
+        if (!activeTabId) return
+        tabRefs.current.get(activeTabId)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    }, [activeTabId])
+
+    const onTabListKeyDown = useCallback(
+        (e: KeyboardEvent<HTMLDivElement>) => {
+            const index = tabs.findIndex((t) => tabRefs.current.get(t.id) === e.target)
+            if (index === -1) return
+            let next: number
+            if (e.key === 'ArrowRight') next = (index + 1) % tabs.length
+            else if (e.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+            else if (e.key === 'Home') next = 0
+            else if (e.key === 'End') next = tabs.length - 1
+            else return
+            e.preventDefault()
+            const nextTab = tabs[next]!
+            tabRefs.current.get(nextTab.id)?.focus()
+            void setActiveTab(nextTab.id)
+        },
+        [tabs, setActiveTab]
+    )
+
     return (
         <div className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)} style={style}>
             <LayoutToggleButtons />
-            <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+            <div
+                role="tablist"
+                aria-label="Open documents"
+                className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
+                onKeyDown={onTabListKeyDown}
+            >
                 {tabs.map((tab) => {
                     const isActive = tab.id === activeTabId
+                    const status = tabStatusText(tab)
                     return (
                         <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
                             <div
+                                role="presentation"
                                 className={cn(
                                     'group/tab flex max-w-[200px] min-w-0 items-center border-r border-border',
                                     isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
                                 )}
                             >
                                 <button
+                                    ref={(el) => {
+                                        if (el) tabRefs.current.set(tab.id, el)
+                                        else tabRefs.current.delete(tab.id)
+                                    }}
                                     type="button"
+                                    role="tab"
+                                    aria-selected={isActive}
+                                    tabIndex={tab.id === focusableTabId ? 0 : -1}
                                     className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
                                     onClick={() => void setActiveTab(tab.id)}
-                                    title={tab.saveError ?? tab.path}
+                                    title={tab.saveError ? `Save failed: ${tab.saveError}` : tab.path}
                                 >
                                     {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
+                                    {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive" aria-hidden />}
                                     <span className="truncate">{tab.name}</span>
+                                    {status && <span className="sr-only">, {status}</span>}
                                 </button>
                                 <TabCloseButton tab={tab} isActive={isActive} onClose={() => void closeTab(tab.id)} />
                             </div>
