@@ -40,6 +40,8 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(settings: AppSettings): void {
     if (typeof window === 'undefined') return
+    // Never overwrite good settings with junk (JSON.stringify(undefined) would store "undefined").
+    if (!settings || typeof settings !== 'object') return
 
     try {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))

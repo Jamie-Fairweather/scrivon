@@ -81,6 +81,17 @@ describe('loadSettings and saveSettings with localStorage', () => {
         expect(store.get(SETTINGS_STORAGE_KEY)).toContain('tokyo-night')
     })
 
+    it('refuses to overwrite stored settings with a missing value', () => {
+        const settings = createDefaultSettings(false)
+        settings.editor.fontSize = 20
+        saveSettings(settings)
+
+        saveSettings(undefined as unknown as typeof settings)
+
+        expect(store.get(SETTINGS_STORAGE_KEY)).not.toBe('undefined')
+        expect(loadSettings().editor.fontSize).toBe(20)
+    })
+
     it('ignores localStorage failures', () => {
         vi.stubGlobal('localStorage', {
             getItem: () => {

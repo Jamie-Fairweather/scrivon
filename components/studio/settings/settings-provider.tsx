@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { wouldChordConflict } from '@/lib/settings/conflicts'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -41,20 +41,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const [settings, setSettingsState] = useState<AppSettings>(() => loadSettings())
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+    // Latest settings, updated straight away so back-to-back updates build on each other.
+    // React may defer a state updater until render, so the next value is never read out of one.
+    const settingsRef = useRef(settings)
 
     const persist = useCallback((next: AppSettings) => {
+        settingsRef.current = next
         setSettingsState(next)
         saveSettings(next)
     }, [])
 
-    const updateSettings = useCallback((patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
-        let next: AppSettings
-        setSettingsState((current) => {
-            next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
-            return next
-        })
-        saveSettings(next!)
-    }, [])
+    const updateSettings = useCallback(
+        (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
+            const current = settingsRef.current
+            persist(typeof patch === 'function' ? patch(current) : { ...current, ...patch })
+        },
+        [persist]
+    )
 
     const openSettings = useCallback((section: SettingsSection = 'general') => {
         setActiveSection(section)
