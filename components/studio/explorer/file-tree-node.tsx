@@ -8,6 +8,8 @@ import type { VisibleTreeRow } from '@/lib/workspace/flatten-file-tree'
 import type { FileNode } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
+const UNSUPPORTED_HINT = 'Scrivon supports .md, .mmd and .mermaid files only'
+
 type FileTreeNodeProps = {
     row: VisibleTreeRow
     isActive: boolean
@@ -45,10 +47,11 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                     aria-setsize={row.siblingCount}
                     aria-expanded={expanded}
                     aria-selected={isActive || undefined}
-                    aria-disabled={isUnsupported || undefined}
+                    // Not aria-disabled: an unsupported file can still be renamed, duplicated and deleted. It just won't open.
+                    aria-description={isUnsupported ? UNSUPPORTED_HINT : undefined}
                     tabIndex={isTabStop ? 0 : -1}
                     // The full name for names cut off by the narrow sidebar, plus why an unsupported file won't open.
-                    title={isUnsupported ? `${node.name}\nScrivon supports .md, .mmd and .mermaid files only` : node.name}
+                    title={isUnsupported ? `${node.name}\n${UNSUPPORTED_HINT}` : node.name}
                     className={cn(
                         `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none select-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,
