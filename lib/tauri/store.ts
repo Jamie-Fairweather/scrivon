@@ -138,11 +138,26 @@ async function recoverStore(s: LazyStore, readError: unknown): Promise<void> {
     }
 }
 
+/**
+ * A stored list of paths, keeping only real paths, each once. The file can be edited by hand or written by
+ * another version of Scrivon, and one entry that isn't a path mustn't break every screen that lists them.
+ * Older entries can also name the same place with different separators.
+ */
+function toPathList(value: unknown): string[] {
+    if (!Array.isArray(value)) return []
+    const paths: string[] = []
+    for (const entry of value) {
+        if (typeof entry !== 'string' || !entry.trim()) continue
+        const normalized = normalizePath(entry)
+        if (!paths.some((p) => samePath(p, normalized))) paths.push(normalized)
+    }
+    return paths
+}
+
 export async function getRecentWorkspaces(): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
-    const value = await s.get<string[]>(RECENT_KEY)
-    return Array.isArray(value) ? value : []
+    return toPathList(await s.get<unknown>(RECENT_KEY))
 }
 
 export async function addRecentWorkspace(path: string): Promise<string[]> {
@@ -150,7 +165,8 @@ export async function addRecentWorkspace(path: string): Promise<string[]> {
     if (!s) return []
 
     const current = await getRecentWorkspaces()
-    const next = [path, ...current.filter((p) => p !== path)].slice(0, getMaxRecentWorkspaces())
+    const added = normalizePath(path)
+    const next = [added, ...current.filter((p) => !samePath(p, added))].slice(0, getMaxRecentWorkspaces())
     await s.set(RECENT_KEY, next)
     await saveStore(s)
     return next
@@ -160,7 +176,7 @@ export async function removeRecentWorkspace(path: string): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
 
-    const next = (await getRecentWorkspaces()).filter((p) => p !== path)
+    const next = (await getRecentWorkspaces()).filter((p) => !samePath(p, path))
     await s.set(RECENT_KEY, next)
     await saveStore(s)
     return next
@@ -213,16 +229,7 @@ export async function setWorkspaceTabSession(workspaceRoot: string, session: Wor
 export async function getRecentFiles(workspaceRoot: string): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
-    const value = await s.get<string[]>(`${RECENT_FILES_PREFIX}${workspaceRoot}`)
-    if (!Array.isArray(value)) return []
-    // Older entries can name the same file with different separators; keep one of each.
-    const paths: string[] = []
-    for (const entry of value) {
-        if (typeof entry !== 'string') continue
-        const normalized = normalizePath(entry)
-        if (!paths.some((p) => samePath(p, normalized))) paths.push(normalized)
-    }
-    return paths
+    return toPathList(await s.get<unknown>(`${RECENT_FILES_PREFIX}${workspaceRoot}`))
 }
 
 export async function addRecentFile(workspaceRoot: string, filePath: string): Promise<string[]> {

@@ -155,6 +155,37 @@ describe('workspace store', () => {
         })
     })
 
+    describe('entries that are not paths', () => {
+        it('lists only real paths, each once, whatever else the recent folders hold', async () => {
+            fake.disk.set(
+                'workspace.json',
+                JSON.stringify({ 'recent-workspaces': [null, 42, { path: 'x' }, '', 'C:\\notes', 'c:/Notes/', 'D:\\work'] })
+            )
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+        })
+
+        it('writes a clean list back when a folder is added or removed', async () => {
+            fake.disk.set('workspace.json', JSON.stringify({ 'recent-workspaces': [null, 'C:\\notes', 7, 'D:\\work'] }))
+            const store = await launch()
+
+            expect(await store.addRecentWorkspace('c:/notes')).toEqual(['c:\\notes', 'D:\\work'])
+            expect(await store.removeRecentWorkspace('d:\\WORK')).toEqual(['c:\\notes'])
+            expect(onDisk('workspace.json')?.['recent-workspaces']).toEqual(['c:\\notes'])
+        })
+
+        it('lists only real paths for a folder’s recent files', async () => {
+            fake.disk.set(
+                'workspace.json',
+                JSON.stringify({ 'recent-files:C:\\notes': ['C:\\notes\\a.md', false, 'C:/notes/a.md', [], 'C:\\notes\\b.md'] })
+            )
+            const store = await launch()
+
+            expect(await store.getRecentFiles('C:\\notes')).toEqual(['C:\\notes\\a.md', 'C:\\notes\\b.md'])
+        })
+    })
+
     describe('when workspace.json cannot be written', () => {
         it('still updates the lists for this session and says so once', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))
