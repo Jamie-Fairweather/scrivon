@@ -20,7 +20,7 @@ import {
     type SearchWorkspaceContentResult,
 } from '@/components/studio/command-palette/search-content'
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
-import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
+import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import {
@@ -85,7 +85,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
 
     const [query, setQuery] = useState('')
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
-    const [textItems, setTextItems] = useState<PaletteGroup | null>(null)
+    const [textHits, setTextHits] = useState<TextPaletteItem[]>([])
     const [textCapped, setTextCapped] = useState(false)
     const [textUnreadableFiles, setTextUnreadableFiles] = useState(0)
     const [textTruncatedFiles, setTextTruncatedFiles] = useState(0)
@@ -98,9 +98,17 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const shouldSearchText =
         enabled && Boolean(workspaceRoot) && !parsedQueryState.actionsOnly && mode !== 'files' && meetsTextQueryMinimum(parsedQueryState.query, mode)
     // Text results (and their footer notes) only count for the query they were found for, so
-    // hits for something the user has typed past are never shown or opened by a quick Enter.
+    // hits for something the user has typed past are never opened by a quick Enter.
     const textResolved = shouldSearchText && lastResolvedTextQuery === parsedQueryState.query
     const isSearchingText = shouldSearchText && !textResolved
+
+    // While a new search runs, the last hits stay in place (so the list doesn't jump on every key)
+    // but can't be opened until the new hits replace them.
+    const textGroup = useMemo((): PaletteGroup | null => {
+        if (!shouldSearchText || textHits.length === 0) return null
+        const items = textResolved ? textHits : textHits.map((item) => ({ ...item, disabled: true }))
+        return { id: 'text', label: 'Text', items }
+    }, [shouldSearchText, textResolved, textHits])
 
     const recentFiles = useMemo(() => (recentFilesState?.root === workspaceRoot ? recentFilesState.paths : []), [recentFilesState, workspaceRoot])
 
@@ -120,7 +128,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         contentCache.clear()
         setQuery('')
         setLastResolvedTextQuery(null)
-        setTextItems(null)
+        setTextHits([])
         setTextCapped(false)
         setTextUnreadableFiles(0)
         setTextTruncatedFiles(0)
@@ -251,15 +259,13 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             }
         }
 
-        if (textResolved && textItems && (mode === 'all' || mode === 'text')) {
-            result.push(textItems)
-        }
+        if (textGroup) result.push(textGroup)
 
         // While typing, commands come last, so a matching file name or text hit is what Enter opens.
         if (commandGroup && parsedQuery) result.push(commandGroup)
 
         return result
-    }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, textResolved])
+    }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textGroup, mode])
 
     useEffect(() => {
         if (!shouldSearchText) {
@@ -300,8 +306,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 if (controller.signal.aborted) return
 
                 // Always resolve the query, even after a failure, so the spinner stops.
-                const items = result ? result.hits.map((hit) => textHitToPaletteItem(hit, root)) : []
-                setTextItems(items.length > 0 ? { id: 'text', label: 'Text', items } : null)
+                setTextHits(result ? result.hits.map((hit) => textHitToPaletteItem(hit, root)) : [])
                 setTextCapped(result?.capped ?? false)
                 setTextUnreadableFiles(result?.unreadableFiles ?? 0)
                 setTextTruncatedFiles(result?.truncatedFiles ?? 0)

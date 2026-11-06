@@ -51,6 +51,8 @@ export type TextPaletteItem = {
     /** Where the match starts inside `preview`; `length` is how long it is. */
     previewMatchStart: number
     source: 'buffer' | 'disk'
+    /** Set on the last search's hits while a new search runs, so they stay in place but can't be opened. */
+    disabled?: boolean
 }
 
 export type RecentPaletteItem = {

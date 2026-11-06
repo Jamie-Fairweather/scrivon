@@ -102,19 +102,34 @@ describe('usePaletteSearch text search', () => {
         expect(result.current.textUnreadableFiles).toBe(1)
     })
 
-    it("hides the last query's text hits until the new query's search finishes", async () => {
+    it("keeps the last query's text hits in place, but not openable, until the new query's search finishes", async () => {
         const { result } = renderHook(() => usePaletteSearch('text', true))
+        const textItems = () => result.current.groups.find((group) => group.id === 'text')?.items ?? []
+        const disabled = () => textItems().map((item) => item.kind === 'text' && Boolean(item.disabled))
 
         act(() => result.current.setQuery('oauth'))
-        await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toHaveLength(2))
+        await waitFor(() => expect(textItems()).toHaveLength(2))
+        expect(disabled()).toEqual([false, false])
         expect(result.current.textUnreadableFiles).toBe(1)
 
         act(() => result.current.setQuery('oauth flow'))
         expect(result.current.isSearchingText).toBe(true)
-        expect(result.current.groups.find((group) => group.id === 'text')).toBeUndefined()
+        // Still listed so the list doesn't jump, but Enter can't open a hit for the old query.
+        expect(disabled()).toEqual([true, true])
         expect(result.current.textUnreadableFiles).toBe(0)
 
+        await waitFor(() => expect(result.current.isSearchingText).toBe(false))
+        expect(disabled()).toEqual([false, false])
+    })
+
+    it('drops the text hits once the query is too short to search file contents', async () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('oauth'))
         await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toHaveLength(2))
+
+        act(() => result.current.setQuery('o'))
+        expect(groupPaths(result.current.groups, 'text')).toEqual([])
     })
 
     it('stops the spinner and tells the user when the search itself fails', async () => {

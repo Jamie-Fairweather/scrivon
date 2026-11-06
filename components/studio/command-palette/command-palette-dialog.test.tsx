@@ -167,6 +167,31 @@ describe('CommandPaletteDialog text results', () => {
         const option = screen.getByRole('option', { name: /a.md · 1:7/ })
         expect(option.querySelector('mark')?.textContent).toBe('aa')
     })
+
+    it("can't open a hit from the last search while a new one runs", () => {
+        const hit: PaletteItem = {
+            kind: 'text',
+            value: 'text:/ws/a.md:1:1',
+            searchText: 'a.md oauth /ws/a.md',
+            path: '/ws/a.md',
+            name: 'a.md',
+            relativePath: 'a.md',
+            documentKind: 'markdown',
+            line: 1,
+            column: 1,
+            length: 5,
+            preview: 'oauth',
+            previewMatchStart: 0,
+            source: 'disk',
+            disabled: true,
+        }
+        const props = renderDialog({ mode: 'text', query: 'oauth f', isSearchingText: true, groups: [{ id: 'text', label: 'Text', items: [hit] }] })
+        const option = screen.getByRole('option', { name: /a.md · 1:1/ })
+        expect(option).toHaveAttribute('aria-disabled', 'true')
+
+        fireEvent.click(option)
+        expect(props.onSelectItem).not.toHaveBeenCalled()
+    })
 })
 
 describe('CommandPaletteDialog same-named files', () => {

@@ -143,8 +143,9 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
     }
 
     const folder = folderOf(item.relativePath)
+    // Disabled while a newer search runs: the hit stays in place, but Enter and clicks can't open it.
     return (
-        <CommandItem onClick={handleClick} value={item.value}>
+        <CommandItem disabled={item.disabled} onClick={handleClick} value={item.value}>
             <DocumentIcon kind={item.documentKind} />
             <span className="min-w-0 flex-1">
                 <span className="block truncate">
