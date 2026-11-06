@@ -1,11 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { readFile } from '@tauri-apps/plugin-fs'
+import { readFile, stat } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
-import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -17,6 +17,7 @@ vi.mock('@/lib/tauri/dialog', async (importOriginal) => {
         showError: vi.fn(actual.showError),
         confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
         confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
+        confirmOpenLargeFile: vi.fn(async () => false),
     }
 })
 
@@ -319,6 +320,46 @@ describe('DocumentTabsProvider', () => {
         expect(result.current.tabs[0]).toMatchObject({ content: 'A', format: { encoding: 'utf-16le', bom: true } })
         expect(result.current.tabs[0]?.readOnly).toBeUndefined()
         expect(notifyWarning).not.toHaveBeenCalled()
+    })
+
+    it('asks before opening a very large file, and opens it read-only with a way to edit it anyway', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const big = { isFile: true, isDirectory: false, isSymlink: false, size: 6 * 1024 * 1024, mtime: null, nlink: null }
+        // One look at the size before each open, and one more when the file is read.
+        vi.mocked(stat)
+            .mockResolvedValueOnce(big as never)
+            .mockResolvedValueOnce(big as never)
+            .mockResolvedValueOnce(big as never)
+        vi.mocked(confirmOpenLargeFile).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+        vi.mocked(readFile).mockResolvedValueOnce(new TextEncoder().encode('# log'))
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await result.current.openFile('/ws/big.md')
+        })
+        expect(confirmOpenLargeFile).toHaveBeenCalledWith('big.md', '6.0 MB')
+        expect(readFile).not.toHaveBeenCalled()
+        expect(result.current.tabs).toEqual([])
+
+        await act(async () => {
+            await result.current.openFile('/ws/big.md')
+        })
+        expect(result.current.tabs[0]).toMatchObject({ content: '# log', readOnly: true, largeFile: true })
+        expect(notifyWarning).toHaveBeenCalledWith('big.md is read-only', {
+            id: 'read-only:/ws/big.md',
+            description: "It's 6.0 MB, which is big enough to make editing slow.",
+            timeout: 0,
+            action: { label: 'Edit Anyway', onClick: expect.any(Function) },
+        })
+        act(() => result.current.updateTabContent('/ws/big.md', 'typed'))
+        expect(result.current.tabs[0]?.content).toBe('# log')
+
+        const options = vi.mocked(notifyWarning).mock.calls[0]![1] as NotifyOptions
+        act(() => options.action!.onClick())
+        expect(dismissNotification).toHaveBeenCalledWith('read-only:/ws/big.md')
+        expect(result.current.tabs[0]).toMatchObject({ readOnly: false, largeFile: undefined })
+        act(() => result.current.updateTabContent('/ws/big.md', '# log!'))
+        expect(result.current.tabs[0]).toMatchObject({ content: '# log!', isDirty: true })
     })
 
     it('focuses an already-open workspace file', async () => {

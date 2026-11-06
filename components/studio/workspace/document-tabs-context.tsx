@@ -16,10 +16,10 @@ import {
 import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
 import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { dismissNotification, notifyError, notifyWarning } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { getBaseName, isSupportedDocument, normalizePath, readWorkspaceTextFile, samePath } from '@/lib/tauri/fs'
+import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { getBaseName, getWorkspaceFileSize, isSupportedDocument, normalizePath, readWorkspaceTextFile, samePath } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
-import { tabFromFile } from '@/lib/workspace/document-tab'
+import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
 import { remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -119,7 +119,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setTabs((prev) =>
                 prev.map((t) =>
                     t.id === id && t.encodingIssue === 'legacy-encoding'
-                        ? { ...t, readOnly: false, encodingIssue: undefined, format: DEFAULT_TEXT_FORMAT }
+                        ? { ...t, readOnly: false, encodingIssue: undefined, largeFile: undefined, format: DEFAULT_TEXT_FORMAT }
                         : t
                 )
             )
@@ -127,11 +127,33 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [setTabs]
     )
 
-    /** Says why a file opened read-only: its bytes couldn't be read safely as text, and editing could damage them. */
+    /** Lets the user edit a very large file anyway, knowing it may be slow. */
+    const editLargeFile = useCallback(
+        (id: string) => {
+            dismissNotification(readOnlyNoticeId(id))
+            setTabs((prev) => prev.map((t) => (t.id === id && t.largeFile && !t.encodingIssue ? { ...t, readOnly: false, largeFile: undefined } : t)))
+        },
+        [setTabs]
+    )
+
+    /**
+     * Says why a file opened read-only: its bytes couldn't be read safely as text, and editing could damage
+     * them, or it is so big that editing it would be slow.
+     */
     const explainReadOnlyFile = useCallback(
         (tab: DocumentTab) => {
-            if (!tab.encodingIssue) return
             const id = readOnlyNoticeId(tab.id)
+            if (!tab.encodingIssue) {
+                if (!tab.largeFile) return
+                const size = tab.disk?.stamp?.size
+                notifyWarning(`${tab.name} is read-only`, {
+                    id,
+                    description: `It's ${size ? formatFileSize(size) : 'very large'}, which is big enough to make editing slow.`,
+                    timeout: 0,
+                    action: { label: 'Edit Anyway', onClick: () => editLargeFile(tab.id) },
+                })
+                return
+            }
             if (tab.encodingIssue === 'legacy-encoding') {
                 notifyWarning(`${tab.name} is read-only`, {
                     id,
@@ -148,7 +170,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 timeout: 0,
             })
         },
-        [editAsUtf8]
+        [editAsUtf8, editLargeFile]
     )
 
     useEffect(() => {
@@ -221,6 +243,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
 
             try {
+                // A huge file can make the app stop responding for a while, so the user decides before it is read.
+                const size = await getWorkspaceFileSize(path)
+                if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
                 const tab = tabFromFile(path, await readWorkspaceTextFile(path))
                 const nextTabs = [...tabsRef.current, tab]
                 setTabs(nextTabs)

@@ -147,6 +147,24 @@ export async function confirmCloseAfterSaveFailure(failures: SaveFailure[]): Pro
     return 'cancel'
 }
 
+/**
+ * Asks before opening a file big enough to make Scrivon slow. Resolves true when the user still wants it,
+ * opened read-only; it can be made editable from there.
+ */
+export async function confirmOpenLargeFile(fileName: string, size: string): Promise<boolean> {
+    const title = 'Large file'
+    const body = `${fileName} is ${size}. Files this big can make Scrivon slow to respond.\n\nIt opens read-only. You can still choose to edit it.`
+    const confirm = 'Open Read-Only'
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}.`)
+    }
+
+    const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: 'Cancel' } })
+    return result === confirm || result === 'Ok'
+}
+
 /** What happened to a file outside Scrivon while it was open. */
 export type DiskChange = 'changed' | 'deleted'
 

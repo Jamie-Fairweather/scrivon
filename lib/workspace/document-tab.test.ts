@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tabFromFile, tabWithRecoveredText } from './document-tab'
+import { formatFileSize, LARGE_FILE_BYTES, tabFromFile, tabWithRecoveredText } from './document-tab'
 
 describe('tabWithRecoveredText', () => {
     const backup = {
@@ -46,5 +46,22 @@ describe('tabWithRecoveredText', () => {
             isDirty: true,
             disk: { stamp: { mtimeMs: 10, size: 4 } },
         })
+    })
+})
+
+describe('very large files', () => {
+    const read = (size: number) => ({ content: 'x', format: { encoding: 'utf-8' as const, bom: false }, stamp: { mtimeMs: 1, size } })
+
+    it('opens a file over 5 MB read-only, and leaves smaller ones editable', () => {
+        expect(tabFromFile('/ws/log.md', read(LARGE_FILE_BYTES + 1))).toMatchObject({ readOnly: true, largeFile: true })
+        expect(tabFromFile('/ws/notes.md', read(LARGE_FILE_BYTES))).not.toHaveProperty('readOnly')
+        expect(tabFromFile('/ws/unknown.md', { ...read(0), stamp: null })).not.toHaveProperty('largeFile')
+    })
+
+    it('writes sizes the way people read them', () => {
+        expect(formatFileSize(6.2 * 1024 * 1024)).toBe('6.2 MB')
+        expect(formatFileSize(23.4 * 1024 * 1024)).toBe('23 MB')
+        expect(formatFileSize(300)).toBe('1 KB')
+        expect(formatFileSize(40 * 1024)).toBe('40 KB')
     })
 })

@@ -42,6 +42,8 @@ export type DocumentTab = {
     format?: TextFileFormat
     /** Set when the file couldn't be read safely as text, so the tab is read-only to protect it. */
     encodingIssue?: TextDecodeIssue
+    /** Set when the file is big enough to make editing slow, so it opened read-only until the user chooses to edit it. */
+    largeFile?: true
     /** Set for tabs read from disk, so saves can tell when the file was changed or deleted outside Scrivon. */
     disk?: TabDiskRecord
 }

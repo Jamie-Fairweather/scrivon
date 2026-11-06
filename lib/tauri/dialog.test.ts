@@ -31,6 +31,7 @@ vi.mock('@/lib/tauri/scope', () => ({
 
 import {
     confirmCloseAfterSaveFailure,
+    confirmOpenLargeFile,
     confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickOpenFile,
@@ -298,5 +299,23 @@ describe('confirmOverwriteDiskChange', () => {
         isTauriMock.mockReturnValue(false)
         await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
         expect(messageMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('confirmOpenLargeFile', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('says how big the file is and opens it only when the user agrees', async () => {
+        messageMock.mockResolvedValueOnce('Open Read-Only')
+        await expect(confirmOpenLargeFile('log.md', '23 MB')).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('log.md is 23 MB')
+        expect(options).toMatchObject({ title: 'Large file', buttons: { ok: 'Open Read-Only', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmOpenLargeFile('log.md', '23 MB')).resolves.toBe(false)
     })
 })

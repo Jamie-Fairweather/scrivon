@@ -15,12 +15,37 @@ export function tabFromPath(path: string, content: string): DocumentTab {
     }
 }
 
-/** A tab for a file just read from disk. Text that couldn't be read safely opens read-only, so a save can't damage it. */
+/**
+ * Files bigger than this open read-only until the user chooses to edit them: every change is previewed
+ * and saved in full, which makes typing in them slow.
+ */
+export const LARGE_FILE_BYTES = 5 * 1024 * 1024
+
+export function isLargeFile(size: number | null | undefined): size is number {
+    return typeof size === 'number' && size > LARGE_FILE_BYTES
+}
+
+/** A file size the way people read it, such as "6.2 MB" or "23 MB". */
+export function formatFileSize(bytes: number): string {
+    const mb = bytes / (1024 * 1024)
+    if (mb >= 10) return `${Math.round(mb)} MB`
+    if (mb >= 0.1) return `${mb.toFixed(1)} MB`
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+/**
+ * A tab for a file just read from disk. Text that couldn't be read safely opens read-only, so a save can't
+ * damage it, and so does a very large file, so it can't slow everything down without the user choosing to.
+ */
 export function tabFromFile(path: string, file: TextFileRead): DocumentTab {
     const tab: DocumentTab = { ...tabFromPath(path, file.content), format: file.format, disk: { stamp: file.stamp } }
     if (file.issue) {
         tab.readOnly = true
         tab.encodingIssue = file.issue
+    }
+    if (isLargeFile(file.stamp?.size)) {
+        tab.readOnly = true
+        tab.largeFile = true
     }
     return tab
 }
@@ -41,5 +66,6 @@ export function tabWithRecoveredText(fromDisk: DocumentTab | null, backup: Unsav
     // The user was typing in it, so it was editable; a read-only reason from the file now doesn't apply to this text.
     delete tab.readOnly
     delete tab.encodingIssue
+    delete tab.largeFile
     return tab
 }
