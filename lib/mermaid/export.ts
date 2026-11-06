@@ -1,6 +1,7 @@
 import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
 import { pickSavePath, showError, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
+import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 
@@ -17,7 +18,8 @@ export function buildExportSvg(source: string, themeId: AppThemeId): string {
     if (!trimmed) {
         throw new Error('Nothing to export.')
     }
-    return renderMermaidDiagramForExport(trimmed, themeId)
+    // Standalone .svg/.png files are opened outside the browser, so bake every colour in.
+    return flattenSvgForExport(renderMermaidDiagramForExport(trimmed, themeId))
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string): void {
