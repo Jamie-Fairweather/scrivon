@@ -1,4 +1,4 @@
-import { isAppThemeId, parseStoredTheme } from '@/lib/theme/catalog'
+import { isAppThemeId } from '@/lib/theme/catalog'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
@@ -102,7 +102,8 @@ function normalizeLineNumbers(value: unknown): EditorLineNumbers {
 export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPlatform()): AppSettings {
     const defaults = createDefaultSettings(isMac)
     const themeRaw = read(STORAGE_MERMAID_THEME)
-    const themeId = themeRaw && isAppThemeId(themeRaw) ? parseStoredTheme(themeRaw) : defaults.theme.id
+    // No theme saved yet: the default follows the OS light or dark setting, like the boot script.
+    const themeId = themeRaw && isAppThemeId(themeRaw) ? themeRaw : defaults.theme.id
 
     return {
         ...defaults,
@@ -126,6 +127,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Partial<AppSettings>
+    // A theme this version doesn't know (saved by a newer one) also follows the OS, like the boot script.
     const themeId = source.theme?.id && isAppThemeId(source.theme.id) ? source.theme.id : defaults.theme.id
 
     return {

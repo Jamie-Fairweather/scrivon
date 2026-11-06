@@ -104,6 +104,30 @@ describe('loadSettings and saveSettings with localStorage', () => {
         expect(corrupt.map((key) => store.get(key))).toEqual(['{"editor": {"fontSize": 2'])
     })
 
+    it('follows the OS light or dark setting on first launch, and saves it', () => {
+        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
+        expect(loadSettings().theme.id).toBe('scrivon-light')
+        expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}').theme.id).toBe('scrivon-light')
+
+        store.clear()
+        vi.stubGlobal('window', { matchMedia: () => ({ matches: true }) })
+        expect(loadSettings().theme.id).toBe('scrivon-dark')
+    })
+
+    it('follows the OS for a saved theme this version does not know', () => {
+        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'theme-from-a-newer-version' } }))
+
+        expect(loadSettings().theme.id).toBe('scrivon-light')
+    })
+
+    it('keeps a saved theme whatever the OS setting', () => {
+        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'scrivon-dark' } }))
+
+        expect(loadSettings().theme.id).toBe('scrivon-dark')
+    })
+
     it('does not report a first launch as a recovery', () => {
         expect(loadSettingsWithRecovery().recovery).toBeNull()
         expect(store.has(SETTINGS_STORAGE_KEY)).toBe(true)

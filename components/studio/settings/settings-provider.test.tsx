@@ -190,6 +190,20 @@ describe('SettingsProvider persistence', () => {
         expect(stored().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
     })
 
+    it('restores the theme that matches the OS light or dark setting', () => {
+        const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'tokyo-night' } }))
+        const { result } = renderSettings()
+        expect(result.current.settings.theme.id).toBe('tokyo-night')
+
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(result.current.settings.theme.id).toBe('scrivon-light')
+        matchMedia.mockRestore()
+    })
+
     it('tells the user when unreadable settings were restored from the backup', () => {
         const backup = createDefaultSettings(false)
         backup.editor.fontSize = 18

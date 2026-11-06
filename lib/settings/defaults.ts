@@ -1,4 +1,4 @@
-import { DEFAULT_APP_THEME } from '@/lib/theme/catalog'
+import { DEFAULT_APP_THEME, getSystemPreferredTheme, type AppThemeId } from '@/lib/theme/catalog'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
 import type { AppSettings, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
@@ -33,6 +33,19 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
     return bindings
 }
 
+/**
+ * Scrivon Light or Dark, following the OS setting, which is also what the boot script paints
+ * before React loads. A fixed dark default would flip a light-mode user to dark on first launch.
+ */
+function systemPreferredTheme(): AppThemeId {
+    try {
+        return getSystemPreferredTheme()
+    } catch {
+        // No matchMedia to ask.
+        return DEFAULT_APP_THEME
+    }
+}
+
 export function createDefaultSettings(isMac = false): AppSettings {
     return {
         autosave: {
@@ -40,7 +53,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             delayMs: DEFAULT_AUTOSAVE_DELAY_MS,
         },
         theme: {
-            id: DEFAULT_APP_THEME,
+            id: systemPreferredTheme(),
         },
         layout: {
             explorerOpen: true,
