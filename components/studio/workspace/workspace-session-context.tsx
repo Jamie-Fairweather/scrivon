@@ -87,11 +87,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (!isDesktop) return
 
             const path = normalizePath(requestedPath)
-            await allowWorkspacePath(path)
             if (workspaceRoot) {
-                await coordinator.flushAllSaves.current()
+                // Leaving the open folder closes its tabs, so unsaved or unsavable edits must be dealt with first.
+                if (!(await coordinator.confirmCloseTabs.current())) return
                 await coordinator.persistWorkspaceTabSession.current()
             }
+            await allowWorkspacePath(path)
 
             const nextTree = await listWorkspaceTree(path)
             const recents = await addRecentWorkspace(path)
@@ -140,7 +141,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [openWorkspace])
 
     const closeWorkspace = useCallback(async () => {
-        await coordinator.flushAllSaves.current()
+        if (!(await coordinator.confirmCloseTabs.current())) return
         await coordinator.persistWorkspaceTabSession.current()
         setWorkspaceRoot(null)
         setTree([])
