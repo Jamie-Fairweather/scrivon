@@ -10,7 +10,7 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => ({ activeTabId: 'a.mmd', tabs: [{ id: 'a.mmd' }] }),
+    useDocumentTabs: () => ({ activeTabId: 'a.mmd', tabs: [{ id: 'a.mmd', name: 'flow.mmd' }] }),
     useCanvasFit: () => ({ canvasFitRequestId: 0 }),
 }))
 
@@ -61,5 +61,19 @@ describe('MermaidCanvas', () => {
 
         expect(screen.getAllByTitle('Diagram preview').length).toBeGreaterThan(0)
         expect(screen.queryByRole('status')).toBeNull()
+    })
+
+    it('exposes the diagram as one named image and keeps its frames out of the Tab order (A27)', () => {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+
+        render(<MermaidCanvas source="graph TD" />)
+
+        expect(screen.getByRole('img', { name: 'Diagram: flow.mmd' })).toBeInTheDocument()
+        const frames = screen.getAllByTitle('Diagram preview')
+        for (const frame of frames) {
+            expect(frame).toHaveAttribute('tabindex', '-1')
+            expect(frame).toHaveAttribute('aria-hidden', 'true')
+            expect(frame).toHaveAttribute('inert')
+        }
     })
 })

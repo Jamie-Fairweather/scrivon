@@ -78,6 +78,8 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     const viewKey = canvasKey ?? activeTabId
     const { canvasFitRequestId } = useCanvasFit()
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
+    const tabName = tabs.find((t) => t.id === activeTabId)?.name
+    const diagramLabel = tabName ? `Diagram: ${tabName}` : 'Diagram'
     const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
@@ -144,6 +146,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
                         <DiagramIframe
                             key={viewKey ?? 'none'}
                             svg={svgForDisplay!}
+                            label={diagramLabel}
                             bounds={effectiveBounds}
                             onBoundsMeasured={handleBoundsMeasured}
                         />

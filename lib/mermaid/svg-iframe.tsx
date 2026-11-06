@@ -22,7 +22,11 @@ type DiagramIframeProps = {
     bounds: SvgContentBounds | null
     onBoundsMeasured?: (bounds: SvgContentBounds, svg: string) => void
     liveUpdate?: boolean
+    /** What screen readers announce for the diagram, e.g. "Diagram: flow.mmd". */
+    label?: string
 }
+
+const DEFAULT_LABEL = 'Mermaid diagram'
 
 type SlotState = { svg: string; loadId: number }
 
@@ -39,7 +43,7 @@ function slotDimensions(svg: string, clip: SvgContentBounds | null) {
     }
 }
 
-const LiveDiagramIframe = memo(function LiveDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
+const LiveDiagramIframe = memo(function LiveDiagramIframe({ svg, bounds, onBoundsMeasured, label = DEFAULT_LABEL }: DiagramIframeProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const appliedRef = useRef<string | null>(null)
     const dims = slotDimensions(svg, bounds)
@@ -70,25 +74,30 @@ const LiveDiagramIframe = memo(function LiveDiagramIframe({ svg, bounds, onBound
     if (!dims) return null
 
     return (
-        <iframe
-            ref={iframeRef}
-            title="Diagram preview"
-            className="pointer-events-none overflow-hidden border-0 bg-transparent"
-            sandbox=""
-            onLoad={onLoad}
-            style={{
-                width: dims.width,
-                height: dims.height,
-                background: 'transparent',
-                colorScheme: 'normal',
-                overflow: 'hidden',
-            }}
-        />
+        <div role="img" aria-label={label}>
+            <iframe
+                ref={iframeRef}
+                title="Diagram preview"
+                className="pointer-events-none overflow-hidden border-0 bg-transparent"
+                sandbox=""
+                tabIndex={-1}
+                aria-hidden
+                inert
+                onLoad={onLoad}
+                style={{
+                    width: dims.width,
+                    height: dims.height,
+                    background: 'transparent',
+                    colorScheme: 'normal',
+                    overflow: 'hidden',
+                }}
+            />
+        </div>
     )
 })
 
 /** Isolated iframe preview — keeps Mermaid &lt;style&gt; out of the app document. */
-const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
+const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds, onBoundsMeasured, label = DEFAULT_LABEL }: DiagramIframeProps) {
     const [activeSlot, setActiveSlot] = useState(0)
     const [slots, setSlots] = useState<[SlotState, SlotState]>(() => [
         { svg, loadId: 0 },
@@ -168,7 +177,9 @@ const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds,
     if (!activeDims) return null
 
     return (
-        <div className="relative overflow-hidden" style={{ width: activeDims.width, height: activeDims.height }}>
+        // One named image for assistive tech. The frames inside are only how it is drawn, so they are
+        // hidden from screen readers and kept out of the Tab order, the stale buffer included.
+        <div role="img" aria-label={label} className="relative overflow-hidden" style={{ width: activeDims.width, height: activeDims.height }}>
             {([0, 1] as const).map((slotIndex) => {
                 const slot = slots[slotIndex]
                 const isActive = slotIndex === activeSlot
@@ -182,6 +193,9 @@ const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds,
                         title="Diagram preview"
                         className="pointer-events-none absolute top-0 left-0 overflow-hidden border-0 bg-transparent"
                         sandbox=""
+                        tabIndex={-1}
+                        aria-hidden
+                        inert
                         srcDoc={svgIframeDocument(slot.svg, dims.offsetX, dims.offsetY)}
                         onLoad={(e) => measureSlot(slotIndex, e)}
                         style={{
