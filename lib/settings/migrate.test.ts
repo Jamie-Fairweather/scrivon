@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createDefaultSettings } from '@/lib/settings/defaults'
+import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import {
     dualWriteLegacyAutosave,
     dualWriteLegacyLayout,
     dualWriteLegacyTheme,
+    keybindOverrides,
     mergeStoredSettings,
     migrateLegacySettings,
 } from '@/lib/settings/migrate'
@@ -107,6 +108,48 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['palette.open']).toEqual([{ key: 'F1' }])
     })
 
+    it('lets a shortcut the user chose win over a default that uses the same chord', () => {
+        // The user gave Ctrl+R to Toggle editor; Fit diagram (never changed) has Ctrl+R by default.
+        const merged = mergeStoredSettings({ keybinds: { 'view.toggleEditor': [{ key: 'r', ctrl: true }] } }, false)
+
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'r', ctrl: true }])
+        expect(merged.keybinds['view.fitDiagram']).toEqual([])
+        expect(merged.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('reads entries of a whole stored keymap that match the defaults as unchanged', () => {
+        const stored = createDefaultKeybinds(false)
+        stored['view.toggleEditor'] = [{ key: 'k', ctrl: true, alt: true }]
+
+        const merged = mergeStoredSettings({ keybinds: stored }, false)
+
+        expect(merged.keybinds).toEqual({ ...createDefaultKeybinds(false), 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] })
+        expect(keybindOverrides(merged.keybinds, createDefaultKeybinds(false))).toEqual({
+            'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }],
+        })
+    })
+
+    it('keeps the default when stored chords are unreadable or modifier-only', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.fitDiagram': [{ code: 'KeyR', mods: ['ctrl'] }],
+                    'view.toggleEditor': [{ key: 'Control', ctrl: true }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.fitDiagram']).toEqual([{ key: 'r', ctrl: true }])
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('keeps a shortcut the user cleared unassigned', () => {
+        const merged = mergeStoredSettings({ keybinds: { 'document.save': [] } }, false)
+
+        expect(merged.keybinds['document.save']).toEqual([])
+    })
+
     it('clamps numeric settings to allowed ranges', () => {
         const merged = mergeStoredSettings(
             {
@@ -123,6 +166,19 @@ describe('mergeStoredSettings', () => {
         expect(merged.editor.tabSize).toBe(8)
         expect(merged.layout.editorWidth).toBe(2000)
         expect(merged.workspace.maxRecentFolders).toBe(50)
+    })
+})
+
+describe('keybindOverrides', () => {
+    it('keeps only the shortcuts that differ from the defaults, with [] for cleared ones', () => {
+        const defaults = createDefaultKeybinds(false)
+        const keybinds = { ...defaults, 'document.save': [], 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] }
+
+        expect(keybindOverrides(defaults, defaults)).toEqual({})
+        expect(keybindOverrides(keybinds, defaults)).toEqual({
+            'document.save': [],
+            'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }],
+        })
     })
 })
 

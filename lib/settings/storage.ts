@@ -1,9 +1,10 @@
 import { isMacPlatform } from '@/lib/settings/chord-utils'
-import { createDefaultSettings } from '@/lib/settings/defaults'
+import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import {
     dualWriteLegacyAutosave,
     dualWriteLegacyLayout,
     dualWriteLegacyTheme,
+    keybindOverrides,
     mergeStoredSettings,
     migrateLegacySettings,
 } from '@/lib/settings/migrate'
@@ -44,7 +45,9 @@ export function saveSettings(settings: AppSettings): void {
     if (!settings || typeof settings !== 'object') return
 
     try {
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+        // Only changed shortcuts are stored, so later default changes still reach this user.
+        const keybinds = keybindOverrides(settings.keybinds, createDefaultKeybinds(isMacPlatform()))
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...settings, keybinds }))
         dualWriteLegacyTheme(settings.theme.id)
         dualWriteLegacyLayout(settings.layout)
         dualWriteLegacyAutosave(settings.autosave.enabled)

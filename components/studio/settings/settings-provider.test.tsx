@@ -115,6 +115,34 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
+    it('does not reset a shortcut to a default another action now uses', () => {
+        const { result } = renderSettings()
+        let message: string | null = null
+
+        act(() => {
+            result.current.setKeybindChords('document.save', [])
+        })
+        act(() => {
+            result.current.setKeybindChords('settings.open', [{ key: 's', ctrl: true }])
+        })
+        act(() => {
+            message = result.current.resetKeybind('document.save')
+        })
+
+        expect(message).toBe('Ctrl+S is already assigned to Open settings')
+        expect(result.current.settings.keybinds['document.save']).toEqual([])
+        expect(result.current.settings.keybinds['settings.open']).toEqual([{ key: 's', ctrl: true }])
+
+        act(() => {
+            result.current.resetKeybind('settings.open')
+        })
+        act(() => {
+            message = result.current.resetKeybind('document.save')
+        })
+        expect(message).toBeNull()
+        expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
     it('reloads the latest settings after a restart', () => {
         const { result, unmount } = renderSettings()
 

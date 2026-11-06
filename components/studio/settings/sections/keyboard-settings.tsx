@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { findKeybindConflicts } from '@/lib/settings/conflicts'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 import { KeybindCapture, KeybindDisplay } from '@/components/studio/settings/keybind-capture'
@@ -13,6 +14,14 @@ export function KeyboardSettings() {
     const [error, setError] = useState<string | null>(null)
     const editButtons = useRef(new Map<KeybindActionId, HTMLButtonElement>())
     const returnFocusTo = useRef<KeybindActionId | null>(null)
+    const conflicts = useMemo(() => findKeybindConflicts(settings.keybinds), [settings.keybinds])
+
+    /** Labels of the other actions that share a chord with this one. */
+    const sharedWith = (actionId: KeybindActionId): string[] =>
+        KEYBIND_ACTIONS.filter(
+            (other) =>
+                other.id !== actionId && conflicts.some((conflict) => conflict.actionIds.includes(actionId) && conflict.actionIds.includes(other.id))
+        ).map((other) => other.label)
 
     // The recorder button goes away when recording ends, so put focus back on that row's Edit button.
     useEffect(() => {
@@ -54,12 +63,18 @@ export function KeyboardSettings() {
                 {KEYBIND_ACTIONS.map((action) => {
                     const chords = settings.keybinds[action.id] ?? []
                     const isEditing = editingId === action.id
+                    const clashes = sharedWith(action.id)
 
                     return (
                         <div key={action.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
                             <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium">{action.label}</p>
                                 <p className="text-xs text-muted-foreground">{action.category}</p>
+                                {clashes.length > 0 ? (
+                                    <p className="text-xs text-warning-foreground">
+                                        Same shortcut as {clashes.join(', ')}. Only one of them will run.
+                                    </p>
+                                ) : null}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -96,7 +111,7 @@ export function KeyboardSettings() {
                                                 Clear
                                             </Button>
                                         ) : null}
-                                        <Button type="button" size="sm" variant="ghost" onClick={() => resetKeybind(action.id)}>
+                                        <Button type="button" size="sm" variant="ghost" onClick={() => setError(resetKeybind(action.id))}>
                                             Reset
                                         </Button>
                                     </>

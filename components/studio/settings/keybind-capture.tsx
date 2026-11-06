@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { normalizeChord, physicalKeyFallback } from '@/lib/settings/chord-utils'
+import { isModifierKey, normalizeChord, physicalKeyFallback } from '@/lib/settings/chord-utils'
 import { describeDisallowedChord } from '@/lib/settings/conflicts'
 import { formatChord } from '@/lib/settings/format-keybind'
 import type { KeybindChord } from '@/lib/settings/types'
@@ -13,10 +13,6 @@ type KeybindCaptureProps = {
     onCancel: () => void
     /** Called with a short reason when the pressed chord can't be a shortcut; recording carries on. */
     onReject: (message: string) => void
-}
-
-function isModifierOnly(event: KeyboardEvent): boolean {
-    return event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta'
 }
 
 export function KeybindCapture({ active, onCapture, onCancel, onReject }: KeybindCaptureProps) {
@@ -41,7 +37,7 @@ export function KeybindCapture({ active, onCapture, onCancel, onReject }: Keybin
                 return
             }
 
-            if (isModifierOnly(event)) return
+            if (isModifierKey(event.key)) return
 
             const chord = normalizeChord({
                 // Record the physical key on non-Latin layouts and for Shift+digit, so it matches on any layout.

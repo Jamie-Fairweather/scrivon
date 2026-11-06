@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
+import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 
 function row(label: string): HTMLElement {
     return screen.getByText(label).parentElement!.parentElement!
@@ -20,8 +21,10 @@ function renderKeyboardSettings() {
 }
 
 describe('KeyboardSettings recording', () => {
+    let store: Map<string, string>
+
     beforeEach(() => {
-        const store = new Map<string, string>()
+        store = new Map<string, string>()
         vi.stubGlobal('localStorage', {
             getItem: (key: string) => store.get(key) ?? null,
             setItem: (key: string, value: unknown) => {
@@ -91,5 +94,27 @@ describe('KeyboardSettings recording', () => {
         fireEvent.click(within(explorer).getByRole('button', { name: 'Edit' }))
         press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' })
         expect(within(explorer).getByText('Ctrl+Shift+1')).toBeInTheDocument()
+    })
+
+    it('warns on both rows when two shortcuts share a chord', () => {
+        const chord = { key: 'r', ctrl: true, alt: true }
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'view.toggleEditor': [chord], 'view.fitDiagram': [chord] } }))
+        renderKeyboardSettings()
+
+        expect(within(row('Toggle editor')).getByText('Same shortcut as Fit diagram to screen. Only one of them will run.')).toBeInTheDocument()
+        expect(within(row('Fit diagram to screen')).getByText('Same shortcut as Toggle editor. Only one of them will run.')).toBeInTheDocument()
+        expect(within(row('Toggle explorer')).queryByText(/Same shortcut/)).not.toBeInTheDocument()
+    })
+
+    it('shows why Reset did nothing when the default is taken', () => {
+        renderKeyboardSettings()
+
+        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: 'Clear' }))
+        fireEvent.click(within(row('Toggle explorer')).getByRole('button', { name: 'Edit' }))
+        press('e', { ctrlKey: true })
+        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: 'Reset' }))
+
+        expect(screen.getByText('Ctrl+E is already assigned to Toggle explorer')).toBeInTheDocument()
+        expect(within(row('Toggle editor')).getByText('Not assigned')).toBeInTheDocument()
     })
 })

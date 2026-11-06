@@ -21,6 +21,16 @@ export function chordsEqual(a: KeybindChord, b: KeybindChord): boolean {
     )
 }
 
+/** Whether two chord lists hold the same chords in the same order. */
+export function chordListsEqual(a: readonly KeybindChord[], b: readonly KeybindChord[]): boolean {
+    return a.length === b.length && a.every((chord, index) => chordsEqual(chord, b[index]))
+}
+
+/** Shift, Ctrl, Alt and Cmd on their own are not a shortcut. */
+export function isModifierKey(key: string): boolean {
+    return key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta'
+}
+
 export function normalizeChord(chord: KeybindChord): KeybindChord {
     return {
         key: chord.key,

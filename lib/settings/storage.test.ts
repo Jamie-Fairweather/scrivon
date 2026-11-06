@@ -81,6 +81,18 @@ describe('loadSettings and saveSettings with localStorage', () => {
         expect(store.get(SETTINGS_STORAGE_KEY)).toContain('tokyo-night')
     })
 
+    it('saves only the shortcuts the user changed, so defaults stay up to date', () => {
+        const settings = createDefaultSettings(false)
+        settings.keybinds['view.toggleEditor'] = [{ key: 'k', ctrl: true, alt: true }]
+        settings.keybinds['document.save'] = []
+
+        saveSettings(settings)
+
+        const stored = JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as { keybinds: Record<string, unknown> }
+        expect(stored.keybinds).toEqual({ 'document.save': [], 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] })
+        expect(loadSettings().keybinds).toEqual(settings.keybinds)
+    })
+
     it('refuses to overwrite stored settings with a missing value', () => {
         const settings = createDefaultSettings(false)
         settings.editor.fontSize = 20

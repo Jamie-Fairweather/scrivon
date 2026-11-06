@@ -1,6 +1,6 @@
 import { isAppThemeId, parseStoredTheme } from '@/lib/theme/catalog'
 import { createDefaultSettings } from '@/lib/settings/defaults'
-import { isAllowedChord, isMacPlatform } from '@/lib/settings/chord-utils'
+import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
@@ -22,7 +22,7 @@ function readNumber(value: string | null, defaultValue: number, min: number, max
 function normalizeChord(raw: unknown): KeybindChord | null {
     if (!raw || typeof raw !== 'object') return null
     const value = raw as Record<string, unknown>
-    if (typeof value.key !== 'string' || value.key.length === 0) return null
+    if (typeof value.key !== 'string' || value.key.length === 0 || isModifierKey(value.key)) return null
 
     return {
         key: value.key,
@@ -33,21 +33,53 @@ function normalizeChord(raw: unknown): KeybindChord | null {
     }
 }
 
+/**
+ * Reads stored shortcuts on top of the current defaults. Only the actions the user changed are
+ * stored (see keybindOverrides), so a new or changed default reaches everyone who kept the old one.
+ * Older versions stored the whole keymap: entries that equal the default count as unchanged.
+ * When a default uses a chord the user gave to another action, the user's choice wins and the
+ * default is dropped, so two actions never silently share a chord.
+ */
 function normalizeKeybinds(raw: unknown, defaults: KeybindBindings): KeybindBindings {
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Record<string, unknown>
     const next = { ...defaults }
+    const changed = new Set<KeybindActionId>()
 
     for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
         const chords = source[actionId]
         if (!Array.isArray(chords)) continue
+        const readable = chords.map(normalizeChord).filter((chord): chord is KeybindChord => chord !== null)
+        // Nothing readable (an unknown format): keep the default rather than leaving the action unassigned.
+        if (chords.length > 0 && readable.length === 0) continue
         // Drop chords that would break typing or Tab (plain letters, Tab, Enter…); the action is left unassigned.
-        const normalized = chords.map(normalizeChord).filter((chord): chord is KeybindChord => chord !== null && isAllowedChord(chord))
-        next[actionId] = normalized
+        const allowed = readable.filter(isAllowedChord)
+        if (chordListsEqual(allowed, defaults[actionId])) continue
+        next[actionId] = allowed
+        changed.add(actionId)
+    }
+
+    const taken = [...changed].flatMap((actionId) => next[actionId])
+    for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
+        if (changed.has(actionId)) continue
+        next[actionId] = next[actionId].filter((chord) => !taken.some((userChord) => chordsEqual(userChord, chord)))
     }
 
     return next
+}
+
+/**
+ * The shortcuts to save: only actions whose chords differ from the default, with [] for one the
+ * user cleared. Actions left out load with their current default.
+ */
+export function keybindOverrides(keybinds: KeybindBindings, defaults: KeybindBindings): Partial<KeybindBindings> {
+    const overrides: Partial<KeybindBindings> = {}
+    for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
+        const chords = keybinds[actionId] ?? []
+        if (!chordListsEqual(chords, defaults[actionId])) overrides[actionId] = chords
+    }
+    return overrides
 }
 
 function normalizeWordWrap(value: unknown): EditorWordWrap {

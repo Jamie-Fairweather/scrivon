@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { formatChord } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import { loadSettings, saveSettings } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindChord } from '@/lib/settings/types'
@@ -26,12 +27,17 @@ type AppSettingsContextValue = {
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
     setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => string | null
-    resetKeybind: (actionId: KeybindActionId) => void
+    /** Puts the default back; returns why it can't when another action uses that chord. */
+    resetKeybind: (actionId: KeybindActionId) => string | null
     resetAllKeybinds: () => void
     resetAllSettings: () => void
 }
 
 const AppSettingsContext = createContext<AppSettingsContextValue | null>(null)
+
+function actionLabel(actionId: KeybindActionId): string {
+    return KEYBIND_ACTIONS.find((action) => action.id === actionId)?.label ?? actionId
+}
 
 function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, delayMs))
@@ -131,10 +137,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 if (disallowed) return disallowed
 
                 const conflict = wouldChordConflict(settingsRef.current.keybinds, actionId, chord)
-                if (conflict) {
-                    const label = KEYBIND_ACTIONS.find((action) => action.id === conflict)?.label ?? conflict
-                    return `Already assigned to ${label}`
-                }
+                if (conflict) return `Already assigned to ${actionLabel(conflict)}`
             }
 
             updateSettings((current) => ({
@@ -147,12 +150,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     )
 
     const resetKeybind = useCallback(
-        (actionId: KeybindActionId) => {
-            const defaults = createDefaultKeybinds(isMacPlatform())
+        (actionId: KeybindActionId): string | null => {
+            const defaults = createDefaultKeybinds(isMacPlatform())[actionId] ?? []
+            // Never put a default back on top of a chord another action now uses.
+            for (const chord of defaults) {
+                const conflict = wouldChordConflict(settingsRef.current.keybinds, actionId, chord)
+                if (conflict) return `${formatChord(chord)} is already assigned to ${actionLabel(conflict)}`
+            }
+
             updateSettings((current) => ({
                 ...current,
-                keybinds: { ...current.keybinds, [actionId]: defaults[actionId] ?? [] },
+                keybinds: { ...current.keybinds, [actionId]: defaults },
             }))
+            return null
         },
         [updateSettings]
     )
