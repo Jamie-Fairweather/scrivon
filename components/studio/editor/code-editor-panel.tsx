@@ -55,9 +55,11 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     },
     scrollbar: {
         vertical: 'auto',
-        horizontal: 'hidden',
+        // Only appears when a line is wider than the pane (word wrap off or at a column).
+        horizontal: 'auto',
         useShadows: false,
         verticalScrollbarSize: 10,
+        horizontalScrollbarSize: 10,
     },
 }
 

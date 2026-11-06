@@ -325,3 +325,11 @@ describe('CodeEditorPanel width', () => {
         }
     })
 })
+
+describe('CodeEditorPanel scrolling', () => {
+    it('shows a horizontal scrollbar when long lines are not wrapped', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options.scrollbar).toMatchObject({ horizontal: 'auto' })
+    })
+})
