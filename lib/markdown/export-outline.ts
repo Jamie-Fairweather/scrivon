@@ -7,17 +7,21 @@ export type PdfExportOutlineItem = {
     text: string
 }
 
-function slugify(text: string, used: Map<string, number>): string {
+/**
+ * GitHub's heading id (the github-slugger rules), so a `#…` link written for GitHub reaches
+ * the same heading here: lower-cased, punctuation and symbols dropped, letters of any script
+ * kept, and each space its own `-`. A repeat gets the first free `-1`, `-2`, … suffix.
+ */
+function slugify(text: string, used: Set<string>): string {
     const base =
         text
             .toLowerCase()
-            .replace(/[^\w\s-]/g, '')
-            .trim()
-            .replace(/\s+/g, '-')
-            .replace(/-+/g, '-') || 'section'
-    const count = used.get(base) ?? 0
-    used.set(base, count + 1)
-    return count === 0 ? base : `${base}-${count}`
+            .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, '')
+            .replace(/ /g, '-') || 'section'
+    let slug = base
+    for (let n = 1; used.has(slug); n++) slug = `${base}-${n}`
+    used.add(slug)
+    return slug
 }
 
 /** The plain text of an mdast node: its inline markup dropped, image and break nodes left out. */
@@ -34,7 +38,7 @@ export function nodeText(node: { value?: string; children?: unknown[] }): string
  * lines, so `#` inside fenced code never leaks in and setext headings count.
  */
 export function collectPdfExportOutline(tree: Root): PdfExportOutlineItem[] {
-    const used = new Map<string, number>()
+    const used = new Set<string>()
     const items: PdfExportOutlineItem[] = []
     visit(tree, 'heading', (node: Heading) => {
         const text = nodeText(node).trim()
