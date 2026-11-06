@@ -63,7 +63,7 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 
 ### Use a release
 
-1. Download the latest installer from [Releases](https://github.com/Jamie-Fairweather/scrivon/releases).
+1. Download `Scrivon_<version>_x64-setup.exe` from the [latest release](https://github.com/Jamie-Fairweather/scrivon/releases/latest). It installs Scrivon for your Windows user only, so it needs no admin rights.
     - The installers aren't code-signed yet, so Windows may show **Windows protected your PC** the first time. Click **More info**, then **Run anyway**. On PCs with Smart App Control turned on, Windows may block the installer completely.
     - Scrivon needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it. If it's missing, the installer adds it, which needs an internet connection. On a PC without internet access, or on Windows 10 LTSC or Windows Server, install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) ("Evergreen Standalone Installer") first.
 2. Launch Scrivon and choose **Open Folder**.

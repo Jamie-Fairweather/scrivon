@@ -46,16 +46,9 @@ jobs:
               run: |
                   # gh release view also finds drafts; the releases/tags API does not.
                   read -r id draft prerelease < <(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId,isDraft,isPrerelease --jq '"\(.databaseId) \(.isDraft) \(.isPrerelease)"')
-                  version="${TAG#v}"
                   echo "id=$id" >> "$GITHUB_OUTPUT"
                   echo "draft=$draft" >> "$GITHUB_OUTPUT"
                   echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-                  # WiX/MSI only supports numeric pre-release segments (e.g. 1.0.0-1), not 1.0.0-rc.1
-                  if [ "$prerelease" = "true" ] || echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-.+'; then
-                    echo "bundles=nsis" >> "$GITHUB_OUTPUT"
-                  else
-                    echo "bundles=msi,nsis" >> "$GITHUB_OUTPUT"
-                  fi
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAG: ${{ inputs.tag }}
@@ -73,7 +66,9 @@ jobs:
                   tagName: ${{ inputs.tag }}
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
-                  args: --bundles ${{ steps.gh_release.outputs.bundles }}
+                  # Only the per-user setup.exe ships. Explicit, so rebuilding an older tag (whose config
+                  # still builds every target) doesn't add an MSI, or fail on one for an rc version.
+                  args: --bundles nsis
 
             - name: Add release notes to updater manifest
               shell: bash

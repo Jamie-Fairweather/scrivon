@@ -30,7 +30,9 @@
     },
     "bundle": {
         "active": true,
-        "targets": "all",
+        "targets": [
+            "nsis"
+        ],
         "createUpdaterArtifacts": true,
         "publisher": "github",
         "copyright": "Copyright (c) 2026 Jamie Fairweather",

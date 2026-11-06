@@ -30,10 +30,7 @@ Push to `main` or `rc` when commits since the last tag warrant a version bump. T
 
 If the Windows build fails, the release stays a draft. Fix the cause, then re-run the failed job or run **Actions → Build release artifacts (manual)** with the tag. Either one publishes the draft when it finishes.
 
-| Release type                          | Windows assets                                                               |
-| ------------------------------------- | ---------------------------------------------------------------------------- |
-| Stable (`main`, e.g. `1.0.0`)         | `.msi` + `.exe` (NSIS)                                                       |
-| Pre-release (`rc`, e.g. `1.0.0-rc.1`) | `.exe` only — WiX/MSI does not support semver pre-release labels like `rc.1` |
+Stable and pre-releases ship one installer, `Scrivon_<version>_x64-setup.exe` (NSIS), plus its `.sig` and `latest.json` for the updater. It installs for the current user, with no admin prompt. There is no `.msi` any more: it installed a second, per-machine copy next to the setup `.exe` one, and the download counts show no one used it. `bundle.targets` in [`tauri.conf.json`](../src-tauri/tauri.conf.json) and the `--bundles nsis` in both release workflows keep it that way; the WiX settings stay pinned in case an MSI is ever needed again.
 
 To rebuild installers for an existing tag (e.g. `v1.0.0`), run **Actions → Build release artifacts (manual)** and enter the tag name.
 
@@ -187,15 +184,12 @@ If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If nei
 bun run tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
-On a pre-release version such as `1.5.0-rc.1`, also add `--bundles nsis`: the MSI format only accepts numbers in a version, so the MSI step fails.
-
 ### Windows code signing
 
 The installers and `scrivon.exe` are **not** code-signed (Authenticode) yet. The `TAURI_SIGNING_*` secrets above only sign updates for the in-app updater, and Windows ignores that signature. Until releases are signed:
 
 - SmartScreen shows **Windows protected your PC** on first install, and users have to click **More info**, then **Run anyway**.
 - PCs with Smart App Control turned on block Scrivon completely.
-- The MSI's admin prompt says **Publisher: Unknown**.
 
 There is no macOS build, so there is nothing to notarize.
 
@@ -225,7 +219,7 @@ Adding secrets alone does nothing. Signing needs a signing service, a Tauri conf
     - add the `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` and `AZURE_TENANT_ID` secrets to that step's `env`;
     - add `--config src-tauri/tauri.signing.conf.json` to its `args` (the path is relative to the repo root, where `bun run tauri` runs).
 
-    Tauri then signs `scrivon.exe`, the installer plugins, the uninstaller, the setup `.exe` and the `.msi`.
+    Tauri then signs `scrivon.exe`, the installer plugins, the uninstaller and the setup `.exe`.
 
 4. **Check a release**: right-click a downloaded installer → **Properties** → **Digital Signatures**, or run `signtool verify /pa <file>`. SmartScreen still needs time to trust a newly signed app, but that trust now carries over from release to release.
 
