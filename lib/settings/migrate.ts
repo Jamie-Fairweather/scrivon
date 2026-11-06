@@ -76,17 +76,31 @@ function normalizeKeybinds(raw: unknown, defaults: KeybindBindings): KeybindBind
     return next
 }
 
+/** The action's default chords that no other action has right now. */
+function freeDefaultChords(keybinds: KeybindBindings, defaults: KeybindBindings, actionId: KeybindActionId): KeybindChord[] {
+    const others = (Object.keys(defaults) as KeybindActionId[]).filter((id) => id !== actionId)
+    return defaults[actionId].filter((chord) => !others.some((id) => (keybinds[id] ?? []).some((held) => chordsEqual(held, chord))))
+}
+
 /**
- * The shortcuts to save: only actions whose chords differ from the default, with [] for one the
- * user cleared. Actions left out load with their current default.
+ * The shortcuts to save: only actions the user changed, with [] for one the user cleared.
+ * Actions left out load with their current default. An action on its default less a chord
+ * another action has (dropped when loading) is not a change: saving it as [] would leave it
+ * unassigned for good, even once that chord is free again.
  */
 export function keybindOverrides(keybinds: KeybindBindings, defaults: KeybindBindings): Partial<KeybindBindings> {
     const overrides: Partial<KeybindBindings> = {}
     for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
         const chords = keybinds[actionId] ?? []
-        if (!chordListsEqual(chords, defaults[actionId])) overrides[actionId] = chords
+        if (chordListsEqual(chords, defaults[actionId]) || chordListsEqual(chords, freeDefaultChords(keybinds, defaults, actionId))) continue
+        overrides[actionId] = chords
     }
     return overrides
+}
+
+/** The shortcuts that saved changes stand for: the defaults with the changes on top, as loading reads them. */
+export function keybindsFromOverrides(overrides: Partial<KeybindBindings>, defaults: KeybindBindings): KeybindBindings {
+    return normalizeKeybinds(overrides, defaults)
 }
 
 function normalizeWordWrap(value: unknown): EditorWordWrap {

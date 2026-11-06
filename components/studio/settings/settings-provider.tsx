@@ -7,8 +7,9 @@ import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict }
 import { chordsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
 import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
-import type { AppSettings, KeybindActionId, KeybindChord } from '@/lib/settings/types'
+import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
 /** Why a shortcut change was refused. */
 export type KeybindRefusal = {
@@ -161,6 +162,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }))
     }, [updateSettings])
 
+    /**
+     * Changes shortcuts the way they're saved: as the user's changes on top of the defaults. An
+     * action left on its default then gets a default chord back as soon as no other action has
+     * it, as it would after a restart, instead of being saved as cleared.
+     */
+    const changeKeybinds = useCallback(
+        (change: (overrides: Partial<KeybindBindings>) => Partial<KeybindBindings>) => {
+            updateSettings((current) => {
+                const defaults = createDefaultKeybinds(isMacPlatform())
+                return { ...current, keybinds: keybindsFromOverrides(change(keybindOverrides(current.keybinds, defaults)), defaults) }
+            })
+        },
+        [updateSettings]
+    )
+
     const setKeybindChords = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
             const unusable = describeUnusableChords(chords)
@@ -171,13 +187,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 if (conflict) return { message: `${formatChord(chord)} is already assigned to ${actionLabel(conflict)}`, reassign: chords }
             }
 
-            updateSettings((current) => ({
-                ...current,
-                keybinds: { ...current.keybinds, [actionId]: chords },
-            }))
+            changeKeybinds((overrides) => ({ ...overrides, [actionId]: chords }))
             return null
         },
-        [updateSettings]
+        [changeKeybinds]
     )
 
     const resetKeybind = useCallback(
@@ -189,13 +202,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 if (conflict) return { message: `${formatChord(chord)} is already assigned to ${actionLabel(conflict)}`, reassign: defaults }
             }
 
-            updateSettings((current) => ({
-                ...current,
-                keybinds: { ...current.keybinds, [actionId]: defaults },
-            }))
+            changeKeybinds((overrides) => {
+                const next = { ...overrides }
+                delete next[actionId]
+                return next
+            })
             return null
         },
-        [updateSettings]
+        [changeKeybinds]
     )
 
     const reassignKeybind = useCallback(
@@ -203,18 +217,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             const unusable = describeUnusableChords(chords)
             if (unusable) return { message: unusable }
 
-            updateSettings((current) => {
-                const keybinds = { ...current.keybinds }
-                for (const id of Object.keys(keybinds) as KeybindActionId[]) {
-                    if (id !== actionId && keybinds[id])
-                        keybinds[id] = keybinds[id].filter((existing) => !chords.some((chord) => chordsEqual(existing, chord)))
+            // Actions on their default lose the chord while it's taken; changed ones lose it for good.
+            changeKeybinds((overrides) => {
+                const next = { ...overrides }
+                for (const id of Object.keys(next) as KeybindActionId[]) {
+                    next[id] = next[id]?.filter((existing) => !chords.some((chord) => chordsEqual(existing, chord)))
                 }
-                keybinds[actionId] = chords
-                return { ...current, keybinds }
+                next[actionId] = chords
+                return next
             })
             return null
         },
-        [updateSettings]
+        [changeKeybinds]
     )
 
     const resetAllKeybinds = useCallback(() => {

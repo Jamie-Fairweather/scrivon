@@ -160,13 +160,55 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
         expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([])
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
-        expect(stored().keybinds['view.toggleExplorer']).toEqual([])
+        // Not saved as cleared: it loads without Ctrl+B only while another action has it.
+        expect(stored().keybinds).not.toHaveProperty('view.toggleExplorer')
 
         act(() => {
             refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'c', ctrl: true }])
         })
         expect(refusal).toEqual({ message: 'Ctrl+C is used by the editor' })
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+
+        act(() => {
+            result.current.resetKeybind('view.toggleEditor')
+        })
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+    })
+
+    it('gives a default back once its chord is free, instead of saving it as cleared', () => {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'view.toggleExplorer': [{ key: 's', ctrl: true }] } }))
+        const { result, unmount } = renderSettings()
+        expect(result.current.settings.keybinds['document.save']).toEqual([])
+
+        // Any other change saves settings; Save's missing default must not be saved as "cleared".
+        act(() => {
+            result.current.setEditorWidth(500)
+        })
+        expect(stored().keybinds).toEqual({ 'view.toggleExplorer': [{ key: 's', ctrl: true }] })
+
+        act(() => {
+            result.current.resetKeybind('view.toggleExplorer')
+        })
+        expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+        expect(stored().keybinds).toEqual({})
+        unmount()
+
+        expect(loadSettings().keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('keeps a shortcut the user cleared cleared', () => {
+        const { result, unmount } = renderSettings()
+
+        act(() => {
+            result.current.setKeybindChords('document.save', [])
+        })
+        act(() => {
+            result.current.setEditorWidth(500)
+        })
+        unmount()
+
+        expect(stored().keybinds).toEqual({ 'document.save': [] })
+        expect(loadSettings().keybinds['document.save']).toEqual([])
     })
 
     it('keeps export profiles when restoring defaults', () => {

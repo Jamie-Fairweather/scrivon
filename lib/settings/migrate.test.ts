@@ -5,6 +5,7 @@ import {
     dualWriteLegacyLayout,
     dualWriteLegacyTheme,
     keybindOverrides,
+    keybindsFromOverrides,
     mergeStoredSettings,
     migrateLegacySettings,
 } from '@/lib/settings/migrate'
@@ -225,6 +226,19 @@ describe('keybindOverrides', () => {
             'document.save': [],
             'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }],
         })
+    })
+
+    it('leaves out a default dropped because another action has its chord', () => {
+        const defaults = createDefaultKeybinds(false)
+        // Loaded from a save where Toggle explorer was given Ctrl+S.
+        const keybinds = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 's', ctrl: true }] } }, false).keybinds
+        expect(keybinds['document.save']).toEqual([])
+
+        const overrides = keybindOverrides(keybinds, defaults)
+
+        expect(overrides).toEqual({ 'view.toggleExplorer': [{ key: 's', ctrl: true }] })
+        expect(keybindsFromOverrides(overrides, defaults)).toEqual(keybinds)
+        expect(keybindsFromOverrides({}, defaults)['document.save']).toEqual([{ key: 's', ctrl: true }])
     })
 })
 
