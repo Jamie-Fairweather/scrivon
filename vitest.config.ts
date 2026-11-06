@@ -46,7 +46,7 @@ export default defineConfig({
                 extends: true,
                 test: {
                     name: 'components',
-                    include: ['components/**/*.test.tsx', 'lib/**/*.test.tsx'],
+                    include: ['components/**/*.test.tsx', 'lib/**/*.test.tsx', 'vitest/**/*.test.tsx'],
                     environment: 'happy-dom',
                     setupFiles: ['./vitest.setup.ts'],
                 },
