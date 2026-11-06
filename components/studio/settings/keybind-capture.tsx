@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { normalizeChord } from '@/lib/settings/chord-utils'
+import { describeDisallowedChord } from '@/lib/settings/conflicts'
 import { formatChord } from '@/lib/settings/format-keybind'
 import type { KeybindChord } from '@/lib/settings/types'
 import { Button } from '@/components/ui/button'
@@ -10,13 +11,15 @@ type KeybindCaptureProps = {
     active: boolean
     onCapture: (chord: KeybindChord | null) => void
     onCancel: () => void
+    /** Called with a short reason when the pressed chord can't be a shortcut; recording carries on. */
+    onReject: (message: string) => void
 }
 
 function isModifierOnly(event: KeyboardEvent): boolean {
     return event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta'
 }
 
-export function KeybindCapture({ active, onCapture, onCancel }: KeybindCaptureProps) {
+export function KeybindCapture({ active, onCapture, onCancel, onReject }: KeybindCaptureProps) {
     const buttonRef = useRef<HTMLButtonElement>(null)
 
     useEffect(() => {
@@ -31,27 +34,35 @@ export function KeybindCapture({ active, onCapture, onCancel }: KeybindCapturePr
             event.preventDefault()
             event.stopImmediatePropagation()
 
-            if (event.key === 'Escape') {
+            // Esc, and plain Tab / Shift+Tab (the usual way to move on), stop recording instead of being recorded.
+            const isPlainTab = event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey
+            if (event.key === 'Escape' || isPlainTab) {
                 onCancel()
                 return
             }
 
             if (isModifierOnly(event)) return
 
-            onCapture(
-                normalizeChord({
-                    key: event.key,
-                    ctrl: event.ctrlKey || undefined,
-                    meta: event.metaKey || undefined,
-                    shift: event.shiftKey || undefined,
-                    alt: event.altKey || undefined,
-                })
-            )
+            const chord = normalizeChord({
+                key: event.key,
+                ctrl: event.ctrlKey || undefined,
+                meta: event.metaKey || undefined,
+                shift: event.shiftKey || undefined,
+                alt: event.altKey || undefined,
+            })
+
+            const problem = describeDisallowedChord(chord)
+            if (problem) {
+                onReject(problem)
+                return
+            }
+
+            onCapture(chord)
         }
 
         window.addEventListener('keydown', handleKeyDown, { capture: true })
         return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
-    }, [active, onCapture, onCancel])
+    }, [active, onCapture, onCancel, onReject])
 
     if (!active) return null
 

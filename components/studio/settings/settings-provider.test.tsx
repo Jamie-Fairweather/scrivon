@@ -93,6 +93,23 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.activeSection).toBe('keyboard')
     })
 
+    it('refuses shortcuts that would break typing, and in-use shortcuts', () => {
+        const { result } = renderSettings()
+        let message: string | null = null
+
+        act(() => {
+            message = result.current.setKeybindChords('view.toggleEditor', [{ key: 'Tab' }])
+        })
+        expect(message).toMatch(/can't be used in shortcuts/)
+
+        act(() => {
+            message = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true }])
+        })
+        expect(message).toBe('Already assigned to Toggle explorer')
+
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
     it('reloads the latest settings after a restart', () => {
         const { result, unmount } = renderSettings()
 

@@ -1,0 +1,81 @@
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
+import { SettingsProvider } from '@/components/studio/settings/settings-provider'
+
+function row(label: string): HTMLElement {
+    return screen.getByText(label).parentElement!.parentElement!
+}
+
+function press(key: string, init: KeyboardEventInit = {}) {
+    fireEvent.keyDown(document.activeElement ?? document.body, { key, ...init })
+}
+
+function renderKeyboardSettings() {
+    return render(
+        <SettingsProvider>
+            <KeyboardSettings />
+        </SettingsProvider>
+    )
+}
+
+describe('KeyboardSettings recording', () => {
+    beforeEach(() => {
+        const store = new Map<string, string>()
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: unknown) => {
+                store.set(key, String(value))
+            },
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it('stops recording on a conflict, so a following Tab is not recorded', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        press('b', { ctrlKey: true })
+
+        expect(screen.getByText('Already assigned to Toggle explorer')).toBeInTheDocument()
+        expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
+
+        press('Tab')
+
+        expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
+        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: 'Edit' }))
+    })
+
+    it('treats Tab as cancel and returns focus to the Edit button', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
+        press('Tab')
+
+        expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
+        expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
+        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: 'Edit' }))
+    })
+
+    it('refuses a plain letter and keeps recording until a usable chord is pressed', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        press('e')
+
+        expect(screen.getByText('Add Ctrl or Alt, or use a function key')).toBeInTheDocument()
+        expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
+
+        press('t', { ctrlKey: true, altKey: true })
+
+        expect(screen.queryByText('Add Ctrl or Alt, or use a function key')).not.toBeInTheDocument()
+        expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
+    })
+})

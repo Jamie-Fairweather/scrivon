@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chordKey, chordsEqual, isMacPlatform, normalizeChord } from '@/lib/settings/chord-utils'
+import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, normalizeChord } from '@/lib/settings/chord-utils'
 
 describe('chordKey', () => {
     it('builds a normalized modifier key', () => {
@@ -24,6 +24,29 @@ describe('normalizeChord', () => {
             meta: true,
         })
         expect(normalizeChord({ key: 'x', ctrl: true })).toEqual({ key: 'x', ctrl: true })
+    })
+})
+
+describe('isAllowedChord', () => {
+    it('accepts chords with Ctrl, Alt or Cmd, and bare function keys', () => {
+        expect(isAllowedChord({ key: 's', ctrl: true })).toBe(true)
+        expect(isAllowedChord({ key: 'k', alt: true, shift: true })).toBe(true)
+        expect(isAllowedChord({ key: ',', meta: true })).toBe(true)
+        expect(isAllowedChord({ key: 'F1' })).toBe(true)
+        expect(isAllowedChord({ key: 'F12', shift: true })).toBe(true)
+    })
+
+    it('rejects keys that would stop you typing', () => {
+        expect(isAllowedChord({ key: 'e' })).toBe(false)
+        expect(isAllowedChord({ key: 'E', shift: true })).toBe(false)
+        expect(isAllowedChord({ key: '/' })).toBe(false)
+    })
+
+    it('rejects Tab, Enter, Space, Escape, Backspace, Delete and arrows even with modifiers', () => {
+        for (const key of ['Tab', 'Enter', ' ', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+            expect(isAllowedChord({ key })).toBe(false)
+            expect(isAllowedChord({ key, ctrl: true })).toBe(false)
+        }
     })
 })
 

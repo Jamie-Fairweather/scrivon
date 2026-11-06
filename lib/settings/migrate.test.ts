@@ -90,6 +90,23 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['settings.open']).toEqual(createDefaultSettings(false).keybinds['settings.open'])
     })
 
+    it('drops stored shortcuts that would break typing or Tab', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.toggleEditor': [{ key: 'Tab' }],
+                    'view.toggleExplorer': [{ key: 'e' }, { key: 'b', ctrl: true }],
+                    'palette.open': [{ key: 'F1' }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.toggleEditor']).toEqual([])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['palette.open']).toEqual([{ key: 'F1' }])
+    })
+
     it('clamps numeric settings to allowed ranges', () => {
         const merged = mergeStoredSettings(
             {

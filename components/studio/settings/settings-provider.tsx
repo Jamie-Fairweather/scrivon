@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
-import { wouldChordConflict } from '@/lib/settings/conflicts'
+import { describeDisallowedChord, wouldChordConflict } from '@/lib/settings/conflicts'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import { loadSettings, saveSettings } from '@/lib/settings/storage'
@@ -127,7 +127,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const setKeybindChords = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): string | null => {
             for (const chord of chords) {
-                const conflict = wouldChordConflict(settings.keybinds, actionId, chord)
+                const disallowed = describeDisallowedChord(chord)
+                if (disallowed) return disallowed
+
+                const conflict = wouldChordConflict(settingsRef.current.keybinds, actionId, chord)
                 if (conflict) {
                     const label = KEYBIND_ACTIONS.find((action) => action.id === conflict)?.label ?? conflict
                     return `Already assigned to ${label}`
@@ -140,7 +143,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             }))
             return null
         },
-        [settings.keybinds, updateSettings]
+        [updateSettings]
     )
 
     const resetKeybind = useCallback(

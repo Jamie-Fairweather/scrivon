@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
+import { describeDisallowedChord, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
 
 describe('findKeybindConflicts', () => {
     it('returns empty when defaults have no duplicates', () => {
@@ -51,5 +51,21 @@ describe('wouldChordConflict', () => {
         const bindings = createDefaultKeybinds(false)
         bindings['workspace.saveAll'] = undefined as unknown as []
         expect(wouldChordConflict(bindings, 'document.save', { key: 'z', ctrl: true })).toBeNull()
+    })
+})
+
+describe('describeDisallowedChord', () => {
+    it('allows normal shortcuts', () => {
+        expect(describeDisallowedChord({ key: 'b', ctrl: true }, false)).toBeNull()
+        expect(describeDisallowedChord({ key: 'F2' }, false)).toBeNull()
+    })
+
+    it('asks for a modifier on plain keys', () => {
+        expect(describeDisallowedChord({ key: 'e' }, false)).toBe('Add Ctrl or Alt, or use a function key')
+        expect(describeDisallowedChord({ key: 'e', shift: true }, true)).toBe('Add ⌘, ⌃ or ⌥, or use a function key')
+    })
+
+    it('explains that navigation and editing keys are off limits', () => {
+        expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
     })
 })

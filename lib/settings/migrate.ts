@@ -1,6 +1,6 @@
 import { isAppThemeId, parseStoredTheme } from '@/lib/theme/catalog'
 import { createDefaultSettings } from '@/lib/settings/defaults'
-import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { isAllowedChord, isMacPlatform } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
@@ -42,7 +42,8 @@ function normalizeKeybinds(raw: unknown, defaults: KeybindBindings): KeybindBind
     for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
         const chords = source[actionId]
         if (!Array.isArray(chords)) continue
-        const normalized = chords.map(normalizeChord).filter((chord): chord is KeybindChord => chord !== null)
+        // Drop chords that would break typing or Tab (plain letters, Tab, Enter…); the action is left unassigned.
+        const normalized = chords.map(normalizeChord).filter((chord): chord is KeybindChord => chord !== null && isAllowedChord(chord))
         next[actionId] = normalized
     }
 
