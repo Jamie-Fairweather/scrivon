@@ -29,7 +29,7 @@ export function KeybindCapture({ active, onCapture, onCancel }: KeybindCapturePr
 
         const handleKeyDown = (event: KeyboardEvent) => {
             event.preventDefault()
-            event.stopPropagation()
+            event.stopImmediatePropagation()
 
             if (event.key === 'Escape') {
                 onCancel()

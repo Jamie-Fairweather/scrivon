@@ -24,7 +24,7 @@ export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps
     const { flushSave, flushAllSaves } = useDocumentSave()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
-    const { settings, openSettings } = useAppSettings()
+    const { settings, settingsOpen, openSettings } = useAppSettings()
     const { openMode } = useCommandPalette()
 
     const hasWorkspace = Boolean(workspaceRoot)
@@ -96,7 +96,8 @@ export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps
         ]
     )
 
-    useGlobalKeybinds(settings.keybinds, handlers, { enabled: isDesktop, hasWorkspace })
+    // Off while Settings is open, so recording a shortcut there never also runs the action it's bound to.
+    useGlobalKeybinds(settings.keybinds, handlers, { enabled: isDesktop && !settingsOpen, hasWorkspace })
 
     return children
 }
