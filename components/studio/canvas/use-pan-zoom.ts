@@ -2,8 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
-const MIN_SCALE = 0.1
+/** Low enough for Fit to show a very wide or tall diagram whole (a 7,000 px chain in a 600 px pane needs about 8%). */
+const MIN_SCALE = 0.02
+/** Highest manual zoom. */
 const MAX_SCALE = 5
+/** Fit never enlarges past this, so a two-node diagram isn't blown up to 500%. */
+const FIT_MAX_SCALE = 1.5
 const FIT_PADDING = 24
 const LINE_HEIGHT_PX = 16
 /** Zoom per pixel of wheel movement for a mouse notch: about 10% per notch. */
@@ -23,7 +27,7 @@ export function computeFitTransform(
 ): PanZoomState {
     const availableW = Math.max(0, containerWidth - padding * 2)
     const availableH = Math.max(0, containerHeight - padding * 2)
-    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(availableW / contentWidth, availableH / contentHeight)))
+    const scale = Math.min(FIT_MAX_SCALE, Math.max(MIN_SCALE, Math.min(availableW / contentWidth, availableH / contentHeight)))
     // Content is flex-centered; pan offset (0,0) with scale fits the viewport.
     return { x: 0, y: 0, scale }
 }

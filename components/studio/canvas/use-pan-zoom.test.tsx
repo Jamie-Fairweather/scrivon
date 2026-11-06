@@ -1,7 +1,31 @@
 import { fireEvent, render } from '@testing-library/react'
 import { useRef } from 'react'
 import { describe, expect, it } from 'vitest'
-import { clampScale, interpretWheel, pinchTransform, usePanZoom, zoomAround, type WheelInput } from '@/components/studio/canvas/use-pan-zoom'
+import {
+    clampScale,
+    computeFitTransform,
+    interpretWheel,
+    pinchTransform,
+    usePanZoom,
+    zoomAround,
+    type WheelInput,
+} from '@/components/studio/canvas/use-pan-zoom'
+
+describe('computeFitTransform', () => {
+    it('does not blow a tiny diagram up past 150%', () => {
+        expect(computeFitTransform(800, 600, 140, 117).scale).toBe(1.5)
+    })
+
+    it('shrinks a very wide diagram below 10% so it fits', () => {
+        const { scale } = computeFitTransform(600, 600, 7000, 300)
+        expect(scale).toBeCloseTo((600 - 48) / 7000, 6)
+        expect(7000 * scale).toBeLessThanOrEqual(600 - 48)
+    })
+
+    it('leaves a mid-size diagram at its natural fit', () => {
+        expect(computeFitTransform(800, 600, 1504, 400).scale).toBeCloseTo(0.5, 6)
+    })
+})
 
 function wheel(input: Partial<WheelInput>): WheelInput {
     return { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, metaKey: false, ...input }
@@ -60,6 +84,8 @@ describe('zoom helpers', () => {
 
     it('clamps the scale without snapping an out-of-range view', () => {
         expect(clampScale(100, 1)).toBe(5)
+        expect(clampScale(0.03, 0.05)).toBe(0.03)
+        expect(clampScale(0.001, 0.05)).toBe(0.02)
         expect(clampScale(0.5, 0.01)).toBe(0.5)
         expect(clampScale(0.005, 0.01)).toBe(0.01)
     })
