@@ -39,19 +39,26 @@ export function describeDisallowedChord(chord: KeybindChord, isMac = isMacPlatfo
  * Ctrl; the same chord with Cmd counts too.
  */
 const EDITOR_CHORDS: KeybindChord[] = [
-    // Clipboard, undo and redo, select all
-    ...['a', 'c', 'v', 'x', 'z', 'y'].map((key) => ({ key, ctrl: true })),
+    // Clipboard (Ctrl+Insert copies too), undo and redo, select all
+    ...['a', 'c', 'v', 'x', 'z', 'y', 'Insert'].map((key) => ({ key, ctrl: true })),
     { key: 'z', ctrl: true, shift: true },
     // Find, replace, go to line, find next / previous
     ...['f', 'h', 'g'].map((key) => ({ key, ctrl: true })),
     { key: 'F3' },
     { key: 'F3', shift: true },
-    // Selections and multi-cursor
-    ...['d', 'l', 'u'].map((key) => ({ key, ctrl: true })),
+    // Selections and multi-cursor, change all occurrences
+    ...['d', 'l', 'u', 'F2'].map((key) => ({ key, ctrl: true })),
     { key: 'l', ctrl: true, shift: true },
-    // Comment, indent, outdent, fold, unfold, delete line, chord prefix (Ctrl+K Ctrl+C…)
-    ...['/', '[', ']', 'k'].map((key) => ({ key, ctrl: true })),
-    ...['[', ']', 'k'].map((key) => ({ key, ctrl: true, shift: true })),
+    // Go to (or select to) the start or end of the document
+    ...['Home', 'End'].flatMap((key) => [
+        { key, ctrl: true },
+        { key, ctrl: true, shift: true },
+    ]),
+    // Comment, indent, outdent, fold, unfold, jump to bracket, delete line, chord prefix
+    // (Ctrl+K Ctrl+C…), Tab moves focus
+    ...['/', '[', ']', 'k', 'm'].map((key) => ({ key, ctrl: true })),
+    // With Shift, a US keyboard reports [ ] \ as { } |, which is what the recorder saves.
+    ...['[', ']', '{', '}', '\\', '|', 'k'].map((key) => ({ key, ctrl: true, shift: true })),
 ]
 
 function usesEditorChord(chord: KeybindChord): boolean {

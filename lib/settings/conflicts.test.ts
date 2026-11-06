@@ -84,6 +84,28 @@ describe('describeEditorChordClash', () => {
         expect(describeEditorChordClash({ key: 'F3' }, false)).toBe('F3 is used by the editor')
     })
 
+    it('flags document start and end, Ctrl+Insert, Tab focus mode, change all and jump to bracket', () => {
+        const editorChords = [
+            { key: 'Home', ctrl: true },
+            { key: 'End', ctrl: true },
+            { key: 'Home', ctrl: true, shift: true },
+            { key: 'End', ctrl: true, shift: true },
+            { key: 'Insert', ctrl: true },
+            { key: 'm', ctrl: true },
+            { key: 'F2', ctrl: true },
+            { key: '\\', ctrl: true, shift: true },
+            // What a US keyboard reports for Ctrl+Shift+\ and Ctrl+Shift+[
+            { key: '|', ctrl: true, shift: true },
+            { key: '{', ctrl: true, shift: true },
+        ]
+        for (const chord of editorChords) {
+            expect(describeEditorChordClash(chord, false)).not.toBeNull()
+        }
+        expect(describeEditorChordClash({ key: 'Home', meta: true }, true)).not.toBeNull()
+        expect(describeEditorChordClash({ key: 'F2' }, false)).toBeNull()
+        expect(describeEditorChordClash({ key: 'm', ctrl: true, shift: true }, false)).toBeNull()
+    })
+
     it('leaves other chords free', () => {
         expect(describeEditorChordClash({ key: 'd', ctrl: true, alt: true }, false)).toBeNull()
         expect(describeEditorChordClash({ key: 'd', ctrl: true, shift: true }, false)).toBeNull()
