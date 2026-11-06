@@ -1,7 +1,7 @@
 'use client'
 
 import { ChevronRight, FileCode2, FileText, Folder } from 'lucide-react'
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 import { FileTreeContextMenu, FileTreeRowContextMenu } from '@/components/studio/explorer/file-tree-context-menu'
 import { isMarkdownFile, isMermaidFile, isSupportedDocument } from '@/lib/tauri/fs'
 import type { VisibleTreeRow } from '@/lib/workspace/flatten-file-tree'
@@ -23,6 +23,7 @@ type FileTreeNodeProps = {
 export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow }: FileTreeNodeProps) {
     const { node, level, expanded } = row
     const rowRef = useRef<HTMLDivElement>(null)
+    const hintId = useId()
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
     const isMarkdown = node.kind === 'file' && isMarkdownFile(node.name)
     const isUnsupported = node.kind === 'file' && !isSupportedDocument(node.name)
@@ -48,7 +49,7 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                     aria-expanded={expanded}
                     aria-selected={isActive || undefined}
                     // Not aria-disabled: an unsupported file can still be renamed, duplicated and deleted. It just won't open.
-                    aria-description={isUnsupported ? UNSUPPORTED_HINT : undefined}
+                    aria-describedby={isUnsupported ? hintId : undefined}
                     tabIndex={isTabStop ? 0 : -1}
                     // The full name for names cut off by the narrow sidebar, plus why an unsupported file won't open.
                     title={isUnsupported ? `${node.name}\n${UNSUPPORTED_HINT}` : node.name}
@@ -74,6 +75,11 @@ export function FileTreeNode({ row, isActive, isTabStop, onActivate, onFocusRow 
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
                     )}
                     <span className="truncate">{node.name}</span>
+                    {isUnsupported && (
+                        <span id={hintId} hidden>
+                            {UNSUPPORTED_HINT}
+                        </span>
+                    )}
                 </div>
                 <FileTreeContextMenu node={node} rowRef={rowRef} />
             </div>

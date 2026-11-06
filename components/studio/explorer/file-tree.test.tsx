@@ -75,7 +75,7 @@ describe('FileTree', () => {
         // It can still be renamed, duplicated and deleted, so screen readers must not call it disabled.
         expect(item('photo.png')).not.toHaveAttribute('aria-disabled')
         expect(item('photo.png')).toHaveAccessibleDescription('Scrivon supports .md, .mmd and .mermaid files only')
-        expect(item('flow.mmd')).not.toHaveAttribute('aria-description')
+        expect(item('flow.mmd')).not.toHaveAttribute('aria-describedby')
     })
 
     it('shows the full name on hover, and why an unsupported file will not open', () => {
