@@ -41,8 +41,8 @@ const DiagramErrorBanner = memo(function DiagramErrorBanner({ message }: { messa
         <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
             <div
                 className="pointer-events-auto w-full max-w-xl cursor-auto rounded-xl bg-background shadow-sm select-text"
+                data-canvas-no-gestures
                 onPointerDown={stopCanvasGesture}
-                onWheel={stopCanvasGesture}
                 onDoubleClick={stopCanvasGesture}
             >
                 <Alert variant="error" role="status">
