@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, normalizeChord } from '@/lib/settings/chord-utils'
+import {
+    baseKeyFromCode,
+    chordKey,
+    chordsEqual,
+    isAllowedChord,
+    isMacPlatform,
+    normalizeChord,
+    physicalKeyFallback,
+} from '@/lib/settings/chord-utils'
 
 describe('chordKey', () => {
     it('builds a normalized modifier key', () => {
@@ -47,6 +55,43 @@ describe('isAllowedChord', () => {
             expect(isAllowedChord({ key })).toBe(false)
             expect(isAllowedChord({ key, ctrl: true })).toBe(false)
         }
+    })
+})
+
+describe('baseKeyFromCode', () => {
+    it('maps letter, digit and punctuation codes to US characters', () => {
+        expect(baseKeyFromCode('KeyS')).toBe('s')
+        expect(baseKeyFromCode('Digit1')).toBe('1')
+        expect(baseKeyFromCode('Comma')).toBe(',')
+        expect(baseKeyFromCode('Backslash')).toBe('\\')
+    })
+
+    it('returns null for other or missing codes', () => {
+        expect(baseKeyFromCode('F1')).toBeNull()
+        expect(baseKeyFromCode('Space')).toBeNull()
+        expect(baseKeyFromCode(undefined)).toBeNull()
+    })
+})
+
+describe('physicalKeyFallback', () => {
+    it('uses the physical key for non-Latin letters', () => {
+        expect(physicalKeyFallback({ key: 'ы', code: 'KeyS' })).toBe('s')
+        expect(physicalKeyFallback({ key: 'α', code: 'KeyA' })).toBe('a')
+        expect(physicalKeyFallback({ key: 'ש', code: 'KeyA' })).toBe('a')
+    })
+
+    it('uses the digit for Shift+digit symbols', () => {
+        expect(physicalKeyFallback({ key: '!', code: 'Digit1', shiftKey: true })).toBe('1')
+        expect(physicalKeyFallback({ key: '/', code: 'Digit7', shiftKey: true })).toBe('7')
+    })
+
+    it('keeps the typed key on Latin layouts and for keys that already match', () => {
+        expect(physicalKeyFallback({ key: 'o', code: 'KeyS' })).toBeNull()
+        expect(physicalKeyFallback({ key: 'ö', code: 'Semicolon' })).toBeNull()
+        expect(physicalKeyFallback({ key: 'S', code: 'KeyS', shiftKey: true })).toBeNull()
+        expect(physicalKeyFallback({ key: '?', code: 'Slash', shiftKey: true })).toBeNull()
+        expect(physicalKeyFallback({ key: 'F1', code: 'F1' })).toBeNull()
+        expect(physicalKeyFallback({ key: 'Process', code: 'KeyS' })).toBeNull()
     })
 })
 

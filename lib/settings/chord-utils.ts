@@ -58,6 +58,47 @@ export function isAllowedChord(chord: KeybindChord): boolean {
     return hasCommandModifier(chord) || isFunctionKey(chord.key)
 }
 
+const CODE_PUNCTUATION: Record<string, string> = {
+    Comma: ',',
+    Period: '.',
+    Slash: '/',
+    Semicolon: ';',
+    Quote: "'",
+    BracketLeft: '[',
+    BracketRight: ']',
+    Backslash: '\\',
+    Minus: '-',
+    Equal: '=',
+    Backquote: '`',
+}
+
+/** The US-layout character for a physical key (KeyboardEvent.code), or null for other keys. */
+export function baseKeyFromCode(code: string | undefined): string | null {
+    if (!code) return null
+    const letter = /^Key([A-Z])$/.exec(code)
+    if (letter) return letter[1].toLowerCase()
+    const digit = /^Digit([0-9])$/.exec(code)
+    if (digit) return digit[1]
+    return CODE_PUNCTUATION[code] ?? null
+}
+
+// Plain ASCII and Latin letters (é, ö, ß…) are kept as typed.
+const LATIN_OR_ASCII = /^[\x20-\x7eÀ-ɏ]$/
+
+/**
+ * The physical key to use when KeyboardEvent.key can't be: non-Latin layouts (Russian, Greek,
+ * Hebrew…) report their own letter, so Ctrl+S arrives as "ы", and Shift turns digits into
+ * layout-specific symbols, so Ctrl+Shift+1 arrives as "!". Latin layouts (AZERTY, Dvorak…)
+ * keep event.key, so shortcuts follow the letter printed on the key.
+ */
+export function physicalKeyFallback(event: { key: string; code?: string; shiftKey?: boolean }): string | null {
+    const base = baseKeyFromCode(event.code)
+    if (!base || base === event.key.toLowerCase()) return null
+    if ([...event.key].length === 1 && !LATIN_OR_ASCII.test(event.key)) return base
+    if (event.shiftKey && /^[0-9]$/.test(base)) return base
+    return null
+}
+
 export function isMacPlatform(): boolean {
     if (typeof navigator === 'undefined') return false
 

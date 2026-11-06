@@ -4,11 +4,12 @@ import { matchKeybind } from '@/lib/settings/match-keybind'
 
 function keyEvent(
     key: string,
-    modifiers: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean } = {},
+    modifiers: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean; code?: string } = {},
     target: EventTarget | null = { tagName: 'BODY' } as unknown as EventTarget
 ): KeyboardEvent {
     return {
         key,
+        code: modifiers.code,
         ctrlKey: modifiers.ctrl ?? false,
         metaKey: modifiers.meta ?? false,
         shiftKey: modifiers.shift ?? false,
@@ -73,6 +74,32 @@ describe('matchKeybind', () => {
             'workspace.saveAll': [],
         }
         expect(matchKeybind(keyEvent('s', { ctrl: true, shift: true }), emptySaveAll, { hasWorkspace: true })).toBeNull()
+    })
+
+    describe('on other keyboard layouts', () => {
+        it('matches Ctrl+S on a Russian layout by the physical key', () => {
+            expect(matchKeybind(keyEvent('ы', { ctrl: true, code: 'KeyS' }), bindings)).toBe('document.save')
+            expect(matchKeybind(keyEvent('Ы', { ctrl: true, shift: true, code: 'KeyS' }), bindings, { hasWorkspace: true })).toBe('workspace.saveAll')
+        })
+
+        it('matches Ctrl+, on a Russian layout, where that key types б', () => {
+            expect(matchKeybind(keyEvent('б', { ctrl: true, code: 'Comma' }), bindings)).toBe('settings.open')
+        })
+
+        it('matches Ctrl+Shift+1 against a stored 1 and an older stored !', () => {
+            const withDigit = { ...bindings, 'view.fitDiagram': [{ key: '1', ctrl: true, shift: true }] }
+            const withSymbol = { ...bindings, 'view.fitDiagram': [{ key: '!', ctrl: true, shift: true }] }
+            const event = keyEvent('!', { ctrl: true, shift: true, code: 'Digit1' })
+
+            expect(matchKeybind(event, withDigit, { hasWorkspace: true })).toBe('view.fitDiagram')
+            expect(matchKeybind(event, withSymbol, { hasWorkspace: true })).toBe('view.fitDiagram')
+        })
+
+        it('follows the printed letter on Latin layouts like Dvorak', () => {
+            // Dvorak puts "o" where QWERTY has "s"; Ctrl+O must not save.
+            expect(matchKeybind(keyEvent('o', { ctrl: true, code: 'KeyS' }), bindings)).toBeNull()
+            expect(matchKeybind(keyEvent('s', { ctrl: true, code: 'Semicolon' }), bindings)).toBe('document.save')
+        })
     })
 
     it('does not treat non-field targets as native text fields', () => {

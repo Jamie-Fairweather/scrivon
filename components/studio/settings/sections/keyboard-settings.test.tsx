@@ -78,4 +78,18 @@ describe('KeyboardSettings recording', () => {
         expect(screen.queryByText('Add Ctrl or Alt, or use a function key')).not.toBeInTheDocument()
         expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
     })
+
+    it('records the physical key on a non-Latin layout and digits under Shift', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+        const explorer = row('Toggle explorer')
+
+        fireEvent.click(within(editor).getByRole('button', { name: 'Edit' }))
+        press('е', { ctrlKey: true, altKey: true, code: 'KeyT' })
+        expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
+
+        fireEvent.click(within(explorer).getByRole('button', { name: 'Edit' }))
+        press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' })
+        expect(within(explorer).getByText('Ctrl+Shift+1')).toBeInTheDocument()
+    })
 })

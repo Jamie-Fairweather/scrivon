@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { normalizeChord } from '@/lib/settings/chord-utils'
+import { normalizeChord, physicalKeyFallback } from '@/lib/settings/chord-utils'
 import { describeDisallowedChord } from '@/lib/settings/conflicts'
 import { formatChord } from '@/lib/settings/format-keybind'
 import type { KeybindChord } from '@/lib/settings/types'
@@ -44,7 +44,8 @@ export function KeybindCapture({ active, onCapture, onCancel, onReject }: Keybin
             if (isModifierOnly(event)) return
 
             const chord = normalizeChord({
-                key: event.key,
+                // Record the physical key on non-Latin layouts and for Shift+digit, so it matches on any layout.
+                key: physicalKeyFallback(event) ?? event.key,
                 ctrl: event.ctrlKey || undefined,
                 meta: event.metaKey || undefined,
                 shift: event.shiftKey || undefined,
