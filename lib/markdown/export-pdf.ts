@@ -2,9 +2,10 @@ import { invoke } from '@tauri-apps/api/core'
 import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets } from '@/lib/markdown/export-assets'
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
+import { errorMessage, notifyError } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportDocument, PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
-import { pickSavePath, showError, writeBinaryFile } from '@/lib/tauri/dialog'
+import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
@@ -18,6 +19,9 @@ export type ExportMarkdownOptions = {
 }
 
 export type ExportMarkdownToPdfOptions = ExportMarkdownOptions
+
+/** How an export ended: saved (or handed to the print dialog / a download), cancelled at the save picker, or failed. */
+export type ExportResult = { status: 'saved'; path?: string } | { status: 'cancelled' } | { status: 'failed'; message: string }
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
@@ -97,17 +101,18 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
     URL.revokeObjectURL(url)
 }
 
-async function saveDocx(bytes: Uint8Array, filename: string): Promise<void> {
+async function saveDocx(bytes: Uint8Array, filename: string): Promise<ExportResult> {
     if (isTauri()) {
         const path = await pickSavePath({ title: 'Save Word document', defaultPath: filename, filters: DOCX_FILTERS })
-        if (!path) return
+        if (!path) return { status: 'cancelled' }
         await writeBinaryFile(path, bytes)
-        return
+        return { status: 'saved', path }
     }
 
     const copy = new Uint8Array(bytes.byteLength)
     copy.set(bytes)
     triggerBrowserDownload(new Blob([copy], { type: DOCX_MIME }), filename)
+    return { status: 'saved' }
 }
 
 /** Resolves the profile's images, then builds the document the export and preview paths share. */
@@ -121,7 +126,11 @@ export async function buildMarkdownExportHtml(
     return markdownToExportHtml(source, { profile, tabName, overrides: options.overrides, assets })
 }
 
-export async function exportMarkdown(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<void> {
+/**
+ * Builds the document and saves it. Never throws and shows nothing itself: the result
+ * tells the caller whether it was saved, cancelled at the save picker, or failed (and why).
+ */
+export async function exportMarkdown(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<ExportResult> {
     try {
         if (options.format === 'docx') {
             const profile = options.profile ?? createDefaultPdfExportProfile()
@@ -129,8 +138,7 @@ export async function exportMarkdown(source: string, tabName: string | undefined
             const document = buildExportDocument(source, { profile, tabName, overrides: options.overrides, assets })
             const { renderExportDocx } = await import('@/lib/markdown/export-docx')
             const bytes = await renderExportDocx(document)
-            await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
-            return
+            return await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
         }
 
         const { html, print } = await buildMarkdownExportHtml(source, tabName, options)
@@ -138,18 +146,21 @@ export async function exportMarkdown(source: string, tabName: string | undefined
 
         if (isWindowsTauri()) {
             const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
-            if (!path) return
+            if (!path) return { status: 'cancelled' }
             await savePdfWithWebView2(html, path, print)
-            return
+            return { status: 'saved', path }
         }
 
         await printExportHtml(html)
+        return { status: 'saved' }
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        await showError('Export failed', message)
+        return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
     }
 }
 
-export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<void> {
-    await exportMarkdown(source, tabName, options)
+/** {@link exportMarkdown} that tells the user when the export fails. */
+export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<ExportResult> {
+    const result = await exportMarkdown(source, tabName, options)
+    if (result.status === 'failed') notifyError('Export failed', undefined, { description: result.message })
+    return result
 }

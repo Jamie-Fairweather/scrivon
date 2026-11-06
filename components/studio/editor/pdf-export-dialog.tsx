@@ -60,14 +60,18 @@ function PdfExportForm({
     const [date, setDate] = useState(defaults.date)
     const [format, setFormat] = useState<ExportFormat>(initialFormat)
     const [busy, setBusy] = useState(false)
+    const [error, setError] = useState('')
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
 
     const runExport = async () => {
         setBusy(true)
+        setError('')
         try {
-            await exportMarkdown(source, tabName, { format, profile, overrides })
-            onClose()
+            const result = await exportMarkdown(source, tabName, { format, profile, overrides })
+            // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
+            if (result.status === 'saved') onClose()
+            else if (result.status === 'failed') setError(result.message)
         } finally {
             setBusy(false)
         }
@@ -109,6 +113,11 @@ function PdfExportForm({
                     <FieldLabel htmlFor="export-date">Date</FieldLabel>
                     <Input id="export-date" value={date} onChange={(event) => setDate(event.target.value)} />
                 </Field>
+                {error ? (
+                    <p role="alert" className="text-sm text-destructive-foreground">
+                        Export failed: {error}
+                    </p>
+                ) : null}
             </DialogPanel>
             <DialogFooter>
                 <Button type="button" disabled={busy} onClick={() => void runExport()}>
