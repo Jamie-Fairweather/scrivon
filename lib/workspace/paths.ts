@@ -81,6 +81,20 @@ export function collectFileNames(nodes: FileNode[]): Set<string> {
     return names
 }
 
+/** Folders in the tree that couldn't be read, so they show up empty. */
+export function collectUnreadableFolders(nodes: FileNode[]): FileNode[] {
+    const found: FileNode[] = []
+    const walk = (items: FileNode[]) => {
+        for (const node of items) {
+            if (node.kind !== 'directory') continue
+            if (node.unreadable) found.push(node)
+            else walk(node.children)
+        }
+    }
+    walk(nodes)
+    return found
+}
+
 export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
     for (const node of nodes) {
         if (samePath(node.path, path)) return node

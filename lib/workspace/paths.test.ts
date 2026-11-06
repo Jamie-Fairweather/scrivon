@@ -3,6 +3,7 @@ import {
     childrenOf,
     collectFileNames,
     collectFilePaths,
+    collectUnreadableFolders,
     entryNameError,
     findNameClash,
     findNodeByPath,
@@ -113,6 +114,15 @@ describe('collectFilePaths', () => {
 describe('collectFileNames', () => {
     it('collects all node names including directories', () => {
         expect(collectFileNames(sampleTree)).toEqual(new Set(['docs', 'readme.md', 'diagram.mmd', 'root.mmd']))
+    })
+})
+
+describe('collectUnreadableFolders', () => {
+    it('finds folders that could not be read, at any depth', () => {
+        const locked = { kind: 'directory' as const, name: 'locked', path: '/ws/docs/locked', children: [], unreadable: true as const }
+        const tree = [{ kind: 'directory' as const, name: 'docs', path: '/ws/docs', children: [locked] }, ...sampleTree]
+        expect(collectUnreadableFolders(tree)).toEqual([locked])
+        expect(collectUnreadableFolders(sampleTree)).toEqual([])
     })
 })
 

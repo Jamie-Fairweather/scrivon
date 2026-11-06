@@ -4,6 +4,8 @@ export type FileNode =
           name: string
           path: string
           children: FileNode[]
+          /** The folder couldn't be listed (no permission, or gone while reading), so `children` is empty. */
+          unreadable?: true
       }
     | {
           kind: 'file'

@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { exists, mkdir, readDir, readFile, readTextFile, remove, rename, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
-import { notifyError, type NotifyOptions } from '@/lib/notify'
+import { notifyError, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
@@ -31,6 +31,7 @@ vi.mock('@/lib/tauri/store', () => ({
 vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyError: vi.fn(() => 'toast'),
+    notifyWarning: vi.fn(() => 'toast'),
 }))
 
 vi.mock('@/lib/tauri/dialog', () => ({
@@ -574,6 +575,24 @@ describe('file system errors', () => {
             options.action!.onClick()
         })
         expect(removeRecentWorkspace).toHaveBeenCalledWith('D:\\gone')
+    })
+
+    it('opens a folder with a subfolder it cannot read, and says which one shows as empty', async () => {
+        const list = disk.list
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'C:\\ws\\sub') throw 'Access is denied. (os error 5)'
+            return list(dir)
+        }) as unknown as typeof readDir)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await openWorkspace(result)
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.session.tree).toEqual([{ kind: 'directory', name: 'sub', path: 'C:\\ws\\sub', children: [], unreadable: true }])
+        expect(notifyWarning).toHaveBeenCalledWith("Couldn't read the folder sub", {
+            description: 'It shows as empty. Scrivon may not have permission to open it.',
+        })
+        expect(notifyError).not.toHaveBeenCalled()
     })
 
     it('still opens a created file when the file list fails to reload', async () => {

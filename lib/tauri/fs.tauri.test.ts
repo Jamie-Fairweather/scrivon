@@ -177,6 +177,35 @@ describe('workspace fs (Tauri)', () => {
         expect(readDirMock).not.toHaveBeenCalledWith('/ws/node_modules')
     })
 
+    it('keeps reading the folder when one subfolder cannot be read, and skips Windows system folders', async () => {
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'D:\\') {
+                return [
+                    { name: 'System Volume Information', isDirectory: true, isFile: false, isSymlink: false },
+                    { name: '$RECYCLE.BIN', isDirectory: true, isFile: false, isSymlink: false },
+                    { name: 'locked', isDirectory: true, isFile: false, isSymlink: false },
+                    { name: 'notes', isDirectory: true, isFile: false, isSymlink: false },
+                ]
+            }
+            if (dirPath === 'D:\\locked') throw 'failed to read directory at path: D:\\locked with error: Access is denied. (os error 5)'
+            if (dirPath === 'D:\\notes') return [{ name: 'a.md', isDirectory: false, isFile: true, isSymlink: false }]
+            throw new Error(`unexpected read of ${dirPath}`)
+        })
+
+        const tree = await listWorkspaceTree('D:\\')
+        expect(tree).toEqual([
+            { kind: 'directory', name: 'locked', path: 'D:\\locked', children: [], unreadable: true },
+            { kind: 'directory', name: 'notes', path: 'D:\\notes', children: [{ kind: 'file', name: 'a.md', path: 'D:\\notes\\a.md' }] },
+        ])
+        expect(readDirMock).not.toHaveBeenCalledWith('D:\\System Volume Information')
+        expect(readDirMock).not.toHaveBeenCalledWith('D:\\$RECYCLE.BIN')
+    })
+
+    it('still fails when the folder itself cannot be read', async () => {
+        readDirMock.mockRejectedValue('The system cannot find the path specified. (os error 3)')
+        await expect(listWorkspaceTree('E:\\gone')).rejects.toBe('The system cannot find the path specified. (os error 3)')
+    })
+
     it('sorts sibling files by name', async () => {
         readDirMock.mockImplementation(async (dirPath: string) => {
             if (dirPath === '/ws') {

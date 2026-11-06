@@ -23,9 +23,9 @@ import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
-import { notifyError } from '@/lib/notify'
+import { notifyError, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
-import { childrenOf, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
+import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
 import type { FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
@@ -57,6 +57,26 @@ type WorkspaceSessionContextValue = {
 }
 
 const WorkspaceSessionContext = createContext<WorkspaceSessionContextValue | null>(null)
+
+/** Tells the user which folders show up empty because they couldn't be read (the rest of the folder still opens). */
+function warnAboutUnreadableFolders(tree: FileNode[]) {
+    const folders = collectUnreadableFolders(tree)
+    if (folders.length === 0) return
+    if (folders.length === 1) {
+        notifyWarning(`Couldn't read the folder ${folders[0]!.name}`, {
+            description: 'It shows as empty. Scrivon may not have permission to open it.',
+        })
+        return
+    }
+    const names = folders
+        .slice(0, 3)
+        .map((f) => f.name)
+        .join(', ')
+    const more = folders.length > 3 ? ` and ${folders.length - 3} more` : ''
+    notifyWarning(`Couldn't read ${folders.length} folders`, {
+        description: `${names}${more} show as empty. Scrivon may not have permission to open them.`,
+    })
+}
 
 export function useWorkspaceSession(): WorkspaceSessionContextValue {
     const ctx = useContext(WorkspaceSessionContext)
@@ -168,6 +188,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             setTree(nextTree)
             setRecentWorkspaces(recents)
             coordinator.clearTabs.current()
+            warnAboutUnreadableFolders(nextTree)
 
             try {
                 await restoreTabSession(path)

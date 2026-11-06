@@ -15,6 +15,21 @@ export class PathExistsError extends Error {
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'target', 'dist', 'build'])
 
+/** Windows system folders at the top of a drive. Most can only be read by Windows itself, and none hold documents. */
+const SKIP_SYSTEM_DIRS = new Set([
+    'system volume information',
+    '$recycle.bin',
+    '$windows.~bt',
+    '$windows.~ws',
+    '$winreagent',
+    '$sysreset',
+    'config.msi',
+])
+
+function isSkippedDirectory(name: string): boolean {
+    return SKIP_DIRS.has(name) || SKIP_SYSTEM_DIRS.has(name.toLowerCase())
+}
+
 function compareEntries(a: FileNode, b: FileNode): number {
     if (a.kind !== b.kind) {
         if (a.kind === 'directory') return -1
@@ -30,14 +45,14 @@ async function readDirTree(dirPath: string): Promise<FileNode[]> {
     for (const entry of entries) {
         const fullPath = joinPath(dirPath, entry.name)
         if (entry.isDirectory) {
-            if (SKIP_DIRS.has(entry.name)) continue
-            const children = await readDirTree(fullPath)
-            nodes.push({
-                kind: 'directory',
-                name: entry.name,
-                path: fullPath,
-                children,
-            })
+            if (isSkippedDirectory(entry.name)) continue
+            try {
+                const children = await readDirTree(fullPath)
+                nodes.push({ kind: 'directory', name: entry.name, path: fullPath, children })
+            } catch {
+                // One folder that can't be read (no permission, or deleted mid-scan) mustn't stop the rest from opening.
+                nodes.push({ kind: 'directory', name: entry.name, path: fullPath, children: [], unreadable: true })
+            }
         } else if (entry.isFile) {
             nodes.push({
                 kind: 'file',
@@ -50,6 +65,10 @@ async function readDirTree(dirPath: string): Promise<FileNode[]> {
     return nodes.sort(compareEntries)
 }
 
+/**
+ * Reads the whole folder. Throws when the folder itself can't be read; a subfolder that can't be read
+ * is kept, empty and marked `unreadable`.
+ */
 export async function listWorkspaceTree(rootPath: string): Promise<FileNode[]> {
     if (!isTauri()) return []
     return readDirTree(normalizePath(rootPath))
