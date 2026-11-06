@@ -5,10 +5,18 @@
 //! webview could then grant itself the whole disk. A folder is accepted only
 //! when the user chose it. Either the folder dialog has just added it to the
 //! scope, or the user chose it in an earlier session (a recent folder or a
-//! restored session). Those folders are kept in `workspace-access.json` in the
-//! app data folder, which the webview cannot write, unlike the store's list of
-//! recent folders.
+//! restored session).
+//!
+//! Those folders are kept in `workspace-access.json` in the app data folder.
+//! The webview can write JSON files there through the store plugin, but the
+//! store only ever writes a JSON object, and this list is a bare JSON array. So
+//! a script can break the list (the user then picks the folders again) but
+//! never add a folder to it. The store's recent folders, which the webview can
+//! write, are only copied in when the list doesn't exist yet (the first run
+//! with this check), never because it can't be read.
 
+use std::collections::HashSet;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -18,11 +26,6 @@ const STORE_FILE: &str = "workspace.json";
 const RECENT_KEY: &str = "recent-workspaces";
 /// Entries kept (up to two per folder). Older folders must be chosen again.
 const MAX_ENTRIES: usize = 200;
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct AccessFile {
-    folders: Vec<String>,
-}
 
 #[derive(Default)]
 pub struct WorkspaceAccess {
@@ -40,14 +43,26 @@ impl WorkspaceAccess {
         };
         let file = dir.join(ACCESS_FILE);
         let folders = match read_access_file(&file) {
-            Some(folders) => folders,
-            None => {
+            Ok(folders) => folders,
+            Err(err) if err.kind() == ErrorKind::NotFound => {
                 let mut seeded = read_recent_workspaces(&dir.join(STORE_FILE));
                 seeded.truncate(MAX_ENTRIES);
-                if let Err(err) = write_access_file(&file, &seeded) {
-                    eprintln!("Could not save the workspace folder list: {err}");
-                }
+                save_access_file(&file, &seeded);
                 seeded
+            }
+            // Not a list Scrivon wrote: broken, or written through the store
+            // plugin. Start empty and put a valid list back; the user picks the
+            // folders again.
+            Err(err) if err.kind() == ErrorKind::InvalidData => {
+                eprintln!("The workspace folder list wasn't valid, so it was cleared: {err}");
+                save_access_file(&file, &[]);
+                Vec::new()
+            }
+            // Couldn't be read just now (locked, say): start empty but leave the
+            // file alone. `remember` merges it back in.
+            Err(err) => {
+                eprintln!("Could not read the workspace folder list: {err}");
+                Vec::new()
             }
         };
         Self {
@@ -74,26 +89,26 @@ impl WorkspaceAccess {
             }
         }
 
-        let snapshot = {
-            let mut folders = self.folders.lock().unwrap();
-            if folders.starts_with(&entries) {
-                return;
-            }
-            let older = std::mem::take(&mut *folders);
-            let older = older.into_iter().filter(|folder| !entries.contains(folder));
-            *folders = entries
-                .iter()
-                .cloned()
-                .chain(older)
-                .take(MAX_ENTRIES)
-                .collect();
-            folders.clone()
-        };
-
+        // Read and write under the lock, so two calls can't undo each other.
+        let mut folders = self.folders.lock().unwrap();
+        // Another Scrivon window may have saved folders since this one started:
+        // keep them, or they'd stop opening after a restart.
+        let saved = self
+            .file
+            .as_deref()
+            .and_then(|file| read_access_file(file).ok());
+        let merged = merge_newest_first(&[
+            entries.as_slice(),
+            saved.as_deref().unwrap_or_default(),
+            folders.as_slice(),
+        ]);
+        let unchanged = saved.as_ref() == Some(&merged);
+        *folders = merged;
+        if unchanged {
+            return;
+        }
         if let Some(file) = &self.file {
-            if let Err(err) = write_access_file(file, &snapshot) {
-                eprintln!("Could not save the workspace folder list: {err}");
-            }
+            save_access_file(file, &folders);
         }
     }
 
@@ -122,24 +137,47 @@ fn canonical_string(path: &Path) -> Option<String> {
         .map(|canonical| canonical.to_string_lossy().into_owned())
 }
 
-fn read_access_file(file: &Path) -> Option<Vec<String>> {
-    let bytes = std::fs::read(file).ok()?;
-    let parsed: AccessFile = serde_json::from_slice(&bytes).ok()?;
-    Some(parsed.folders)
+/// The lists' folders in order, each once, at most `MAX_ENTRIES`.
+fn merge_newest_first(lists: &[&[String]]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    lists
+        .iter()
+        .flat_map(|list| list.iter())
+        .filter(|folder| seen.insert(folder.as_str()))
+        .take(MAX_ENTRIES)
+        .cloned()
+        .collect()
+}
+
+/// The saved list. Anything but a JSON array of strings (such as the object
+/// the store plugin writes) is `ErrorKind::InvalidData`.
+fn read_access_file(file: &Path) -> std::io::Result<Vec<String>> {
+    let bytes = std::fs::read(file)?;
+    serde_json::from_slice(&bytes).map_err(|err| std::io::Error::new(ErrorKind::InvalidData, err))
+}
+
+fn save_access_file(file: &Path, folders: &[String]) {
+    if let Err(err) = write_access_file(file, folders) {
+        eprintln!("Could not save the workspace folder list: {err}");
+    }
 }
 
 fn write_access_file(file: &Path, folders: &[String]) -> std::io::Result<()> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let json = serde_json::to_vec_pretty(&AccessFile {
-        folders: folders.to_vec(),
-    })?;
+    // A bare array, never an object (see the module comment).
+    let json = serde_json::to_vec_pretty(folders)?;
     // Write a temporary file and swap it in, so a failed write never leaves a
-    // half-written list behind.
-    let temp = file.with_extension("json.tmp");
-    std::fs::write(&temp, json)?;
-    std::fs::rename(&temp, file)
+    // half-written list behind. Each write gets its own temporary file, so two
+    // Scrivon windows saving at once don't trip over each other.
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let temp = file.with_extension(format!("json.{}.tmp", &id[..8]));
+    let written = std::fs::write(&temp, json).and_then(|()| std::fs::rename(&temp, file));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written
 }
 
 fn read_recent_workspaces(store_file: &Path) -> Vec<String> {
@@ -277,6 +315,64 @@ mod tests {
         let restarted = WorkspaceAccess::load(Some(&data));
         assert!(restarted.approve(&other, never_in_scope).is_err());
         restarted.approve(&recent, never_in_scope).unwrap();
+    }
+
+    /// A JSON object such as `{"folders": [...]}`: the only shape the store
+    /// plugin can write, so a webview script can't plant a folder this way.
+    #[test]
+    fn a_list_written_through_the_store_plugin_unlocks_nothing() {
+        let temp = TempDir::new("forged");
+        let data = temp.0.join("data");
+        let folder = temp.folder("planted");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(
+            data.join(ACCESS_FILE),
+            serde_json::to_vec(&serde_json::json!({ "folders": [folder] })).unwrap(),
+        )
+        .unwrap();
+        // Planting it in the recents doesn't help either: they only seed a missing list.
+        std::fs::write(
+            data.join(STORE_FILE),
+            serde_json::to_vec(&serde_json::json!({ RECENT_KEY: [folder] })).unwrap(),
+        )
+        .unwrap();
+
+        let access = WorkspaceAccess::load(Some(&data));
+        assert!(access.approve(&folder, never_in_scope).is_err());
+        // The broken list was replaced with a valid, empty one.
+        assert_eq!(
+            read_access_file(&data.join(ACCESS_FILE)).unwrap(),
+            Vec::<String>::new()
+        );
+        let restarted = WorkspaceAccess::load(Some(&data));
+        assert!(restarted.approve(&folder, never_in_scope).is_err());
+    }
+
+    #[test]
+    fn two_windows_keep_the_folders_each_other_opened() {
+        let temp = TempDir::new("windows");
+        let data = temp.0.join("data");
+        let first = temp.folder("first");
+        let second = temp.folder("second");
+        let window_a = WorkspaceAccess::load(Some(&data));
+        let window_b = WorkspaceAccess::load(Some(&data));
+
+        window_a
+            .approve(&first, |path| path == Path::new(&first))
+            .unwrap();
+        window_b
+            .approve(&second, |path| path == Path::new(&second))
+            .unwrap();
+
+        let restarted = WorkspaceAccess::load(Some(&data));
+        restarted.approve(&first, never_in_scope).unwrap();
+        restarted.approve(&second, never_in_scope).unwrap();
+        let leftovers: Vec<_> = std::fs::read_dir(&data)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 
     #[test]
