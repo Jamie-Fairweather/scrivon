@@ -1,3 +1,6 @@
+import { samePath } from '@/lib/tauri/fs'
+import type { FileNode } from '@/lib/workspace/types'
+
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
 
 export function validateFileName(name: string): string | null {
@@ -21,18 +24,26 @@ export function uniqueFileName(base: string, existing: Set<string>): string {
     return `${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`
 }
 
-export function uniqueUntitledName(existing: Set<string>): string {
-    if (!existing.has('untitled.mmd')) return 'untitled.mmd'
+/**
+ * A name for a new file or folder that no sibling uses: `diagram.mmd`, then `diagram 2.mmd`, `diagram 3.mmd`…
+ * Names are compared ignoring letter case, because Windows treats `Diagram.mmd` and `diagram.mmd` as one file.
+ */
+export function uniqueNewName(base: string, existing: Iterable<string>): string {
+    const taken = new Set([...existing].map((name) => name.toLowerCase()))
+    if (!taken.has(base.toLowerCase())) return base
+    const dot = base.lastIndexOf('.')
+    const stem = dot > 0 ? base.slice(0, dot) : base
+    const ext = dot > 0 ? base.slice(dot) : ''
     let i = 2
-    while (existing.has(`untitled-${i}.mmd`)) {
+    while (taken.has(`${stem} ${i}${ext}`.toLowerCase())) {
         i += 1
     }
-    return `untitled-${i}.mmd`
+    return `${stem} ${i}${ext}`
 }
 
-export function collectFilePaths(nodes: import('@/lib/workspace/types').FileNode[]): Set<string> {
+export function collectFilePaths(nodes: FileNode[]): Set<string> {
     const paths = new Set<string>()
-    const walk = (items: import('@/lib/workspace/types').FileNode[]) => {
+    const walk = (items: FileNode[]) => {
         for (const node of items) {
             if (node.kind === 'file') paths.add(node.path)
             else walk(node.children)
@@ -42,9 +53,9 @@ export function collectFilePaths(nodes: import('@/lib/workspace/types').FileNode
     return paths
 }
 
-export function collectFileNames(nodes: import('@/lib/workspace/types').FileNode[]): Set<string> {
+export function collectFileNames(nodes: FileNode[]): Set<string> {
     const names = new Set<string>()
-    const walk = (items: import('@/lib/workspace/types').FileNode[]) => {
+    const walk = (items: FileNode[]) => {
         for (const node of items) {
             names.add(node.name)
             if (node.kind === 'directory') walk(node.children)
@@ -54,13 +65,33 @@ export function collectFileNames(nodes: import('@/lib/workspace/types').FileNode
     return names
 }
 
-export function findNodeByPath(nodes: import('@/lib/workspace/types').FileNode[], path: string): import('@/lib/workspace/types').FileNode | null {
+export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
     for (const node of nodes) {
-        if (node.path === path) return node
+        if (samePath(node.path, path)) return node
         if (node.kind === 'directory') {
             const found = findNodeByPath(node.children, path)
             if (found) return found
         }
     }
     return null
+}
+
+/** The entries directly inside `folderPath`, which is the workspace root or a folder in its tree. */
+export function childrenOf(tree: FileNode[], rootPath: string | null, folderPath: string): FileNode[] {
+    if (rootPath && samePath(folderPath, rootPath)) return tree
+    const folder = findNodeByPath(tree, folderPath)
+    return folder?.kind === 'directory' ? folder.children : []
+}
+
+/**
+ * The sibling already using `name`, ignoring letter case (one file on Windows), or null.
+ * `ignorePath` leaves out the entry being renamed, so `notes.md` -> `Notes.md` is allowed.
+ */
+export function findNameClash(siblings: FileNode[], name: string, ignorePath?: string): FileNode | null {
+    const wanted = name.trim().toLowerCase()
+    return siblings.find((node) => node.name.toLowerCase() === wanted && !(ignorePath && samePath(node.path, ignorePath))) ?? null
+}
+
+export function nameTakenMessage(node: FileNode): string {
+    return `A ${node.kind === 'directory' ? 'folder' : 'file'} named "${node.name}" already exists here.`
 }

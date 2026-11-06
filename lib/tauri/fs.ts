@@ -1,6 +1,17 @@
-import { readDir, readTextFile, writeTextFile, mkdir, rename, remove, copyFile, stat, type DirEntry } from '@tauri-apps/plugin-fs'
+import { readDir, readTextFile, writeTextFile, mkdir, rename, remove, copyFile, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import type { FileNode } from '@/lib/workspace/types'
+
+/** Thrown instead of replacing a file or folder that is already there. */
+export class PathExistsError extends Error {
+    readonly path: string
+
+    constructor(path: string) {
+        super(`A file or folder named "${getBaseName(path)}" already exists here.`)
+        this.name = 'PathExistsError'
+        this.path = path
+    }
+}
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'target', 'dist', 'build'])
 
@@ -64,14 +75,20 @@ export async function writeWorkspaceFile(path: string, content: string): Promise
     await writeTextFile(path, content)
 }
 
+/** Creates a new folder. Throws PathExistsError if something with that name is already there. */
 export async function createWorkspaceDirectory(path: string): Promise<void> {
     if (!isTauri()) return
-    await mkdir(path, { recursive: true })
+    if (await exists(path)) throw new PathExistsError(path)
+    // Not recursive: that quietly succeeds for an existing folder and recreates a parent deleted elsewhere.
+    await mkdir(path)
 }
 
+/** Creates a new file. Never replaces an existing one: throws PathExistsError instead. */
 export async function createWorkspaceFile(path: string, content: string): Promise<void> {
     if (!isTauri()) return
-    await writeTextFile(path, content)
+    if (await exists(path)) throw new PathExistsError(path)
+    // createNew also refuses a file that turns up between the check and the write (and ignores letter case on Windows).
+    await writeTextFile(path, content, { createNew: true })
 }
 
 export async function renameWorkspacePath(oldPath: string, newPath: string): Promise<void> {

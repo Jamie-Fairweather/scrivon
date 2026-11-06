@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { isTauriMock, readDirMock, readTextFileMock, writeTextFileMock, mkdirMock, renameMock, removeMock, copyFileMock, statMock } = vi.hoisted(
-    () => ({
+const { isTauriMock, readDirMock, readTextFileMock, writeTextFileMock, mkdirMock, renameMock, removeMock, copyFileMock, statMock, existsMock } =
+    vi.hoisted(() => ({
         isTauriMock: vi.fn(),
         readDirMock: vi.fn(),
         readTextFileMock: vi.fn(),
@@ -11,8 +11,8 @@ const { isTauriMock, readDirMock, readTextFileMock, writeTextFileMock, mkdirMock
         removeMock: vi.fn(),
         copyFileMock: vi.fn(),
         statMock: vi.fn(),
-    })
-)
+        existsMock: vi.fn(),
+    }))
 
 vi.mock('@/lib/tauri/platform', () => ({
     isTauri: isTauriMock,
@@ -27,6 +27,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     remove: removeMock,
     copyFile: copyFileMock,
     stat: statMock,
+    exists: existsMock,
 }))
 
 import {
@@ -36,6 +37,7 @@ import {
     getWorkspaceFileSize,
     joinPath,
     listWorkspaceTree,
+    PathExistsError,
     readWorkspaceFile,
     removeWorkspacePath,
     renameWorkspacePath,
@@ -46,6 +48,7 @@ describe('workspace fs (Tauri)', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         isTauriMock.mockReturnValue(true)
+        existsMock.mockResolvedValue(false)
     })
 
     it('reads workspace files through Tauri', async () => {
@@ -58,11 +61,19 @@ describe('workspace fs (Tauri)', () => {
         expect(writeTextFileMock).toHaveBeenCalledWith('/ws/diagram.mmd', 'updated')
     })
 
-    it('creates directories and files', async () => {
+    it('creates directories and files without replacing anything', async () => {
         await createWorkspaceDirectory('/ws/docs')
         await createWorkspaceFile('/ws/docs/readme.md', '# Hello')
-        expect(mkdirMock).toHaveBeenCalledWith('/ws/docs', { recursive: true })
-        expect(writeTextFileMock).toHaveBeenCalledWith('/ws/docs/readme.md', '# Hello')
+        expect(mkdirMock).toHaveBeenCalledWith('/ws/docs')
+        expect(writeTextFileMock).toHaveBeenCalledWith('/ws/docs/readme.md', '# Hello', { createNew: true })
+    })
+
+    it('refuses to create a file or folder over one that already exists', async () => {
+        existsMock.mockResolvedValue(true)
+        await expect(createWorkspaceFile('C:\\ws\\diagram.mmd', 'graph TD')).rejects.toBeInstanceOf(PathExistsError)
+        await expect(createWorkspaceDirectory('C:\\ws\\docs')).rejects.toThrow('A file or folder named "docs" already exists here.')
+        expect(writeTextFileMock).not.toHaveBeenCalled()
+        expect(mkdirMock).not.toHaveBeenCalled()
     })
 
     it('renames, removes, and duplicates paths', async () => {

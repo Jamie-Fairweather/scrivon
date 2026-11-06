@@ -23,8 +23,9 @@ import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
+import { notifyError } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
-import { collectFileNames, uniqueFileName, validateFileName } from '@/lib/workspace/paths'
+import { childrenOf, collectFileNames, findNameClash, nameTakenMessage, uniqueFileName, uniqueNewName, validateFileName } from '@/lib/workspace/paths'
 import type { FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
@@ -40,6 +41,8 @@ type WorkspaceSessionContextValue = {
     closeWorkspace: () => Promise<void>
     refreshTree: () => Promise<void>
     removeRecent: (path: string) => Promise<void>
+    /** `name`, or `name 2`, `name 3`… so it doesn't clash with anything already in `parentPath`. */
+    suggestName: (parentPath: string, name: string) => string
     createFile: (parentPath: string, name: string, content?: string) => Promise<void>
     createFolder: (parentPath: string, name: string) => Promise<void>
     renameEntry: (oldPath: string, newName: string, isDirectory: boolean) => Promise<void>
@@ -153,6 +156,15 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         setRecentWorkspaces(next)
     }, [])
 
+    const suggestName = useCallback(
+        (parentPath: string, name: string) =>
+            uniqueNewName(
+                name,
+                childrenOf(tree, workspaceRoot, parentPath).map((node) => node.name)
+            ),
+        [tree, workspaceRoot]
+    )
+
     const createFile = useCallback(
         async (parentPath: string, name: string, content?: string) => {
             const error = validateFileName(name)
@@ -164,13 +176,25 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await showError('Unsupported file', 'File name must end with .md or .mmd.')
                 return
             }
+            const failed = `Couldn't create ${name}`
+            // Writing a new file over an existing one would wipe it, so a taken name is refused here and again on disk.
+            const clash = findNameClash(childrenOf(tree, workspaceRoot, parentPath), name)
+            if (clash) {
+                notifyError(failed, undefined, { description: nameTakenMessage(clash) })
+                return
+            }
             const resolvedContent = content ?? (isMarkdownFile(name) ? DEFAULT_MARKDOWN : DEFAULT_DIAGRAM)
             const path = joinPath(parentPath, name)
-            await createWorkspaceFile(path, resolvedContent)
+            try {
+                await createWorkspaceFile(path, resolvedContent)
+            } catch (err) {
+                notifyError(failed, err)
+                return
+            }
             await refreshTree()
             await coordinator.openFile.current(path)
         },
-        [refreshTree, coordinator]
+        [tree, workspaceRoot, refreshTree, coordinator]
     )
 
     const createFolder = useCallback(
@@ -180,11 +204,22 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await showError('Invalid name', error)
                 return
             }
+            const failed = `Couldn't create folder ${name}`
+            const clash = findNameClash(childrenOf(tree, workspaceRoot, parentPath), name)
+            if (clash) {
+                notifyError(failed, undefined, { description: nameTakenMessage(clash) })
+                return
+            }
             const path = joinPath(parentPath, name)
-            await createWorkspaceDirectory(path)
+            try {
+                await createWorkspaceDirectory(path)
+            } catch (err) {
+                notifyError(failed, err)
+                return
+            }
             await refreshTree()
         },
-        [refreshTree]
+        [tree, workspaceRoot, refreshTree]
     )
 
     const renameEntry = useCallback(
@@ -245,6 +280,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             closeWorkspace,
             refreshTree,
             removeRecent,
+            suggestName,
             createFile,
             createFolder,
             renameEntry,
@@ -264,6 +300,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             closeWorkspace,
             refreshTree,
             removeRecent,
+            suggestName,
             createFile,
             createFolder,
             renameEntry,

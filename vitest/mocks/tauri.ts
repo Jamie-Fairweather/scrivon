@@ -9,6 +9,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     rename: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
     copyFile: vi.fn(async () => undefined),
+    exists: vi.fn(async () => false),
 }))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({

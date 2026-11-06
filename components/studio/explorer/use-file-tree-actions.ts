@@ -6,25 +6,25 @@ import { useWorkspaceSession } from '@/components/studio/workspace/workspace-pro
 
 export function useFileTreeActions(parentPath: string | null) {
     const { promptName } = useNamePrompt()
-    const { createFile, createFolder } = useWorkspaceSession()
+    const { createFile, createFolder, suggestName } = useWorkspaceSession()
 
     const createMermaidFileInParent = useCallback(async () => {
         if (!parentPath) return
-        const name = await promptName('New diagram name', 'diagram.mmd')
+        const name = await promptName('New diagram name', suggestName(parentPath, 'diagram.mmd'))
         if (name) await createFile(parentPath, name)
-    }, [parentPath, promptName, createFile])
+    }, [parentPath, promptName, createFile, suggestName])
 
     const createMarkdownFileInParent = useCallback(async () => {
         if (!parentPath) return
-        const name = await promptName('New document name', 'document.md')
+        const name = await promptName('New document name', suggestName(parentPath, 'document.md'))
         if (name) await createFile(parentPath, name)
-    }, [parentPath, promptName, createFile])
+    }, [parentPath, promptName, createFile, suggestName])
 
     const createFolderInParent = useCallback(async () => {
         if (!parentPath) return
-        const name = await promptName('New folder name', 'diagrams')
+        const name = await promptName('New folder name', suggestName(parentPath, 'diagrams'))
         if (name) await createFolder(parentPath, name)
-    }, [parentPath, promptName, createFolder])
+    }, [parentPath, promptName, createFolder, suggestName])
 
     return { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent }
 }
