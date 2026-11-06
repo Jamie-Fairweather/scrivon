@@ -92,6 +92,12 @@ describe('applySemanticVars', () => {
     })
 })
 
+describe('SEMANTIC_VAR_NAMES', () => {
+    it('lists exactly the variables tokensToSemanticVars produces', () => {
+        expect([...SEMANTIC_VAR_NAMES].sort()).toEqual(Object.keys(tokensToSemanticVars(sampleTokens)).sort())
+    })
+})
+
 describe('clearSemanticVars', () => {
     it('removes semantic variables from the root element', () => {
         const root = createStyleRoot()
