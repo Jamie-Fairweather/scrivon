@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
@@ -50,8 +50,28 @@ describe('MermaidCanvas', () => {
         render(<MermaidCanvas source="graph" />)
 
         expect(screen.queryByTitle('Diagram preview')).toBeNull()
-        expect(screen.queryByRole('status')).toBeNull()
-        expect(screen.getByText('Invalid mermaid header')).toBeInTheDocument()
+        expect(screen.getByRole('status')).toHaveTextContent('Invalid mermaid header')
+        expect(screen.queryByText('Showing the last version that worked.')).toBeNull()
+    })
+
+    it('lets the error text be selected instead of starting a pan, outside the pan/zoom layer (U37)', () => {
+        mockHook({ error: 'Invalid mermaid header' })
+
+        render(<MermaidCanvas source="graph" />)
+
+        const message = screen.getByText('Invalid mermaid header')
+        expect(message.closest('.origin-center')).toBeNull()
+        // The canvas calls preventDefault on pointer down to pan, which would block text selection.
+        expect(fireEvent.pointerDown(message, { button: 0, pointerId: 1 })).toBe(true)
+    })
+
+    it('shows the empty message outside the pan/zoom layer, so zoom never shrinks it (U37)', () => {
+        mockHook({})
+
+        render(<MermaidCanvas source="" />)
+
+        const message = screen.getByText('Add Mermaid syntax to preview a diagram.')
+        expect(message.closest('.origin-center')).toBeNull()
     })
 
     it('shows no banner when the diagram is fine', () => {

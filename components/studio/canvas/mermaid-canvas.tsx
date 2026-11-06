@@ -20,19 +20,26 @@ type MermaidCanvasProps = {
     canvasKey?: string
 }
 
+function stopCanvasGesture(event: React.SyntheticEvent) {
+    event.stopPropagation()
+}
+
+/** Shown when there is no earlier diagram. The message can be selected, copied and scrolled. */
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
     return (
-        <Card className="pointer-events-none max-w-md select-none">
+        <Card
+            role="status"
+            className="pointer-events-auto w-full max-w-md cursor-auto select-text"
+            data-canvas-no-gestures
+            onPointerDown={stopCanvasGesture}
+            onDoubleClick={stopCanvasGesture}
+        >
             <CardPanel className="p-4">
-                <pre className="overflow-auto text-sm whitespace-pre-wrap text-muted-foreground">{message}</pre>
+                <pre className="max-h-[60vh] overflow-auto text-sm whitespace-pre-wrap text-muted-foreground">{message}</pre>
             </CardPanel>
         </Card>
     )
 })
-
-function stopCanvasGesture(event: React.SyntheticEvent) {
-    event.stopPropagation()
-}
 
 /** Shown over the last diagram that worked, outside the pan/zoom layer so the message can be read, selected and scrolled. */
 const DiagramErrorBanner = memo(function DiagramErrorBanner({ message }: { message: string }) {
@@ -59,7 +66,7 @@ const DiagramErrorBanner = memo(function DiagramErrorBanner({ message }: { messa
 
 const DiagramEmpty = memo(function DiagramEmpty({ message }: { message: string }) {
     return (
-        <Card className="pointer-events-none max-w-md select-none">
+        <Card className="w-full max-w-md">
             <CardPanel className="p-4">
                 <p className="text-center text-sm text-muted-foreground">{message}</p>
             </CardPanel>
@@ -120,15 +127,15 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
         >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div ref={transformRef} className={cn('origin-center transition-opacity', showDiagram && error && 'opacity-40')}>
-                    {showDiagram ? (
-                        <DiagramIframe key={viewKey ?? 'none'} svg={svgForDisplay!} label={diagramLabel} />
-                    ) : error ? (
-                        <DiagramError message={error} />
-                    ) : showEmpty ? (
-                        <DiagramEmpty message={emptyMessage} />
-                    ) : null}
+                    {showDiagram ? <DiagramIframe key={viewKey ?? 'none'} svg={svgForDisplay!} label={diagramLabel} /> : null}
                 </div>
             </div>
+            {/* Messages sit outside the pan/zoom layer, so they always show centred at full size. */}
+            {!showDiagram && (error || showEmpty) ? (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
+                    {error ? <DiagramError message={error} /> : <DiagramEmpty message={emptyMessage} />}
+                </div>
+            ) : null}
             {showDiagram && error ? <DiagramErrorBanner message={error} /> : null}
         </div>
     )
