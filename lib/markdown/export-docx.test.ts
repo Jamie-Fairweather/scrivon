@@ -896,6 +896,19 @@ describe('renderExportDocx', () => {
         expect(blockWith(parts['word/footnotes.xml']!, 'הערה קצרה.')).toContain('<w:bidi/>')
     })
 
+    it('keeps aligned columns on their side in a right-to-left table', async () => {
+        const { xml } = await render(['| שם | מחיר | הערה |', '| :--- | ---: | --- |', '| פריט | 5 | טקסט |'].join('\n'))
+        // Word's start is the right side in a right-to-left cell, so ':---' (left) is end and '---:' (right) is start.
+        expect(blockWith(xml, 'שם')).toContain('<w:jc w:val="end"/>')
+        expect(blockWith(xml, 'פריט')).toContain('<w:jc w:val="end"/>')
+        expect(blockWith(xml, 'מחיר')).toContain('<w:jc w:val="start"/>')
+        // A number has no direction of its own, so its cell stays left-to-right, where right is end.
+        expect(blockWith(xml, '5')).not.toContain('<w:bidi/>')
+        expect(blockWith(xml, '5')).toContain('<w:jc w:val="end"/>')
+        // No alignment follows the text, as the PDF's dir="auto" does: start, the right side here.
+        expect(blockWith(xml, 'טקסט')).toContain('<w:jc w:val="start"/>')
+    })
+
     it('leaves left-to-right documents without direction marks', async () => {
         const { xml } = await render('# Title\n\nPlain text.\n\n- item\n\n| a |\n| --- |\n| b |')
         expect(xml).not.toContain('<w:bidi/>')

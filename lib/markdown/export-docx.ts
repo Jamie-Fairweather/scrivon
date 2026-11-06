@@ -1093,6 +1093,18 @@ function renderTableRow(state: RenderState, row: MdTableRow, widths: number[], a
     })
 }
 
+/**
+ * A column's alignment for Word. Word's start and end swap sides in a right-to-left cell, but `---:` means the right
+ * side whatever the text, as it does in the PDF, so there right is start and left is end. With no alignment, the
+ * text's own direction decides, like the PDF's `dir="auto"`.
+ */
+function cellAlignment(align: 'left' | 'center' | 'right' | null | undefined, rtl: boolean) {
+    if (align === 'center') return AlignmentType.CENTER
+    if (align === 'right') return rtl ? AlignmentType.START : AlignmentType.END
+    if (align === 'left') return rtl ? AlignmentType.END : AlignmentType.START
+    return AlignmentType.START
+}
+
 function renderTableCell(
     state: RenderState,
     cell: MdTableCell,
@@ -1103,6 +1115,7 @@ function renderTableCell(
 ): TableCell {
     const saved = state.cellPx
     state.cellPx = cellTextPx(columnTwip)
+    const rtl = bidi(plainText(cell))
     try {
         return new TableCell({
             width: { size: columnTwip, type: WidthType.DXA },
@@ -1119,8 +1132,8 @@ function renderTableCell(
             children: [
                 new Paragraph({
                     spacing: { after: 0, ...bodyLineSpacing(state) },
-                    alignment: align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.END : AlignmentType.START,
-                    bidirectional: bidi(plainText(cell)),
+                    alignment: cellAlignment(align, rtl === true),
+                    bidirectional: rtl,
                     // Quoted tables have grey italic text too.
                     children: renderInlines(state, cell.children, { ...quoteMarks(state), bold: header || undefined }),
                 }),
