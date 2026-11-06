@@ -663,7 +663,7 @@ function renderInlines(
             children.push(...renderLink(state, node, marks))
         } else if (node.type === 'image') {
             const image = renderImage(state, node)
-            children.push(image ?? textRun(state, node.alt || node.url, marks))
+            children.push(image ?? textRun(state, imageFallbackText(node.alt, node.url), marks))
         } else if (node.type === 'imageReference') {
             children.push(textRun(state, node.alt || node.identifier, marks))
         } else if (node.type === 'footnoteReference') {
@@ -692,6 +692,15 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
     if (url.startsWith('#')) return [new InternalHyperlink({ anchor: url.slice(1), children: inner })]
     return [new ExternalHyperlink({ link: url, children: inner })]
+}
+
+/**
+ * What a picture Word can't embed is written as: its alt text, else its address. A data: URL can be
+ * megabytes of base64, so it is never written out; a short placeholder stands in for it.
+ */
+function imageFallbackText(alt: string | null | undefined, url: string): string {
+    if (alt) return alt
+    return /^\s*data:/i.test(url) ? '[image]' : url
 }
 
 /** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
@@ -1416,7 +1425,7 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
                 // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
                 const decoded = decodeImage(state.images, child.url)
                 if (decoded) image = Math.max(image, imageTwip(decoded, width))
-                else parts.push(child.alt || child.url)
+                else parts.push(imageFallbackText(child.alt, child.url))
             } else if (child.type === 'imageReference') parts.push(child.alt || child.identifier)
             else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
             else if ('children' in child) walk(child.children)

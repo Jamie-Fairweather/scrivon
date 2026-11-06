@@ -369,6 +369,17 @@ describe('renderExportDocx', () => {
         }
     })
 
+    it('writes a short placeholder, not the base64, for a data: picture with no alt text that Word cannot take', async () => {
+        const { parts } = await render(
+            '![](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)\n\n![](data:image/webp;base64,UklGRg==)\n\n![](https://example.com/badge.svg)'
+        )
+        const body = parts['word/document.xml']!
+        expect(body).not.toContain('base64')
+        expect(body.match(/>\[image\]<\/w:t>/g)).toHaveLength(2)
+        // A short web address is still written, so the reader can find the picture.
+        expect(body).toContain('>https://example.com/badge.svg</w:t>')
+    })
+
     it('sizes inline code to the text around it, so code in a heading is not shrunk to body size', async () => {
         const { xml } = await render('# The `render()` function\n\n### Uses `useState`\n\nBody `inline` code.')
         // 0.85em, as in the PDF: 36 → 31 in an H1, 27 → 23 in an H3, 22 → 19 in the body.
