@@ -9,6 +9,13 @@ export type WorkspaceCoordinatorRefs = {
     scheduleSave: MutableRefObject<(id: string) => void>
     cancelScheduledSave: MutableRefObject<(id: string) => void>
     getAutosaveEnabled: MutableRefObject<() => boolean>
+    /** The error from the tab's last failed save, if its last save failed. */
+    getSaveError: MutableRefObject<(id: string) => string | undefined>
+    /**
+     * Gets tabs ready to close (all tabs when `ids` is left out): saves them, or asks the user
+     * about unsaved or unsavable changes. Resolves false when the tabs must stay open.
+     */
+    confirmCloseTabs: MutableRefObject<(ids?: readonly string[]) => Promise<boolean>>
     remapTabsAfterRename: MutableRefObject<(oldPath: string, newPath: string, newName: string) => void>
     closeTabsForDelete: MutableRefObject<(path: string, isDirectory: boolean) => void>
     requestCanvasFit: MutableRefObject<() => void>
@@ -28,6 +35,8 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         scheduleSave: { current: () => {} },
         cancelScheduledSave: { current: () => {} },
         getAutosaveEnabled: { current: () => true },
+        getSaveError: { current: () => undefined },
+        confirmCloseTabs: { current: async () => true },
         remapTabsAfterRename: { current: () => {} },
         closeTabsForDelete: { current: () => {} },
         requestCanvasFit: { current: () => {} },

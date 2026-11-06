@@ -38,6 +38,8 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
     const autosaveDelayMs = settings.autosave.delayMs
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
     const inFlightSaves = useRef<Map<string, Promise<boolean>>>(new Map())
+    // Read right after a failed save, before React has put the error on the tab.
+    const saveErrors = useRef<Map<string, string>>(new Map())
     const autosaveEnabledRef = useRef(autosaveEnabled)
     const autosaveDelayMsRef = useRef(autosaveDelayMs)
 
@@ -67,6 +69,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
 
             try {
                 await writeWorkspaceFile(tab.path, content)
+                saveErrors.current.delete(id)
                 // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
                 setTabs((prev) =>
                     prev.map((t) => (t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t))
@@ -74,6 +77,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
                 return true
             } catch (err) {
                 const message = errorMessage(err, 'Failed to save file')
+                saveErrors.current.set(id, message)
                 setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: false, saveError: message } : t)))
                 return false
             }
@@ -150,6 +154,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             scheduleSave,
             cancelScheduledSave,
             getAutosaveEnabled: () => autosaveEnabledRef.current,
+            getSaveError: (id) => saveErrors.current.get(id),
         })
     }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, cancelScheduledSave])
 

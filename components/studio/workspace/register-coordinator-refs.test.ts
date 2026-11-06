@@ -34,6 +34,8 @@ describe('createWorkspaceCoordinatorRefs', () => {
         expect(() => refs.scheduleSave.current('tab-1')).not.toThrow()
         expect(() => refs.cancelScheduledSave.current('tab-1')).not.toThrow()
         expect(refs.getAutosaveEnabled.current()).toBe(true)
+        expect(refs.getSaveError.current('tab-1')).toBeUndefined()
+        await expect(refs.confirmCloseTabs.current()).resolves.toBe(true)
         expect(() => refs.remapTabsAfterRename.current('/ws/old.mmd', '/ws/new.mmd', 'new.mmd')).not.toThrow()
         expect(() => refs.closeTabsForDelete.current('/ws/old.mmd', false)).not.toThrow()
         expect(() => refs.requestCanvasFit.current()).not.toThrow()

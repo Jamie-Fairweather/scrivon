@@ -84,3 +84,65 @@ export async function showError(title: string, body: string): Promise<void> {
 
     await message(body, { title, kind: 'error' })
 }
+
+type ThreeButtons = { yes: string; no: string; cancel: string }
+
+/** Asks a blocking question with three buttons. Anything other than the first two buttons counts as cancel. */
+async function askThreeWay(title: string, body: string, buttons: ThreeButtons): Promise<'yes' | 'no' | 'cancel'> {
+    if (!isTauri()) {
+        // The browser build has no three-button dialog, so it can only go ahead or stop; it never drops work.
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return 'cancel'
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${buttons.yes}. Cancel: ${buttons.cancel}.`) ? 'yes' : 'cancel'
+    }
+
+    const result = await message(body, { title, kind: 'warning', buttons })
+    if (result === buttons.yes || result === 'Yes') return 'yes'
+    if (result === buttons.no || result === 'No') return 'no'
+    return 'cancel'
+}
+
+const MAX_LISTED_FILES = 10
+
+function listFiles(lines: string[]): string {
+    const shown = lines.slice(0, MAX_LISTED_FILES)
+    const hidden = lines.length - shown.length
+    return hidden > 0 ? [...shown, `…and ${hidden} more`].join('\n') : shown.join('\n')
+}
+
+export type UnsavedChangesChoice = 'save' | 'discard' | 'cancel'
+
+/** Save / Don't Save / Cancel before closing files that have unsaved changes. */
+export async function confirmUnsavedChanges(fileNames: string[]): Promise<UnsavedChangesChoice> {
+    const question =
+        fileNames.length === 1
+            ? `Do you want to save the changes you made to ${fileNames[0]}?`
+            : `Do you want to save the changes you made to ${fileNames.length} files?\n\n${listFiles(fileNames)}`
+    const choice = await askThreeWay('Unsaved changes', `${question}\n\nYour changes will be lost if you don't save them.`, {
+        yes: 'Save',
+        no: "Don't Save",
+        cancel: 'Cancel',
+    })
+    if (choice === 'yes') return 'save'
+    if (choice === 'no') return 'discard'
+    return 'cancel'
+}
+
+export type SaveFailure = { name: string; error?: string }
+export type SaveFailureChoice = 'retry' | 'discard' | 'cancel'
+
+/** Try Again / Close Without Saving / Cancel when files could not be saved before closing them. */
+export async function confirmCloseAfterSaveFailure(failures: SaveFailure[]): Promise<SaveFailureChoice> {
+    const describe = (f: SaveFailure) => (f.error ? `${f.name}: ${f.error}` : f.name)
+    const problem =
+        failures.length === 1
+            ? `Scrivon couldn't save ${failures[0]!.name}.${failures[0]!.error ? `\n\n${failures[0]!.error}` : ''}`
+            : `Scrivon couldn't save ${failures.length} files.\n\n${listFiles(failures.map(describe))}`
+    const choice = await askThreeWay("Couldn't save", `${problem}\n\nIf you close without saving, your changes will be lost.`, {
+        yes: 'Try Again',
+        no: 'Close Without Saving',
+        cancel: 'Cancel',
+    })
+    if (choice === 'yes') return 'retry'
+    if (choice === 'no') return 'discard'
+    return 'cancel'
+}
