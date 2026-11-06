@@ -132,3 +132,62 @@ describe('usePaletteSearch recent files', () => {
         expect(groupPaths(result.current.groups, 'recent')).toEqual([])
     })
 })
+
+describe('usePaletteSearch commands in the default results', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/notes.md'), file('/ws/settings-notes.md')]
+        state.session.recentWorkspaces = []
+        state.tabs.tabs = []
+        state.tabs.activeTabId = null
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    function groupIds(groups: PaletteGroup[]): string[] {
+        return groups.map((group) => group.id)
+    }
+
+    it('lists runnable commands first when nothing is typed and no folder is open', () => {
+        state.session.workspaceRoot = null
+        state.session.recentWorkspaces = ['/projects/alpha']
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        expect(groupIds(result.current.groups)).toEqual(['actions', 'workspaces'])
+        const commands = groupPaths(result.current.groups, 'actions')
+        expect(commands).toContain('action:open-folder')
+        // Close Folder needs a folder, and the recent folder already has its own group.
+        expect(commands).not.toContain('action:close-folder')
+        expect(commands.some((value) => value.startsWith('action:recent-workspace:'))).toBe(false)
+        expect(commands.length).toBeLessThanOrEqual(5)
+    })
+
+    it('finds a command by name without the > prefix', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('theme'))
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
+    })
+
+    it('lists commands after matching files while typing', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('settings'))
+        expect(groupIds(result.current.groups)).toEqual(['files', 'actions'])
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:open-settings')
+    })
+
+    it('lists commands first when nothing is typed in a folder', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        expect(groupIds(result.current.groups)[0]).toBe('actions')
+    })
+
+    it('keeps commands out of Go to File and Find in Workspace', () => {
+        const { result } = renderHook(() => usePaletteSearch('files', true))
+
+        act(() => result.current.setQuery('settings'))
+        expect(groupIds(result.current.groups)).toEqual(['files'])
+    })
+})

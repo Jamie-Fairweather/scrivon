@@ -18,7 +18,7 @@ import {
     type SearchWorkspaceContentResult,
 } from '@/components/studio/command-palette/search-content'
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
-import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
+import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import {
@@ -42,6 +42,21 @@ function buildWorkspaceItems(recentWorkspaces: string[], query: string): Palette
 
     if (filtered.length === 0) return null
     return { id: 'workspaces', label: 'Workspaces', items: filtered }
+}
+
+/** How many commands the default (no '>') results show next to files. */
+export const MAX_MIXED_COMMANDS = 5
+
+/**
+ * The best few commands for the default results, so F1 finds commands without typing '>'.
+ * Only runnable commands are listed; with no folder open, recent folders already have their own group.
+ */
+function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, hasWorkspace: boolean): PaletteGroup | null {
+    const items = searchActions(actions, query)
+        .filter((action) => !action.disabled && (hasWorkspace || !action.value.startsWith('action:recent-workspace:')))
+        .slice(0, MAX_MIXED_COMMANDS)
+    if (items.length === 0) return null
+    return { id: 'actions', label: 'Commands', items }
 }
 
 export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
@@ -156,10 +171,16 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         if (actionsOnly) {
             const actionItems = searchActions(allActions, parsedQuery)
             if (actionItems.length > 0) {
-                result.push({ id: 'actions', label: 'Actions', items: actionItems })
+                result.push({ id: 'actions', label: 'Commands', items: actionItems })
             }
             return result
         }
+
+        // Commands lead when nothing is typed (or no folder is open) so they're easy to find,
+        // and follow the file results while typing so a file name still comes first.
+        const commandGroup = mode === 'all' ? buildMixedCommandGroup(allActions, parsedQuery, Boolean(workspaceRoot)) : null
+        const commandsFirst = !parsedQuery || !workspaceRoot
+        if (commandGroup && commandsFirst) result.push(commandGroup)
 
         if (!workspaceRoot) {
             const workspaceGroup = buildWorkspaceItems(recentWorkspaces, parsedQuery)
@@ -186,6 +207,8 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 result.push({ id: 'files', label: 'Files', items: fileItems })
             }
         }
+
+        if (commandGroup && !commandsFirst) result.push(commandGroup)
 
         if (shouldSearchText && textItems && (mode === 'all' || mode === 'text')) {
             result.push(textItems)

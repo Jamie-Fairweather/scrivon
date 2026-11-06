@@ -138,7 +138,7 @@ const MODE_FILTER_LABELS: Record<PaletteMode, string | null> = {
 }
 
 function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string): string {
-    if (!hasWorkspace) return 'Open a folder to search files and text.'
+    if (!hasWorkspace) return 'No results. Open a folder to search files, or type > for commands.'
 
     const parsed = parsePaletteQuery(query)
     if (!parsed.actionsOnly && mode === 'files') return 'No file names match. Remove the Files filter to search file contents too.'
@@ -212,6 +212,8 @@ export function CommandPaletteDialog({
     )
 
     const emptyMessage = emptyMessageFor(hasWorkspace, mode, query)
+    // Point to the '>' prefix until the user is already in commands.
+    const showCommandsHint = !parsePaletteQuery(query).actionsOnly
 
     const endAddon =
         isSearchingText || filterLabel ? (
@@ -284,6 +286,12 @@ export function CommandPaletteDialog({
                                 </Kbd>
                                 <span>Open</span>
                             </div>
+                            {showCommandsHint ? (
+                                <div className="flex items-center gap-2">
+                                    <Kbd>&gt;</Kbd>
+                                    <span>Commands</span>
+                                </div>
+                            ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                             {textUnreadableFiles > 0 ? (
