@@ -16,7 +16,7 @@ import {
 import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
 import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { showError } from '@/lib/tauri/dialog'
-import { getBaseName, isSupportedDocument, readWorkspaceFile } from '@/lib/tauri/fs'
+import { getBaseName, isSupportedDocument, normalizePath, readWorkspaceFile, samePath } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
@@ -93,10 +93,13 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     useEffect(() => {
         registerCoordinatorRefs(coordinator, {
             remapTabsAfterRename: (oldPath, newPath, newName) => {
-                const nextTabs = remapTabsAfterRename(tabsRef.current, oldPath, newPath, newName)
-                const nextActiveId = activeTabIdRef.current === oldPath ? newPath : activeTabIdRef.current
+                const prevTabs = tabsRef.current
+                const nextTabs = remapTabsAfterRename(prevTabs, oldPath, newPath, newName)
+                // The remap keeps tab order, so the active tab's new id sits at the same index.
+                const activeIndex = prevTabs.findIndex((t) => t.id === activeTabIdRef.current)
+                const nextActiveId = activeIndex >= 0 ? nextTabs[activeIndex]!.id : activeTabIdRef.current
                 setTabs(nextTabs)
-                if (activeTabIdRef.current === oldPath) setActiveTabId(newPath)
+                if (nextActiveId !== activeTabIdRef.current) setActiveTabId(nextActiveId)
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
             closeTabsForDelete: (path, isDirectory) => {
@@ -126,21 +129,22 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef])
 
     const openFile = useCallback(
-        async (path: string) => {
-            const fileName = getBaseName(path)
+        async (requestedPath: string) => {
+            const fileName = getBaseName(requestedPath)
             if (!isSupportedDocument(fileName)) {
                 await showError('Unsupported file', 'Scrivon supports .md and .mmd files only.')
                 return
             }
 
+            const path = normalizePath(requestedPath)
             const previousId = activeTabIdRef.current
 
-            const existing = tabsRef.current.find((t) => t.id === path)
+            const existing = tabsRef.current.find((t) => samePath(t.path, path))
             if (existing) {
-                setActiveTabId(path)
-                void persistTabSession({ tabs: tabsRef.current, activeTabId: path })
-                if (workspaceRoot) void addRecentFile(workspaceRoot, path)
-                if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
+                setActiveTabId(existing.id)
+                void persistTabSession({ tabs: tabsRef.current, activeTabId: existing.id })
+                if (workspaceRoot) void addRecentFile(workspaceRoot, existing.id)
+                if (previousId && previousId !== existing.id) coordinator.flushSaveOnTabLeave.current(previousId)
                 return
             }
 
@@ -151,10 +155,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 const tab = tabFromPath(path, content)
                 const nextTabs = [...tabsRef.current, tab]
                 setTabs(nextTabs)
-                setActiveTabId(path)
+                setActiveTabId(tab.id)
                 coordinator.requestCanvasFit.current()
-                await persistTabSession({ tabs: nextTabs, activeTabId: path })
-                if (workspaceRoot) void addRecentFile(workspaceRoot, path)
+                await persistTabSession({ tabs: nextTabs, activeTabId: tab.id })
+                if (workspaceRoot) void addRecentFile(workspaceRoot, tab.id)
             } catch (err) {
                 await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
             }

@@ -13,9 +13,11 @@ import {
     isSupportedDocument,
     joinPath,
     listWorkspaceTree,
+    normalizePath,
     readWorkspaceFile,
     removeWorkspacePath,
     renameWorkspacePath,
+    samePath,
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
@@ -81,9 +83,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [workspaceRoot])
 
     const openWorkspace = useCallback(
-        async (path: string) => {
+        async (requestedPath: string) => {
             if (!isDesktop) return
 
+            const path = normalizePath(requestedPath)
             await allowWorkspacePath(path)
             if (workspaceRoot) {
                 await coordinator.flushAllSaves.current()
@@ -100,9 +103,15 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
             const tabSession = await getWorkspaceTabSession(path)
             if (tabSession && tabSession.tabIds.length > 0) {
+                // Older sessions can hold the same file twice with different separators.
+                const sessionPaths: string[] = []
+                for (const id of tabSession.tabIds) {
+                    const normalized = normalizePath(id)
+                    if (!sessionPaths.some((p) => samePath(p, normalized))) sessionPaths.push(normalized)
+                }
                 const restoredTabs = (
                     await Promise.all(
-                        tabSession.tabIds.map(async (filePath) => {
+                        sessionPaths.map(async (filePath) => {
                             try {
                                 const content = await readWorkspaceFile(filePath)
                                 return tabFromPath(filePath, content)
@@ -114,8 +123,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
 
                 if (restoredTabs.length > 0) {
-                    const restoredIds = new Set(restoredTabs.map((t) => t.id))
-                    const activeId = tabSession.activeTabId && restoredIds.has(tabSession.activeTabId) ? tabSession.activeTabId : restoredTabs[0].id
+                    const savedActiveId = tabSession.activeTabId
+                    const activeTab = savedActiveId ? restoredTabs.find((t) => samePath(t.path, savedActiveId)) : undefined
+                    const activeId = activeTab?.id ?? restoredTabs[0].id
                     coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
                     coordinator.requestCanvasFit.current()
                 }

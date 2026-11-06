@@ -34,6 +34,7 @@ import {
     createWorkspaceFile,
     duplicateWorkspaceFile,
     getWorkspaceFileSize,
+    joinPath,
     listWorkspaceTree,
     readWorkspaceFile,
     removeWorkspacePath,
@@ -110,6 +111,27 @@ describe('workspace fs (Tauri)', () => {
 
         const tree = await listWorkspaceTree('/ws')
         expect(tree.map((node) => node.name)).toEqual(['z-dir', 'a.mmd', 'b.mmd'])
+    })
+
+    it('builds Windows tree paths with the same separators as joinPath', async () => {
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\ws') {
+                return [
+                    { name: 'sub', isDirectory: true, isFile: false, isSymlink: false },
+                    { name: 'flow.mmd', isDirectory: false, isFile: true, isSymlink: false },
+                ]
+            }
+            if (dirPath === 'C:\\ws\\sub') {
+                return [{ name: 'a.md', isDirectory: false, isFile: true, isSymlink: false }]
+            }
+            return []
+        })
+
+        const tree = await listWorkspaceTree('C:\\ws\\')
+        expect(tree[0]).toMatchObject({ kind: 'directory', path: 'C:\\ws\\sub' })
+        expect(tree[0]?.kind === 'directory' && tree[0].children[0]?.path).toBe(joinPath('C:\\ws\\sub', 'a.md'))
+        expect(tree[1]?.path).toBe(joinPath('C:\\ws', 'flow.mmd'))
+        expect(tree[1]?.path).toBe('C:\\ws\\flow.mmd')
     })
 
     it('reads workspace file size through Tauri', async () => {

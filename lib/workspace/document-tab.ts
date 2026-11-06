@@ -1,11 +1,12 @@
-import { getBaseName } from '@/lib/tauri/fs'
+import { getBaseName, normalizePath } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 export function tabFromPath(path: string, content: string): DocumentTab {
+    const normalized = normalizePath(path)
     return {
-        id: path,
-        path,
-        name: getBaseName(path),
+        id: normalized,
+        path: normalized,
+        name: getBaseName(normalized),
         content,
         isDirty: false,
         isSaving: false,
