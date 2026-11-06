@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
     clearSvgCache,
     forgetDocumentSvgs,
+    hasRenderedInTheme,
     pruneSvgCache,
     readCachedSvg,
     readLatestSvg,
@@ -32,7 +33,27 @@ describe('svg cache', () => {
         storeSvg(THEME, 'a.mmd', 'v3', '<svg>3</svg>')
 
         expect(readLatestSvg(THEME, 'a.mmd')).toBe('<svg>3</svg>')
-        expect(readLatestSvg('scrivon-dark', 'a.mmd')).toBeNull()
+    })
+
+    it('prefers a render in this theme, and falls back to another theme rather than nothing (U38)', () => {
+        storeSvg(THEME, 'a.mmd', 'v1', '<svg>light 1</svg>')
+        expect(readLatestSvg('scrivon-dark', 'a.mmd')).toBe('<svg>light 1</svg>')
+
+        storeSvg('scrivon-dark', 'a.mmd', 'v1', '<svg>dark 1</svg>')
+        storeSvg(THEME, 'a.mmd', 'v2', '<svg>light 2</svg>')
+        expect(readLatestSvg('scrivon-dark', 'a.mmd')).toBe('<svg>dark 1</svg>')
+        expect(readLatestSvg(THEME, 'a.mmd')).toBe('<svg>light 2</svg>')
+        expect(readLatestSvg(THEME, 'b.mmd')).toBeNull()
+    })
+
+    it('knows whether a document already rendered or failed in a theme (U38)', () => {
+        expect(hasRenderedInTheme(THEME, 'a.mmd')).toBe(false)
+        storeSvg(THEME, 'a.mmd', 'v1', '<svg/>')
+        expect(hasRenderedInTheme(THEME, 'a.mmd')).toBe(true)
+        expect(hasRenderedInTheme('scrivon-dark', 'a.mmd')).toBe(false)
+
+        storeRenderError(THEME, 'b.mmd', 'graph', 'Bad header')
+        expect(hasRenderedInTheme(THEME, 'b.mmd')).toBe(true)
     })
 
     it('treats re-rendering an older source as the newest render', () => {

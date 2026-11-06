@@ -8,7 +8,7 @@ import { usePanZoom } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
-import { CircleAlert } from 'lucide-react'
+import { CircleAlert, Loader2 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardPanel } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -74,6 +74,16 @@ const DiagramEmpty = memo(function DiagramEmpty({ message }: { message: string }
     )
 })
 
+/** Fades in only if rendering takes a moment, so quick renders don't flash it. */
+function DiagramLoading() {
+    return (
+        <p role="status" className="flex animate-in items-center gap-2 text-sm text-muted-foreground delay-300 fill-mode-backwards fade-in">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Rendering diagram…
+        </p>
+    )
+}
+
 export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
@@ -117,6 +127,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     const emptyMessage = !viewKey ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
     const showDiagram = hasSource && Boolean(svgForDisplay)
     const showEmpty = !error && !showDiagram && !isPending
+    const showLoading = !error && !showDiagram && isPending
 
     return (
         <div
@@ -131,9 +142,9 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
                 </div>
             </div>
             {/* Messages sit outside the pan/zoom layer, so they always show centred at full size. */}
-            {!showDiagram && (error || showEmpty) ? (
+            {!showDiagram && (error || showEmpty || showLoading) ? (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
-                    {error ? <DiagramError message={error} /> : <DiagramEmpty message={emptyMessage} />}
+                    {error ? <DiagramError message={error} /> : showLoading ? <DiagramLoading /> : <DiagramEmpty message={emptyMessage} />}
                 </div>
             ) : null}
             {showDiagram && error ? <DiagramErrorBanner message={error} /> : null}

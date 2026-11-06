@@ -83,6 +83,20 @@ describe('MermaidCanvas', () => {
         expect(screen.queryByRole('status')).toBeNull()
     })
 
+    it('says the diagram is rendering instead of showing a blank canvas (U38)', () => {
+        mockHook({ isPending: true })
+
+        render(
+            <MermaidCanvas
+                source="graph TD
+  A --> B"
+            />
+        )
+
+        expect(screen.getByRole('status')).toHaveTextContent('Rendering diagram…')
+        expect(screen.queryByText('Add Mermaid syntax to preview a diagram.')).toBeNull()
+    })
+
     it('exposes the diagram as one named image and keeps its frames out of the Tab order (A27)', () => {
         mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
 

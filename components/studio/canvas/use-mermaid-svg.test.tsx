@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
 import { clearSvgCache } from '@/lib/mermaid/svg-cache'
+import type { AppThemeId } from '@/lib/theme/catalog'
+
+const theme = vi.hoisted(() => ({ id: 'scrivon-light' }))
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
-    useAppTheme: () => ({ themeId: 'scrivon-light' }),
+    useAppTheme: () => ({ themeId: theme.id }),
 }))
 
 vi.mock('@/lib/mermaid/render', async (importOriginal) => {
@@ -18,18 +21,19 @@ const V2 = 'graph TD\n  A --> B --> C'
 const V3 = 'graph TD\n  A --> B --> C --> D'
 const BROKEN = 'graph\n  A --> B'
 
-function expectedSvg(source: string) {
-    return vi.mocked(renderMermaidDiagram).getMockImplementation()!(source, 'scrivon-light')
+function expectedSvg(source: string, themeId: AppThemeId = 'scrivon-light') {
+    return vi.mocked(renderMermaidDiagram).getMockImplementation()!(source, themeId)
 }
 
-async function waitForRender() {
+async function waitForRender(ms = 250) {
     await act(async () => {
-        vi.advanceTimersByTime(250)
+        vi.advanceTimersByTime(ms)
     })
 }
 
 beforeEach(() => {
     vi.useFakeTimers()
+    theme.id = 'scrivon-light'
     clearSvgCache()
     vi.mocked(renderMermaidDiagram).mockClear()
 })
@@ -112,6 +116,34 @@ describe('useMermaidSvg', () => {
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(3)
         expect(views.result.current.canvas.error).toMatch(/\S/)
         expect(views.result.current.exportMenu.error).toBe(views.result.current.canvas.error)
+    })
+
+    it('renders a document shown for the first time without waiting, then waits between keystrokes (U38)', async () => {
+        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        await waitForRender(0)
+        expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
+
+        rerender({ source: V2 })
+        await waitForRender(0)
+        expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
+        await waitForRender()
+        expect(result.current.svgForDisplay).toBe(expectedSvg(V2))
+    })
+
+    it('keeps the diagram on screen while it re-renders for a new theme (U38)', async () => {
+        const { result, rerender } = renderHook(() => useMermaidSvg(V1, 'a.mmd'))
+        await waitForRender()
+
+        theme.id = 'scrivon-dark'
+        rerender()
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: true, isPending: false })
+
+        await waitForRender(0)
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1, 'scrivon-dark'), isStale: false })
+
+        theme.id = 'scrivon-light'
+        rerender()
+        expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
     })
 
     it('shows the error straight away for a document that never rendered', async () => {

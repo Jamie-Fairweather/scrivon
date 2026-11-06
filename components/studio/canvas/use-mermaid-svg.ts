@@ -4,8 +4,17 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { renderMermaidDiagramAsync, SupersededRenderError } from '@/lib/mermaid/render-client'
-import { clearSvgCache, forgetDocumentSvgs, readCachedSvg, readLatestSvg, readRenderError, storeRenderError, storeSvg } from '@/lib/mermaid/svg-cache'
+import {
+    forgetDocumentSvgs,
+    hasRenderedInTheme,
+    readCachedSvg,
+    readLatestSvg,
+    readRenderError,
+    storeRenderError,
+    storeSvg,
+} from '@/lib/mermaid/svg-cache'
 
+/** Wait this long after a keystroke before rendering. A document shown for the first time renders straight away. */
 const RENDER_DEBOUNCE_MS = 200
 
 type DiagramDisplay = { trimmedSource: string; svg: string; documentKey: string; themeId: string }
@@ -22,21 +31,12 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
 
     const [display, setDisplay] = useState<DiagramDisplay | null>(null)
     const [error, setError] = useState<RenderError | null>(null)
-    const prevThemeIdRef = useRef<string | null>(null)
 
     useEffect(() => {
         documentKeyRef.current = documentKey
         sourceRef.current = source
         themeIdRef.current = themeId
     }, [documentKey, source, themeId])
-
-    useEffect(() => {
-        const prevThemeId = prevThemeIdRef.current
-        prevThemeIdRef.current = themeId
-        if (prevThemeId != null && prevThemeId !== themeId) {
-            clearSvgCache()
-        }
-    }, [themeId])
 
     useEffect(() => {
         // A cleared document starts over, so its old diagram can't come back once typing resumes.
@@ -67,6 +67,8 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
             setError({ message, documentKey: renderForKey, themeId: renderThemeId, trimmedSource: renderTrimmed })
         }
 
+        // Debounce typing, but don't make a newly opened document or a theme change wait.
+        const delay = hasRenderedInTheme(themeId, documentKey) ? RENDER_DEBOUNCE_MS : 0
         const timer = window.setTimeout(() => {
             if (!isCurrent()) return
 
@@ -95,7 +97,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                     }
                 )
             }
-        }, RENDER_DEBOUNCE_MS)
+        }, delay)
 
         return () => {
             cancelled = true
@@ -109,7 +111,8 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
     const hasRenderError = Boolean(
         error && documentKey && !currentSvg && error.documentKey === documentKey && error.themeId === themeId && error.trimmedSource === trimmedSource
     )
-    // While the current text is still rendering or doesn't parse, keep showing the newest diagram that worked.
+    // While the current text is still rendering or doesn't parse, keep showing the newest diagram that
+    // worked. Right after a theme change that is the old-theme picture, so the canvas never goes blank.
     const svgForDisplay = currentSvg ?? (canRender && documentKey ? readLatestSvg(themeId, documentKey) : null)
     const errorMessage = hasRenderError && error ? error.message : null
     /** True when svgForDisplay is an older render, not the current text. */

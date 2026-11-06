@@ -28,9 +28,19 @@ export function readCachedSvg(themeId: string, documentKey: string, trimmedSourc
     return renders.get(documentKey)?.find((render) => render.themeId === themeId && render.source === trimmedSource)?.svg ?? null
 }
 
-/** The newest render of a document in this theme, whatever its source was. */
+/**
+ * The newest render of a document, whatever its source was, in this theme if there is one. Right
+ * after a theme change there isn't, so the old-theme picture stays up until the new one is ready.
+ */
 export function readLatestSvg(themeId: string, documentKey: string): string | null {
-    return renders.get(documentKey)?.find((render) => render.themeId === themeId)?.svg ?? null
+    const list = renders.get(documentKey)
+    if (!list?.length) return null
+    return (list.find((render) => render.themeId === themeId) ?? list[0]).svg
+}
+
+/** Whether the document already rendered, or failed to, in this theme: it is being edited, not shown for the first time. */
+export function hasRenderedInTheme(themeId: string, documentKey: string): boolean {
+    return Boolean(renders.get(documentKey)?.some((render) => render.themeId === themeId)) || failures.get(documentKey)?.themeId === themeId
 }
 
 export function storeSvg(themeId: string, documentKey: string, trimmedSource: string, svg: string): void {
