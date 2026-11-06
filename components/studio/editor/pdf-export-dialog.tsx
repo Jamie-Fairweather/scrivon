@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { exportMarkdown, type ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
+import { exportMarkdown, notifyExportSaved, type ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -21,11 +21,25 @@ type PdfExportDialogProps = {
 }
 
 export function PdfExportDialog({ open, onOpenChange, source, tabName, format = 'pdf' }: PdfExportDialogProps) {
+    const [busy, setBusy] = useState(false)
+    // Closing mid-export would leave the save picker popping up later with no dialog behind it.
+    const handleOpenChange = (next: boolean) => {
+        if (!next && busy) return
+        onOpenChange(next)
+    }
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogPopup className="max-w-lg">
                 {/* The popup unmounts when closed, so the form's state starts fresh on every open. */}
-                <PdfExportForm key={format} source={source} tabName={tabName} initialFormat={format} onClose={() => onOpenChange(false)} />
+                <PdfExportForm
+                    key={format}
+                    source={source}
+                    tabName={tabName}
+                    initialFormat={format}
+                    busy={busy}
+                    onBusyChange={setBusy}
+                    onClose={() => onOpenChange(false)}
+                />
             </DialogPopup>
         </Dialog>
     )
@@ -40,11 +54,15 @@ function PdfExportForm({
     source,
     tabName,
     initialFormat,
+    busy,
+    onBusyChange,
     onClose,
 }: {
     source: string
     tabName: string | undefined
     initialFormat: ExportFormat
+    busy: boolean
+    onBusyChange: (busy: boolean) => void
     onClose: () => void
 }) {
     const { settings } = useAppSettings()
@@ -59,21 +77,22 @@ function PdfExportForm({
     const [author, setAuthor] = useState(defaults.author)
     const [date, setDate] = useState(defaults.date)
     const [format, setFormat] = useState<ExportFormat>(initialFormat)
-    const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
 
     const runExport = async () => {
-        setBusy(true)
+        onBusyChange(true)
         setError('')
         try {
             const result = await exportMarkdown(source, tabName, { format, profile, overrides })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
-            if (result.status === 'saved') onClose()
-            else if (result.status === 'failed') setError(result.message)
+            if (result.status === 'saved') {
+                if (result.path) notifyExportSaved(result.path)
+                onClose()
+            } else if (result.status === 'failed') setError(result.message)
         } finally {
-            setBusy(false)
+            onBusyChange(false)
         }
     }
 
@@ -84,35 +103,37 @@ function PdfExportForm({
                 <DialogDescription>Choose a format, profile, and optional title metadata for this export.</DialogDescription>
             </DialogHeader>
             <DialogPanel className="space-y-4">
-                <Field>
-                    <FieldLabel htmlFor="export-format">Format</FieldLabel>
-                    <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={setFormat} />
-                </Field>
-                <Field>
-                    <FieldLabel htmlFor="export-profile">Profile</FieldLabel>
-                    <OptionSelect
-                        id="export-profile"
-                        value={profile.id}
-                        options={pdf.profiles.map((candidate) => ({ label: candidate.name, value: candidate.id }))}
-                        onChange={setProfileId}
-                    />
-                </Field>
-                <Field>
-                    <FieldLabel htmlFor="export-title">Title</FieldLabel>
-                    <Input id="export-title" value={title} onChange={(event) => setTitle(event.target.value)} />
-                </Field>
-                <Field>
-                    <FieldLabel htmlFor="export-subtitle">Subtitle</FieldLabel>
-                    <Input id="export-subtitle" value={subtitle} onChange={(event) => setSubtitle(event.target.value)} />
-                </Field>
-                <Field>
-                    <FieldLabel htmlFor="export-author">Author</FieldLabel>
-                    <Input id="export-author" value={author} onChange={(event) => setAuthor(event.target.value)} />
-                </Field>
-                <Field>
-                    <FieldLabel htmlFor="export-date">Date</FieldLabel>
-                    <Input id="export-date" value={date} onChange={(event) => setDate(event.target.value)} />
-                </Field>
+                <fieldset disabled={busy} className="min-w-0 space-y-4">
+                    <Field>
+                        <FieldLabel htmlFor="export-format">Format</FieldLabel>
+                        <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={setFormat} />
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor="export-profile">Profile</FieldLabel>
+                        <OptionSelect
+                            id="export-profile"
+                            value={profile.id}
+                            options={pdf.profiles.map((candidate) => ({ label: candidate.name, value: candidate.id }))}
+                            onChange={setProfileId}
+                        />
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor="export-title">Title</FieldLabel>
+                        <Input id="export-title" value={title} onChange={(event) => setTitle(event.target.value)} />
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor="export-subtitle">Subtitle</FieldLabel>
+                        <Input id="export-subtitle" value={subtitle} onChange={(event) => setSubtitle(event.target.value)} />
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor="export-author">Author</FieldLabel>
+                        <Input id="export-author" value={author} onChange={(event) => setAuthor(event.target.value)} />
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor="export-date">Date</FieldLabel>
+                        <Input id="export-date" value={date} onChange={(event) => setDate(event.target.value)} />
+                    </Field>
+                </fieldset>
                 {error ? (
                     <p role="alert" className="text-sm text-destructive-foreground">
                         Export failed: {error}
@@ -120,7 +141,10 @@ function PdfExportForm({
                 ) : null}
             </DialogPanel>
             <DialogFooter>
-                <Button type="button" disabled={busy} onClick={() => void runExport()}>
+                <p role="status" aria-live="polite" className="text-sm text-muted-foreground sm:me-auto sm:self-center">
+                    {busy ? 'Exporting…' : ''}
+                </p>
+                <Button type="button" loading={busy} onClick={() => void runExport()}>
                     Export
                 </Button>
             </DialogFooter>

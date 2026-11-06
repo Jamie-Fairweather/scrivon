@@ -1,8 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets } from '@/lib/markdown/export-assets'
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
-import { errorMessage, notifyError } from '@/lib/notify'
+import { errorMessage, notifyError, notifySuccess } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportDocument, PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
@@ -11,6 +12,8 @@ import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const DOCX_FILTERS = [{ name: 'Word document', extensions: ['docx'] }]
+/** Long enough to reach the toast's Show in folder button. */
+const SAVED_NOTICE_MS = 8_000
 
 export type ExportMarkdownOptions = {
     format?: ExportFormat
@@ -156,6 +159,21 @@ export async function exportMarkdown(source: string, tabName: string | undefined
     } catch (err) {
         return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
     }
+}
+
+/** Tells the user the export was saved and where, with a button that shows the file in its folder. */
+export function notifyExportSaved(path: string): void {
+    const name = path.split(/[\\/]/).pop() || path
+    notifySuccess(`Saved ${name}`, {
+        description: path,
+        timeout: SAVED_NOTICE_MS,
+        action: {
+            label: 'Show in folder',
+            onClick: () => {
+                revealItemInDir(path).catch((err: unknown) => notifyError('Could not show the file', err))
+            },
+        },
+    })
 }
 
 /** {@link exportMarkdown} that tells the user when the export fails. */

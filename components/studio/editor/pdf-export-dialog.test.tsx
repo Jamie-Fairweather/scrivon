@@ -5,8 +5,9 @@ import type { ExportResult } from '@/lib/markdown/export-pdf'
 import { PdfExportDialog } from './pdf-export-dialog'
 
 const exportMarkdown = vi.hoisted(() => vi.fn<() => Promise<ExportResult>>())
+const notifyExportSaved = vi.hoisted(() => vi.fn())
 
-vi.mock('@/lib/markdown/export-pdf', () => ({ exportMarkdown }))
+vi.mock('@/lib/markdown/export-pdf', () => ({ exportMarkdown, notifyExportSaved }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { pdfExport: createDefaultPdfExportSettings() } }),
 }))
@@ -31,6 +32,7 @@ async function exportWithTitle(title: string) {
 describe('PdfExportDialog', () => {
     beforeEach(() => {
         exportMarkdown.mockReset()
+        notifyExportSaved.mockReset()
     })
 
     it('stays open with the edited fields when the save picker is cancelled', async () => {
@@ -62,10 +64,39 @@ describe('PdfExportDialog', () => {
         await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     })
 
-    it('closes once the file is saved', async () => {
+    it('closes once the file is saved and says where', async () => {
         exportMarkdown.mockResolvedValue({ status: 'saved', path: 'C:/out/report.pdf' })
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
+        expect(onOpenChange).toHaveBeenCalledWith(false)
+        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf')
+    })
+
+    it('says nothing extra when the print dialog or a download took over', async () => {
+        exportMarkdown.mockResolvedValue({ status: 'saved' })
+        const { onOpenChange } = renderDialog()
+        await exportWithTitle('Quarterly report')
+        expect(onOpenChange).toHaveBeenCalledWith(false)
+        expect(notifyExportSaved).not.toHaveBeenCalled()
+    })
+
+    it('shows progress and cannot be closed or edited while exporting', async () => {
+        let finish: (result: ExportResult) => void = () => undefined
+        exportMarkdown.mockReturnValue(new Promise<ExportResult>((resolve) => (finish = resolve)))
+        const { onOpenChange } = renderDialog()
+        const title = await screen.findByLabelText('Title')
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+        await waitFor(() => expect(screen.getByText('Exporting…')).toBeInTheDocument())
+        expect(title).toBeDisabled()
+        fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+        expect(onOpenChange).not.toHaveBeenCalled()
+
+        finish({ status: 'cancelled' })
+        await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
+        expect(title).not.toBeDisabled()
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
         expect(onOpenChange).toHaveBeenCalledWith(false)
     })
 })

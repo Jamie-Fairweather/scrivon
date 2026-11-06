@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const invoke = vi.hoisted(() => vi.fn())
 const pickSavePath = vi.hoisted(() => vi.fn())
 const notifyError = vi.hoisted(() => vi.fn())
+const notifySuccess = vi.hoisted(() => vi.fn())
+const revealItemInDir = vi.hoisted(() => vi.fn(async (_path: string) => undefined))
 const writeBinaryFile = vi.hoisted(() => vi.fn())
 const isWindowsTauri = vi.hoisted(() => vi.fn(() => false))
 const isTauri = vi.hoisted(() => vi.fn(() => false))
@@ -31,7 +33,8 @@ const resolvePdfExportAssets = vi.hoisted(() => vi.fn(async () => EMPTY_ASSETS))
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, writeBinaryFile }))
-vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyError }))
+vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyError, notifySuccess }))
+vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir }))
 vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri, isTauri }))
 vi.mock('@/lib/markdown/markdown-to-export-html', () => ({ markdownToExportHtml }))
 vi.mock('@/lib/markdown/export-assets', () => ({ resolvePdfExportAssets }))
@@ -43,6 +46,9 @@ describe('export-pdf helpers', () => {
         invoke.mockReset()
         pickSavePath.mockReset()
         notifyError.mockReset()
+        notifySuccess.mockReset()
+        revealItemInDir.mockReset()
+        revealItemInDir.mockResolvedValue(undefined)
         isWindowsTauri.mockReturnValue(false)
         isTauri.mockReset()
         isTauri.mockReturnValue(false)
@@ -260,5 +266,21 @@ describe('export-pdf helpers', () => {
         const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
         await expect(exportMarkdown('   ', 'notes.md', { format: 'docx' })).resolves.toEqual({ status: 'failed', message: 'Nothing to export.' })
         expect(renderExportDocx).not.toHaveBeenCalled()
+    })
+
+    it('says where the export was saved and can show it in its folder', async () => {
+        const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
+        const path = String.raw`C:\Users\ada\Reports\q3.pdf`
+        notifyExportSaved(path)
+        expect(notifySuccess).toHaveBeenCalledWith('Saved q3.pdf', expect.objectContaining({ description: path }))
+
+        const options = notifySuccess.mock.calls[0]![1] as { action: { label: string; onClick: () => void } }
+        expect(options.action.label).toBe('Show in folder')
+        options.action.onClick()
+        expect(revealItemInDir).toHaveBeenCalledWith(path)
+
+        revealItemInDir.mockRejectedValueOnce(new Error('gone'))
+        options.action.onClick()
+        await vi.waitFor(() => expect(notifyError).toHaveBeenCalledWith('Could not show the file', expect.any(Error)))
     })
 })
