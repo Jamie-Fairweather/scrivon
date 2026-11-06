@@ -30,13 +30,13 @@ export function WelcomeScreen() {
 
                 {!isDesktop && (
                     <div
-                        className="flex max-w-md items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm
-                            text-amber-100"
+                        className="flex max-w-md items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm
+                            text-warning-foreground"
                     >
                         <Monitor className="mt-0.5 size-4 shrink-0" />
                         <p>
-                            Folder workspaces require the desktop app. Run <code className="rounded bg-black/30 px-1 py-0.5">bun run tauri dev</code>{' '}
-                            to open folders on disk.
+                            Folder workspaces require the desktop app. Run <code className="rounded bg-muted px-1 py-0.5">bun run tauri dev</code> to
+                            open folders on disk.
                         </p>
                     </div>
                 )}
