@@ -36,21 +36,23 @@ function StudioRouter() {
 }
 
 export function StudioShell() {
-    // Outer boundary: a provider crashed, so all that is left to do is reload.
-    // Inner boundary: the UI crashed but the providers (and unsaved text) are alive, so save first.
+    // Outer boundary: a workspace provider crashed, so all that is left to do is reload.
+    // Inner boundary: the UI crashed but the workspace (and unsaved text) is alive, so save first.
+    // It sits right inside WorkspaceProvider so it also covers the dialogs the providers below
+    // render next to their children (name prompt, delete confirm, update notes).
     return (
         <StudioErrorBoundary fallback={StudioReloadFallback}>
             <WorkspaceProvider>
-                <NamePromptProvider>
-                    <DeleteConfirmProvider>
-                        <AppUpdateProvider>
-                            <StudioErrorBoundary fallback={StudioRecoveryScreen}>
+                <StudioErrorBoundary fallback={StudioRecoveryScreen}>
+                    <NamePromptProvider>
+                        <DeleteConfirmProvider>
+                            <AppUpdateProvider>
                                 <NativeWindowTitle />
                                 <StudioRouter />
-                            </StudioErrorBoundary>
-                        </AppUpdateProvider>
-                    </DeleteConfirmProvider>
-                </NamePromptProvider>
+                            </AppUpdateProvider>
+                        </DeleteConfirmProvider>
+                    </NamePromptProvider>
+                </StudioErrorBoundary>
             </WorkspaceProvider>
         </StudioErrorBoundary>
     )
