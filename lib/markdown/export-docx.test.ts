@@ -1496,7 +1496,8 @@ describe('renderExportDocx', () => {
 
     it('gives headings bookmark names Word keeps, and points the contents and links at them', async () => {
         const long = 'Installing the desktop app on Windows and macOS step by step'
-        const { parts } = await render([`# ${long}`, '', '# 1. Intro', '', 'See [the intro](#1-intro).'].join('\n'), (draft) => {
+        const source = [`# ${long}`, '', '# 1. Intro', '', 'See [the intro](#1-intro) and [nowhere](#no-such-heading).'].join('\n')
+        const { parts } = await render(source, (draft) => {
             draft.frontMatter.toc = true
             draft.frontMatter.tocExcludeH1 = false
         })
@@ -1511,7 +1512,8 @@ describe('renderExportDocx', () => {
         // The PAGEREF fields and the contents links use those names, and so does the link in the text.
         const names = marks.map(({ name }) => name)
         expect([...body.matchAll(/PAGEREF (\S+) \\h/g)].map((match) => match[1])).toEqual(names)
-        expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual([...names, names[1]])
+        // A link to an id no heading has is left as it is.
+        expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual([...names, names[1], 'no-such-heading'])
         expect(tocPage(body, long)).toBe(2)
         expect(tocPage(body, '1. Intro')).toBe(2)
     })
