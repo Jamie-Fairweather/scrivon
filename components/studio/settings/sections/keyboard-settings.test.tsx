@@ -176,6 +176,18 @@ describe('KeyboardSettings recording', () => {
         expect(within(row('Toggle explorer')).queryByText(/Same shortcut/)).not.toBeInTheDocument()
     })
 
+    it('warns on a row whose saved shortcut is an editor key', () => {
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'view.toggleEditor': [{ key: 'd', ctrl: true }] } }))
+        renderKeyboardSettings()
+
+        const warning = 'Ctrl+D is used by the editor. Clear or reset this shortcut to give it back.'
+        expect(within(row('Toggle editor')).getByText(warning)).toBeInTheDocument()
+        expect(within(row('Toggle explorer')).queryByText(/used by the editor/)).not.toBeInTheDocument()
+
+        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: /^Reset .* to default$/ }))
+        expect(screen.queryByText(warning)).not.toBeInTheDocument()
+    })
+
     it('shows why Reset did nothing when the default is taken', () => {
         renderKeyboardSettings()
 

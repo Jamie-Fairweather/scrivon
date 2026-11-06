@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { chordListsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
-import { findKeybindConflicts } from '@/lib/settings/conflicts'
+import { describeEditorChordClash, findKeybindConflicts } from '@/lib/settings/conflicts'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { formatChords } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
@@ -140,6 +140,8 @@ export function KeyboardSettings() {
                     const isEditing = editingId === action.id
                     const isDefault = chordListsEqual(chords, defaults[action.id] ?? [])
                     const clashes = sharedWith(action.id)
+                    // Saved before editor keys were refused, so it still takes the key from the editor.
+                    const editorClashes = chords.flatMap((chord) => describeEditorChordClash(chord) ?? [])
                     const rowError = error?.actionId === action.id ? error : null
 
                     return (
@@ -155,6 +157,11 @@ export function KeyboardSettings() {
                                         Same shortcut as {clashes.join(', ')}. Only one of them will run.
                                     </p>
                                 ) : null}
+                                {editorClashes.map((clash) => (
+                                    <p key={clash} className="text-xs text-warning-foreground">
+                                        {clash}. Clear or reset this shortcut to give it back.
+                                    </p>
+                                ))}
                                 {rowError ? (
                                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                                         <p role="alert" className="text-xs text-destructive-foreground">
