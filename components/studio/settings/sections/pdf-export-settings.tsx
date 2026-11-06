@@ -7,6 +7,7 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    otherProfileNamed,
     PDF_MIN_BODY_HEIGHT_MM,
     pdfBodyHeightMm,
     renamePdfExportProfile,
@@ -278,6 +279,8 @@ export function PdfExportSettings() {
 
     const layout = resolvePdfExportLayout(active)
     const bodyHeightMm = pdfBodyHeightMm(active)
+    // New and Duplicate pick unique names, but a rename can still copy another profile's.
+    const twin = otherProfileNamed(pdf.profiles, active.id, active.name)
 
     return (
         <div className="space-y-8">
@@ -323,6 +326,10 @@ export function PdfExportSettings() {
                         name={active.name}
                         onRename={(name) => setPdf((current) => renamePdfExportProfile(current, active.id, name))}
                     />
+                    {twin ? (
+                        // A description, so screen readers read it with the box.
+                        <FieldDescription className="text-warning-foreground">{`Another profile is already called "${twin.name}".`}</FieldDescription>
+                    ) : null}
                 </Field>
             </div>
 

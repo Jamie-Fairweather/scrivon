@@ -6,6 +6,7 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    otherProfileNamed,
     PDF_AUTO_BAR_HEIGHT_MM,
     pdfBodyHeightMm,
     renamePdfExportProfile,
@@ -228,6 +229,18 @@ describe('pdf export profile CRUD', () => {
         expect(uniqueProfileName([], 'Report')).toBe('Report')
         expect(uniqueProfileName([{ name: 'Report' }], 'Report')).toBe('Report 2')
         expect(uniqueProfileName([{ name: 'Report' }, { name: 'report 2' }], 'Report')).toBe('Report 3')
+    })
+
+    it('otherProfileNamed finds a different profile with the same name, ignoring case and spaces', () => {
+        const profiles = [
+            { id: 'a', name: 'Default' },
+            { id: 'b', name: 'Report' },
+        ]
+        expect(otherProfileNamed(profiles, 'b', ' default ')).toBe(profiles[0])
+        // A profile never clashes with itself, and an empty name clashes with nothing.
+        expect(otherProfileNamed(profiles, 'a', 'Default')).toBeUndefined()
+        expect(otherProfileNamed(profiles, 'b', 'Report 2')).toBeUndefined()
+        expect(otherProfileNamed([...profiles, { id: 'c', name: '' }], 'b', '  ')).toBeUndefined()
     })
 
     it('never deletes the last profiles, even when they share an id', () => {

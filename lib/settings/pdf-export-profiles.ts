@@ -14,18 +14,36 @@ function cloneProfile(profile: PdfExportProfile, id: string, name: string): PdfE
     }
 }
 
+/** Profile names are compared trimmed and ignoring case: "Report" and " report" look the same in a picker. */
+function profileNameKey(name: string): string {
+    return name.trim().toLowerCase()
+}
+
 /**
  * `base`, or `base 2`, `base 3`… — the first one no profile already uses
  * (names compared trimmed and case-insensitively), so pickers can tell profiles apart.
  */
 export function uniqueProfileName(profiles: readonly Pick<PdfExportProfile, 'name'>[], base: string): string {
-    const taken = new Set(profiles.map((profile) => profile.name.trim().toLowerCase()))
+    const taken = new Set(profiles.map((profile) => profileNameKey(profile.name)))
     const name = base.trim()
     if (!taken.has(name.toLowerCase())) return name
     for (let n = 2; ; n++) {
         const candidate = `${name} ${n}`
         if (!taken.has(candidate.toLowerCase())) return candidate
     }
+}
+
+/**
+ * Another profile with the same name as `name` (compared as uniqueProfileName does), if any.
+ * Renaming can still produce a twin, so the settings can point it out.
+ */
+export function otherProfileNamed<T extends Pick<PdfExportProfile, 'id' | 'name'>>(
+    profiles: readonly T[],
+    profileId: string,
+    name: string
+): T | undefined {
+    const key = profileNameKey(name)
+    return key ? profiles.find((profile) => profile.id !== profileId && profileNameKey(profile.name) === key) : undefined
 }
 
 /** "Report" → "Report copy"; a copy of "Report copy" or "Report copy 2" is also "Report copy", then made unique. */

@@ -339,6 +339,22 @@ describe('PdfExportSettings profile name', () => {
         expect(savedNames()).toBe('Default')
     })
 
+    it('points out a name another profile already has, without stopping the typing', () => {
+        renderSection()
+        fireEvent.click(screen.getByRole('button', { name: 'New' }))
+        const input = screen.getByLabelText('Profile name')
+        const twin = 'Another profile is already called "Default".'
+        expect(screen.queryByText(twin)).toBeNull()
+
+        fireEvent.change(input, { target: { value: 'default ' } })
+        expect(input).toHaveValue('default ')
+        expect(savedNames()).toBe('Default|default')
+        expect(input).toHaveAccessibleDescription(twin)
+
+        fireEvent.change(input, { target: { value: 'default 2' } })
+        expect(screen.queryByText(twin)).toBeNull()
+    })
+
     it('puts the starting name back after backspacing it away and leaving the box', async () => {
         renderSection()
         const input = screen.getByLabelText('Profile name')
