@@ -27,7 +27,10 @@ export class PathExistsError extends Error {
     }
 }
 
-/** Tool, dependency, build and cache folders. They can hold many thousands of folders and never the user's documents. */
+/**
+ * Tool, dependency and cache folders, skipped wherever they are. They can hold many thousands of folders,
+ * never the user's documents, and their names aren't ones people give their own folders.
+ */
 const SKIP_DIRS = new Set([
     '.git',
     'node_modules',
@@ -38,11 +41,6 @@ const SKIP_DIRS = new Set([
     '.turbo',
     '.cache',
     '.parcel-cache',
-    'target',
-    'dist',
-    'build',
-    'obj',
-    'coverage',
     '.venv',
     'venv',
     '__pycache__',
@@ -52,7 +50,24 @@ const SKIP_DIRS = new Set([
     '.gradle',
     '.idea',
     '.vs',
-    'Pods',
+])
+
+const isDotNetProject = (name: string) => /\.(cs|fs|vb)proj$/.test(name)
+
+/**
+ * Build output folders whose names are ordinary words. Each is skipped only next to the project file of a
+ * tool that makes it, so a writer's own 'build', 'dist' or 'target' folder still shows. Names are lower case.
+ */
+const BUILD_OUTPUT_DIRS = new Map<string, (siblingName: string) => boolean>([
+    ['target', (name) => name === 'cargo.toml' || name === 'pom.xml'],
+    ['dist', (name) => name === 'package.json' || name === 'pyproject.toml' || name === 'setup.py'],
+    [
+        'build',
+        (name) => ['package.json', 'build.gradle', 'build.gradle.kts', 'cmakelists.txt', 'pyproject.toml', 'setup.py', 'pubspec.yaml'].includes(name),
+    ],
+    ['obj', isDotNetProject],
+    ['coverage', (name) => name === 'package.json'],
+    ['pods', (name) => name === 'podfile'],
 ])
 
 /**
@@ -70,8 +85,16 @@ const SKIP_SYSTEM_DIRS = new Set([
     'appdata',
 ])
 
-function isSkippedDirectory(name: string): boolean {
-    return SKIP_DIRS.has(name) || SKIP_SYSTEM_DIRS.has(name.toLowerCase())
+/**
+ * True for a folder the file list leaves out: a tool, cache or system folder, or a build output folder
+ * next to its project file. `siblingNames` are the names of everything else in the same folder.
+ * Letter case doesn't matter, as on Windows.
+ */
+export function isHiddenFolder(name: string, siblingNames: readonly string[]): boolean {
+    const lower = name.toLowerCase()
+    if (SKIP_DIRS.has(lower) || SKIP_SYSTEM_DIRS.has(lower)) return true
+    const isItsProjectFile = BUILD_OUTPUT_DIRS.get(lower)
+    return isItsProjectFile ? siblingNames.some((sibling) => isItsProjectFile(sibling.toLowerCase())) : false
 }
 
 /** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
@@ -105,22 +128,47 @@ function compareEntries(a: FileNode, b: FileNode): number {
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
-async function readDirTree(dirPath: string, limit: Limit): Promise<FileNode[]> {
+/**
+ * A symlink or junction, as the file or folder it points to. Links inside a linked folder aren't followed,
+ * so a link back up the tree can't lead round in a circle. Broken links are left out, and so are linked
+ * folders that can't be listed: Windows puts such links in every user folder ('My Music' in Documents).
+ */
+async function readLink(entry: DirEntry, fullPath: string, siblingNames: string[], limit: Limit, insideLink: boolean): Promise<FileNode | null> {
+    if (insideLink) return null
+    let target: Awaited<ReturnType<typeof stat>>
+    try {
+        target = await stat(fullPath)
+    } catch {
+        return null
+    }
+    if (target.isFile) return { kind: 'file', name: entry.name, path: fullPath }
+    if (!target.isDirectory || isHiddenFolder(entry.name, siblingNames)) return null
+    try {
+        return { kind: 'directory', name: entry.name, path: fullPath, children: await readDirTree(fullPath, limit, true) }
+    } catch {
+        return null
+    }
+}
+
+async function readDirTree(dirPath: string, limit: Limit, insideLink = false): Promise<FileNode[]> {
     // Only the listing itself takes a place, never the wait for subfolders, so nested folders can't block each other.
     const entries = await limit(() => readDir(dirPath))
+    const names = entries.map((entry) => entry.name)
     const nodes = await Promise.all(
         entries.map(async (entry): Promise<FileNode | null> => {
             const fullPath = joinPath(dirPath, entry.name)
             if (entry.isDirectory) {
-                if (isSkippedDirectory(entry.name)) return null
+                if (isHiddenFolder(entry.name, names)) return null
                 try {
-                    return { kind: 'directory', name: entry.name, path: fullPath, children: await readDirTree(fullPath, limit) }
+                    return { kind: 'directory', name: entry.name, path: fullPath, children: await readDirTree(fullPath, limit, insideLink) }
                 } catch {
                     // One folder that can't be read (no permission, or deleted mid-scan) mustn't stop the rest from opening.
                     return { kind: 'directory', name: entry.name, path: fullPath, children: [], unreadable: true }
                 }
             }
-            if (entry.isFile && !isSaveTempFile(entry.name)) return { kind: 'file', name: entry.name, path: fullPath }
+            if (isSaveTempFile(entry.name)) return null
+            if (entry.isFile) return { kind: 'file', name: entry.name, path: fullPath }
+            if (entry.isSymlink) return readLink(entry, fullPath, names, limit, insideLink)
             return null
         })
     )

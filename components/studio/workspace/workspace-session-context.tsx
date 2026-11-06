@@ -11,6 +11,7 @@ import {
     duplicateWorkspaceFile,
     getBaseName,
     getParentPath,
+    isHiddenFolder,
     isPathInside,
     joinPath,
     listFolderNames,
@@ -421,6 +422,16 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [getNameError, refreshTree, coordinator]
     )
 
+    /** A folder the file list leaves out (a tool or build folder) seems to vanish once made, so the user is told why. */
+    const explainIfHidden = useCallback(
+        (parentPath: string, name: string) => {
+            const siblings = childrenOf(tree, workspaceRoot, parentPath).map((node) => node.name)
+            if (!isHiddenFolder(name, siblings)) return
+            notifyInfo(`${name} is hidden`, { description: 'Scrivon leaves tool and build folders like this one out of the file list.' })
+        },
+        [tree, workspaceRoot]
+    )
+
     const createFolder = useCallback(
         async (parentPath: string, name: string) => {
             const failed = `Couldn't create folder ${name}`
@@ -437,9 +448,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshTree()
                 return
             }
+            explainIfHidden(parentPath, name)
             await refreshTree()
         },
-        [getNameError, refreshTree]
+        [getNameError, refreshTree, explainIfHidden]
     )
 
     const renameEntry = useCallback(
@@ -463,6 +475,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 // The tabs follow straight away; reading the file list again can take a while.
                 coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
                 whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
+                if (isDirectory) explainIfHidden(parent, newName)
             } catch (err) {
                 notifyError(failed, err)
             } finally {
@@ -470,7 +483,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
             await refreshTree()
         },
-        [getNameError, refreshTree, coordinator]
+        [getNameError, refreshTree, explainIfHidden, coordinator]
     )
 
     const deleteEntry = useCallback(

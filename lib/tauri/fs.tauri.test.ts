@@ -266,7 +266,7 @@ describe('workspace fs (Tauri)', () => {
             if (dirPath === '/ws') {
                 return [
                     { name: 'node_modules', isDirectory: true, isFile: false, isSymlink: false },
-                    { name: 'link', isDirectory: false, isFile: false, isSymlink: true },
+                    { name: 'broken-link', isDirectory: false, isFile: false, isSymlink: true },
                     { name: 'b.mmd', isDirectory: false, isFile: true, isSymlink: false },
                     { name: '.scrivon-save-k3j9x2.tmp', isDirectory: false, isFile: true, isSymlink: false },
                     { name: 'docs', isDirectory: true, isFile: false, isSymlink: false },
@@ -277,6 +277,7 @@ describe('workspace fs (Tauri)', () => {
             }
             return []
         })
+        statMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
 
         const tree = await listWorkspaceTree('/ws')
         expect(tree.map((node) => node.name)).toEqual(['docs', 'b.mmd'])
@@ -348,7 +349,7 @@ describe('workspace fs (Tauri)', () => {
     })
 
     it('skips tool, cache and app data folders that never hold documents', async () => {
-        const skipped = ['.venv', '__pycache__', '.gradle', 'coverage', 'Pods', 'AppData']
+        const skipped = ['.venv', '__pycache__', '.gradle', 'AppData', 'Node_Modules']
         readDirMock.mockImplementation(async (dirPath: string) => {
             if (dirPath === 'C:\\Users\\me') {
                 return [...skipped, 'Documents'].map((name) => ({ name, isDirectory: true, isFile: false, isSymlink: false }))
@@ -360,6 +361,57 @@ describe('workspace fs (Tauri)', () => {
 
         expect(tree.map((node) => node.name)).toEqual(['Documents'])
         expect(readDirMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows build, dist and target folders unless they sit next to the project file that makes them', async () => {
+        const dir = (name: string) => ({ name, isDirectory: true, isFile: false, isSymlink: false })
+        const file = (name: string) => ({ name, isDirectory: false, isFile: true, isSymlink: false })
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\book')
+                return [dir('build'), dir('Dist'), dir('target'), dir('coverage'), dir('Pods'), dir('obj'), dir('app'), dir('api')]
+            if (dirPath === 'C:\\book\\app') return [file('package.json'), dir('Build'), dir('dist'), dir('coverage'), dir('target')]
+            if (dirPath === 'C:\\book\\api')
+                return [file('Cargo.toml'), file('Api.csproj'), file('Podfile'), dir('target'), dir('obj'), dir('Pods'), dir('build')]
+            return [file('notes.md')]
+        })
+
+        const tree = await listWorkspaceTree('C:\\book')
+        const names = (nodes: typeof tree): string[] => nodes.map((node) => node.name)
+        const inside = (name: string): string[] => {
+            const folder = tree.find((node) => node.name === name)
+            return folder?.kind === 'directory' ? names(folder.children) : []
+        }
+
+        expect(names(tree)).toEqual(['api', 'app', 'build', 'coverage', 'Dist', 'obj', 'Pods', 'target'])
+        expect(inside('app')).toEqual(['target', 'package.json'])
+        expect(inside('api')).toEqual(['build', 'Api.csproj', 'Cargo.toml', 'Podfile'])
+        expect(readDirMock).not.toHaveBeenCalledWith('C:\\book\\app\\Build')
+        expect(readDirMock).not.toHaveBeenCalledWith('C:\\book\\api\\target')
+    })
+
+    it('follows links and junctions to folders and files, but not links inside a linked folder', async () => {
+        const link = (name: string) => ({ name, isDirectory: false, isFile: false, isSymlink: true })
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\ws') return [link('shared'), link('todo.md'), link('My Music'), link('gone')]
+            if (dirPath === 'C:\\ws\\shared') {
+                return [{ name: 'a.md', isDirectory: false, isFile: true, isSymlink: false }, link('back-to-ws')]
+            }
+            if (dirPath === 'C:\\ws\\My Music') throw 'Access is denied. (os error 5)'
+            throw new Error(`unexpected read of ${dirPath}`)
+        })
+        statMock.mockImplementation(async (path: string) => {
+            if (path === 'C:\\ws\\gone') throw 'The system cannot find the file specified. (os error 2)'
+            const isFile = path.endsWith('.md')
+            return { isFile, isDirectory: !isFile, isSymlink: false, size: 1, mtime: null, nlink: null }
+        })
+
+        const tree = await listWorkspaceTree('C:\\ws')
+
+        expect(tree).toEqual([
+            { kind: 'directory', name: 'shared', path: 'C:\\ws\\shared', children: [{ kind: 'file', name: 'a.md', path: 'C:\\ws\\shared\\a.md' }] },
+            { kind: 'file', name: 'todo.md', path: 'C:\\ws\\todo.md' },
+        ])
+        expect(statMock).not.toHaveBeenCalledWith('C:\\ws\\shared\\back-to-ws')
     })
 
     it('still fails when the folder itself cannot be read', async () => {

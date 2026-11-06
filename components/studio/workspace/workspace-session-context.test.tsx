@@ -484,6 +484,25 @@ describe('creating files and folders', () => {
         })
     })
 
+    it('shows a new build folder, and says why a folder the file list leaves out seems to vanish', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.createFolder('C:\\ws', 'build')
+        })
+        expect(result.current.session.tree.map((node) => node.name)).toContain('build')
+        expect(notifyInfo).not.toHaveBeenCalledWith('build is hidden', expect.anything())
+
+        await act(async () => {
+            await result.current.session.createFolder('C:\\ws', 'node_modules')
+        })
+        expect(result.current.session.tree.map((node) => node.name)).not.toContain('node_modules')
+        expect(notifyInfo).toHaveBeenCalledWith('node_modules is hidden', {
+            description: 'Scrivon leaves tool and build folders like this one out of the file list.',
+        })
+    })
+
     it('refuses folder names Windows would reject or change, and says why', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)
