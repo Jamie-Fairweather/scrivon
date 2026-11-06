@@ -445,6 +445,10 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     /* Columns keep room for their longest word; 'anywhere' would squeeze short columns mid-word. */
     overflow-wrap: break-word;
   }
+  /* Unless those words can't fit across the page side by side: then Chromium would shrink every page to fit the table. */
+  table:not(.pdf-chrome-table) .pdf-long-word,
+  table.pdf-wide-table:not(.pdf-chrome-table) th,
+  table.pdf-wide-table:not(.pdf-chrome-table) td { overflow-wrap: anywhere; }
   /* Markdown column alignment (:-: and --:) arrives as an align attribute, which any stylesheet rule would override. */
   table:not(.pdf-chrome-table) th[align="left"],
   table:not(.pdf-chrome-table) td[align="left"] { text-align: left; }

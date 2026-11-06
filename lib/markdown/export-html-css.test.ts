@@ -40,6 +40,11 @@ describe('buildPdfExportCss', () => {
         expect(css).toMatch(/\.export-article \{[^}]*overflow-wrap: anywhere;/)
         // Table cells must not shrink below their longest word, or short columns break mid-word.
         expect(css).toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*overflow-wrap: break-word;/)
+        // ...except in a table too wide for the page, which would otherwise shrink every page.
+        expect(css).toMatch(
+            /table:not\(\.pdf-chrome-table\) \.pdf-long-word,\s*table\.pdf-wide-table:not\(\.pdf-chrome-table\) th,\s*table\.pdf-wide-table:not\(\.pdf-chrome-table\) td \{ overflow-wrap: anywhere; \}/
+        )
+        expect(css.indexOf('.pdf-long-word')).toBeGreaterThan(css.indexOf('overflow-wrap: break-word;'))
     })
 
     it('fits body images to the text width and to one page', () => {

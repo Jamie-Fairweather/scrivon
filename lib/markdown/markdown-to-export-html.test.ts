@@ -151,6 +151,52 @@ SHIKI_FAIL
         expect(html.indexOf('<table class="pdf-avoid-break">')).toBeLessThan(html.indexOf('<table>'))
     })
 
+    it('lets only tables too wide for the page break words anywhere, long words first', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        // The stylesheet names the classes too, so look for them on a tag.
+        const WIDE_TABLE = /<table class="[^"]*pdf-wide-table/
+        const LONG_WORD_CELL = /<t[hd][^>]*class="pdf-long-word">/g
+        const table = (columns: number, cell: (column: number) => string) =>
+            [
+                `| ${Array.from({ length: columns }, (_, i) => `H${i}`).join(' | ')} |`,
+                `|${'---|'.repeat(columns)}`,
+                `| ${Array.from({ length: columns }, (_, i) => cell(i)).join(' | ')} |`,
+            ].join('\n')
+        const render = async (source: string, landscape = false) => {
+            const profile = createDefaultPdfExportProfile()
+            if (landscape) profile.page.orientation = 'landscape'
+            return (await markdownToExportHtml(`# A\n\n${source}`, { assets: EMPTY_ASSETS, profile })).html
+        }
+
+        // Twelve columns of long tokens can't fit: the tokens may break, the short headers stay whole.
+        const tokens = await render(table(12, (i) => `cell-0-${i}-longishvalue`))
+        expect(tokens.match(LONG_WORD_CELL)).toHaveLength(12)
+        expect(tokens).not.toMatch(WIDE_TABLE)
+        // So may a long URL in an otherwise narrow table, while its `I/D` cells keep whole.
+        const url = await render(table(3, (i) => (i === 1 ? `https://example.com/${'a'.repeat(100)}` : 'I/D')))
+        expect(url.match(LONG_WORD_CELL)).toHaveLength(1)
+        expect(url).toContain('<td class="pdf-long-word"><a href="https://example.com/')
+        // Too many columns of short words to fit: every cell may break.
+        const columns = await render(table(16, () => 'abcdefgh'))
+        expect(columns).toContain('<table class="pdf-avoid-break pdf-wide-table">')
+        expect(columns).not.toMatch(LONG_WORD_CELL)
+
+        // Tables that fit, long prose or CJK text included, are left alone.
+        for (const fits of [
+            table(4, (i) => (i === 3 ? 'a long note with many short words in it '.repeat(5) : 'I/D')),
+            table(3, () => 'こんにちは世界、これは長い日本語の文章です。'.repeat(4)),
+            table(12, (i) => `v${i}`),
+        ]) {
+            const html = await render(fits)
+            expect(html).not.toMatch(WIDE_TABLE)
+            expect(html).not.toMatch(LONG_WORD_CELL)
+        }
+        // A landscape page has room for more.
+        const fiveTokens = table(5, (i) => `token-${i}-abcdefghij`)
+        expect(await render(fiveTokens)).toMatch(LONG_WORD_CELL)
+        expect(await render(fiveTokens, true)).not.toMatch(LONG_WORD_CELL)
+    })
+
     it('puts code blocks and diagrams in place of their paragraph, never inside a <p>', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'

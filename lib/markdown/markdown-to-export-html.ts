@@ -1,4 +1,4 @@
-import type { Element, Root as HastRoot } from 'hast'
+import type { Element, Root as HastRoot, Text as HastText } from 'hast'
 import { toHtml } from 'hast-util-to-html'
 import type { Code, Parent, Root, Text } from 'mdast'
 import remarkRehype from 'remark-rehype'
@@ -9,6 +9,7 @@ import {
     buildPdfExportCss,
     PDF_PAGE_NUMBER_MARK,
     pdfChromeShown,
+    pdfPageSizeMm,
     pdfTocMark,
     printDialogPageNumberCss,
     resolvePdfExportLayout,
@@ -67,17 +68,91 @@ function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
 const PDF_KEEP_TOGETHER_MAX_CODE_LINES = 25
 const PDF_KEEP_TOGETHER_MAX_TABLE_ROWS = 15
 
-/** Keeps short tables on one page; see {@link PDF_KEEP_TOGETHER_MAX_TABLE_ROWS}. */
-function markShortTables(hast: HastRoot): void {
+/** Rough width of a character of body text, as a share of the font size, for {@link pdfLineChars}. */
+const PDF_AVERAGE_CHAR_EM = 0.55
+/** A table cell's side padding and borders, in characters. */
+const PDF_TABLE_CELL_PADDING_CHARS = 3
+
+/** About how many characters of body text fit across the page's text width. */
+function pdfLineChars(profile: PdfExportProfile): number {
+    const sheet = pdfPageSizeMm(profile)
+    const sheetWidthMm = profile.page.orientation === 'landscape' ? sheet.height : sheet.width
+    const { left, right } = profile.page.marginsMm
+    const widthPt = ((sheetWidthMm - left - right) * 72) / 25.4
+    return widthPt / (profile.typography.bodySizePt * PDF_AVERAGE_CHAR_EM)
+}
+
+/** Characters in the longest run of text in `cell` with nowhere to wrap (CJK text wraps between any characters). */
+function longestWordChars(cell: Element): number {
+    let longest = 0
+    visit(cell, 'text', (text: HastText) => {
+        for (const word of text.value.split(/[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+/u)) {
+            longest = Math.max(longest, [...word].length)
+        }
+    })
+    return longest
+}
+
+/** A word longer than this, in a table too wide for the page, may break anywhere: likely a URL, path or identifier. */
+const PDF_TABLE_LONG_WORD_CHARS = 12
+
+function addClass(node: Element, className: string): void {
+    const classes = Array.isArray(node.properties.className) ? node.properties.className : []
+    node.properties.className = [...classes, className]
+}
+
+/** A table's rows, as their header and body cells. */
+function tableRows(table: Element): Element[][] {
+    const rows: Element[][] = []
+    visit(table, 'element', (row: Element) => {
+        if (row.tagName !== 'tr') return
+        rows.push(row.children.filter((cell): cell is Element => cell.type === 'element' && (cell.tagName === 'th' || cell.tagName === 'td')))
+    })
+    return rows
+}
+
+/**
+ * Lets a table whose longest words can't sit side by side across the page break them, instead
+ * of making Chromium shrink every page to fit it. First only cells with a long word (a URL, path
+ * or identifier) may break anywhere, so short cells like `I/D` stay whole; only if the table
+ * still can't fit (many columns of short words) may every cell. Tables that fit are left alone.
+ */
+function fitTableToPage(table: Element, rows: Element[][], lineChars: number): void {
+    const words = rows.map((cells) => cells.map(longestWordChars))
+    /** How wide the table must be, in characters, to give every column room for its longest unbreakable word. */
+    const minChars = (breakLongWords: boolean) => {
+        const columns: number[] = []
+        words.forEach((row) =>
+            row.forEach((chars, index) => {
+                const unbreakable = breakLongWords && chars > PDF_TABLE_LONG_WORD_CHARS ? 1 : chars
+                columns[index] = Math.max(columns[index] ?? 0, unbreakable)
+            })
+        )
+        return columns.reduce((sum, chars) => sum + chars + PDF_TABLE_CELL_PADDING_CHARS, 0)
+    }
+    if (minChars(false) <= lineChars) return
+    if (minChars(true) > lineChars) {
+        addClass(table, 'pdf-wide-table')
+        return
+    }
+    rows.forEach((cells, row) =>
+        cells.forEach((cell, index) => {
+            if (words[row]![index]! > PDF_TABLE_LONG_WORD_CHARS) addClass(cell, 'pdf-long-word')
+        })
+    )
+}
+
+/**
+ * Keeps short tables on one page (see {@link PDF_KEEP_TOGETHER_MAX_TABLE_ROWS}) and lets
+ * tables too wide for the page break words (see {@link fitTableToPage}).
+ */
+function markTables(hast: HastRoot, profile: PdfExportProfile): void {
+    const lineChars = pdfLineChars(profile)
     visit(hast, 'element', (node: Element) => {
         if (node.tagName !== 'table') return
-        let rows = 0
-        visit(node, 'element', (child: Element) => {
-            if (child.tagName === 'tr') rows += 1
-        })
-        if (rows > PDF_KEEP_TOGETHER_MAX_TABLE_ROWS) return
-        const classes = Array.isArray(node.properties.className) ? node.properties.className : []
-        node.properties.className = [...classes, 'pdf-avoid-break']
+        const rows = tableRows(node)
+        if (rows.length <= PDF_KEEP_TOGETHER_MAX_TABLE_ROWS) addClass(node, 'pdf-avoid-break')
+        fitTableToPage(node, rows, lineChars)
     })
 }
 
@@ -287,7 +362,7 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
     const placeholders = await transformCodeBlocks(tree, profile)
 
     const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
-    markShortTables(hast)
+    markTables(hast, profile)
     if (stamped) addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
