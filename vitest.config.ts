@@ -13,12 +13,24 @@ export default defineConfig({
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html', 'lcov'],
-            exclude: ['vitest/**', '**/*.test.ts', '**/*.test.tsx', 'lib/examples/craft-samples.ts'],
+            // Measure all app source, not just the files some test happens to import.
+            include: ['app/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'hooks/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
+            exclude: [
+                'vitest/**',
+                '**/*.test.ts',
+                '**/*.test.tsx',
+                '**/*.d.ts',
+                'components/ui/**',
+                'lib/examples/craft-samples.ts',
+                'lib/examples/markdown-showcase.ts',
+                'lib/legal/third-party-licenses.ts',
+            ],
+            // Floor just under the real numbers; raise it as tests are added.
             thresholds: {
-                statements: 100,
-                branches: 100,
-                functions: 100,
-                lines: 100,
+                statements: 40,
+                branches: 49,
+                functions: 33,
+                lines: 39,
             },
         },
         projects: [
