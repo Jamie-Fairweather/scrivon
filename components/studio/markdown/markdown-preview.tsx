@@ -11,6 +11,7 @@ import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-merm
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
 import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
+import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
 type MarkdownPreviewProps = {
@@ -129,9 +130,7 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, cla
                     event.preventDefault()
                     if (href) onLinkClick(href)
                 }
-                return (
-                    <a {...rest} href={href} onClick={onClick} className={cn('text-foreground underline-offset-4 hover:underline', linkClassName)} />
-                )
+                return <a {...rest} href={href} onClick={onClick} className={cn(inlineLinkClassName, linkClassName)} />
             },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children } = props
