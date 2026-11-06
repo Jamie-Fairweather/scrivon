@@ -7,7 +7,10 @@ node_modules
 next-env.d.ts
 .agents
 lib/examples/craft-samples.ts
+lib/examples/markdown-showcase.ts
 lib/legal/third-party-licenses.ts
+# Example sources: their exact syntax is the point (Prettier would turn *italic* into _italic_)
+scripts/data/
 src-tauri/Cargo.lock
 src-tauri/Cargo.toml
 src-tauri/tauri.conf.json

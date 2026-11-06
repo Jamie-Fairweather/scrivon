@@ -28,11 +28,13 @@ A single document demonstrating common Markdown features (CommonMark + GitHub Fl
 
 ###### Heading 6
 
-Alternate H1 and H2 (some parsers only):
+Alternate H1 and H2, underlined with \`=\` and \`-\`:
 
-# Heading level 1
+Heading level 1
+===============
 
-## Heading level 2
+Heading level 2
+---------------
 
 ---
 
@@ -50,17 +52,17 @@ for another hard break style (supported in some flavors).
 
 ## Emphasis
 
-_Italic_ with asterisks, _italic_ with underscores.
+*Italic* with asterisks, _italic_ with underscores.
 
-**Bold** with asterisks, **bold** with underscores.
+**Bold** with asterisks, __bold__ with underscores.
 
-**_Bold and italic_** combined.
+***Bold and italic*** combined.
 
 ~~Strikethrough~~ (GFM).
 
 ==Highlighted== (not universal; some extended flavors).
 
-Subscript H~2~O and superscript E=mc^2^ (not universal).
+Subscript \`H~2~O\` and superscript \`E=mc^2^\` only work in some extended flavors. In GFM, including Scrivon, single tildes mean strikethrough: H~2~O.
 
 ---
 
@@ -94,9 +96,9 @@ Subscript H~2~O and superscript E=mc^2^ (not universal).
 
 Also valid markers:
 
-- Asterisk
+* Asterisk
 
-* Plus
++ Plus
 
 ### Ordered
 
@@ -197,11 +199,11 @@ Pipe in cell: use escape or HTML — see \\| or &#124;
 
 Three or more of:
 
----
+***
 
 ---
 
----
+___
 
 ---
 
@@ -228,8 +230,8 @@ Term 2
 
 The HTML specification is maintained by the W3C.
 
-_[HTML]: Hyper Text Markup Language
-_[W3C]: World Wide Web Consortium
+*[HTML]: Hyper Text Markup Language
+*[W3C]: World Wide Web Consortium
 
 ---
 

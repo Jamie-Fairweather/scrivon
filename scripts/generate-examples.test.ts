@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { MARKDOWN_SHOWCASE } from '@/lib/examples/markdown-showcase'
 import { emitTs, parseMarkdown, unescapeMarkdown } from './generate-examples.mjs'
 
 const readLf = (path: string) => readFileSync(join(__dirname, path), 'utf8').replace(/\r\n/g, '\n')
@@ -96,5 +97,24 @@ describe('bundled samples', () => {
 
     it('matches the committed lib/examples/craft-samples.ts', () => {
         expect(readLf('../lib/examples/craft-samples.ts')).toBe(emitTs(examples))
+    })
+})
+
+describe('markdown syntax showcase', () => {
+    const source = readLf('data/markdown-syntax-showcase.md')
+
+    it('matches the committed lib/examples/markdown-showcase.ts', () => {
+        expect(MARKDOWN_SHOWCASE.source).toBe(source.trim())
+    })
+
+    // Prettier once rewrote these to the other syntax, so the examples no longer showed what they said.
+    it('uses the syntax each example names', () => {
+        expect(source).toContain('Heading level 1\n===============\n')
+        expect(source).toContain('Heading level 2\n---------------\n')
+        expect(source).toContain('*Italic* with asterisks, _italic_ with underscores.')
+        expect(source).toContain('**Bold** with asterisks, __bold__ with underscores.')
+        expect(source).toContain('\n* Asterisk\n\n+ Plus\n')
+        expect(source).toContain('Three or more of:\n\n***\n\n---\n\n___\n')
+        expect(source).toContain('\n*[HTML]: Hyper Text Markup Language\n*[W3C]: World Wide Web Consortium\n')
     })
 })
