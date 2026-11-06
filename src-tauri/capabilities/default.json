@@ -14,12 +14,10 @@
         "opener:default",
         "dialog:default",
         "fs:default",
-        "fs:allow-runtime-read-recursive",
-        "fs:allow-runtime-write-recursive",
-        "fs:allow-runtime-meta-recursive",
-        "fs:scope-runtime-recursive",
+        "fs:read-all",
+        "fs:write-all",
+        "fs:read-meta",
         "store:default",
-        "updater:default",
         "process:default"
     ]
 }
