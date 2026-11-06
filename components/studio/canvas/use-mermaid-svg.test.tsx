@@ -7,6 +7,9 @@ import type { AppThemeId } from '@/lib/theme/catalog'
 
 const theme = vi.hoisted(() => ({ id: 'scrivon-light' }))
 
+/** When `on`, renders wait in `jobs` until a test finishes them, like a slow diagram in the worker. */
+const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; finish: () => void }[] }))
+
 vi.mock('@/components/theme/app-theme-provider', () => ({
     useAppTheme: () => ({ themeId: theme.id }),
 }))
@@ -14,6 +17,29 @@ vi.mock('@/components/theme/app-theme-provider', () => ({
 vi.mock('@/lib/mermaid/render', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/mermaid/render')>()
     return { ...actual, renderMermaidDiagram: vi.fn(actual.renderMermaidDiagram) }
+})
+
+vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/mermaid/render-client')>()
+    const { renderMermaidDiagram: render } = await import('@/lib/mermaid/render')
+    return {
+        ...actual,
+        renderMermaidDiagramAsync: (source: string, themeId: AppThemeId, documentKey: string) => {
+            if (!slow.on) return actual.renderMermaidDiagramAsync(source, themeId, documentKey)
+            return new Promise<string>((resolve, reject) => {
+                slow.jobs.push({
+                    source,
+                    finish: () => {
+                        try {
+                            resolve(render(source, themeId))
+                        } catch (err) {
+                            reject(err)
+                        }
+                    },
+                })
+            })
+        },
+    }
 })
 
 const V1 = 'graph TD\n  A --> B'
@@ -31,9 +57,21 @@ async function waitForRender(ms = 250) {
     })
 }
 
+async function finishSlowRender() {
+    await act(async () => {
+        slow.jobs.shift()!.finish()
+    })
+}
+
+function renderEditor(source: string, documentKey = 'a.mmd') {
+    return renderHook(({ source }) => useMermaidSvg(source, documentKey), { initialProps: { source } })
+}
+
 beforeEach(() => {
     vi.useFakeTimers()
     theme.id = 'scrivon-light'
+    slow.on = false
+    slow.jobs = []
     clearSvgCache()
     vi.mocked(renderMermaidDiagram).mockClear()
 })
@@ -54,7 +92,7 @@ describe('useMermaidSvg', () => {
     })
 
     it('falls back to the latest render of a document after a remount, not the first one (B14)', async () => {
-        const first = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        const first = renderEditor(V1)
         await waitForRender()
         first.rerender({ source: V2 })
         await waitForRender()
@@ -67,8 +105,38 @@ describe('useMermaidSvg', () => {
         expect(again.result.current.svgForDisplay).toBe(expectedSvg(V3))
     })
 
+    it('falls back to the version on screen after an undo, not the version undone (B14 review)', async () => {
+        const { result, rerender } = renderEditor(V1)
+        await waitForRender()
+        rerender({ source: V2 })
+        await waitForRender()
+
+        rerender({ source: V1 })
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: false })
+
+        rerender({ source: BROKEN })
+        await waitForRender()
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: true })
+        expect(result.current.currentError).toMatch(/\S/)
+    })
+
+    it('falls back to the version shown after coming back to a document (B14 review)', async () => {
+        const first = renderEditor(V1)
+        await waitForRender()
+        first.rerender({ source: V2 })
+        await waitForRender()
+        first.unmount()
+
+        const again = renderEditor(V1)
+        expect(again.result.current.svgForDisplay).toBe(expectedSvg(V1))
+        again.rerender({ source: BROKEN })
+        await waitForRender()
+
+        expect(again.result.current.svgForDisplay).toBe(expectedSvg(V1))
+    })
+
     it('reports a syntax error even when an earlier render is still on screen (U02)', async () => {
-        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        const { result, rerender } = renderEditor(V1)
         await waitForRender()
 
         rerender({ source: BROKEN })
@@ -86,8 +154,24 @@ describe('useMermaidSvg', () => {
         expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), error: null, currentError: null, isStale: false })
     })
 
+    it('shows a known error at once when coming back to broken text (U02 review)', async () => {
+        const first = renderEditor(V1)
+        await waitForRender()
+        first.rerender({ source: BROKEN })
+        await waitForRender()
+        first.unmount()
+        const renders = vi.mocked(renderMermaidDiagram).mock.calls.length
+
+        const again = renderHook(() => useMermaidSvg(BROKEN, 'a.mmd'))
+
+        expect(again.result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: true, error: null })
+        expect(again.result.current.currentError).toMatch(/\S/)
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(renders)
+    })
+
     it('does not bring a deleted diagram back when typing starts again (U02)', async () => {
-        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        const { result, rerender } = renderEditor(V1)
         await waitForRender()
 
         rerender({ source: '   ' })
@@ -98,6 +182,70 @@ describe('useMermaidSvg', () => {
         await waitForRender()
         expect(result.current.svgForDisplay).toBeNull()
         expect(result.current.error).toMatch(/\S/)
+    })
+
+    it('shows a render that finishes after the text moved on, instead of throwing it away (P01 review)', async () => {
+        const { result, rerender } = renderEditor(V1)
+        await waitForRender()
+        slow.on = true
+
+        rerender({ source: V2 })
+        await waitForRender()
+        expect(slow.jobs).toHaveLength(1)
+        rerender({ source: V3 })
+        await finishSlowRender()
+
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), isStale: true })
+
+        rerender({ source: V2 })
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), isStale: false })
+        await waitForRender()
+        expect(slow.jobs).toHaveLength(0)
+    })
+
+    it('keeps a render that finishes after the view went away (P01 review)', async () => {
+        slow.on = true
+        const first = renderEditor(V1)
+        await waitForRender(0)
+        expect(slow.jobs).toHaveLength(1)
+        first.unmount()
+        await finishSlowRender()
+
+        const again = renderEditor(V1)
+
+        expect(again.result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: false, isPending: false })
+        await waitForRender()
+        expect(slow.jobs).toHaveLength(0)
+    })
+
+    it('does not bring back a deleted diagram from a render that finished after the text was cleared (P01 review)', async () => {
+        const { result, rerender } = renderEditor(V1)
+        await waitForRender()
+        slow.on = true
+        rerender({ source: V2 })
+        await waitForRender()
+
+        rerender({ source: '' })
+        await finishSlowRender()
+        slow.on = false
+        rerender({ source: 'f' })
+        await waitForRender()
+
+        expect(result.current.svgForDisplay).toBeNull()
+        expect(result.current.error).toMatch(/\S/)
+    })
+
+    it('does not start over when only spaces at the end of the text change (P01 review)', async () => {
+        slow.on = true
+        const { result, rerender } = renderEditor(V1)
+        await waitForRender(0)
+
+        rerender({ source: `${V1}\n  ` })
+        await waitForRender()
+        expect(slow.jobs).toHaveLength(1)
+
+        await finishSlowRender()
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: false })
     })
 
     it('renders each edit once when two views show the same document (P03)', async () => {
@@ -121,7 +269,7 @@ describe('useMermaidSvg', () => {
     })
 
     it('renders a document shown for the first time without waiting, then waits between keystrokes (U38)', async () => {
-        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        const { result, rerender } = renderEditor(V1)
         await waitForRender(0)
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
 
@@ -148,8 +296,26 @@ describe('useMermaidSvg', () => {
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
     })
 
+    it('keeps the current text on screen after a theme change, not an older version in that theme (U38 review)', async () => {
+        theme.id = 'scrivon-dark'
+        const { result, rerender } = renderEditor(V1)
+        await waitForRender()
+        theme.id = 'scrivon-light'
+        rerender({ source: V1 })
+        await waitForRender(0)
+        rerender({ source: V2 })
+        await waitForRender()
+
+        theme.id = 'scrivon-dark'
+        rerender({ source: V2 })
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), isStale: true })
+
+        await waitForRender(0)
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2, 'scrivon-dark'), isStale: false })
+    })
+
     it('says a diagram with nothing to draw is empty instead of showing a blank or older picture (U39)', async () => {
-        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        const { result, rerender } = renderEditor(V1)
         await waitForRender()
 
         rerender({ source: 'graph TD' })
@@ -172,5 +338,6 @@ describe('useMermaidSvg', () => {
 
         expect(result.current).toMatchObject({ svgForDisplay: null, isStale: false, isPending: false })
         expect(result.current.error).toMatch(/\S/)
+        expect(result.current.currentError).toBe(result.current.error)
     })
 })
