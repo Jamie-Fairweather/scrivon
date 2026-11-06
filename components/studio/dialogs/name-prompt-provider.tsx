@@ -119,7 +119,8 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     placeholder={placeholder}
                                     value={value}
                                 />
-                                <p aria-live="polite" className="min-h-4 text-xs text-destructive-foreground" id={errorId}>
+                                {/* Errors quote names too ('A file named "…" already exists here.'), so they wrap the same way. */}
+                                <p aria-live="polite" className="min-h-4 w-full text-xs wrap-anywhere text-destructive-foreground" id={errorId}>
                                     {error}
                                 </p>
                             </Field>
