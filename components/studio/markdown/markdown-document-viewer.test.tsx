@@ -30,6 +30,16 @@ vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
     useMermaidSvg: () => ({ svgForDisplay: null, dimensions: null, error: null, isPending: false }),
 }))
 
+vi.mock('@/components/theme/app-theme-provider', () => ({
+    useAppTheme: () => ({ themeId: 'scrivon-dark', isLight: false }),
+}))
+
+vi.mock('@/lib/markdown/shiki-highlighter', () => ({
+    previewCodeTheme: () => 'github-dark',
+    highlightFencedCodeNow: () => null,
+    highlightFencedCode: () => new Promise<string>(() => {}),
+}))
+
 vi.mock('@tauri-apps/plugin-opener', () => ({
     openUrl: vi.fn(async () => undefined),
     revealItemInDir: vi.fn(async () => undefined),
@@ -175,6 +185,22 @@ describe('MarkdownDocumentViewer', () => {
             expect(container.querySelector('img[src="//badges.example/build.svg"]')).not.toBeNull()
             expect(container.querySelector('img[src="https:sneaky.example/pixel.png"]')).toHaveAttribute('referrerpolicy', 'no-referrer')
             expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+
+        it('keeps diagrams and code blocks as they are when web images load', () => {
+            const { container } = render(viewer(DOC_A, `${withImages}\n\n\`\`\`mermaid\nflowchart TD\n\`\`\`\n\n\`\`\`js\nconst a = 1\n\`\`\``))
+            const diagram = container.querySelector('[data-mermaid-block-id]')
+            const code = container.querySelector('[data-mode]')
+            expect(diagram).not.toBeNull()
+            expect(code).not.toBeNull()
+            const parses = markdownParses.count
+
+            fireEvent.click(screen.getByRole('button', { name: 'Load images' }))
+            expect(container.querySelector('img[src="https://tracker.example/pixel.png?id=1"]')).not.toBeNull()
+            // The same elements, not new ones: nothing reloads, and the page keeps its height.
+            expect(container.querySelector('[data-mermaid-block-id]')).toBe(diagram)
+            expect(container.querySelector('[data-mode]')).toBe(code)
+            expect(markdownParses.count).toBe(parses)
         })
 
         it('shows the notice only for documents that have blocked web images', () => {

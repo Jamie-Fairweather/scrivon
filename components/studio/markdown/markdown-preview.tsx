@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useEffect, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { Element } from 'hast'
 import { ImageOff } from 'lucide-react'
 import type { Root } from 'mdast'
@@ -108,6 +108,36 @@ function BlockedRemoteImage({ src, alt, onBlocked }: BlockedRemoteImageProps) {
     )
 }
 
+type RemoteImages = {
+    /** Whether web images are shown. */
+    load: boolean
+    onBlocked: () => () => void
+}
+
+const RemoteImagesContext = createContext<RemoteImages>({ load: false, onBlocked: () => () => {} })
+
+/**
+ * A document's image. It reads the web-image choice from context rather than props, so the preview's components
+ * stay the same when the choice changes, and diagrams and code blocks aren't rebuilt.
+ */
+function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
+    const { load, onBlocked } = useContext(RemoteImagesContext)
+    const { src, alt, ...rest } = withoutNode(props)
+    const remote = isRemoteImage(src)
+    if (remote && !load) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onBlocked} />
+    // Inline, so a row of badges stays on one line, and never wider than the page.
+    return (
+        // eslint-disable-next-line @next/next/no-img-element -- a document's own images, in a static export
+        <img
+            {...rest}
+            src={src}
+            alt={alt}
+            referrerPolicy={remote ? 'no-referrer' : undefined}
+            className={cn('inline-block h-auto max-w-full align-middle', rest.className)}
+        />
+    )
+}
+
 export function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
     return `${tabId ?? 'none'}:${fallbackIndex}:mermaid`
 }
@@ -184,6 +214,7 @@ const staticMarkdownComponents: Components = {
     ),
     // Each fenced block draws its own frame (the code override), so the <pre> adds nothing.
     pre: ({ children }) => <>{children}</>,
+    img: PreviewImage,
 }
 
 /**
@@ -218,22 +249,6 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 }
                 return <a {...rest} href={href} onClick={onClick} onAuxClick={onAuxClick} className={cn(inlineLinkClassName, linkClassName)} />
             },
-            img(props) {
-                const { src, alt, ...rest } = withoutNode(props)
-                const remote = isRemoteImage(src)
-                if (remote && !loadRemoteImages) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onRemoteImageBlocked} />
-                // Inline, so a row of badges stays on one line, and never wider than the page.
-                return (
-                    // eslint-disable-next-line @next/next/no-img-element -- a document's own images, in a static export
-                    <img
-                        {...rest}
-                        src={src}
-                        alt={alt}
-                        referrerPolicy={remote ? 'no-referrer' : undefined}
-                        className={cn('inline-block h-auto max-w-full align-middle', rest.className)}
-                    />
-                )
-            },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children, node } = props
                 const text = extractText(children)
@@ -265,22 +280,28 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 return <FencedCodeBlock key={blockId} code={text.replace(/\n$/, '')} language={lang} />
             },
         }
-    }, [loadRemoteImages, onExpandBlock, onLinkClick, onRemoteImageBlocked, tabId])
+    }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
+
+    // Kept as one element so that loading web images (a context change) redraws only the images, without parsing
+    // the document again.
+    const markdown = useMemo(
+        () => (
+            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components} urlTransform={markdownUrlTransform}>
+                {body}
+            </ReactMarkdown>
+        ),
+        [body, components]
+    )
+
+    const remoteImages = useMemo(() => ({ load: loadRemoteImages, onBlocked: onRemoteImageBlocked }), [loadRemoteImages, onRemoteImageBlocked])
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
             <article className="w-full max-w-3xl min-w-0 break-words">
-                <ReactMarkdown
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePlugins}
-                    components={components}
-                    urlTransform={markdownUrlTransform}
-                >
-                    {body}
-                </ReactMarkdown>
+                <RemoteImagesContext.Provider value={remoteImages}>{markdown}</RemoteImagesContext.Provider>
             </article>
         </div>
     )
