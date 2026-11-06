@@ -86,6 +86,15 @@ function viewer(tabId: string, source: string) {
     )
 }
 
+/** What StudioLayout shows for a diagram tab: the provider stays, the Markdown preview goes. */
+function diagramTab(tabId: string) {
+    return (
+        <MarkdownExpandProvider tabId={tabId}>
+            <div data-testid="diagram-canvas" />
+        </MarkdownExpandProvider>
+    )
+}
+
 function viewport(container: HTMLElement): HTMLElement {
     return container.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')!
 }
@@ -144,6 +153,7 @@ describe('MarkdownDocumentViewer', () => {
     })
 
     it('remembers the preview scroll position for each tab', () => {
+        workspace.tabs = [fileTab('a.md'), fileTab('b.md')]
         const { container, rerender } = render(viewer('a.md', '# Alpha'))
         const scroller = viewport(container)
         scroller.scrollTop = 300
@@ -155,6 +165,33 @@ describe('MarkdownDocumentViewer', () => {
 
         rerender(viewer('a.md', '# Alpha'))
         expect(scroller.scrollTop).toBe(300)
+    })
+
+    it('still remembers it after a diagram tab was shown in its place', () => {
+        workspace.tabs = [fileTab('a.md'), fileTab('x.mmd')]
+        const { container, rerender } = render(viewer('a.md', '# Alpha'))
+        viewport(container).scrollTop = 300
+        fireEvent.scroll(viewport(container))
+
+        rerender(diagramTab('x.mmd'))
+        expect(screen.getByTestId('diagram-canvas')).toBeInTheDocument()
+        expect(container.querySelector('[data-slot="scroll-area-viewport"]')).toBeNull()
+
+        rerender(viewer('a.md', '# Alpha'))
+        expect(viewport(container).scrollTop).toBe(300)
+    })
+
+    it('starts a document that was closed and opened again at the top', () => {
+        workspace.tabs = [fileTab('a.md'), fileTab('b.md')]
+        const { container, rerender } = render(viewer('a.md', '# Alpha'))
+        viewport(container).scrollTop = 300
+        fireEvent.scroll(viewport(container))
+
+        workspace.tabs = [fileTab('b.md')]
+        rerender(viewer('b.md', '# Beta'))
+        workspace.tabs = [fileTab('b.md'), fileTab('a.md')]
+        rerender(viewer('a.md', '# Alpha'))
+        expect(viewport(container).scrollTop).toBe(0)
     })
 
     describe('web images', () => {
@@ -216,6 +253,16 @@ describe('MarkdownDocumentViewer', () => {
             expect(container.querySelector('img[src^="https:"]')).toBeNull()
             expect(screen.getByRole('button', { name: 'Load images' })).toBeInTheDocument()
 
+            rerender(viewer(DOC_A, withImages))
+            expect(container.querySelector('img[src^="https:"]')).not.toBeNull()
+            expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+
+        it('keeps the choice after a diagram tab was shown in the preview’s place', () => {
+            const { container, rerender } = render(viewer(DOC_A, withImages))
+            fireEvent.click(screen.getByRole('button', { name: 'Load images' }))
+
+            rerender(diagramTab('C:\\notes/x.mmd'))
             rerender(viewer(DOC_A, withImages))
             expect(container.querySelector('img[src^="https:"]')).not.toBeNull()
             expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()

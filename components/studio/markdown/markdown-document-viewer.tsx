@@ -8,7 +8,7 @@ import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFile
 import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
-import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
+import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
@@ -70,11 +70,12 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const { workspaceRoot, tree } = useWorkspaceSession()
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const expandedKey = expanded?.canvasKey ?? null
-    /** Last preview scroll position per tab. The viewer stays mounted across tab switches, so it keeps them. */
-    const scrollTopByTabRef = useRef(new Map<string, number>())
+    /** Kept by the provider, so they survive this viewer unmounting while a diagram tab is open. */
+    const { scrollTopByTab, remoteImageTabs, allowRemoteImages } = useMarkdownPreviewMemory()
     /** Which tab scroll events belong to; recording pauses while a diagram is expanded over the preview. */
     const scrollTrackingRef = useRef<{ tabId: string | null; paused: boolean }>({ tabId, paused: false })
-    const lastViewRef = useRef<{ tabId: string | null; expandedKey: string | null }>({ tabId, expandedKey: null })
+    /** What the preview last showed; `undefined` before its first frame, so that frame restores the tab's place. */
+    const lastViewRef = useRef<{ tabId: string | null | undefined; expandedKey: string | null }>({ tabId: undefined, expandedKey: null })
     /** A `#fragment` to scroll to once the linked document has opened. */
     const pendingAnchorRef = useRef<{ tabId: string; id: string } | null>(null)
     const linkHandlerRef = useRef<(href: string) => void>(() => {})
@@ -88,18 +89,25 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
 
         const onScroll = () => {
             const { tabId: scrollTabId, paused } = scrollTrackingRef.current
-            if (scrollTabId && !paused) scrollTopByTabRef.current.set(scrollTabId, viewport.scrollTop)
+            if (scrollTabId && !paused) scrollTopByTab.set(scrollTabId, viewport.scrollTop)
         }
 
         viewport.addEventListener('scroll', onScroll, { passive: true })
         return () => viewport.removeEventListener('scroll', onScroll)
-    }, [])
+    }, [scrollTopByTab])
+
+    // Forgets the place of tabs that were closed, so a document opened again starts at the top.
+    useEffect(() => {
+        for (const id of scrollTopByTab.keys()) {
+            if (!tabs.some((tab) => tab.id === id)) scrollTopByTab.delete(id)
+        }
+    }, [tabs, scrollTopByTab])
 
     const onExpandBlock = useCallback(
         (blockId: string, ordinal: number, blockSource: string) => {
             if (!tabId) return
             const viewport = scrollViewport(scrollAreaRef.current)
-            if (viewport) scrollTopByTabRef.current.set(tabId, viewport.scrollTop)
+            if (viewport) scrollTopByTab.set(tabId, viewport.scrollTop)
             const focused = document.activeElement
             const inPreview = focused instanceof HTMLElement && Boolean(scrollAreaRef.current?.contains(focused))
             returnFocusRef.current = { blockId, element: inPreview ? focused : null }
@@ -110,13 +118,11 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                 canvasKey: `${tabId}:expanded:${blockId}`,
             })
         },
-        [tabId, setExpanded]
+        [tabId, setExpanded, scrollTopByTab]
     )
 
     const onCloseExpanded = useCallback(() => setExpanded(null), [setExpanded])
 
-    /** Documents whose web images the user chose to load. Remembered until the app closes. */
-    const [remoteImageTabs, setRemoteImageTabs] = useState<ReadonlySet<string>>(() => new Set())
     const loadRemoteImages = tabId !== null && remoteImageTabs.has(tabId)
     /** How many blocked web images the preview shows now, so the notice offering to load them shows only then. */
     const [blockedImageCount, setBlockedImageCount] = useState(0)
@@ -127,8 +133,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     }, [])
 
     const onLoadRemoteImages = useCallback(() => {
-        if (tabId) setRemoteImageTabs((tabs) => new Set(tabs).add(tabId))
-    }, [tabId])
+        if (tabId) allowRemoteImages(tabId)
+    }, [tabId, allowRemoteImages])
 
     const expandedOrdinal = expanded?.ordinal ?? null
     /** The document's Mermaid sources, only worked out while a diagram is expanded. */
@@ -244,7 +250,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         return () => cancelAnimationFrame(outerId)
     }, [expandedKey, requestCanvasFit])
 
-    // Restores the preview scroll position after switching tabs or closing the expanded diagram.
+    // Restores the preview scroll position when it first shows, after switching tabs, and after closing the
+    // expanded diagram.
     useLayoutEffect(() => {
         const previous = lastViewRef.current
         lastViewRef.current = { tabId, expandedKey }
@@ -274,7 +281,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             }
         }
 
-        const scrollTop = (tabId ? scrollTopByTabRef.current.get(tabId) : undefined) ?? 0
+        const scrollTop = (tabId ? scrollTopByTab.get(tabId) : undefined) ?? 0
         const viewport = scrollViewport(scrollAreaRef.current)
         if (!viewport) return
         if (viewport.scrollTop !== scrollTop) viewport.scrollTop = scrollTop
@@ -292,7 +299,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             cancelAnimationFrame(outerId)
             if (innerId) cancelAnimationFrame(innerId)
         }
-    }, [tabId, expandedKey])
+    }, [tabId, expandedKey, scrollTopByTab])
 
     return (
         <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background', className)}>
