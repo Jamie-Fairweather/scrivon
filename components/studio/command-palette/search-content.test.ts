@@ -177,6 +177,40 @@ describe('searchWorkspaceContent', () => {
         expect(result.capped).toBe(false)
     })
 
+    it('skips files that cannot be read and still returns hits from the rest', async () => {
+        const result = await searchWorkspaceContent({
+            query: 'oauth',
+            paths: ['/a.md', '/gone.md', '/b.md'],
+            openBuffers: new Map(),
+            readFile: async (path) => {
+                if (path === '/gone.md') throw new Error('The system cannot find the file specified. (os error 2)')
+                return 'oauth flow'
+            },
+            signal: new AbortController().signal,
+            concurrency: 1,
+        })
+
+        expect(result.hits.map((hit) => hit.path).sort()).toEqual(['/a.md', '/b.md'])
+        expect(result.unreadableFiles).toBe(1)
+    })
+
+    it('skips files whose size check throws', async () => {
+        const result = await searchWorkspaceContent({
+            query: 'oauth',
+            paths: ['/locked.md', '/ok.md'],
+            openBuffers: new Map(),
+            readFile: async () => 'oauth',
+            getFileSize: async (path) => {
+                if (path === '/locked.md') throw new Error('Access is denied. (os error 5)')
+                return 10
+            },
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/ok.md'])
+        expect(result.unreadableFiles).toBe(1)
+    })
+
     it('finds multiple matches on one line', async () => {
         const result = await searchWorkspaceContent({
             query: 'aa',

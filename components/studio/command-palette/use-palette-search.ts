@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isExampleTabId } from '@/lib/examples/example-tab'
+import { notifyError } from '@/lib/notify'
 import { getBaseName, getWorkspaceFileSize, readWorkspaceFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
@@ -9,7 +10,13 @@ import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { buildCommandRegistry, createToggleLightDark } from '@/components/studio/command-palette/command-registry'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
 import { searchActions } from '@/components/studio/command-palette/search-actions'
-import { DEBOUNCE_MS, MIN_QUERY_LENGTH, searchWorkspaceContent, textHitToPaletteItem } from '@/components/studio/command-palette/search-content'
+import {
+    DEBOUNCE_MS,
+    MIN_QUERY_LENGTH,
+    searchWorkspaceContent,
+    textHitToPaletteItem,
+    type SearchWorkspaceContentResult,
+} from '@/components/studio/command-palette/search-content'
 import { searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -50,6 +57,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
     const [textItems, setTextItems] = useState<PaletteGroup | null>(null)
     const [textCapped, setTextCapped] = useState(false)
+    const [textUnreadableFiles, setTextUnreadableFiles] = useState(0)
     const [lastResolvedTextQuery, setLastResolvedTextQuery] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
 
@@ -71,6 +79,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         setLastResolvedTextQuery(null)
         setTextItems(null)
         setTextCapped(false)
+        setTextUnreadableFiles(0)
     }, [])
 
     const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
@@ -202,20 +211,27 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                     }
                 }
 
-                const result = await searchWorkspaceContent({
-                    query: parsedQuery,
-                    paths: filePaths,
-                    openBuffers,
-                    readFile: isTauri() ? readWorkspaceFile : async () => '',
-                    getFileSize: isTauri() ? getWorkspaceFileSize : undefined,
-                    signal: controller.signal,
-                })
+                let result: SearchWorkspaceContentResult | null = null
+                try {
+                    result = await searchWorkspaceContent({
+                        query: parsedQuery,
+                        paths: filePaths,
+                        openBuffers,
+                        readFile: isTauri() ? readWorkspaceFile : async () => '',
+                        getFileSize: isTauri() ? getWorkspaceFileSize : undefined,
+                        signal: controller.signal,
+                    })
+                } catch (err) {
+                    if (!controller.signal.aborted) notifyError("Couldn't search file contents", err, { id: 'palette-text-search' })
+                }
 
                 if (controller.signal.aborted) return
 
-                const items = result.hits.map(textHitToPaletteItem)
+                // Always resolve the query, even after a failure, so the spinner stops.
+                const items = result ? result.hits.map(textHitToPaletteItem) : []
                 setTextItems(items.length > 0 ? { id: 'text', label: 'Text', items } : null)
-                setTextCapped(result.capped)
+                setTextCapped(result?.capped ?? false)
+                setTextUnreadableFiles(result?.unreadableFiles ?? 0)
                 setLastResolvedTextQuery(parsedQuery)
             })()
         }, DEBOUNCE_MS)
@@ -258,6 +274,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         groups,
         isSearchingText,
         textCapped: shouldSearchText && textCapped,
+        textUnreadableFiles: shouldSearchText ? textUnreadableFiles : 0,
         runItem,
         hasWorkspace: Boolean(workspaceRoot),
     }

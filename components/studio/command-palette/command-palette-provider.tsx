@@ -28,7 +28,10 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
     const [open, setOpen] = useState(false)
     const [mode, setMode] = useState<PaletteMode>('all')
 
-    const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, runItem, hasWorkspace } = usePaletteSearch(mode, open)
+    const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, textUnreadableFiles, runItem, hasWorkspace } = usePaletteSearch(
+        mode,
+        open
+    )
 
     const openPalette = useCallback(
         (nextMode: PaletteMode = 'all') => {
@@ -83,6 +86,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
                 open={open}
                 query={query}
                 textCapped={textCapped}
+                textUnreadableFiles={textUnreadableFiles}
             />
         </CommandPaletteContext.Provider>
     )

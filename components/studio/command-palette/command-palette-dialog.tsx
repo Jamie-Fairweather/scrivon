@@ -31,6 +31,7 @@ type CommandPaletteDialogProps = {
     groups: PaletteGroup[]
     isSearchingText: boolean
     textCapped: boolean
+    textUnreadableFiles: number
     hasWorkspace: boolean
     onSelectItem: (item: PaletteItem) => void | Promise<void>
 }
@@ -136,6 +137,7 @@ export function CommandPaletteDialog({
     groups,
     isSearchingText,
     textCapped,
+    textUnreadableFiles,
     hasWorkspace,
     onSelectItem,
 }: CommandPaletteDialogProps) {
@@ -196,6 +198,11 @@ export function CommandPaletteDialog({
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
+                            {textUnreadableFiles > 0 ? (
+                                <span className="text-muted-foreground/80">
+                                    {textUnreadableFiles === 1 ? "1 file couldn't be read" : `${textUnreadableFiles} files couldn't be read`}
+                                </span>
+                            ) : null}
                             {textCapped ? <span className="text-muted-foreground/80">Showing first {MAX_HITS} matches — refine query</span> : null}
                             <Kbd>Esc</Kbd>
                             <span>Close</span>

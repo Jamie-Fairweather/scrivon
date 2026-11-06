@@ -100,6 +100,8 @@ export type SearchWorkspaceContentResult = {
     hits: TextSearchHit[]
     /** True when the hit limit was reached, so there may be more matches than returned. */
     capped: boolean
+    /** Files that could not be read (deleted, renamed, or locked since the tree was loaded). */
+    unreadableFiles: number
 }
 
 export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions): Promise<SearchWorkspaceContentResult> {
@@ -119,33 +121,41 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     const bufferPaths = new Set(openBuffers.keys())
 
     for (const [path, content] of openBuffers) {
-        if (signal.aborted) return { hits: [], capped: false }
+        if (signal.aborted) return { hits: [], capped: false, unreadableFiles: 0 }
         const fileHits = searchInContent(content, query, path, 'buffer', maxHits - hits.length)
         hits.push(...fileHits)
         if (hits.length >= maxHits) {
-            return { hits: hits.slice(0, maxHits), capped: true }
+            return { hits: hits.slice(0, maxHits), capped: true, unreadableFiles: 0 }
         }
     }
 
     const diskPaths = paths.filter((path) => !bufferPaths.has(path))
 
+    let unreadableFiles = 0
+
     const scanDiskPath = async (path: string): Promise<TextSearchHit[]> => {
-        if (getFileSize) {
-            const size = await getFileSize(path)
-            if (size !== null && size > maxFileBytes) return []
+        try {
+            if (getFileSize) {
+                const size = await getFileSize(path)
+                if (size !== null && size > maxFileBytes) return []
+            }
+
+            const content = await readFile(path)
+            if (signal.aborted) return []
+            if (content.length > maxFileBytes) return []
+
+            return searchInContent(content, query, path, 'disk', maxHits)
+        } catch {
+            // One missing or locked file must not fail the whole search; skip it and count it.
+            if (!signal.aborted) unreadableFiles++
+            return []
         }
-
-        const content = await readFile(path)
-        if (signal.aborted) return []
-        if (content.length > maxFileBytes) return []
-
-        return searchInContent(content, query, path, 'disk', maxHits)
     }
 
     const diskHits = await scanDiskPaths(diskPaths, concurrency, maxHits - hits.length, scanDiskPath, signal)
     hits.push(...diskHits)
 
-    return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits }
+    return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits, unreadableFiles }
 }
 
 export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/studio/command-palette/types').TextPaletteItem {
