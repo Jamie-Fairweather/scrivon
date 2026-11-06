@@ -1,16 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { APP_THEMES, type AppThemeId } from '@/lib/theme/themes'
 
 type HighlighterModule = typeof import('./shiki-highlighter')
 
 function fakeHighlighter() {
     const loaded: string[] = []
+    const themes = ['github-dark', 'github-light']
     return {
         getLoadedLanguages: () => loaded,
+        getLoadedThemes: () => themes,
+        loadTheme: vi.fn(async (theme: string) => {
+            themes.push(theme)
+        }),
         loadLanguage: vi.fn(async (lang: string) => {
             if (lang === 'nosuchlang') throw new Error('Language `nosuchlang` is not included in this bundle.')
             loaded.push(lang)
         }),
-        codeToHtml: vi.fn((code: string, { lang }: { lang: string }) => `<pre data-lang="${lang}">${code}</pre>`),
+        codeToHtml: vi.fn((code: string, { lang, theme }: { lang: string; theme: string }) =>
+            theme.startsWith('github-') ? `<pre data-lang="${lang}">${code}</pre>` : `<pre data-lang="${lang}" data-theme="${theme}">${code}</pre>`
+        ),
     }
 }
 
@@ -101,6 +109,44 @@ describe('shiki highlighter', () => {
 
             expect(highlightFencedCodeNow('x'.repeat(4_000), 'text', 'github-dark')).not.toBeNull()
             expect(highlightFencedCodeNow('x'.repeat(4_001), 'text', 'github-dark')).toBeNull()
+        })
+
+        it('loads a palette’s code theme the first time a block needs it', async () => {
+            const { highlightFencedCode, highlightFencedCodeNow } = await load()
+            await highlightFencedCode('x', 'text', 'github-dark')
+            expect(highlightFencedCodeNow('y', 'text', 'dracula')).toBeNull()
+
+            await expect(highlightFencedCode('y', 'text', 'dracula')).resolves.toBe('<pre data-lang="text" data-theme="dracula">y</pre>')
+            expect(highlightFencedCodeNow('z', 'text', 'dracula')).toBe('<pre data-lang="text" data-theme="dracula">z</pre>')
+            await highlightFencedCode('w', 'text', 'dracula')
+
+            const highlighter = await createHighlighter.mock.results[0]!.value
+            expect(highlighter.loadTheme).toHaveBeenCalledTimes(1)
+            expect(highlighter.loadTheme).toHaveBeenCalledWith('dracula')
+        })
+    })
+
+    describe('preview code colours for each palette', () => {
+        it('uses Shiki’s own version of a palette, and GitHub’s colours for the rest', async () => {
+            const { previewCodeTheme } = await import('./shiki-highlighter')
+            expect(previewCodeTheme('dracula', false)).toBe('dracula')
+            expect(previewCodeTheme('one-dark', false)).toBe('one-dark-pro')
+            expect(previewCodeTheme('tokyo-night-storm', false)).toBe('tokyo-night')
+            expect(previewCodeTheme('catppuccin-latte', true)).toBe('catppuccin-latte')
+            expect(previewCodeTheme('scrivon-light', true)).toBe('github-light')
+            expect(previewCodeTheme('zinc-dark', false)).toBe('github-dark')
+            expect(previewCodeTheme('nord-light', true)).toBe('github-light')
+        })
+
+        it('gives every palette a real Shiki theme that is light or dark like the palette', async () => {
+            const { previewCodeTheme } = await import('./shiki-highlighter')
+            const { bundledThemesInfo } = await import('shiki')
+            const kinds = new Map(bundledThemesInfo.map((info) => [info.id, info.type]))
+
+            for (const [id, palette] of Object.entries(APP_THEMES)) {
+                const codeTheme = previewCodeTheme(id as AppThemeId, palette.kind === 'light')
+                expect({ id, kind: kinds.get(codeTheme) }).toEqual({ id, kind: palette.kind })
+            }
         })
     })
 

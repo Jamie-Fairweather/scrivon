@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
-import { highlightFencedCode, highlightFencedCodeNow, type ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import type { BundledTheme } from 'shiki'
+import { highlightFencedCode, highlightFencedCodeNow, previewCodeTheme } from '@/lib/markdown/shiki-highlighter'
 import { cn } from '@/lib/utils'
 
 const HIGHLIGHT_IDLE_MS = 400
@@ -22,13 +23,13 @@ type FencedCodeBlockProps = {
 type IdleHighlight = {
     code: string
     language?: string
-    theme: ShikiTheme
+    theme: BundledTheme
     html: string
 }
 
 const globalHighlightCache = new Map<string, string>()
 
-function highlightCacheKey(theme: ShikiTheme, language: string | undefined, code: string): string {
+function highlightCacheKey(theme: BundledTheme, language: string | undefined, code: string): string {
     return `${theme}\0${language ?? ''}\0${code}`
 }
 
@@ -43,7 +44,7 @@ function setBoundedHighlightCache(key: string, html: string): void {
     }
 }
 
-function resolveHighlightHtml(code: string, language: string | undefined, theme: ShikiTheme, idleHighlight: IdleHighlight | null): string | null {
+function resolveHighlightHtml(code: string, language: string | undefined, theme: BundledTheme, idleHighlight: IdleHighlight | null): string | null {
     const exact = globalHighlightCache.get(highlightCacheKey(theme, language, code))
     if (exact) return exact
 
@@ -55,7 +56,7 @@ function resolveHighlightHtml(code: string, language: string | undefined, theme:
 }
 
 /** Highlights on the spot when Shiki is ready for it, so a block keeps its colours while it's being typed in. */
-function highlightNow(code: string, language: string | undefined, theme: ShikiTheme): string | null {
+function highlightNow(code: string, language: string | undefined, theme: BundledTheme): string | null {
     const html = highlightFencedCodeNow(code, language, theme)
     if (html) setBoundedHighlightCache(highlightCacheKey(theme, language, code), html)
     return html
@@ -95,8 +96,8 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
     const containerRef = useRef<HTMLDivElement>(null)
     /** The code the container shows in colour, or null while it shows plain text. */
     const highlightedCodeRef = useRef<string | null>(null)
-    const { isLight } = useAppTheme()
-    const theme: ShikiTheme = isLight ? 'github-light' : 'github-dark'
+    const { themeId, isLight } = useAppTheme()
+    const theme = previewCodeTheme(themeId, isLight)
     const [idleHighlight, setIdleHighlight] = useState<IdleHighlight | null>(() => {
         const html = globalHighlightCache.get(highlightCacheKey(theme, language, code))
         return html ? { code, language, theme, html } : null
@@ -124,6 +125,8 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
         }
 
         let cancelled = false
+        // Typing waits for a pause. The same code already in colour (only the theme or language changed) doesn't.
+        const delay = highlightedCodeRef.current === code ? 0 : HIGHLIGHT_IDLE_MS
         const timer = window.setTimeout(() => {
             void highlightFencedCode(code, language, theme)
                 .then((html) => {
@@ -134,7 +137,7 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
                 .catch(() => {
                     if (!cancelled) setIdleHighlight(null)
                 })
-        }, HIGHLIGHT_IDLE_MS)
+        }, delay)
 
         return () => {
             cancelled = true

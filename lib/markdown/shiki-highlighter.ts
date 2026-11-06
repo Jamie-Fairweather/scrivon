@@ -1,4 +1,5 @@
-import { createHighlighter, type BundledLanguage, type Highlighter, type SpecialLanguage } from 'shiki'
+import { createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter, type SpecialLanguage } from 'shiki'
+import type { AppThemeId } from '@/lib/theme/catalog'
 
 const THEMES = ['github-dark', 'github-light'] as const
 
@@ -19,7 +20,28 @@ const LANG_ALIASES: Record<string, BundledLanguage | 'text'> = {
     kt: 'kotlin',
 }
 
+/** The code themes export offers. The preview also uses others; see {@link previewCodeTheme}. */
 export type ShikiTheme = (typeof THEMES)[number]
+
+/** Shiki's own version of a palette. Palettes Shiki doesn't have use GitHub's colours. */
+const PALETTE_CODE_THEMES = new Map<AppThemeId, BundledTheme>([
+    ['tokyo-night', 'tokyo-night'],
+    ['tokyo-night-storm', 'tokyo-night'],
+    ['catppuccin-mocha', 'catppuccin-mocha'],
+    ['catppuccin-latte', 'catppuccin-latte'],
+    ['nord', 'nord'],
+    ['dracula', 'dracula'],
+    ['github-light', 'github-light'],
+    ['github-dark', 'github-dark'],
+    ['solarized-light', 'solarized-light'],
+    ['solarized-dark', 'solarized-dark'],
+    ['one-dark', 'one-dark-pro'],
+])
+
+/** The code colours for preview code blocks in this palette, so they match the rest of the theme. */
+export function previewCodeTheme(themeId: AppThemeId, isLight: boolean): BundledTheme {
+    return PALETTE_CODE_THEMES.get(themeId) ?? (isLight ? 'github-light' : 'github-dark')
+}
 
 /**
  * Longest block {@link highlightFencedCodeNow} highlights. Shiki takes about 3 ms per 1,000 characters, so this
@@ -75,9 +97,15 @@ async function ensureLanguage(highlighter: Highlighter, lang: string): Promise<s
     }
 }
 
-export async function highlightFencedCode(code: string, language: string | undefined, theme: ShikiTheme): Promise<string> {
+/** Loads a palette's code theme the first time a block needs it; GitHub's two are loaded at start. */
+async function ensureTheme(highlighter: Highlighter, theme: BundledTheme): Promise<void> {
+    if (!highlighter.getLoadedThemes().includes(theme)) await highlighter.loadTheme(theme)
+}
+
+export async function highlightFencedCode(code: string, language: string | undefined, theme: BundledTheme): Promise<string> {
     const highlighter = await getHighlighter()
     const lang = await ensureLanguage(highlighter, normalizeLanguage(language))
+    await ensureTheme(highlighter, theme)
     return highlighter.codeToHtml(code.replace(/\n$/, ''), {
         lang,
         theme,
@@ -86,13 +114,14 @@ export async function highlightFencedCode(code: string, language: string | undef
 
 /**
  * The HTML {@link highlightFencedCode} would give, without waiting, or null when it can't be had straight away:
- * Shiki hasn't started, the block's grammar isn't loaded yet, or the block is too long to highlight per keystroke.
+ * Shiki hasn't started, the block's grammar or theme isn't loaded yet, or the block is too long to highlight per
+ * keystroke.
  */
-export function highlightFencedCodeNow(code: string, language: string | undefined, theme: ShikiTheme): string | null {
+export function highlightFencedCodeNow(code: string, language: string | undefined, theme: BundledTheme): string | null {
     const highlighter = readyHighlighter
     if (!highlighter || code.length > MAX_HIGHLIGHT_NOW_CHARS) return null
     const lang = loadedLanguage(highlighter, normalizeLanguage(language))
-    if (!lang) return null
+    if (!lang || !highlighter.getLoadedThemes().includes(theme)) return null
     try {
         return highlighter.codeToHtml(code.replace(/\n$/, ''), { lang, theme })
     } catch {
