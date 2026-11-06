@@ -14,6 +14,16 @@ describe('buildPdfExportCss', () => {
         expect(css).not.toContain('text-align: justify')
     })
 
+    it('wraps long code lines instead of cutting them off at the box edge', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        for (const selector of ['.code-block pre.shiki {', '.code-block pre:not(.shiki) {']) {
+            const rule = css.slice(css.indexOf(selector), css.indexOf('}', css.indexOf(selector)))
+            expect(rule).toContain('white-space: pre-wrap;')
+            expect(rule).toContain('overflow-wrap: anywhere;')
+            expect(rule).not.toContain('overflow-x: auto')
+        }
+    })
+
     it('justifies only top-level body paragraphs', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true

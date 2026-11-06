@@ -291,11 +291,12 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     padding: 12px 14px;
     border: 1px solid #e5e5e5;
     border-radius: 8px;
-    overflow-x: auto;
     font-family: ${profile.typography.monoFont};
     font-size: 12px;
     line-height: 1.45;
-    white-space: pre;
+    /* Paper can't scroll: long lines wrap instead of being cut off at the box edge. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
     tab-size: 2;
   }
   .code-block pre.shiki code {
@@ -312,11 +313,11 @@ export function buildPdfExportCss(profile: PdfExportProfile): string {
     padding: 12px 14px;
     border: 1px solid #e5e5e5;
     border-radius: 8px;
-    overflow-x: auto;
     font-family: ${profile.typography.monoFont};
     font-size: 12px;
     line-height: 1.45;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     tab-size: 2;
   }
   .code-block pre:not(.shiki) code {
