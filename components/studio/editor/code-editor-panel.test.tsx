@@ -260,6 +260,55 @@ describe('CodeEditorPanel models', () => {
         expect(editor.getValue()).toBe('on disk')
         expect(updateTabContent).not.toHaveBeenCalled()
     })
+
+    it("shows the tab's new text when it changes under the same buffer, and saves edits on top of it", async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'v1 text')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type(' typed'))
+        setTabs(view, { tabs: [tab(a, 'v1 text typed')], activeTabId: a })
+        expect(editor.getValue()).toBe('v1 text typed')
+
+        // The same folder closed and reopened in one render: same path and buffer, newer text.
+        setTabs(view, { tabs: [tab(a, 'v2 text from disk')], activeTabId: a })
+
+        expect(editor.getValue()).toBe('v2 text from disk')
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'v2 text from disk!')
+    })
+
+    it('follows the new tab when a folder switch looks like a rename and keeps the buffer', async () => {
+        const v1 = 'C:\\proj-v1\\notes.md'
+        const v2 = 'C:\\proj-v2\\notes.md'
+        tabsState = { tabs: [tab(v1, 'notes v1')], activeTabId: v1 }
+        const { view, editor } = await mountEditor()
+        const model = editor.getModel()
+
+        setTabs(view, { tabs: [tab(v2, 'notes v2')], activeTabId: v2 })
+
+        // Read as a rename, so the buffer is kept, but it now holds proj-v2's text.
+        expect(editor.getModel()).toBe(model)
+        expect(editor.getValue()).toBe('notes v2')
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(v2, 'notes v2!')
+    })
+
+    it('does not undo keystrokes the tab has not shown yet', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        act(() => {
+            editor.type('1')
+            editor.type('2')
+        })
+        // A render that has only caught up with the first keystroke.
+        setTabs(view, { tabs: [tab(a, 'A1')], activeTabId: a })
+        expect(editor.getValue()).toBe('A12')
+        setTabs(view, { tabs: [tab(a, 'A12')], activeTabId: a })
+        expect(editor.getValue()).toBe('A12')
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'A12')
+    })
 })
 
 describe('CodeEditorPanel accessibility', () => {

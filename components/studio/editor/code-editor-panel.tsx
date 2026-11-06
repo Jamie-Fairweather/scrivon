@@ -93,6 +93,8 @@ type CodeEditorPanelProps = {
 /** How far one arrow key press moves the resize handle (with Shift: the larger step). */
 const KEYBOARD_RESIZE_STEP = 16
 const KEYBOARD_RESIZE_BIG_STEP = 64
+/** How many of the editor's own edits are remembered while waiting for the tab to show them. */
+const MAX_UNSEEN_EDITS = 20
 
 /** Selects a search hit (a bare caret when it has no length), scrolls it into view and focuses the editor. */
 function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column: number, length = 0) {
@@ -121,6 +123,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const activeTabIdRef = useRef<string | null>(null)
     const activeTabRef = useRef<DocumentTab | null>(null)
     const suppressChangeRef = useRef(false)
+    // Text the editor has sent to the active tab that the tab may not show yet.
+    const unseenEditsRef = useRef<{ tabId: string | null; texts: string[] }>({ tabId: null, texts: [] })
     const pendingRevealRef = useRef<{ path: string; line: number; column: number; length?: number } | null>(null)
 
     // Each open tab gets its own Monaco model; see lib/monaco/model-keys.ts.
@@ -239,7 +243,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             if (suppressChangeRef.current) return
             const id = activeTabIdRef.current
             if (!id) return
-            updateTabContent(id, value ?? '')
+            const text = value ?? ''
+            const unseen = unseenEditsRef.current
+            if (unseen.tabId !== id) unseenEditsRef.current = { tabId: id, texts: [text] }
+            else if (unseen.texts.push(text) > MAX_UNSEEN_EDITS) unseen.texts.shift()
+            updateTabContent(id, text)
         },
         [updateTabContent]
     )
@@ -319,6 +327,24 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     useEffect(() => {
         syncEditorWithActiveTab()
     }, [editorPath, syncEditorWithActiveTab])
+
+    // The tab's text can also change without the editor while the buffer stays the same: a
+    // folder reopened in one go, or a tab list that looked like a rename but wasn't. Anything
+    // other than the editor's own edits coming back puts the tab's text into the editor, so the
+    // next keystroke can't save the old buffer over it. Edits the tab hasn't shown yet are kept.
+    const activeTabId = activeTab?.id
+    const activeContent = activeTab?.content
+    useEffect(() => {
+        if (activeTabId === undefined || activeContent === undefined) return
+        const unseen = unseenEditsRef.current
+        const seen = unseen.tabId === activeTabId ? unseen.texts.lastIndexOf(activeContent) : -1
+        if (seen !== -1) {
+            unseen.texts.splice(0, seen + 1)
+            return
+        }
+        unseenEditsRef.current = { tabId: null, texts: [] }
+        syncEditorWithActiveTab()
+    }, [activeTabId, activeContent, syncEditorWithActiveTab])
 
     // Free the buffers of tabs that are no longer open.
     useEffect(() => {
