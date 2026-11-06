@@ -870,6 +870,16 @@ describe('renderExportDocx', () => {
         expect(tocPage(pictures.xml, 'start')).toBe(2)
         expect(tocPage(pictures.xml, 'end')).toBeGreaterThan(4)
 
+        // Japanese characters are a full em wide, so the same number of them fills more than twice the lines.
+        const paragraphs = (text: string) => Array.from({ length: 20 }, () => [text, '']).flat()
+        const japanese = await render(['# Start', '', ...paragraphs('日本語の文章を書きます。'.repeat(25)), '# End'].join('\n'), toc)
+        const latin = await render(['# Start', '', ...paragraphs('Latin text. '.repeat(25)), '# End'].join('\n'), toc)
+        expect(tocPage(japanese.xml, 'end')).toBe(5)
+        expect(tocPage(latin.xml, 'end')).toBe(3)
+        // Emoji are one wide character each, not two narrow ones.
+        const emoji = await render(['# Start', '', ...paragraphs('😀'.repeat(300)), '# End'].join('\n'), toc)
+        expect(tocPage(emoji.xml, 'end')).toBe(5)
+
         // Long headings wrap in the contents and push later rows onto the next contents page.
         const long = Array.from({ length: 40 }, (_, index) => `## ${'Wrapped heading words '.repeat(6)}${index}`)
         const wrapped = await render(['# Start', '', ...long].join('\n'), toc)

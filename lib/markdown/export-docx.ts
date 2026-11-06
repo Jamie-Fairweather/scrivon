@@ -1347,12 +1347,18 @@ function placeBlock(cursor: { page: number; used: number }, pageHeight: number, 
     cursor.used += block
 }
 
-/** How many lines `text` wraps to in `width` twips. */
+/** Characters a full em wide: Chinese, Japanese and Korean script, full-width forms, and emoji. */
+const WIDE_CHAR = /[ᄀ-ᅟ⺀-〿぀-ヿ㄀-ㇿ㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]|\p{Emoji_Presentation}/u
+
+/** How many lines `text` wraps to in `width` twips. Most characters are about 0.45 em wide; wide ones a full em. */
 function lineCount(text: string, halfPoints: number, width: number): number {
     const charTwip = Math.max(60, Math.round(halfPoints * 4.5))
     const perLine = Math.max(8, Math.floor(Math.max(width, charTwip) / charTwip))
-    const length = Math.max(1, text.replace(/\s+/g, ' ').trim().length)
-    return Math.ceil(length / perLine)
+    // Counted in narrow-character widths, by code point, so a surrogate pair is one character.
+    const wide = (halfPoints * 10) / charTwip
+    let units = 0
+    for (const char of text.replace(/\s+/g, ' ').trim()) units += WIDE_CHAR.test(char) ? wide : 1
+    return Math.max(1, Math.ceil(units / perLine))
 }
 
 function textBlockTwip(state: RenderState, text: string, halfPoints: number, width: number, before: number, after: number): number {
