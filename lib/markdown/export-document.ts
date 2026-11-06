@@ -59,12 +59,15 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     // A switched-off footer shows only its page number, never its images.
     const assets = profile.footer.enabled ? given : { ...given, footer: EMPTY_ASSETS.footer }
     const { metadata, body, lang } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
-    const trimmed = body.trim()
-    if (!trimmed) {
+    if (!body.trim()) {
         throw new Error('Nothing to export.')
     }
 
-    const tree = unified().use(remarkParse).use(remarkGfm).parse(trimmed) as Root
+    // Only leading blank lines go: trimming the first line's indent would turn an opening indented code block into a paragraph.
+    const tree = unified()
+        .use(remarkParse)
+        .use(remarkGfm)
+        .parse(body.replace(/^(?:[ \t]*\r?\n)+/, '')) as Root
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
 

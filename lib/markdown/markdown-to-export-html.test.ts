@@ -263,6 +263,19 @@ SHIKI_FAIL
         expect(empty).not.toContain('class="pdf-chrome-table')
     })
 
+    it('keeps an indented code block that opens the document, with or without front matter', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const code = '    const a = 1\n    const b = 2\n\nAfter'
+        for (const source of [code, `\n  \n${code}`, `---\ntitle: Snippet\n---\n${code}`]) {
+            const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+            expect(html).toContain(
+                '<div class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
+            )
+            expect(html).not.toContain('<p>const a = 1')
+            expect(html).toContain('<p>After</p>')
+        }
+    })
+
     it('tags the html with the document language', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const japanese = '# 写真\n\n骨角器と直線の写真について説明します。'
