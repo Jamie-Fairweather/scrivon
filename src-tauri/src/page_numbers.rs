@@ -1202,6 +1202,26 @@ fn page_media_box(doc: &Document, page_id: ObjectId) -> Result<(f32, f32), Strin
     Ok((values[2] - values[0], values[3] - values[1]))
 }
 
+fn same_size(a: (f32, f32), b: (f32, f32)) -> bool {
+    (a.0 - b.0).abs() < 0.5 && (a.1 - b.1).abs() < 0.5
+}
+
+/// Where the footer's page number sits on the pages that drew it, and the size
+/// of that page. Takes the lowest slot: a section's last page can leave its
+/// footer part-way up the page.
+fn footer_template(
+    doc: &Document,
+    pages: &[(u32, ObjectId)],
+    scans: &[Walked],
+) -> Option<(TextSlot, (f32, f32))> {
+    let (page_id, slot) = pages
+        .iter()
+        .zip(scans)
+        .filter_map(|((_, page_id), scan)| Some((*page_id, scan.footers.first()?.slot)))
+        .min_by(|a, b| a.1.baseline.total_cmp(&b.1.baseline))?;
+    Some((slot, page_media_box(doc, page_id).ok()?))
+}
+
 /// Registers `id` as `/category /name` in the page's resources, whether those
 /// live inline on the page or behind a shared reference.
 fn ensure_page_resource(
@@ -1412,7 +1432,12 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
         return Ok(());
     }
 
-    let any_footer = scans.iter().any(|scan| !scan.footers.is_empty());
+    // The export only hides the footer on the title and TOC pages, which always
+    // come first. So a page without a marker before the first drawn footer hid
+    // it on purpose, but one after it lost its slot to the layout (content wider
+    // than the page pushes it off the edge) and still needs a number.
+    let first_footer = scans.iter().position(|scan| !scan.footers.is_empty());
+    let footer_template = footer_template(&doc, &pages, &scans);
 
     let font_id = doc.add_object(dictionary! {
         "Type" => "Font",
@@ -1437,14 +1462,30 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
             let slot = match scan.footers.first() {
                 Some(hit) => hit.slot,
                 // The footer was hidden on this page (title / TOC): no number.
-                None if any_footer => continue,
-                // No footer markers anywhere: number every page inside the bottom margin.
+                None if first_footer.is_some_and(|first| position < first) => continue,
                 None => {
-                    let (width, _) = page_media_box(&doc, *page_id)?;
-                    TextSlot {
-                        right: width - mm_to_pt(options.margin_right_mm) - FALLBACK_PAD_PT,
-                        baseline: mm_to_pt(options.margin_bottom_mm) + FALLBACK_BASELINE_OFFSET_PT,
-                        font_size: FALLBACK_FONT_SIZE,
+                    let size = page_media_box(&doc, *page_id);
+                    match footer_template {
+                        // The footer slot was lost to the layout: number the page
+                        // where the other pages' footers put theirs.
+                        Some((slot, template_size))
+                            if size
+                                .as_ref()
+                                .ok()
+                                .is_none_or(|size| same_size(*size, template_size)) =>
+                        {
+                            slot
+                        }
+                        // No footer marker to go by: number the page inside the bottom margin.
+                        _ => {
+                            let (width, _) = size?;
+                            TextSlot {
+                                right: width - mm_to_pt(options.margin_right_mm) - FALLBACK_PAD_PT,
+                                baseline: mm_to_pt(options.margin_bottom_mm)
+                                    + FALLBACK_BASELINE_OFFSET_PT,
+                                font_size: FALLBACK_FONT_SIZE,
+                            }
+                        }
                     }
                 }
             };
@@ -1938,6 +1979,85 @@ end";
             "baseline {baseline} vs slot {}",
             expected_slot.baseline
         );
+    }
+
+    #[test]
+    fn numbers_body_pages_whose_footer_slot_was_pushed_off_the_page() {
+        // The title page hides its footer and the TOC pages draw theirs (the
+        // last one part-way up the page), but content wider than the page
+        // pushed the body's footer slot off the edge.
+        let mut doc = Document::with_version("1.5");
+        let fonts = || dictionary! { "Font" => dictionary! { "F1" => helvetica() } };
+        let title = [
+            vec![flip()],
+            text("F1", 14.0, 100.0, 300.0, Object::string_literal("Title")),
+        ]
+        .concat();
+        let toc = |footer_y: f32| {
+            [
+                vec![flip()],
+                text("F1", 10.0, 100.0, 300.0, Object::string_literal("Contents")),
+                text(
+                    "F1",
+                    9.0,
+                    700.0,
+                    footer_y,
+                    Object::string_literal(FOOTER_MARK),
+                ),
+            ]
+            .concat()
+        };
+        let body = [
+            vec![flip()],
+            text("F1", 10.0, 100.0, 300.0, Object::string_literal("Body")),
+        ]
+        .concat();
+        let ids = build_pdf(
+            &mut doc,
+            vec![
+                (title, fonts()),
+                (toc(1060.0), fonts()),
+                (toc(500.0), fonts()),
+                (body.clone(), fonts()),
+                (body, fonts()),
+            ],
+        );
+        let expected_slot = footer_slot(&doc, ids[1]).unwrap();
+        let path = save_temp(&mut doc, "scrivon-page-numbers-lost-slot.pdf");
+        // Bleed mode prints with no margins, so the margin fallback would sit in the corner.
+        let mut bleed = options("n-of-total", "");
+        bleed.margin_right_mm = 0.0;
+        bleed.margin_bottom_mm = 0.0;
+
+        stamp_page_numbers(path.to_str().unwrap(), &bleed).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            !stamped.extract_text(&[1]).unwrap().contains("1 / 5"),
+            "title page must not be numbered"
+        );
+        assert!(stamped.extract_text(&[2]).unwrap().contains("2 / 5"));
+        assert!(stamped.extract_text(&[3]).unwrap().contains("3 / 5"));
+        let page_ids: Vec<ObjectId> = stamped.get_pages().into_values().collect();
+        for (page, label) in [(4, "4 / 5"), (5, "5 / 5")] {
+            assert!(
+                stamped.extract_text(&[page]).unwrap().contains(label),
+                "body page {page} was not numbered"
+            );
+            let (right, baseline, _) =
+                stamped_label_extent(&stamped, page_ids[page as usize - 1], label);
+            assert!(
+                (right - expected_slot.right).abs() < 0.1,
+                "right {right} vs slot {}",
+                expected_slot.right
+            );
+            assert!(
+                (baseline - expected_slot.baseline).abs() < 0.1,
+                "baseline {baseline} vs slot {}",
+                expected_slot.baseline
+            );
+        }
     }
 
     #[test]
