@@ -54,7 +54,8 @@ function highlightPreview(preview: string, matchStart: number, matchLength: numb
     return (
         <>
             {preview.slice(0, start)}
-            <mark className="rounded-sm bg-accent/80 px-0.5 text-accent-foreground">{preview.slice(start, end)}</mark>
+            {/* Not the accent tint: that is also the highlighted row's background, so the match would vanish there. */}
+            <mark className="rounded-sm bg-ring/25 px-0.5 font-semibold text-foreground">{preview.slice(start, end)}</mark>
             {preview.slice(end)}
         </>
     )
@@ -88,7 +89,8 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                 <span className="flex-1 truncate">{item.name}</span>
                 {item.isDirty ? (
                     <>
-                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-accent" />
+                        {/* Same dot as the tab bar; an accent dot would vanish on the highlighted row. */}
+                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-foreground" />
                         <span className="sr-only">Unsaved changes</span>
                     </>
                 ) : null}
