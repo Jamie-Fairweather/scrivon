@@ -19,10 +19,9 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
     const packages = useMemo(() => {
         const q = query.trim().toLowerCase()
         if (!q) return THIRD_PARTY_PACKAGES
-        return THIRD_PARTY_PACKAGES.filter(
-            (pkg) =>
-                pkg.name.toLowerCase().includes(q) || pkg.license.toLowerCase().includes(q) || (pkg.licenseText?.toLowerCase().includes(q) ?? false)
-        )
+        // Match the package name and licence type only. Searching the full licence text made short queries
+        // ('isc', 'use') hit boilerplate words in almost every notice.
+        return THIRD_PARTY_PACKAGES.filter((pkg) => pkg.name.toLowerCase().includes(q) || pkg.license.toLowerCase().includes(q))
     }, [query])
 
     return (
@@ -40,7 +39,8 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                         Third-party software included in this application build. Notices below apply to packages shipped in the desktop app.
                     </DialogDescription>
                 </DialogHeader>
-                <DialogPanel className="flex min-h-0 flex-1 flex-col gap-4 pt-0">
+                {/* The filter sits outside DialogPanel so it stays put while the package list scrolls. */}
+                <div className="px-6 pb-3">
                     <Input
                         type="search"
                         placeholder="Filter packages…"
@@ -48,10 +48,12 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                         onChange={(e) => setQuery(e.target.value)}
                         aria-label="Filter packages"
                     />
+                </div>
+                <DialogPanel className="pt-0">
                     {packages.length === 0 ? (
                         <p className="text-sm text-muted-foreground">No packages match your search.</p>
                     ) : (
-                        <Accordion className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
+                        <Accordion className="rounded-lg border">
                             {packages.map((pkg) => (
                                 <AccordionItem key={pkg.name} value={pkg.name}>
                                     <AccordionTrigger className="px-4 hover:no-underline">
