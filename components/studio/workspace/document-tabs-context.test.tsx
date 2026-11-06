@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile, stat } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
@@ -1359,5 +1359,146 @@ describe('closing tabs with unsaved changes', () => {
             await first
         })
         expect(result.current.tabs).toHaveLength(2)
+    })
+})
+
+describe('opening files that are slow to read', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
+
+    /** Makes reading `slowPath` wait until the test lets it finish; other files read straight away. */
+    function slowRead(slowPath: string) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            if (String(path) === slowPath) await done
+            return new TextEncoder().encode(`text of ${String(path)}`)
+        })
+        return finish
+    }
+
+    afterEach(() => {
+        vi.mocked(readFile).mockReset()
+        vi.mocked(readFile).mockResolvedValue(new Uint8Array())
+    })
+
+    it('opens a file once when it is clicked again while it is still being read', async () => {
+        const finish = slowRead('/ws/big.md')
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        let first!: Promise<void>
+        let second!: Promise<void>
+        act(() => {
+            first = result.current.openFile('/ws/big.md')
+            second = result.current.openFile('/ws/big.md')
+        })
+        await act(async () => {
+            finish()
+            await Promise.all([first, second])
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/big.md'])
+        expect(result.current.activeTabId).toBe('/ws/big.md')
+        expect(readFile).toHaveBeenCalledTimes(1)
+        expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/big.md'], activeTabId: '/ws/big.md' })
+    })
+
+    it('shows the file clicked last when an earlier, slower one finishes after it', async () => {
+        const finish = slowRead('/ws/big.md')
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        await act(async () => {
+            await result.current.openFile('/ws/small.md')
+        })
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/small.md', '/ws/big.md'])
+        expect(result.current.activeTabId).toBe('/ws/small.md')
+    })
+
+    it('keeps the tab the user switched to while another file was still being read', async () => {
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')], activeTabId: '/ws/a.mmd' }
+        const finish = slowRead('/ws/big.md')
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        await act(async () => {
+            await result.current.setActiveTab('/ws/b.mmd')
+        })
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/a.mmd', '/ws/b.mmd', '/ws/big.md'])
+        expect(result.current.activeTabId).toBe('/ws/b.mmd')
+    })
+})
+
+describe('changes to several tabs at once', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('keeps an edit to another tab made just before a tab is closed', async () => {
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')], activeTabId: '/ws/a.mmd' }
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+
+        await act(async () => {
+            result.current.updateTabContent('/ws/b.mmd', 'typed in b')
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs).toEqual([expect.objectContaining({ id: '/ws/b.mmd', content: 'typed in b', isDirty: true })])
+        expect(result.current.activeTabId).toBe('/ws/b.mmd')
+    })
+
+    it('keeps an edit to another tab made just before a file is renamed or deleted', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd'), tab('/ws/c.mmd', 'c.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        act(() => {
+            result.current.updateTabContent('/ws/b.mmd', 'typed in b')
+            coordinator.remapTabsAfterRename.current('/ws/a.mmd', '/ws/renamed.mmd', 'renamed.mmd')
+            coordinator.closeTabsForDelete.current('/ws/c.mmd', false)
+        })
+
+        expect(result.current.tabs).toEqual([
+            expect.objectContaining({ id: '/ws/renamed.mmd' }),
+            expect.objectContaining({ id: '/ws/b.mmd', content: 'typed in b', isDirty: true }),
+        ])
+        expect(result.current.activeTabId).toBe('/ws/renamed.mmd')
+    })
+
+    it('never saves the same file twice in the list of open tabs', async () => {
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/a.mmd', 'a.mmd')], activeTabId: '/ws/a.mmd' }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await coordinator.persistWorkspaceTabSession.current()
+        })
+
+        expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/a.mmd'], activeTabId: '/ws/a.mmd' })
     })
 })

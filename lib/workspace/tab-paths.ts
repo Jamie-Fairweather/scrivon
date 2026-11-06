@@ -1,18 +1,18 @@
 import { isPathInside, joinPath, normalizePath, pathInside, samePath } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
+/** Where `path` is once `oldPath` is renamed to `newPath`: the renamed entry itself, something inside it, or unchanged. */
+export function remapPathAfterRename(path: string, oldPath: string, newPath: string): string {
+    if (samePath(path, oldPath)) return normalizePath(newPath)
+    const rest = pathInside(path, oldPath)
+    return rest !== null ? joinPath(newPath, rest) : path
+}
+
 export function remapTabsAfterRename(tabs: DocumentTab[], oldPath: string, newPath: string, newName: string): DocumentTab[] {
     return tabs.map((t) => {
-        if (samePath(t.path, oldPath)) {
-            const updated = normalizePath(newPath)
-            return { ...t, id: updated, path: updated, name: newName }
-        }
-        const rest = pathInside(t.path, oldPath)
-        if (rest !== null) {
-            const updated = joinPath(newPath, rest)
-            return { ...t, id: updated, path: updated }
-        }
-        return t
+        const updated = remapPathAfterRename(t.path, oldPath, newPath)
+        if (updated === t.path) return t
+        return samePath(t.path, oldPath) ? { ...t, id: updated, path: updated, name: newName } : { ...t, id: updated, path: updated }
     })
 }
 

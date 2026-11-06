@@ -21,7 +21,7 @@ import { getBaseName, getWorkspaceFileSize, isSupportedDocument, normalizePath, 
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
-import { remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
+import { remapPathAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -101,7 +101,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             const resolvedActiveId =
                 activeId && !isExampleTabId(activeId) && workspaceTabs.some((t) => t.id === activeId) ? activeId : (workspaceTabs[0]?.id ?? null)
             await setWorkspaceTabSession(workspaceRoot, {
-                tabIds: workspaceTabs.map((t) => t.id),
+                // One entry per file, even if a tab was ever doubled up, so a double never comes back on restart.
+                tabIds: [...new Set(workspaceTabs.map((t) => t.id))],
                 activeTabId: resolvedActiveId,
             })
         },
@@ -178,11 +179,15 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             remapTabsAfterRename: (oldPath, newPath, newName) => {
                 const prevTabs = tabsRef.current
                 const nextTabs = remapTabsAfterRename(prevTabs, oldPath, newPath, newName)
-                // The remap keeps tab order, so the active tab's new id sits at the same index.
-                const activeIndex = prevTabs.findIndex((t) => t.id === activeTabIdRef.current)
-                const nextActiveId = activeIndex >= 0 ? nextTabs[activeIndex]!.id : activeTabIdRef.current
-                setTabs(nextTabs)
-                if (nextActiveId !== activeTabIdRef.current) setActiveTabId(nextActiveId)
+                const prevActiveId = activeTabIdRef.current
+                const nextActiveId = prevActiveId ? remapPathAfterRename(prevActiveId, oldPath, newPath) : null
+                // The refs change straight away and the state with an update, so a change queued for another tab is kept.
+                tabsRef.current = nextTabs
+                setTabs((prev) => remapTabsAfterRename(prev, oldPath, newPath, newName))
+                if (nextActiveId !== prevActiveId) {
+                    activeTabIdRef.current = nextActiveId
+                    setActiveTabId(nextActiveId)
+                }
                 coordinator.tabsMoved.current(
                     prevTabs.flatMap((t, i) => (t.isDirty && t.id !== nextTabs[i]!.id ? [{ from: t.id, to: nextTabs[i]!.id }] : []))
                 )
@@ -196,10 +201,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 }
                 const closingIds = new Set(toClose.map((t) => t.id))
                 const nextTabs = tabsRef.current.filter((t) => !closingIds.has(t.id))
-                const nextActiveId =
-                    activeTabIdRef.current && closingIds.has(activeTabIdRef.current) ? (nextTabs[0]?.id ?? null) : activeTabIdRef.current
-                setTabs(nextTabs)
-                if (activeTabIdRef.current && closingIds.has(activeTabIdRef.current)) {
+                const closingActive = activeTabIdRef.current !== null && closingIds.has(activeTabIdRef.current)
+                const nextActiveId = closingActive ? (nextTabs[0]?.id ?? null) : activeTabIdRef.current
+                tabsRef.current = nextTabs
+                setTabs((prev) => prev.filter((t) => !closingIds.has(t.id)))
+                if (closingActive) {
+                    activeTabIdRef.current = nextActiveId
                     setActiveTabId(nextActiveId)
                 }
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
@@ -228,6 +235,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         })
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile])
 
+    // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
+    const pendingOpens = useRef(new Map<string, Promise<void>>())
+    // The file or tab the user asked for last: an open that finishes after it doesn't take the focus away.
+    const lastRequestedRef = useRef<string | null>(null)
+
     const openFile = useCallback(
         async (requestedPath: string) => {
             const fileName = getBaseName(requestedPath)
@@ -238,9 +250,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
             const path = normalizePath(requestedPath)
             const previousId = activeTabIdRef.current
+            lastRequestedRef.current = path
 
             const existing = tabsRef.current.find((t) => samePath(t.path, path))
             if (existing) {
+                lastRequestedRef.current = existing.id
                 setActiveTabId(existing.id)
                 void persistTabSession({ tabs: tabsRef.current, activeTabId: existing.id })
                 if (workspaceRoot) void addRecentFile(workspaceRoot, existing.id)
@@ -248,23 +262,40 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 return
             }
 
+            const pending = [...pendingOpens.current].find(([p]) => samePath(p, path))?.[1]
+            if (pending) return pending
+
             if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
 
-            try {
-                // A huge file can make the app stop responding for a while, so the user decides before it is read.
-                const size = await getWorkspaceFileSize(path)
-                if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
-                const tab = tabFromFile(path, await readWorkspaceTextFile(path))
-                const nextTabs = [...tabsRef.current, tab]
-                setTabs(nextTabs)
-                setActiveTabId(tab.id)
-                explainReadOnlyFile(tab)
-                coordinator.requestCanvasFit.current()
-                await persistTabSession({ tabs: nextTabs, activeTabId: tab.id })
-                if (workspaceRoot) void addRecentFile(workspaceRoot, tab.id)
-            } catch (err) {
-                await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
-            }
+            const open = (async () => {
+                try {
+                    // A huge file can make the app stop responding for a while, so the user decides before it is read.
+                    const size = await getWorkspaceFileSize(path)
+                    if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
+                    const read = tabFromFile(path, await readWorkspaceTextFile(path))
+                    // Restoring a folder's tabs may have opened it meanwhile; that tab is kept, never a second copy.
+                    const alreadyOpen = tabsRef.current.find((t) => samePath(t.path, path))
+                    const tab = alreadyOpen ?? read
+                    if (!alreadyOpen) {
+                        tabsRef.current = [...tabsRef.current, tab]
+                        setTabs((prev) => (prev.some((t) => samePath(t.path, tab.path)) ? prev : [...prev, tab]))
+                        explainReadOnlyFile(tab)
+                    }
+                    const isLatest = lastRequestedRef.current !== null && samePath(lastRequestedRef.current, path)
+                    if (isLatest) {
+                        activeTabIdRef.current = tab.id
+                        setActiveTabId(tab.id)
+                        coordinator.requestCanvasFit.current()
+                    }
+                    await persistTabSession({ tabs: tabsRef.current, activeTabId: activeTabIdRef.current })
+                    if (isLatest && workspaceRoot) void addRecentFile(workspaceRoot, tab.id)
+                } catch (err) {
+                    await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
+                }
+            })()
+            pendingOpens.current.set(path, open)
+            void open.finally(() => pendingOpens.current.delete(path))
+            return open
         },
         [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, workspaceRoot, explainReadOnlyFile]
     )
@@ -279,6 +310,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
             const tabId = exampleTabId(exampleId)
             const previousId = activeTabIdRef.current
+            lastRequestedRef.current = tabId
 
             const existing = tabsRef.current.find((t) => t.id === tabId)
             if (existing) {
@@ -299,6 +331,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const setActiveTab = useCallback(
         async (id: string) => {
+            lastRequestedRef.current = id
             if (activeTabIdRef.current === id) return
             const previousId = activeTabIdRef.current
             setActiveTabId(id)
@@ -405,9 +438,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 const closedIndex = prev.findIndex((t) => t.id === id)
                 const fallback = nextTabs[Math.min(closedIndex, nextTabs.length - 1)]
                 nextActiveId = fallback?.id ?? null
+                activeTabIdRef.current = nextActiveId
                 setActiveTabId(nextActiveId)
             }
-            setTabs(nextTabs)
+            // The ref changes straight away and the state with an update, so a change queued for another tab is kept.
+            tabsRef.current = nextTabs
+            setTabs((current) => current.filter((t) => t.id !== id))
             void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
         },
         [confirmCloseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
@@ -417,8 +453,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         async (keepId: string) => {
             const idsToClose = tabsRef.current.filter((t) => t.id !== keepId).map((t) => t.id)
             if (!(await confirmCloseTabs(idsToClose))) return
-            const nextTabs = tabsRef.current.filter((t) => t.id === keepId)
-            setTabs(nextTabs)
+            const closing = new Set(idsToClose)
+            const nextTabs = tabsRef.current.filter((t) => !closing.has(t.id))
+            tabsRef.current = nextTabs
+            setTabs((current) => current.filter((t) => !closing.has(t.id)))
+            activeTabIdRef.current = keepId
             setActiveTabId(keepId)
             await persistTabSession({ tabs: nextTabs, activeTabId: keepId })
         },
@@ -427,10 +466,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const closeAllTabs = useCallback(async () => {
         if (!(await confirmCloseTabs())) return
+        tabsRef.current = []
+        activeTabIdRef.current = null
         setTabs([])
         setActiveTabId(null)
         await persistTabSession({ tabs: [], activeTabId: null })
-    }, [confirmCloseTabs, persistTabSession, setTabs, setActiveTabId])
+    }, [confirmCloseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef])
 
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { openFile })
