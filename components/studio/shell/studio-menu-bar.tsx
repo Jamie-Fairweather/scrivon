@@ -22,6 +22,7 @@ import {
     MenuItem,
     MenuPopup,
     MenuSeparator,
+    MenuShortcut,
     MenuSub,
     MenuSubPopup,
     MenuSubTrigger,
@@ -30,6 +31,8 @@ import {
 import { MenuBarUpdateButton } from '@/components/studio/shell/menu-bar-update-button'
 import { ThemeMenu } from '@/components/studio/theme/theme-menu'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { formatKeybindForAction } from '@/lib/settings/format-keybind'
+import type { KeybindActionId } from '@/lib/settings/types'
 import { getBaseName } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
 
@@ -50,11 +53,27 @@ function MenuBarEntry({ label, children }: { label: string; children: ReactNode 
     )
 }
 
+/** The user's current chord for a menu item, right-aligned. Renders nothing when the action is unbound. */
+function MenuHint({ shortcut, className }: { shortcut: string | undefined; className?: string }) {
+    return shortcut ? <MenuShortcut className={cn('ps-6 tracking-normal', className)}>{shortcut}</MenuShortcut> : null
+}
+
+/** Checkbox rows keep their label in a grid cell, so lay out label and hint as a row inside it. */
+function CheckboxLabelWithHint({ label, shortcut }: { label: string; shortcut: string | undefined }) {
+    return (
+        <span className="flex items-center">
+            {label}
+            {/* Checkbox rows have more end padding than plain items; pull the hint out to line up with them. */}
+            <MenuHint shortcut={shortcut} className="-me-2" />
+        </span>
+    )
+}
+
 export function StudioMenuBar() {
     const { isDesktop, workspaceRoot, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } = useWorkspaceSession()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
-    const { openSettings } = useAppSettings()
+    const { settings, openSettings } = useAppSettings()
     const { requestCanvasFit } = useCanvasFit()
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
@@ -62,6 +81,8 @@ export function StudioMenuBar() {
     useMenubarAccessKey(menubarRef)
 
     const hasWorkspace = Boolean(workspaceRoot)
+    // Read from settings on every render so the menu follows the user's own key bindings.
+    const shortcut = (actionId: KeybindActionId) => formatKeybindForAction(actionId, settings.keybinds)
 
     return (
         <header
@@ -107,7 +128,10 @@ export function StudioMenuBar() {
 
                     <MenuBarEntry label="Options">
                         <MenuGroup>
-                            <MenuItem onClick={() => openSettings()}>Settings…</MenuItem>
+                            <MenuItem onClick={() => openSettings()}>
+                                Settings…
+                                <MenuHint shortcut={shortcut('settings.open')} />
+                            </MenuItem>
                         </MenuGroup>
                         <MenuSeparator />
                         <MenuGroup>
@@ -127,16 +151,22 @@ export function StudioMenuBar() {
                         <MenuBarEntry label="View">
                             <MenuGroup>
                                 <MenuCheckboxItem checked={layout.explorerOpen} onCheckedChange={(checked) => setExplorerOpen(checked === true)}>
-                                    Explorer
+                                    <CheckboxLabelWithHint label="Explorer" shortcut={shortcut('view.toggleExplorer')} />
                                 </MenuCheckboxItem>
                                 <MenuCheckboxItem checked={layout.editorOpen} onCheckedChange={(checked) => setEditorOpen(checked === true)}>
-                                    Editor
+                                    <CheckboxLabelWithHint label="Editor" shortcut={shortcut('view.toggleEditor')} />
                                 </MenuCheckboxItem>
                             </MenuGroup>
                             <MenuSeparator />
-                            <MenuItem onClick={setPreviewOnly}>Preview Only</MenuItem>
+                            <MenuItem onClick={setPreviewOnly}>
+                                Preview Only
+                                <MenuHint shortcut={shortcut('view.previewOnly')} />
+                            </MenuItem>
                             <MenuSeparator />
-                            <MenuItem onClick={requestCanvasFit}>Fit Diagram to Screen</MenuItem>
+                            <MenuItem onClick={requestCanvasFit}>
+                                Fit Diagram to Screen
+                                <MenuHint shortcut={shortcut('view.fitDiagram')} />
+                            </MenuItem>
                         </MenuBarEntry>
                     )}
 
