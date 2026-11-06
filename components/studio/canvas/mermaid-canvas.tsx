@@ -7,6 +7,7 @@ import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { usePanZoom } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
+import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
 import { Card, CardPanel } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -66,6 +67,10 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
         },
         [svgForDisplay]
     )
+
+    useEffect(() => {
+        pruneSvgCache(openTabIds)
+    }, [openTabIds])
 
     useEffect(() => {
         queueMicrotask(() => {

@@ -4,29 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
+import { clearSvgCache, readCachedSvg, readLatestSvg, storeSvg } from '@/lib/mermaid/svg-cache'
 
 const RENDER_DEBOUNCE_MS = 200
 
 type DiagramDisplay = { source: string; svg: string; documentKey: string; themeId: string }
 type RenderError = { message: string; documentKey: string; themeId: string; trimmedSource: string }
-
-const globalSvgCache = new Map<string, string>()
-
-function cacheKey(themeId: string, documentKey: string, trimmedSource: string) {
-    return `${themeId}\0${documentKey}\0${trimmedSource}`
-}
-
-function readCachedSvg(themeId: string, documentKey: string, trimmedSource: string): string | null {
-    return globalSvgCache.get(cacheKey(themeId, documentKey, trimmedSource)) ?? null
-}
-
-function readStaleSvg(themeId: string, documentKey: string): string | null {
-    const prefix = `${themeId}\0${documentKey}\0`
-    for (const [key, svg] of globalSvgCache) {
-        if (key.startsWith(prefix)) return svg
-    }
-    return null
-}
 
 function resolveSvgForDisplay(
     themeId: string,
@@ -42,7 +25,7 @@ function resolveSvgForDisplay(
         return display.svg
     }
 
-    const stale = readStaleSvg(themeId, documentKey)
+    const stale = readLatestSvg(themeId, documentKey)
     if (stale) return stale
 
     if (hasRenderError) return null
@@ -72,7 +55,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         const prevThemeId = prevThemeIdRef.current
         prevThemeIdRef.current = themeId
         if (prevThemeId != null && prevThemeId !== themeId) {
-            globalSvgCache.clear()
+            clearSvgCache()
         }
     }, [themeId])
 
@@ -98,7 +81,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 if (sourceRef.current !== renderSource) return
                 if (themeIdRef.current !== renderThemeId) return
 
-                globalSvgCache.set(cacheKey(renderThemeId, renderForKey, renderTrimmed), svg)
+                storeSvg(renderThemeId, renderForKey, renderTrimmed, svg)
                 setDisplay({ source: renderSource, svg, documentKey: renderForKey, themeId: renderThemeId })
                 setError(null)
             } catch (err) {
