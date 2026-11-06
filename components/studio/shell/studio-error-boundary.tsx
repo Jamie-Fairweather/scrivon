@@ -1,11 +1,12 @@
 'use client'
 
 import { Component, useState, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
-import { WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
+import { TITLEBAR_ABOVE_DIALOGS_CLASS, WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
 import { Button } from '@/components/ui/button'
 import { APP_NAME } from '@/lib/app-branding'
 import { APP_VERSION } from '@/lib/legal/third-party-licenses'
 import { isTauri } from '@/lib/tauri/platform'
+import { cn } from '@/lib/utils'
 
 export type StudioErrorFallbackProps = {
     error: Error
@@ -95,7 +96,12 @@ export function StudioCrashScreen({ error, children }: { error: Error; children:
 
     return (
         <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-            <header className="flex h-[var(--titlebar-height)] shrink-0 items-center border-b border-border bg-background select-none">
+            <header
+                className={cn(
+                    'flex h-[var(--titlebar-height)] shrink-0 items-center border-b border-border bg-background select-none',
+                    TITLEBAR_ABOVE_DIALOGS_CLASS
+                )}
+            >
                 <span className="shrink-0 px-3 text-xs text-muted-foreground">{APP_NAME}</span>
                 <div className="min-h-0 min-w-0 flex-1 self-stretch" data-tauri-drag-region={desktop ? true : undefined} />
                 {desktop && <WindowTitlebarControls />}

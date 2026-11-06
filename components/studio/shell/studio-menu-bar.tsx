@@ -10,7 +10,11 @@ import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-sourc
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
-import { WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
+import {
+    TITLEBAR_ABOVE_DIALOGS_CLASS,
+    TITLEBAR_MENUS_BLOCKED_CLASS,
+    WindowTitlebarControls,
+} from '@/components/studio/shell/window-titlebar-controls'
 import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +33,7 @@ import { MenuBarUpdateButton } from '@/components/studio/shell/menu-bar-update-b
 import { ThemeMenu } from '@/components/studio/theme/theme-menu'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { getBaseName } from '@/lib/tauri/fs'
+import { cn } from '@/lib/utils'
 
 function MenuBarEntry({ label, children }: { label: string; children: ReactNode }) {
     return (
@@ -75,13 +80,16 @@ export function StudioMenuBar() {
     return (
         <header
             aria-label="Application title bar"
-            className="pointer-events-auto flex h-[var(--titlebar-height)] shrink-0 items-center border-b border-border bg-background select-none"
+            className={cn(
+                'pointer-events-auto flex h-[var(--titlebar-height)] shrink-0 items-center border-b border-border bg-background select-none',
+                TITLEBAR_ABOVE_DIALOGS_CLASS
+            )}
         >
             <div className="flex shrink-0 items-center pr-1 pl-2">
                 <Image src={appIcon} alt="" width={20} height={20} className="size-5 shrink-0 rounded-sm" aria-hidden />
                 <span className="sr-only">{APP_NAME}</span>
             </div>
-            <nav aria-label="Application menu" className="flex shrink-0 items-center px-1">
+            <nav aria-label="Application menu" className={cn('flex shrink-0 items-center px-1', TITLEBAR_MENUS_BLOCKED_CLASS)}>
                 <Menubar ref={menubarRef} modal={false} className="flex items-center gap-0.5">
                     <MenuBarEntry label="File">
                         <MenuGroup>

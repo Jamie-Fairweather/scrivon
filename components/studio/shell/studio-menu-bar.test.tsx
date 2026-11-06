@@ -17,7 +17,10 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
-vi.mock('@/components/studio/shell/window-titlebar-controls', () => ({ WindowTitlebarControls: () => null }))
+vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/components/studio/shell/window-titlebar-controls')>()),
+    WindowTitlebarControls: () => null,
+}))
 
 function mockContexts({ isDesktop = false, workspaceRoot = null as string | null } = {}) {
     vi.mocked(useWorkspaceSession).mockReturnValue({

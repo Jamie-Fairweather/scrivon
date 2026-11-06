@@ -19,7 +19,7 @@ function StudioRouter() {
 
     if (!workspaceRoot) {
         return (
-            <div className="fixed inset-0 flex flex-col bg-background">
+            <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
                 <StudioMenuBar />
                 <WelcomeScreen />
             </div>
@@ -27,7 +27,7 @@ function StudioRouter() {
     }
 
     return (
-        <div className="fixed inset-0 flex flex-col bg-background">
+        <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
             <StudioMenuBar />
             <StudioLayout />
         </div>
