@@ -390,6 +390,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
             editorRef.current = editor
             monacoRef.current = monaco
+            // Closing the last tab throws the editor away. Forget it, so a search hit picked
+            // before the next one is ready waits for it instead of going to the old one.
+            editor.onDidDispose(() => {
+                if (editorRef.current === editor) editorRef.current = null
+            })
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
             // or the cursor and selection drift away from the text.

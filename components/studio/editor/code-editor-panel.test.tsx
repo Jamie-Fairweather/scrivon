@@ -47,6 +47,7 @@ class FakeEditor {
     options: Record<string, unknown>
     private readonly contentListeners = new Set<Listener>()
     private readonly modelListeners = new Set<Listener>()
+    private readonly disposeListeners = new Set<Listener>()
     constructor(
         public model: FakeModel | null,
         options: Record<string, unknown>
@@ -104,8 +105,13 @@ class FakeEditor {
     setSelection(selection: unknown) {
         this.selection = selection
     }
+    onDidDispose(listener: Listener) {
+        this.disposeListeners.add(listener)
+        return { dispose: () => this.disposeListeners.delete(listener) }
+    }
     dispose() {
         this.setModel(null)
+        this.disposeListeners.forEach((l) => l())
     }
 }
 
@@ -572,6 +578,24 @@ describe('CodeEditorPanel search hits', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
         expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+    })
+
+    it('selects the hit in the new editor when no tab was open', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor: first } = await mountEditor()
+
+        // Closing the last tab throws the editor away; the hit's file then opens in a new one.
+        setTabs(view, { tabs: [], activeTabId: null })
+        setTabs(view, { tabs: [tab(b, 'x\ny\n find me')], activeTabId: b })
+        act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
+
+        await waitFor(() => expect(editors).toHaveLength(2))
+        const second = editors[1]!
+        expect(second).not.toBe(first)
+        expect(second.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+        expect(second.focused).toBe(true)
     })
 })
 
