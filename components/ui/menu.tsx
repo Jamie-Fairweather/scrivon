@@ -225,10 +225,14 @@ export function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.P
     return <MenuPrimitive.Separator className={cn('mx-2 my-1 h-px bg-border', className)} data-slot="menu-separator" {...props} />
 }
 
+/** On a highlighted row the hint takes the row's text colour: muted text is not readable on the accent fill. */
 export function MenuShortcut({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
-            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground', className)}
+            className={cn(
+                'ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground in-data-highlighted:text-accent-foreground',
+                className
+            )}
             data-slot="menu-shortcut"
             {...props}
         />

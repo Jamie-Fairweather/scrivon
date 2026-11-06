@@ -154,10 +154,14 @@ export function CommandSeparator({ className, ...props }: React.ComponentProps<t
     return <AutocompleteSeparator className={cn('my-2', className)} data-slot="command-separator" {...props} />
 }
 
+/** On a highlighted row the hint takes the row's text colour: muted text is not readable on the accent fill. */
 export function CommandShortcut({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
-            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground', className)}
+            className={cn(
+                'ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground in-data-highlighted:text-accent-foreground',
+                className
+            )}
             data-slot="command-shortcut"
             {...props}
         />
