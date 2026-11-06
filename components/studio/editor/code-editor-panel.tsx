@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { editor } from 'monaco-editor'
 import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -9,6 +9,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
+import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { documentKind } from '@/lib/tauri/fs'
@@ -60,17 +61,27 @@ function languageForTab(tab: DocumentTab) {
 export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
-    const { activeTab, updateTabContent } = useDocumentTabs()
+    const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
     const resizeStart = useRef({ x: 0, width: 0 })
     const monacoRef = useRef<Monaco | null>(null)
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
+    const activeTabRef = useRef<DocumentTab | null>(null)
+    const suppressChangeRef = useRef(false)
     const pendingRevealRef = useRef<{ path: string; line: number; column: number } | null>(null)
+
+    // Each open tab gets its own Monaco model; see lib/monaco/model-keys.ts.
+    const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs])
+    const [modelKeys, setModelKeys] = useState(() => syncModelKeys(EMPTY_MODEL_KEYS, tabPaths))
+    if (!samePaths(modelKeys.paths, tabPaths)) {
+        setModelKeys(syncModelKeys(modelKeys, tabPaths))
+    }
 
     useEffect(() => {
         activeTabIdRef.current = activeTab?.id ?? null
-    }, [activeTab?.id])
+        activeTabRef.current = activeTab
+    }, [activeTab])
 
     const revealPosition = useCallback((path: string, line: number, column: number) => {
         const editor = editorRef.current
@@ -129,6 +140,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
 
     const onEditorChange = useCallback(
         (value: string | undefined) => {
+            if (suppressChangeRef.current) return
             const id = activeTabIdRef.current
             if (!id) return
             updateTabContent(id, value ?? '')
@@ -136,7 +148,7 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
         [updateTabContent]
     )
 
-    const editorPath = activeTab?.path
+    const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
@@ -172,23 +184,68 @@ export function CodeEditorPanel({ width, onWidthChange }: CodeEditorPanelProps) 
         [tokens, isLight]
     )
 
-    const onMonacoMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
-        editorRef.current = editor
-        unbindEditorF1Command(editor, monaco)
-        const pending = pendingRevealRef.current
-        if (pending && activeTabIdRef.current === pending.path) {
-            const position = { lineNumber: pending.line, column: pending.column }
-            editor.revealPositionInCenter(position)
-            editor.setSelection({
-                startLineNumber: pending.line,
-                startColumn: pending.column,
-                endLineNumber: pending.line,
-                endColumn: pending.column,
-            })
-            editor.focus()
-            pendingRevealRef.current = null
+    /** Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. */
+    const syncEditorWithActiveTab = useCallback(() => {
+        const model = editorRef.current?.getModel()
+        const tab = activeTabRef.current
+        const monaco = monacoRef.current
+        if (!model || !tab || !monaco) return
+        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) return
+        suppressChangeRef.current = true
+        try {
+            model.setValue(tab.content)
+        } finally {
+            suppressChangeRef.current = false
         }
     }, [])
+
+    useEffect(() => {
+        syncEditorWithActiveTab()
+    }, [editorPath, syncEditorWithActiveTab])
+
+    // Free the buffers of tabs that are no longer open.
+    useEffect(() => {
+        const monaco = monacoRef.current
+        if (!monaco) return
+        const liveKeys = new Set(modelKeys.keys.values())
+        const attached = editorRef.current?.getModel()
+        for (const model of monaco.editor.getModels()) {
+            const uri = model.uri.toString()
+            if (model !== attached && isModelKey(uri) && !liveKeys.has(uri)) model.dispose()
+        }
+    }, [modelKeys])
+
+    useEffect(() => {
+        return () => {
+            const monaco = monacoRef.current
+            if (!monaco) return
+            for (const model of monaco.editor.getModels()) {
+                if (isModelKey(model.uri.toString())) model.dispose()
+            }
+        }
+    }, [])
+
+    const onMonacoMount = useCallback(
+        (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+            editorRef.current = editor
+            unbindEditorF1Command(editor, monaco)
+            syncEditorWithActiveTab()
+            const pending = pendingRevealRef.current
+            if (pending && activeTabIdRef.current === pending.path) {
+                const position = { lineNumber: pending.line, column: pending.column }
+                editor.revealPositionInCenter(position)
+                editor.setSelection({
+                    startLineNumber: pending.line,
+                    startColumn: pending.column,
+                    endLineNumber: pending.line,
+                    endColumn: pending.column,
+                })
+                editor.focus()
+                pendingRevealRef.current = null
+            }
+        },
+        [syncEditorWithActiveTab]
+    )
 
     useEffect(() => {
         const monaco = monacoRef.current
