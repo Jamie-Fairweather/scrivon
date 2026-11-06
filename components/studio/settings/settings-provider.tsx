@@ -1,12 +1,13 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { notifyWarning } from '@/lib/notify'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
-import { loadSettings, saveSettings } from '@/lib/settings/storage'
+import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindChord } from '@/lib/settings/types'
 
 export type SettingsSection = 'general' | 'appearance' | 'editor' | 'pdf-export' | 'keyboard' | 'advanced'
@@ -39,12 +40,18 @@ function actionLabel(actionId: KeybindActionId): string {
     return KEYBIND_ACTIONS.find((action) => action.id === actionId)?.label ?? actionId
 }
 
+const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {
+    backup: 'The last working copy was restored, so your most recent changes may be missing.',
+    reset: 'Most settings were reset to their defaults. Your theme and layout were kept.',
+}
+
 function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, delayMs))
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-    const [settings, setSettingsState] = useState<AppSettings>(() => loadSettings())
+    const [loaded] = useState(loadSettingsWithRecovery)
+    const [settings, setSettingsState] = useState<AppSettings>(loaded.settings)
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [activeSection, setActiveSection] = useState<SettingsSection>('general')
     // Latest settings, updated straight away so back-to-back updates build on each other.
@@ -64,6 +71,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         },
         [persist]
     )
+
+    // Tell the user when saved settings were unreadable, instead of quietly changing them.
+    useEffect(() => {
+        if (!loaded.recovery) return
+        notifyWarning('Settings could not be read', { id: 'settings-recovered', description: RECOVERY_NOTICES[loaded.recovery], timeout: 0 })
+    }, [loaded])
 
     // Without a section, reopen on the one last used rather than jumping back to General.
     const openSettings = useCallback((section?: SettingsSection) => {

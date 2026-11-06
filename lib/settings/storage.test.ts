@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultSettings } from '@/lib/settings/defaults'
-import { loadSettings, saveSettings } from '@/lib/settings/storage'
+import { loadSettings, loadSettingsWithRecovery, saveSettings, SETTINGS_BACKUP_KEY, SETTINGS_CORRUPT_KEY_PREFIX } from '@/lib/settings/storage'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
@@ -61,6 +61,44 @@ describe('loadSettings and saveSettings with localStorage', () => {
         store.set(STORAGE_MERMAID_THEME, 'scrivon-dark')
 
         expect(loadSettings().theme.id).toBe('scrivon-dark')
+    })
+
+    it('keeps a copy of unreadable settings and restores the last clean load', () => {
+        const settings = createDefaultSettings(false)
+        settings.editor.fontSize = 18
+        settings.updates.checkOnLaunch = false
+        saveSettings(settings)
+        expect(loadSettingsWithRecovery().recovery).toBeNull()
+
+        // What the old updateSettings race could leave behind.
+        store.set(SETTINGS_STORAGE_KEY, 'undefined')
+        const loaded = loadSettingsWithRecovery()
+
+        expect(loaded.recovery).toBe('backup')
+        expect(loaded.settings.editor.fontSize).toBe(18)
+        expect(loaded.settings.updates.checkOnLaunch).toBe(false)
+        const corrupt = [...store.keys()].filter((key) => key.startsWith(SETTINGS_CORRUPT_KEY_PREFIX))
+        expect(corrupt.map((key) => store.get(key))).toEqual(['undefined'])
+        // The restored copy is saved, so the next launch loads cleanly.
+        expect(loadSettingsWithRecovery()).toEqual({ settings: loaded.settings, recovery: null })
+    })
+
+    it('says settings were reset, and keeps the unreadable text, when there is no backup', () => {
+        store.set(SETTINGS_STORAGE_KEY, '{"editor": {"fontSize": 2')
+        store.set(STORAGE_MERMAID_THEME, 'scrivon-dark')
+
+        const loaded = loadSettingsWithRecovery()
+
+        expect(loaded.recovery).toBe('reset')
+        expect(loaded.settings.theme.id).toBe('scrivon-dark')
+        const corrupt = [...store.keys()].filter((key) => key.startsWith(SETTINGS_CORRUPT_KEY_PREFIX))
+        expect(corrupt.map((key) => store.get(key))).toEqual(['{"editor": {"fontSize": 2'])
+    })
+
+    it('does not report a first launch as a recovery', () => {
+        expect(loadSettingsWithRecovery().recovery).toBeNull()
+        expect(store.has(SETTINGS_STORAGE_KEY)).toBe(true)
+        expect(store.has(SETTINGS_BACKUP_KEY)).toBe(false)
     })
 
     it('dual-writes legacy keys on save', () => {

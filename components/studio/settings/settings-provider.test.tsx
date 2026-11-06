@@ -1,8 +1,12 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
-import { loadSettings } from '@/lib/settings/storage'
+import { notifyWarning } from '@/lib/notify'
+import { createDefaultSettings } from '@/lib/settings/defaults'
+import { loadSettings, SETTINGS_BACKUP_KEY } from '@/lib/settings/storage'
 import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
+
+vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyWarning: vi.fn() }))
 
 function stored(): AppSettings {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
@@ -141,6 +145,18 @@ describe('SettingsProvider persistence', () => {
         })
         expect(message).toBeNull()
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('tells the user when unreadable settings were restored from the backup', () => {
+        const backup = createDefaultSettings(false)
+        backup.editor.fontSize = 18
+        localStorage.setItem(SETTINGS_BACKUP_KEY, JSON.stringify(backup))
+        localStorage.setItem(SETTINGS_STORAGE_KEY, 'undefined')
+
+        const { result } = renderSettings()
+
+        expect(result.current.settings.editor.fontSize).toBe(18)
+        expect(notifyWarning).toHaveBeenCalledWith('Settings could not be read', expect.objectContaining({ id: 'settings-recovered' }))
     })
 
     it('reloads the latest settings after a restart', () => {
