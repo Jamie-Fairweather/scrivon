@@ -17,6 +17,8 @@ const sampleTokens: ResolvedThemeTokens = {
     interactive: '#2a2a2a',
     mutedText: '#aaaaaa',
     lineNumber: '#777777',
+    activeLineNumber: '#bbbbbb',
+    uiText: '#eeeeee',
 }
 
 function createStyleRoot() {
@@ -72,6 +74,32 @@ describe('tokensToSemanticVars', () => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 
         expect(contrastRatio(vars['--ring'], vars['--background'])).toBeGreaterThanOrEqual(3)
+    })
+
+    it.each(APP_THEME_IDS)('%s: body text on hover and selected fills reaches 4.5:1', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--secondary-foreground'], vars['--secondary'])).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(vars['--sidebar-accent-foreground'], vars['--sidebar-accent'])).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(vars['--foreground'], vars['--muted'])).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it.each(APP_THEME_IDS)('%s: body text stands out more than secondary text', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--foreground'], vars['--background'])).toBeGreaterThan(
+            contrastRatio(vars['--muted-foreground'], vars['--background'])
+        )
+    })
+
+    it('uses the UI text colour, not the raw palette text, for body text', () => {
+        const vars = tokensToSemanticVars({ ...sampleTokens, uiText: '#ffffff' })
+
+        expect(vars['--foreground']).toBe('#ffffff')
+        expect(vars['--card-foreground']).toBe('#ffffff')
+        expect(vars['--popover-foreground']).toBe('#ffffff')
+        expect(vars['--secondary-foreground']).toBe('#ffffff')
+        expect(vars['--sidebar-accent-foreground']).toBe('#ffffff')
     })
 
     it.each(APP_THEME_IDS)('%s: text on highlighted rows reaches 4.5:1', (id) => {

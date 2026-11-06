@@ -1,6 +1,6 @@
 import type { AppThemeId } from '@/lib/theme/catalog'
 import { getDiagramColors } from '@/lib/theme/catalog'
-import { ensureContrast, hexColorMix } from '@/lib/theme/color-mix'
+import { contrastRatio, ensureContrast, hexColorMix } from '@/lib/theme/color-mix'
 import type { DiagramColors } from '@/lib/theme/types'
 
 /** Matches beautiful-mermaid MIX weights in src/theme.ts */
@@ -31,6 +31,12 @@ const MIN_CONTRAST = {
     interactive: 1.15,
 } as const
 
+/**
+ * Extra contrast (one ratio step) the stronger of two text levels keeps over the weaker one:
+ * body text over secondary text, and the current line number over the other line numbers.
+ */
+const TEXT_LEVEL_STEP = 1
+
 export type ResolvedThemeTokens = {
     bg: string
     fg: string
@@ -47,6 +53,13 @@ export type ResolvedThemeTokens = {
     mutedText: string
     /** Editor line numbers; at least 3:1 on bg and surface. */
     lineNumber: string
+    /** The current line's number; at least 4.5:1 on bg and surface, and always a step stronger than `lineNumber`. */
+    activeLineNumber: string
+    /**
+     * Body text for the UI. Same as `fg` unless the palette's text is so soft (Solarized) that
+     * `mutedText` would outrank it; then it is pushed further from bg. Monaco and diagrams keep `fg`.
+     */
+    uiText: string
 }
 
 /** Resolve full UI palette from diagram colors, using the same derivations as beautiful-mermaid SVGs. */
@@ -55,6 +68,10 @@ export function resolveThemeTokens(colors: DiagramColors): ResolvedThemeTokens {
     const surface = colors.surface ?? hexColorMix(fg, bg, MIX.nodeFill)
     const interactive = ensureContrast(hexColorMix(fg, bg, UI_MIX.interactive), fg, [bg], MIN_CONTRAST.interactive)
     const textBackgrounds = [bg, surface, interactive]
+    const textSecondary = hexColorMix(fg, bg, MIX.textSecondary)
+    const mutedText = ensureContrast(colors.muted ?? hexColorMix(fg, bg, UI_MIX.mutedText), fg, textBackgrounds, MIN_CONTRAST.text)
+    const lineNumber = ensureContrast(hexColorMix(fg, bg, UI_MIX.lineNumber), fg, textBackgrounds, MIN_CONTRAST.lineNumber)
+    const activeLineNumberMin = Math.max(MIN_CONTRAST.text, contrastRatio(lineNumber, bg) + TEXT_LEVEL_STEP)
 
     return {
         bg,
@@ -64,11 +81,15 @@ export function resolveThemeTokens(colors: DiagramColors): ResolvedThemeTokens {
         border: colors.border ?? hexColorMix(fg, bg, MIX.nodeStroke),
         surface,
         line: colors.line ?? hexColorMix(fg, bg, MIX.line),
-        textSecondary: hexColorMix(fg, bg, MIX.textSecondary),
+        textSecondary,
         textFaint: hexColorMix(fg, bg, MIX.textFaint),
         interactive,
-        mutedText: ensureContrast(colors.muted ?? hexColorMix(fg, bg, UI_MIX.mutedText), fg, textBackgrounds, MIN_CONTRAST.text),
-        lineNumber: ensureContrast(hexColorMix(fg, bg, UI_MIX.lineNumber), fg, textBackgrounds, MIN_CONTRAST.lineNumber),
+        mutedText,
+        lineNumber,
+        // Monaco draws it on bg or on the current-line highlight (surface).
+        activeLineNumber: ensureContrast(textSecondary, fg, [bg, surface], activeLineNumberMin),
+        // uiText and mutedText sit on the same side of bg, so out-ranking it on bg out-ranks it on every fill.
+        uiText: ensureContrast(fg, fg, [bg], contrastRatio(mutedText, bg) + TEXT_LEVEL_STEP),
     }
 }
 

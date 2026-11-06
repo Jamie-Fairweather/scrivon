@@ -64,27 +64,28 @@ export const SEMANTIC_VAR_NAMES = [
     '--code-highlight',
 ] as const satisfies readonly (keyof SemanticThemeVars)[]
 
-/** Minimum contrast for text drawn on a highlighted row (WCAG AA, normal text). */
+/** Minimum contrast for text drawn on a hover, selected or highlighted fill (WCAG AA, normal text). */
 const MIN_TEXT_CONTRAST = 4.5
 
 export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticThemeVars {
     const accent = hexColorMix(tokens.accent, tokens.bg, 24)
+    const textOnInteractive = ensureContrast(tokens.uiText, tokens.uiText, [tokens.interactive], MIN_TEXT_CONTRAST)
 
     return {
         '--background': tokens.bg,
-        '--foreground': tokens.fg,
+        '--foreground': tokens.uiText,
         '--card': tokens.surface,
-        '--card-foreground': tokens.fg,
+        '--card-foreground': tokens.uiText,
         '--popover': tokens.surface,
-        '--popover-foreground': tokens.fg,
+        '--popover-foreground': tokens.uiText,
         '--primary': tokens.fg,
         '--primary-foreground': tokens.bg,
         '--secondary': tokens.interactive,
-        '--secondary-foreground': tokens.fg,
+        '--secondary-foreground': textOnInteractive,
         '--muted': tokens.interactive,
         '--muted-foreground': tokens.mutedText,
         '--accent': accent,
-        '--accent-foreground': ensureContrast(tokens.fg, tokens.fg, [accent], MIN_TEXT_CONTRAST),
+        '--accent-foreground': ensureContrast(tokens.uiText, tokens.uiText, [accent], MIN_TEXT_CONTRAST),
         '--border': tokens.border,
         '--input': tokens.border,
         '--ring': tokens.accent,
@@ -93,7 +94,7 @@ export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticTheme
         '--sidebar-primary': tokens.fg,
         '--sidebar-primary-foreground': tokens.bg,
         '--sidebar-accent': tokens.interactive,
-        '--sidebar-accent-foreground': tokens.fg,
+        '--sidebar-accent-foreground': textOnInteractive,
         '--sidebar-border': tokens.border,
         '--sidebar-ring': tokens.accent,
         '--code': tokens.bg,

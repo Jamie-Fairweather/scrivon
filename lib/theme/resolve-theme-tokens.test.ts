@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { APP_THEME_IDS } from './catalog'
+import { APP_THEME_IDS, getDiagramColors } from './catalog'
 import { contrastRatio } from './color-mix'
 import { resolveThemeTokens, resolveThemeTokensForId } from './resolve-theme-tokens'
 
@@ -20,6 +20,8 @@ describe('resolveThemeTokens', () => {
             interactive: expect.any(String),
             mutedText: expect.any(String),
             lineNumber: expect.any(String),
+            activeLineNumber: expect.any(String),
+            uiText: expect.any(String),
         })
     })
 
@@ -66,6 +68,37 @@ describe('UI text contrast', () => {
 
         expect(contrastRatio(tokens.lineNumber, tokens.bg)).toBeGreaterThanOrEqual(3)
         expect(contrastRatio(tokens.lineNumber, tokens.surface)).toBeGreaterThanOrEqual(3)
+    })
+
+    it.each(APP_THEME_IDS)('%s: the current line number stands out more than the other line numbers', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+
+        expect(contrastRatio(tokens.activeLineNumber, tokens.bg)).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(tokens.activeLineNumber, tokens.surface)).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(tokens.activeLineNumber, tokens.bg)).toBeGreaterThanOrEqual(contrastRatio(tokens.lineNumber, tokens.bg) + 1)
+    })
+
+    it.each(APP_THEME_IDS)('%s: body text stands out more than secondary text', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+
+        for (const background of [tokens.bg, tokens.surface, tokens.interactive]) {
+            expect(contrastRatio(tokens.uiText, background)).toBeGreaterThan(contrastRatio(tokens.mutedText, background))
+        }
+        expect(contrastRatio(tokens.uiText, tokens.bg)).toBeGreaterThanOrEqual(contrastRatio(tokens.mutedText, tokens.bg) + 1)
+    })
+
+    it('keeps the palette text colour as UI text when it already out-ranks secondary text', () => {
+        const tokens = resolveThemeTokensForId('scrivon-light')
+
+        expect(tokens.uiText).toBe(tokens.fg)
+    })
+
+    it('pushes soft palette text (Solarized) further from the background for the UI only', () => {
+        const tokens = resolveThemeTokensForId('solarized-light')
+
+        expect(tokens.fg).toBe(getDiagramColors('solarized-light').fg)
+        expect(tokens.uiText).not.toBe(tokens.fg)
+        expect(contrastRatio(tokens.uiText, tokens.bg)).toBeGreaterThan(contrastRatio(tokens.fg, tokens.bg))
     })
 
     it('keeps the diagram muted colour separate from UI text', () => {
