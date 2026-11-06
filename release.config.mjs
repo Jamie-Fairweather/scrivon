@@ -50,6 +50,20 @@ const isRc = branch === 'rc'
 
 const changelog = ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md' }]
 
+// The GitHub Release starts as a draft, so it can't become 'latest' (the updater's latest.json URL)
+// before it has installers. The Windows build job in release.yml publishes it once they are uploaded.
+// A draft's own link stops working when it is published, so the PR comment links the tag instead.
+const github = [
+    '@semantic-release/github',
+    {
+        draftRelease: true,
+        successComment:
+            ':tada: This ${issue.pull_request ? "PR is included" : "issue has been resolved"} in version ${nextRelease.version} :tada:' +
+            '\n\nThe release is available on [GitHub release](${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/releases/tag/${nextRelease.gitTag})' +
+            '\n\nYour **[semantic-release](https://github.com/semantic-release/semantic-release)** bot :package::rocket:',
+    },
+]
+
 const releaseConfig = {
     branches: [{ name: 'main' }, { name: 'rc', prerelease: 'rc' }],
     // Each entry is a name or a [name, options] pair; never spread a pair into this list.
@@ -60,7 +74,7 @@ const releaseConfig = {
         exec,
         ...(isRc ? [] : [changelog]),
         git(isRc ? versionAssets : [...versionAssets, 'CHANGELOG.md']),
-        '@semantic-release/github',
+        github,
     ],
 }
 

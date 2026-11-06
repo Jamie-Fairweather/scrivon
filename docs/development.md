@@ -26,7 +26,9 @@ Releases are automated with [semantic-release](https://semantic-release.gitbook.
 | `main` | Stable releases                                    | `0.2.0`         |
 | `rc`   | Pre-releases (GitHub Release marked as prerelease) | `0.2.0-rc.1`    |
 
-Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow bumps versions, updates the changelog, creates a git tag and GitHub Release, then builds Windows installers and uploads them to that release.
+Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow first runs the same checks as a pull request ([`ci.yml`](../.github/workflows/ci.yml)) and stops if any fail. Then it bumps versions, updates the changelog, and creates a git tag and a **draft** GitHub Release. The Windows job builds the installers, uploads them and `latest.json` to the draft, and publishes it as its last step. Until then the release is hidden, so the download link and the updater never see a release without installers.
+
+If the Windows build fails, the release stays a draft. Fix the cause, then re-run the failed job or run **Actions → Build release artifacts (manual)** with the tag. Either one publishes the draft when it finishes.
 
 | Release type                          | Windows assets                                                               |
 | ------------------------------------- | ---------------------------------------------------------------------------- |

@@ -102,4 +102,21 @@ describe('semantic-release plugins', () => {
         expect(await analyze('fix: prevent canvas flash on theme change')).toBe('patch')
         expect(await analyze('docs: update readme')).toBeNull()
     })
+
+    it('creates the GitHub Release as a draft, for the Windows build job to publish', () => {
+        expect(pluginOptions('@semantic-release/github')).toMatchObject({ draftRelease: true })
+    })
+
+    it('links PR comments to the tag, which keeps working once the draft is published', async () => {
+        // The same lodash template function @semantic-release/github renders successComment with.
+        const { template } = await importPlugin<{ template: (text: string) => (data: object) => string }>('lodash-es')
+        const comment = template(pluginOptions('@semantic-release/github').successComment as string)({
+            issue: { pull_request: {} },
+            nextRelease: { version: '1.6.0', gitTag: 'v1.6.0' },
+            env: { GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'Jamie-Fairweather/scrivon' },
+        })
+
+        expect(comment).toContain('This PR is included in version 1.6.0')
+        expect(comment).toContain('[GitHub release](https://github.com/Jamie-Fairweather/scrivon/releases/tag/v1.6.0)')
+    })
 })

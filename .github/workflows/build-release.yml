@@ -1,4 +1,5 @@
 # Manual re-run for releases that were published before the Windows build job existed,
+# when the Windows build failed and left the release as a draft (this publishes it),
 # or when you need to rebuild installers without a new version bump.
 name: Build release artifacts (manual)
 
@@ -43,10 +44,11 @@ jobs:
               id: gh_release
               shell: bash
               run: |
-                  id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)
-                  prerelease=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .prerelease)
+                  # gh release view also finds drafts; the releases/tags API does not.
+                  read -r id draft prerelease < <(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId,isDraft,isPrerelease --jq '"\(.databaseId) \(.isDraft) \(.isPrerelease)"')
                   version="${TAG#v}"
                   echo "id=$id" >> "$GITHUB_OUTPUT"
+                  echo "draft=$draft" >> "$GITHUB_OUTPUT"
                   echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
                   # WiX/MSI only supports numeric pre-release segments (e.g. 1.0.0-1), not 1.0.0-rc.1
                   if [ "$prerelease" = "true" ] || echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-.+'; then
@@ -80,3 +82,22 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   VERSION: ${{ inputs.tag }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
+
+            # Last step: until now the release was a draft (release.config.mjs), so neither the
+            # Releases page nor the updater's releases/latest/download/latest.json could see it
+            # without its installers. make_latest=legacy only makes it 'latest' if it is the newest
+            # stable version, so publishing an older draft never moves 'latest' backwards.
+            - name: Publish the release
+              if: steps.gh_release.outputs.draft == 'true'
+              shell: bash
+              run: |
+                  if [ "$PRERELEASE" = "true" ]; then
+                    gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false --silent
+                  else
+                    gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false -f make_latest=legacy --silent
+                  fi
+                  echo "Published ${{ inputs.tag }}"
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_ID: ${{ steps.gh_release.outputs.id }}
+                  PRERELEASE: ${{ steps.gh_release.outputs.prerelease }}
