@@ -20,6 +20,8 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 const DOCX_FILTERS = [{ name: 'Word document', extensions: ['docx'] }]
 /** Long enough to reach the toast's Show in folder button. */
 const SAVED_NOTICE_MS = 8_000
+/** How long the print path waits for `afterprint` once print() has returned. */
+const AFTER_PRINT_GRACE_MS = 1_500
 
 export type ExportMarkdownOptions = {
     format?: ExportFormat
@@ -54,10 +56,19 @@ async function printExportHtml(html: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const iframe = document.createElement('iframe')
         iframe.setAttribute('aria-hidden', 'true')
+        // The export page runs no scripts. Same-origin only so its document can be read; modals so it can print.
+        iframe.setAttribute('sandbox', 'allow-same-origin allow-modals')
         iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:0;border:0;'
 
-        const cleanup = () => {
+        let settled = false
+        let timer: ReturnType<typeof setTimeout> | undefined
+        // Settles once, on whichever comes first: afterprint, the grace period after print(), or an error.
+        const finish = (settle: () => void) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
             iframe.remove()
+            settle()
         }
 
         iframe.addEventListener(
@@ -77,18 +88,14 @@ async function printExportHtml(html: string): Promise<void> {
                         }
                         await waitForPaint()
 
-                        const onAfterPrint = () => {
-                            win.removeEventListener('afterprint', onAfterPrint)
-                            cleanup()
-                            resolve()
-                        }
-
-                        win.addEventListener('afterprint', onAfterPrint)
+                        win.addEventListener('afterprint', () => finish(resolve), { once: true })
                         win.focus()
                         win.print()
+                        // print() blocks until the dialog closes in most engines, but some webviews
+                        // never send afterprint (or print nothing at all), so don't wait on it forever.
+                        if (!settled) timer = setTimeout(() => finish(resolve), AFTER_PRINT_GRACE_MS)
                     } catch (err) {
-                        cleanup()
-                        reject(err)
+                        finish(() => reject(err))
                     }
                 })()
             },

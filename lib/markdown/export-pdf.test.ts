@@ -163,6 +163,41 @@ describe('export-pdf helpers', () => {
         expect(print).toHaveBeenCalled()
     })
 
+    it('finishes and removes the print frame when afterprint never comes', async () => {
+        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
+        const print = vi.fn()
+        let frame: HTMLElement | undefined
+        const originalCreate = document.createElement.bind(document)
+        vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+            const el = originalCreate(tag)
+            if (tag === 'iframe') {
+                frame = el
+                Object.defineProperty(el, 'contentDocument', {
+                    get: () => ({ body: { innerHTML: 'x' }, querySelector: () => ({ innerHTML: 'content' }) }),
+                })
+                // A webview whose print() does nothing and never fires afterprint.
+                Object.defineProperty(el, 'contentWindow', {
+                    get: () => ({ focus: vi.fn(), print, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+                })
+                queueMicrotask(() => el.dispatchEvent(new Event('load')))
+            }
+            return el
+        })
+
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+        try {
+            const result = exportMarkdownToPdf('# Hi', 'hi.md')
+            await vi.waitFor(() => expect(print).toHaveBeenCalled())
+            expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin allow-modals')
+            expect(frame?.isConnected).toBe(true)
+            await vi.advanceTimersByTimeAsync(1_500)
+            await expect(result).resolves.toEqual({ status: 'saved' })
+            expect(frame?.isConnected).toBe(false)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('reports empty print documents', async () => {
         const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
         const originalCreate = document.createElement.bind(document)
