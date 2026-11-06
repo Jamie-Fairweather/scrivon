@@ -5,11 +5,10 @@
     "license": "MIT",
     "type": "module",
     "scripts": {
-        "dev": "next dev",
+        "dev": "next dev -p 3000",
         "prebuild": "node scripts/generate-examples.mjs",
         "build": "node scripts/next-build.mjs",
         "postbuild": "node scripts/generate-licenses.mjs",
-        "start": "next start",
         "tauri": "node scripts/tauri-cli.mjs",
         "test": "vitest",
         "test:run": "vitest run",
