@@ -2,8 +2,8 @@
 
 import { isTauri } from '@/lib/tauri/platform'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
 import { Switch } from '@/components/ui/switch'
+import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 
 export function AdvancedSettings() {
@@ -12,31 +12,21 @@ export function AdvancedSettings() {
 
     return (
         <div className="space-y-6">
-            <Field>
-                <FieldLabel htmlFor="max-recent-folders">Recent folders limit</FieldLabel>
-                <FieldDescription>Maximum number of recent workspace folders to remember.</FieldDescription>
-                <NumberField
-                    id="max-recent-folders"
-                    value={settings.workspace.maxRecentFolders}
-                    min={1}
-                    max={50}
-                    step={1}
-                    onValueChange={(value) => {
-                        if (value != null) {
-                            updateSettings((current) => ({
-                                ...current,
-                                workspace: { ...current.workspace, maxRecentFolders: value },
-                            }))
-                        }
-                    }}
-                >
-                    <NumberFieldGroup>
-                        <NumberFieldDecrement />
-                        <NumberFieldInput />
-                        <NumberFieldIncrement />
-                    </NumberFieldGroup>
-                </NumberField>
-            </Field>
+            <NumberSetting
+                id="max-recent-folders"
+                label="Recent folders limit"
+                description="Maximum number of recent workspace folders to remember."
+                value={settings.workspace.maxRecentFolders}
+                min={1}
+                max={50}
+                step={1}
+                onChange={(maxRecentFolders) =>
+                    updateSettings((current) => ({
+                        ...current,
+                        workspace: { ...current.workspace, maxRecentFolders },
+                    }))
+                }
+            />
 
             <Field>
                 <div className="flex items-center justify-between gap-4">

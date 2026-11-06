@@ -46,7 +46,7 @@ const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {
 }
 
 function clampAutosaveDelay(delayMs: number): number {
-    return Math.min(5000, Math.max(200, delayMs))
+    return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {

@@ -197,6 +197,22 @@ describe('mergeStoredSettings', () => {
         expect(merged.layout.editorWidth).toBe(2000)
         expect(merged.workspace.maxRecentFolders).toBe(50)
     })
+
+    it('rounds whole-number settings saved with decimals', () => {
+        const merged = mergeStoredSettings(
+            {
+                autosave: { enabled: true, delayMs: 1234.5 },
+                editor: { fontSize: 13.6, tabSize: 2.5 },
+                workspace: { maxRecentFolders: 7.2 },
+            },
+            false
+        )
+
+        expect(merged.autosave.delayMs).toBe(1235)
+        expect(merged.editor.fontSize).toBe(14)
+        expect(merged.editor.tabSize).toBe(3)
+        expect(merged.workspace.maxRecentFolders).toBe(7)
+    })
 })
 
 describe('keybindOverrides', () => {

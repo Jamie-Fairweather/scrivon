@@ -19,6 +19,12 @@ function readNumber(value: string | null, defaultValue: number, min: number, max
     return Math.min(max, Math.max(min, parsed))
 }
 
+/** A stored whole-number setting, rounded and kept in range (older versions could save 2.5). */
+function readWholeNumber(value: unknown, fallback: number, min: number, max: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+    return Math.min(max, Math.max(min, Math.round(value)))
+}
+
 function normalizeChord(raw: unknown): KeybindChord | null {
     if (!raw || typeof raw !== 'object') return null
     const value = raw as Record<string, unknown>
@@ -125,8 +131,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     return {
         autosave: {
             enabled: typeof source.autosave?.enabled === 'boolean' ? source.autosave.enabled : defaults.autosave.enabled,
-            delayMs:
-                typeof source.autosave?.delayMs === 'number' ? Math.min(5000, Math.max(200, source.autosave.delayMs)) : defaults.autosave.delayMs,
+            delayMs: readWholeNumber(source.autosave?.delayMs, defaults.autosave.delayMs, 200, 5000),
         },
         theme: { id: themeId },
         layout: {
@@ -140,17 +145,14 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
                 typeof source.layout?.restorePanelsOnOpen === 'boolean' ? source.layout.restorePanelsOnOpen : defaults.layout.restorePanelsOnOpen,
         },
         editor: {
-            fontSize: typeof source.editor?.fontSize === 'number' ? Math.min(32, Math.max(8, source.editor.fontSize)) : defaults.editor.fontSize,
-            tabSize: typeof source.editor?.tabSize === 'number' ? Math.min(8, Math.max(1, source.editor.tabSize)) : defaults.editor.tabSize,
+            fontSize: readWholeNumber(source.editor?.fontSize, defaults.editor.fontSize, 8, 32),
+            tabSize: readWholeNumber(source.editor?.tabSize, defaults.editor.tabSize, 1, 8),
             wordWrap: normalizeWordWrap(source.editor?.wordWrap),
             lineNumbers: normalizeLineNumbers(source.editor?.lineNumbers),
             minimap: typeof source.editor?.minimap === 'boolean' ? source.editor.minimap : defaults.editor.minimap,
         },
         workspace: {
-            maxRecentFolders:
-                typeof source.workspace?.maxRecentFolders === 'number'
-                    ? Math.min(50, Math.max(1, source.workspace.maxRecentFolders))
-                    : defaults.workspace.maxRecentFolders,
+            maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,
