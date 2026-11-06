@@ -6,6 +6,12 @@ describe('foldText', () => {
         expect(foldText('CAFE\u0301')).toBe('caf\u00e9')
         expect(foldText('한글'.normalize('NFD'))).toBe('한글')
     })
+
+    it('keeps one letter per letter for Turkish dotted I and Greek sigma', () => {
+        expect(foldText('İzmir')).toBe('izmir')
+        expect(foldText('ΟΔΟΣ')).toBe(foldText('οδοσ'))
+        expect(foldText('οδος')).toBe('οδοσ')
+    })
 })
 
 describe('foldLine', () => {

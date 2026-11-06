@@ -4,19 +4,25 @@ import { buildPreview, searchWorkspaceContent, textHitToPaletteItem } from '@/co
 describe('buildPreview', () => {
     it('trims long lines with ellipsis', () => {
         const line = 'a'.repeat(200)
-        const preview = buildPreview(line, 100, 4)
+        const { preview } = buildPreview(line, 100, 4)
         expect(preview.startsWith('…')).toBe(true)
         expect(preview.endsWith('…')).toBe(true)
         expect(preview.length).toBeLessThanOrEqual(102)
     })
 
     it('returns short lines unchanged', () => {
-        expect(buildPreview('hello world', 6, 5)).toBe('hello world')
+        expect(buildPreview('hello world', 6, 5)).toEqual({ preview: 'hello world', matchStart: 6 })
     })
 
     it('adjusts start when the preview window is shorter than max', () => {
         const line = 'abc match xyz'
-        expect(buildPreview(line, 4, 5)).toBe('abc match xyz')
+        expect(buildPreview(line, 4, 5).preview).toBe('abc match xyz')
+    })
+
+    it('reports where the match sits in a trimmed preview, after the leading ellipsis', () => {
+        const line = `${'x'.repeat(150)}TARGET${'y'.repeat(150)}`
+        const { preview, matchStart } = buildPreview(line, 150, 6)
+        expect(preview.slice(matchStart, matchStart + 6)).toBe('TARGET')
     })
 })
 
@@ -28,6 +34,7 @@ describe('textHitToPaletteItem', () => {
             column: 5,
             length: 4,
             preview: 'oauth flow',
+            previewMatchStart: 0,
             source: 'buffer',
         })
 
@@ -38,7 +45,7 @@ describe('textHitToPaletteItem', () => {
     })
 
     it('treats upper-case extensions like the rest of the app', () => {
-        const hit = { line: 1, column: 1, length: 4, preview: 'flow', source: 'disk' as const }
+        const hit = { line: 1, column: 1, length: 4, preview: 'flow', previewMatchStart: 0, source: 'disk' as const }
         expect(textHitToPaletteItem({ ...hit, path: '/workspace/NOTES.Md' }).documentKind).toBe('markdown')
         expect(textHitToPaletteItem({ ...hit, path: '/workspace/FLOW.MMD' }).documentKind).toBe('mermaid')
     })
@@ -258,6 +265,50 @@ describe('searchWorkspaceContent', () => {
 
         expect(result.hits).toHaveLength(1)
         expect(result.hits[0]).toMatchObject({ column: 7, length: '한글'.normalize('NFD').length })
+    })
+
+    it('finds Turkish text with dotted capital I and keeps columns right after it', async () => {
+        const line = 'İSTANBUL İzmir Ankara notları'
+        const search = (query: string) =>
+            searchWorkspaceContent({
+                query,
+                paths: [],
+                openBuffers: new Map([['/a.md', line]]),
+                readFile: async () => '',
+                signal: new AbortController().signal,
+            })
+
+        const izmir = await search('izmir')
+        expect(izmir.hits).toHaveLength(1)
+        expect(izmir.hits[0]).toMatchObject({ column: 10, length: 5 })
+
+        const ankara = (await search('ankara')).hits[0]!
+        expect(ankara).toMatchObject({ column: 16, length: 6 })
+        expect(ankara.preview.slice(ankara.previewMatchStart, ankara.previewMatchStart + ankara.length)).toBe('Ankara')
+    })
+
+    it('matches Greek words however the sigma is written', async () => {
+        const result = await searchWorkspaceContent({
+            query: 'ΟΔΟΣ',
+            paths: [],
+            openBuffers: new Map([['/a.md', 'ΟΔΟΣΗ and οδος']]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits.map((hit) => hit.column)).toEqual([1, 11])
+    })
+
+    it('gives each hit on a line its own highlight position', async () => {
+        const result = await searchWorkspaceContent({
+            query: 'aa',
+            paths: [],
+            openBuffers: new Map([['/a.md', 'aa bb aa']]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits.map((hit) => hit.previewMatchStart)).toEqual([0, 6])
     })
 
     it('finds multiple matches on one line', async () => {

@@ -1,7 +1,7 @@
 /**
  * Folding shared by file-name and content search, so text matches however it was typed or stored:
  * Unicode NFC (macOS keeps accents and Korean syllables as separate parts, a Windows keyboard types
- * them composed) and lower case.
+ * them composed) and lower case that keeps one letter per letter.
  */
 
 let graphemeSegmenter: Intl.Segmenter | null | undefined
@@ -27,8 +27,22 @@ function pieces(line: string): Array<{ segment: string; index: number }> {
     return result
 }
 
+/**
+ * Lower case that keeps one letter per letter, so positions don't drift and matches aren't missed:
+ * Turkish 'İ' becomes 'i' (not 'i' plus a combining dot), and every sigma becomes 'σ' (a word-final
+ * 'Σ' would otherwise become 'ς' in a query but 'σ' mid-word in the text).
+ */
+function lowerCase(text: string): string {
+    let lower = text.toLowerCase()
+    if (lower.length !== text.length) {
+        lower = ''
+        for (const ch of text) lower += String.fromCodePoint(ch.toLowerCase().codePointAt(0)!)
+    }
+    return lower.includes('ς') ? lower.replace(/ς/g, 'σ') : lower
+}
+
 export function foldText(text: string): string {
-    return text.normalize('NFC').toLowerCase()
+    return lowerCase(text.normalize('NFC'))
 }
 
 export type FoldedLine = {

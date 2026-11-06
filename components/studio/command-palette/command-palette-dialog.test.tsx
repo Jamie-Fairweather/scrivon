@@ -113,6 +113,28 @@ const dirtyTab: PaletteItem = {
     isDirty: true,
 }
 
+describe('CommandPaletteDialog text results', () => {
+    it('highlights the match each row stands for, not the first look-alike', () => {
+        const hit: PaletteItem = {
+            kind: 'text',
+            value: 'text:/ws/a.md:1:7',
+            searchText: 'a.md aa bb aa /ws/a.md',
+            path: '/ws/a.md',
+            name: 'a.md',
+            documentKind: 'markdown',
+            line: 1,
+            column: 7,
+            length: 2,
+            preview: 'AA bb aa',
+            previewMatchStart: 6,
+            source: 'buffer',
+        }
+        renderDialog({ mode: 'text', query: 'aa', groups: [{ id: 'text', label: 'Text', items: [hit] }] })
+        const option = screen.getByRole('option', { name: /a.md · 1:7/ })
+        expect(option.querySelector('mark')?.textContent).toBe('aa')
+    })
+})
+
 describe('CommandPaletteDialog icons', () => {
     it('shows the document icon for an upper-case .MD tab', () => {
         const tab: PaletteItem = { ...dirtyTab, value: 'tab:/ws/README.MD', path: '/ws/README.MD', name: 'README.MD', isDirty: false }

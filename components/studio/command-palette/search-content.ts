@@ -9,7 +9,8 @@ export const MAX_FILE_BYTES = 1_048_576
 export const READ_CONCURRENCY = 8
 export const PREVIEW_MAX_CHARS = 100
 
-export function buildPreview(line: string, matchIndex: number, matchLength: number): string {
+/** A window of the line around the match, and where the match starts inside it (for highlighting). */
+export function buildPreview(line: string, matchIndex: number, matchLength: number): { preview: string; matchStart: number } {
     const max = PREVIEW_MAX_CHARS
     const half = Math.floor((max - matchLength) / 2)
     let start = Math.max(0, matchIndex - half)
@@ -20,9 +21,13 @@ export function buildPreview(line: string, matchIndex: number, matchLength: numb
     }
 
     let preview = line.slice(start, end)
-    if (start > 0) preview = `…${preview}`
+    let matchStart = matchIndex - start
+    if (start > 0) {
+        preview = `…${preview}`
+        matchStart += 1
+    }
     if (end < line.length) preview = `${preview}…`
-    return preview
+    return { preview, matchStart }
 }
 
 function searchInContent(content: string, query: string, path: string, source: 'buffer' | 'disk', maxHits: number): TextSearchHit[] {
@@ -42,12 +47,14 @@ function searchInContent(content: string, query: string, path: string, source: '
 
             // Report the match where it sits in the original line, which folding may have shifted.
             const match = originalSpan(folded, idx, needle.length)
+            const { preview, matchStart } = buildPreview(line, match.start, match.length)
             hits.push({
                 path,
                 line: lineIdx + 1,
                 column: match.start + 1,
                 length: match.length,
-                preview: buildPreview(line, match.start, match.length),
+                preview,
+                previewMatchStart: matchStart,
                 source,
             })
             col = idx + needle.length
@@ -175,6 +182,7 @@ export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/s
         column: hit.column,
         length: hit.length,
         preview: hit.preview,
+        previewMatchStart: hit.previewMatchStart,
         source: hit.source,
     }
 }

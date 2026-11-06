@@ -41,18 +41,17 @@ type CommandPaletteDialogProps = {
     onSelectItem: (item: PaletteItem) => void | Promise<void>
 }
 
-function highlightPreview(preview: string, query: string) {
-    const trimmed = query.trim()
-    if (!trimmed) return preview
-
-    const idx = preview.toLowerCase().indexOf(trimmed.toLowerCase())
-    if (idx === -1) return preview
+/** Highlights the hit's own match, by position, rather than the first look-alike in the preview. */
+function highlightPreview(preview: string, matchStart: number, matchLength: number) {
+    const start = Math.max(0, Math.min(matchStart, preview.length))
+    const end = Math.min(preview.length, start + matchLength)
+    if (end <= start) return preview
 
     return (
         <>
-            {preview.slice(0, idx)}
-            <mark className="rounded-sm bg-accent/80 px-0.5 text-accent-foreground">{preview.slice(idx, idx + trimmed.length)}</mark>
-            {preview.slice(idx + trimmed.length)}
+            {preview.slice(0, start)}
+            <mark className="rounded-sm bg-accent/80 px-0.5 text-accent-foreground">{preview.slice(start, end)}</mark>
+            {preview.slice(end)}
         </>
     )
 }
@@ -62,7 +61,7 @@ function DocumentIcon({ kind }: { kind: 'markdown' | 'mermaid' }) {
     return <FileTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
 }
 
-function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: string; onSelect: (item: PaletteItem) => void }) {
+function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item: PaletteItem) => void }) {
     const handleClick = useCallback(() => onSelect(item), [item, onSelect])
 
     if (item.kind === 'action') {
@@ -128,7 +127,9 @@ function PaletteItemRow({ item, query, onSelect }: { item: PaletteItem; query: s
                 <span className="block truncate">
                     {item.name} · {item.line}:{item.column}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">{highlightPreview(item.preview, query)}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                    {highlightPreview(item.preview, item.previewMatchStart, item.length)}
+                </span>
             </span>
         </CommandItem>
     )
@@ -289,9 +290,7 @@ export function CommandPaletteDialog({
                                     <CommandGroup items={group.items}>
                                         <CommandGroupLabel>{group.label}</CommandGroupLabel>
                                         <CommandCollection>
-                                            {(item: PaletteItem) => (
-                                                <PaletteItemRow key={item.value} item={item} onSelect={handleSelect} query={query} />
-                                            )}
+                                            {(item: PaletteItem) => <PaletteItemRow key={item.value} item={item} onSelect={handleSelect} />}
                                         </CommandCollection>
                                     </CommandGroup>
                                     {index < groups.length - 1 ? <CommandSeparator /> : null}

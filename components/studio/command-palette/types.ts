@@ -44,6 +44,8 @@ export type TextPaletteItem = {
     column: number
     length: number
     preview: string
+    /** Where the match starts inside `preview`; `length` is how long it is. */
+    previewMatchStart: number
     source: 'buffer' | 'disk'
 }
 
@@ -79,5 +81,7 @@ export type TextSearchHit = {
     column: number
     length: number
     preview: string
+    /** Where the match starts inside `preview`; `length` is how long it is. */
+    previewMatchStart: number
     source: 'buffer' | 'disk'
 }

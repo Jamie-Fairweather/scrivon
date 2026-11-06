@@ -52,6 +52,14 @@ describe('fuzzyScore', () => {
         expect(fuzzyScore('café.md', 'café')).not.toBeNull()
         expect(fuzzyScoreTerms('한글.md'.normalize('NFD'), '한글 md')).not.toBeNull()
     })
+
+    it('matches a Turkish dotted capital I typed in the query', () => {
+        expect(fuzzyScore('istanbul.md', 'İstanbul')).not.toBeNull()
+    })
+
+    it('matches Greek names however the sigma is written', () => {
+        expect(fuzzyScore('ΟΔΟΣΗ.md', 'ΟΔΟΣ')).not.toBeNull()
+    })
 })
 
 describe('fuzzyScoreTerms', () => {
