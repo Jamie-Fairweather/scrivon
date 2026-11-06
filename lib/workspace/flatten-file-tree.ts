@@ -1,4 +1,4 @@
-import { getBaseName, isSupportedDocument } from '@/lib/tauri/fs'
+import { getBaseName, isSupportedDocument, samePath } from '@/lib/tauri/fs'
 import { collectFilePaths } from '@/lib/workspace/paths'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -71,4 +71,18 @@ export function treeKeyAction(rows: VisibleTreeRow[], focusedPath: string, key: 
         default:
             return null
     }
+}
+
+/**
+ * The row to focus once a rename or delete is done: the first of `paths` still in the tree (the new name, else the
+ * old one when it was kept), otherwise the row now at `index`, where the entry was (the next row after a delete,
+ * or the last row when it was at the end). Null for an empty tree.
+ */
+export function focusTargetAfterChange(rows: VisibleTreeRow[], paths: string[], index: number): string | null {
+    for (const path of paths) {
+        const row = rows.find((r) => samePath(r.node.path, path))
+        if (row) return row.node.path
+    }
+    if (rows.length === 0) return null
+    return rows[Math.min(Math.max(index, 0), rows.length - 1)]!.node.path
 }

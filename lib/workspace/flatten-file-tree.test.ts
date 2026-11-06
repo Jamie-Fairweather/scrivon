@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { FileNode } from '@/lib/workspace/types'
-import { flattenSupportedFilePaths, treeKeyAction, visibleTreeRows, type VisibleTreeRow } from '@/lib/workspace/flatten-file-tree'
+import {
+    flattenSupportedFilePaths,
+    focusTargetAfterChange,
+    treeKeyAction,
+    visibleTreeRows,
+    type VisibleTreeRow,
+} from '@/lib/workspace/flatten-file-tree'
 
 describe('flattenSupportedFilePaths', () => {
     it('returns supported document paths only', () => {
@@ -89,5 +95,38 @@ describe('treeKeyAction', () => {
         expect(treeKeyAction(allOpen, '/ws/docs', ' ')).toEqual({ type: 'activate', path: '/ws/docs' })
         expect(treeKeyAction(allOpen, '/ws/top.mmd', 'a')).toBeNull()
         expect(treeKeyAction(allOpen, '/ws/missing.md', 'ArrowDown')).toBeNull()
+    })
+})
+
+describe('focusTargetAfterChange', () => {
+    const rows = visibleTreeRows(tree, () => true)
+
+    it('picks the first of the given paths still in the tree', () => {
+        // Renamed: the new path. Rename refused: the old one.
+        expect(focusTargetAfterChange(rows, ['/ws/docs/b.md', '/ws/docs/old.md'], 0)).toBe('/ws/docs/b.md')
+        expect(focusTargetAfterChange(rows, ['/ws/docs/new.md', '/ws/docs/b.md'], 0)).toBe('/ws/docs/b.md')
+    })
+
+    it('matches a Windows path written with the other slash or letter case', () => {
+        const windowsRows = visibleTreeRows(
+            [
+                { kind: 'file', name: 'a.md', path: 'C:\\ws\\a.md' },
+                { kind: 'file', name: 'Notes.md', path: 'C:\\ws\\Notes.md' },
+            ],
+            () => true
+        )
+        expect(focusTargetAfterChange(windowsRows, ['c:/ws/notes.md'], 0)).toBe('C:\\ws\\Notes.md')
+    })
+
+    it('falls back to the row now where the entry was, or the last row', () => {
+        // '/ws/docs/deep' (index 1) and what was in it are gone; the row that followed has moved up into its place.
+        const afterDelete = rows.filter((row) => !row.node.path.startsWith('/ws/docs/deep'))
+        expect(focusTargetAfterChange(afterDelete, ['/ws/docs/deep'], 1)).toBe('/ws/docs/b.md')
+        expect(focusTargetAfterChange(afterDelete, ['/ws/gone.md'], 99)).toBe('/ws/top.mmd')
+        expect(focusTargetAfterChange(afterDelete, ['/ws/gone.md'], -1)).toBe('/ws/docs')
+    })
+
+    it('has nothing to focus in an empty tree', () => {
+        expect(focusTargetAfterChange([], ['/ws/top.mmd'], 0)).toBeNull()
     })
 })

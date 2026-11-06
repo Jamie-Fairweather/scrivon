@@ -1,13 +1,15 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NamePromptOptions } from '@/components/studio/dialogs/name-prompt-provider'
-import { useFileTreeActions } from './use-file-tree-actions'
+import { useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
 
 const { promptName, session } = vi.hoisted(() => ({
     promptName: vi.fn<(options: NamePromptOptions) => Promise<string | null>>(),
     session: {
         createFile: vi.fn(async () => undefined),
         createFolder: vi.fn(async () => undefined),
+        renameEntry: vi.fn(async () => undefined),
+        deleteEntry: vi.fn(async () => undefined),
         suggestName: vi.fn((_parent: string, name: string) => name),
         getNameError: vi.fn<(parent: string, name: string, kind: string) => string | null>(() => null),
     },
@@ -15,6 +17,7 @@ const { promptName, session } = vi.hoisted(() => ({
 
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession: () => session }))
+vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
 
 describe('useFileTreeActions', () => {
     beforeEach(() => {
@@ -61,5 +64,25 @@ describe('useFileTreeActions', () => {
 
         expect(promptName.mock.calls[0]![0]).toMatchObject({ description: 'Creates the folder in "ws".', placeholder: 'Folder name' })
         expect(session.createFolder).toHaveBeenCalledWith('/ws', 'drafts')
+    })
+})
+
+describe('useFileTreeEntryActions', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('resolves a rename to the path the entry has afterwards, or null when cancelled', async () => {
+        promptName.mockResolvedValueOnce('meeting').mockResolvedValueOnce('notes.md').mockResolvedValueOnce(null)
+        const { result } = renderHook(() => useFileTreeEntryActions())
+        const node = { kind: 'file', name: 'notes.md', path: '/ws/docs/notes.md' } as const
+
+        // Typed without an extension: the file keeps its own.
+        await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/docs/meeting.md')
+        expect(session.renameEntry).toHaveBeenCalledWith('/ws/docs/notes.md', 'meeting.md', false)
+        // Same name: nothing to do, and the entry keeps its path.
+        await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/docs/notes.md')
+        await expect(result.current.renameWithPrompt(node)).resolves.toBeNull()
+        expect(session.renameEntry).toHaveBeenCalledTimes(1)
     })
 })

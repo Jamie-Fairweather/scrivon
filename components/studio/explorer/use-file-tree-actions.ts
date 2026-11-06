@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback } from 'react'
+import { createContext, useCallback, useContext } from 'react'
 import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
 import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { getBaseName, getParentPath } from '@/lib/tauri/fs'
+import { getBaseName, getParentPath, joinPath } from '@/lib/tauri/fs'
 import { documentExtension, withDocumentExtension } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -57,14 +57,20 @@ export function useFileTreeActions(parentPath: string | null) {
     return { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent }
 }
 
+export type FileTreeEntryActions = {
+    /** Resolves to the path the entry should have now (the new one once renamed), or null when cancelled. */
+    renameWithPrompt: (node: FileNode) => Promise<string | null>
+    deleteWithConfirm: (node: FileNode) => Promise<void>
+}
+
 /** Rename and delete for a file or folder in the tree, shared by its menus and the F2 and Delete keys. */
-export function useFileTreeEntryActions() {
+export function useFileTreeEntryActions(): FileTreeEntryActions {
     const { confirmDelete } = useDeleteConfirm()
     const { promptName } = useNamePrompt()
     const { renameEntry, deleteEntry, getNameError } = useWorkspaceSession()
 
     const renameWithPrompt = useCallback(
-        async (node: FileNode) => {
+        async (node: FileNode): Promise<string | null> => {
             const folder = getParentPath(node.path)
             // A file renamed without an extension keeps its current one ('notes.md' -> 'meeting' -> 'meeting.md').
             const extension = node.kind === 'file' ? documentExtension(node.name) : null
@@ -77,9 +83,11 @@ export function useFileTreeEntryActions() {
                 placeholder: node.name,
                 validate: (value) => getNameError(folder, finalName(value), node.kind, node.path),
             })
-            if (!name) return
+            if (!name) return null
             const newName = finalName(name)
-            if (newName !== node.name) await renameEntry(node.path, newName, node.kind === 'directory')
+            if (newName === node.name) return node.path
+            await renameEntry(node.path, newName, node.kind === 'directory')
+            return joinPath(folder, newName)
         },
         [promptName, getNameError, renameEntry]
     )
@@ -93,4 +101,15 @@ export function useFileTreeEntryActions() {
     )
 
     return { renameWithPrompt, deleteWithConfirm }
+}
+
+const TreeEntryActionsContext = createContext<FileTreeEntryActions | null>(null)
+
+/** FileTree gives its row menus the rename and delete its keys use, which also put focus back on a row afterwards. */
+export const TreeEntryActionsProvider = TreeEntryActionsContext.Provider
+
+/** Rename and delete for a row's menu: the tree's own inside a FileTree, else the plain ones. */
+export function useRowEntryActions(): FileTreeEntryActions {
+    const plain = useFileTreeEntryActions()
+    return useContext(TreeEntryActionsContext) ?? plain
 }

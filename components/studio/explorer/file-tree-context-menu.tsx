@@ -2,7 +2,7 @@
 
 import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useCallback, type RefObject } from 'react'
-import { useFileTreeActions, useFileTreeEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
+import { useFileTreeActions, useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
@@ -12,7 +12,7 @@ import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { openFile, duplicateFile } = useWorkspaceSession()
-    const { renameWithPrompt, deleteWithConfirm } = useFileTreeEntryActions()
+    const { renameWithPrompt, deleteWithConfirm } = useRowEntryActions()
     const parentPath = node.kind === 'directory' ? node.path : null
     const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
 

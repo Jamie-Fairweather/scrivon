@@ -11,8 +11,8 @@ const { tabs, session } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
     session: {
         openFile: vi.fn(async () => undefined),
-        renameEntry: vi.fn(async (_oldPath: string, _newName: string, _isDirectory: boolean) => undefined),
-        deleteEntry: vi.fn(async (_path: string, _isDirectory: boolean) => undefined),
+        renameEntry: vi.fn<(oldPath: string, newName: string, isDirectory: boolean) => Promise<void>>(async () => undefined),
+        deleteEntry: vi.fn<(path: string, isDirectory: boolean) => Promise<void>>(async () => undefined),
         duplicateFile: vi.fn(async () => undefined),
         createFile: vi.fn(async () => undefined),
         createFolder: vi.fn(async () => undefined),
@@ -31,20 +31,32 @@ beforeAll(() => {
     Element.prototype.getAnimations ??= () => []
 })
 
-const tree: FileNode[] = [
-    { kind: 'file', name: 'a.md', path: '/ws/a.md' },
-    { kind: 'file', name: 'b.md', path: '/ws/b.md' },
-    { kind: 'file', name: 'c.md', path: '/ws/c.md' },
-]
+const file = (name: string): FileNode => ({ kind: 'file', name, path: `/ws/${name}` })
+const tree: FileNode[] = [file('a.md'), file('b.md'), file('c.md')]
 
-function renderTree(nodes: FileNode[] = tree) {
-    return render(
+function ui(nodes: FileNode[]) {
+    return (
         <NamePromptProvider>
             <DeleteConfirmProvider>
+                <button type="button">Elsewhere</button>
                 <FileTree tree={nodes} />
             </DeleteConfirmProvider>
         </NamePromptProvider>
     )
+}
+
+/** Renders the tree; renames and deletes show up in it the way a reload of the folder would. */
+function renderTree() {
+    let nodes = tree
+    const view = render(ui(nodes))
+    session.renameEntry.mockImplementation(async (oldPath, newName) => {
+        nodes = nodes.map((node) => (node.path === oldPath ? file(newName) : node))
+        view.rerender(ui(nodes))
+    })
+    session.deleteEntry.mockImplementation(async (path) => {
+        nodes = nodes.filter((node) => node.path !== path)
+        view.rerender(ui(nodes))
+    })
 }
 
 const item = (name: string) => screen.getByRole('treeitem', { name })
@@ -54,6 +66,20 @@ const settle = () =>
     act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 50))
     })
+
+async function renameTo(newName: string) {
+    await settle()
+    const input = screen.getByLabelText('Name')
+    fireEvent.change(input, { target: { value: newName } })
+    fireEvent.submit(input.closest('form')!)
+    await settle()
+}
+
+async function confirmDelete() {
+    await settle()
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
+    await settle()
+}
 
 describe('FileTree focus', () => {
     beforeEach(() => {
@@ -82,5 +108,72 @@ describe('FileTree focus', () => {
 
         expect(screen.queryByRole('menu')).not.toBeInTheDocument()
         expect(item('b.md')).toHaveFocus()
+    })
+
+    it('moves focus to the renamed row after F2', async () => {
+        renderTree()
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F2' })
+        await renameTo('renamed.md')
+
+        expect(session.renameEntry).toHaveBeenCalledWith('/ws/b.md', 'renamed.md', false)
+        expect(item('renamed.md')).toHaveFocus()
+        expect(item('renamed.md').tabIndex).toBe(0)
+    })
+
+    it('puts focus back on the row when the rename is cancelled', async () => {
+        renderTree()
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F2' })
+        await settle()
+        fireEvent.keyDown(screen.getByLabelText('Name'), { key: 'Escape' })
+        await settle()
+
+        expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+        expect(item('b.md')).toHaveFocus()
+    })
+
+    it('moves focus to the row that took the place of a deleted one, or the one above at the end', async () => {
+        renderTree()
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'Delete' })
+        await confirmDelete()
+        expect(session.deleteEntry).toHaveBeenCalledWith('/ws/b.md', false)
+        expect(item('c.md')).toHaveFocus()
+
+        fireEvent.keyDown(item('c.md'), { key: 'Delete' })
+        await confirmDelete()
+        expect(item('a.md')).toHaveFocus()
+    })
+
+    it('moves focus to the renamed row when Rename is chosen from the row menu', async () => {
+        renderTree()
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F10', shiftKey: true })
+        fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Rename' }))
+        await renameTo('renamed.md')
+
+        expect(item('renamed.md')).toHaveFocus()
+    })
+
+    it('leaves focus alone when the user has moved on by the time the delete is done', async () => {
+        renderTree()
+        const deleteEntry = session.deleteEntry.getMockImplementation()!
+        session.deleteEntry.mockImplementation(async (path, isDirectory) => {
+            screen.getByRole('button', { name: 'Elsewhere' }).focus()
+            await deleteEntry(path, isDirectory)
+        })
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'Delete' })
+        await confirmDelete()
+
+        expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus()
+        // Tab still comes back to where the user was in the tree.
+        expect(item('c.md').tabIndex).toBe(0)
     })
 })
