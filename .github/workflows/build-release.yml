@@ -27,8 +27,21 @@ jobs:
                   ref: ${{ inputs.tag }}
                   persist-credentials: false
 
+            # The app is built from the tag, but the build tooling comes from this workflow's own
+            # commit. An older tag's copy of the setup action uses unpinned actions and Bun, which
+            # would run in the same job as the signing key.
+            - name: Checkout release tooling
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+              with:
+                  path: .release-tools
+                  sparse-checkout: |
+                      .github/actions
+                      scripts/patch-updater-manifest.mjs
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
             - name: Setup Bun and dependencies
-              uses: ./.github/actions/setup-bun
+              uses: ./.release-tools/.github/actions/setup-bun
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
@@ -72,7 +85,7 @@ jobs:
 
             - name: Add release notes to updater manifest
               shell: bash
-              run: node scripts/patch-updater-manifest.mjs
+              run: node .release-tools/scripts/patch-updater-manifest.mjs
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   VERSION: ${{ inputs.tag }}
