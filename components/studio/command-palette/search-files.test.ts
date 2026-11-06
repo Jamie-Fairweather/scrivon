@@ -24,6 +24,27 @@ describe('searchFiles', () => {
         expect(results[0]?.relativePath).toBe('readme.md')
     })
 
+    it('strips the root from Windows tree paths that mix separators', () => {
+        const results = searchFiles(['C:\\Users\\jamie\\docs/sub/notes.md'], 'C:\\Users\\jamie\\docs', 'notes')
+        expect(results[0]?.relativePath).toBe('sub/notes.md')
+    })
+
+    it('ignores drive letter case when stripping the root', () => {
+        const results = searchFiles(['c:\\Root/a.md'], 'C:\\root\\', 'a')
+        expect(results[0]?.relativePath).toBe('a.md')
+    })
+
+    it('does not match queries against the workspace root folder names', () => {
+        const paths = ['C:\\Users\\jamie\\Documents\\Diagrams/flow.mmd', 'C:\\Users\\jamie\\Documents\\Diagrams/sub/notes.md']
+        expect(searchFiles(paths, 'C:\\Users\\jamie\\Documents\\Diagrams', 'jamie')).toEqual([])
+        expect(searchFiles(paths, 'C:\\Users\\jamie\\Documents\\Diagrams', 'users')).toEqual([])
+    })
+
+    it('keeps paths in a sibling folder that shares the root as a prefix', () => {
+        const results = searchFiles(['/workspace2/readme.md'], '/workspace', 'readme')
+        expect(results[0]?.relativePath).toBe('/workspace2/readme.md')
+    })
+
     it('normalizes workspace roots with trailing separators', () => {
         const results = searchFiles(['/workspace/readme.md'], '/workspace/', 'readme')
         expect(results[0]?.relativePath).toBe('readme.md')

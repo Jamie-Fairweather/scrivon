@@ -6,10 +6,22 @@ export const MAX_FILE_RESULTS = 20
 export const MAX_TAB_RESULTS = 10
 export const MAX_RECENT_RESULTS = 10
 
+/** Comparison key for a path: slash direction is ignored, and so is letter case for Windows drive and network paths. */
+function pathKey(path: string): string {
+    const slashed = path.replace(/\\/g, '/')
+    return /^([a-z]:|\/\/)/i.test(slashed) ? slashed.toLowerCase() : slashed
+}
+
+/**
+ * Path below the workspace root. Windows tree paths mix separators (`C:\root/sub/a.md`),
+ * so the root is matched whichever slash follows it.
+ */
 function relativePath(workspaceRoot: string, path: string): string {
-    const normalizedRoot = workspaceRoot.replace(/[/\\]+$/, '')
-    const prefix = normalizedRoot + (path.includes('\\') ? '\\' : '/')
-    if (path.startsWith(prefix)) return path.slice(prefix.length)
+    const root = workspaceRoot.replace(/[/\\]+$/, '')
+    const separator = path[root.length]
+    if ((separator === '/' || separator === '\\') && pathKey(path.slice(0, root.length)) === pathKey(root)) {
+        return path.slice(root.length + 1)
+    }
     return path
 }
 
