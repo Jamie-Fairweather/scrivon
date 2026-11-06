@@ -93,16 +93,14 @@ export function FileTreeContextMenu({ node }: { node: FileNode }) {
     return (
         <Menu>
             <MenuTrigger
-                nativeButton={false}
                 render={
                     <Button
-                        render={<span />}
                         variant="ghost"
                         size="icon-xs"
-                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-                        aria-label="File actions"
-                        onClick={(e) => e.stopPropagation()}
-                        onPointerDown={(e) => e.stopPropagation()}
+                        // Shown on hover, when the row has keyboard focus, and while its own menu is open.
+                        className="size-6 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100
+                            data-popup-open:opacity-100"
+                        aria-label={`Actions for ${node.name}`}
                     >
                         <MoreHorizontal className="size-3.5" />
                     </Button>
@@ -120,6 +118,8 @@ export function FileTreeRowContextMenu({ node, children }: { node: FileNode; chi
 
     const onContextMenu = useCallback(
         (e: React.MouseEvent) => {
+            // React also delivers right-clicks from this row's open menus (they render in a portal); leave those alone.
+            if (!e.currentTarget.contains(e.target as Node)) return
             e.preventDefault()
             e.stopPropagation()
             openAt({ x: e.clientX, y: e.clientY })

@@ -19,7 +19,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     const isActive = node.kind === 'file' && node.path === activeTabId
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
     const isMarkdown = node.kind === 'file' && isMarkdownFile(node.name)
-    const isSupported = node.kind === 'file' && isSupportedDocument(node.name)
+    const isUnsupported = node.kind === 'file' && !isSupportedDocument(node.name)
 
     const handleOpen = useCallback(() => {
         if (node.kind === 'file') {
@@ -31,15 +31,23 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     return (
         <div>
             <FileTreeRowContextMenu node={node}>
-                <div className="group flex min-w-0 items-center pe-1" style={{ paddingLeft: `${depth * 12 + 4}px` }}>
+                {/* The actions button sits beside the row button, not inside it, so its menu clicks never reach the row. */}
+                <div
+                    className={cn(
+                        'group me-1 flex min-w-0 items-center rounded-md hover:bg-sidebar-accent',
+                        isActive && 'bg-sidebar-accent',
+                        isUnsupported && 'hover:bg-transparent'
+                    )}
+                    style={{ marginLeft: `${depth * 12 + 4}px` }}
+                >
                     <button
                         type="button"
                         className={cn(
-                            'flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1 text-left text-sm hover:bg-sidebar-accent',
-                            isActive && 'bg-sidebar-accent font-medium',
-                            !isSupported && node.kind === 'file' && 'text-muted-foreground/60 hover:bg-transparent'
+                            'flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1 text-left text-sm',
+                            isActive && 'font-medium',
+                            isUnsupported && 'text-muted-foreground/60'
                         )}
-                        title={!isSupported && node.kind === 'file' ? 'Scrivon supports .md and .mmd files only' : undefined}
+                        title={isUnsupported ? 'Scrivon supports .md and .mmd files only' : undefined}
                         onClick={handleOpen}
                     >
                         {node.kind === 'directory' ? (
@@ -54,11 +62,9 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                         ) : (
                             <FileText className="size-4 shrink-0 text-muted-foreground" />
                         )}
-                        <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
-                            <span className="truncate">{node.name}</span>
-                            <FileTreeContextMenu node={node} />
-                        </div>
+                        <span className="truncate">{node.name}</span>
                     </button>
+                    <FileTreeContextMenu node={node} />
                 </div>
             </FileTreeRowContextMenu>
             {node.kind === 'directory' && expanded && (
