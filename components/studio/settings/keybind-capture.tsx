@@ -14,7 +14,9 @@ type KeybindCaptureProps = {
     onCapture: (chord: KeybindChord | null) => void
     /**
      * Called on Esc, Tab, or a click on the recorder or Cancel (refocus true), and when focus moves
-     * somewhere else (refocus false, so focus stays where the user put it).
+     * to another control (refocus false, so focus stays where the user put it). When focus goes
+     * nowhere (the window loses focus, or a click on blank space), refocus is true too, so the
+     * user comes back to the row instead of the start of the dialog.
      */
     onCancel: (refocus: boolean) => void
     /** Called with a short reason when the pressed chord can't be a shortcut; recording carries on. */
@@ -85,7 +87,7 @@ export function KeybindCapture({ active, label, onCapture, onCancel, onReject }:
                 variant="outline"
                 className="min-w-36 motion-safe:animate-pulse"
                 onClick={() => onCancel(true)}
-                onBlur={() => onCancel(false)}
+                onBlur={(event) => onCancel(event.relatedTarget === null)}
             >
                 Press shortcut…<span className="sr-only"> for {label}. Esc cancels.</span>
             </Button>

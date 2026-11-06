@@ -326,4 +326,16 @@ describe('KeyboardSettings recording', () => {
         press('k', { ctrlKey: true, altKey: true })
         expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
     })
+
+    it('stops recording and comes back to the row when focus goes nowhere, like switching windows', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        const recorder = within(editor).getByRole('button', { name: /^Press shortcut/ })
+        fireEvent.blur(recorder, { relatedTarget: null })
+
+        expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
+        expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+    })
 })
