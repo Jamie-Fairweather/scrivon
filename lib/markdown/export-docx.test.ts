@@ -1093,6 +1093,16 @@ describe('renderExportDocx', () => {
         expect(runWith(xml, 'faded')).toContain('<w:color w:val="86888B"/>')
     })
 
+    it('names the author in the file properties, and no one when there is no author', async () => {
+        const anonymous = (await render('# Hi')).parts['docProps/core.xml']!
+        expect(anonymous).not.toContain('Un-named')
+        expect(anonymous).not.toContain('<dc:creator>')
+        expect(anonymous).not.toContain('<cp:lastModifiedBy>')
+        const signed = (await render('---\nauthor: Ada Lovelace\n---\n\n# Hi')).parts['docProps/core.xml']!
+        expect(signed).toContain('<dc:creator>Ada Lovelace</dc:creator>')
+        expect(signed).toContain('<cp:lastModifiedBy>Ada Lovelace</cp:lastModifiedBy>')
+    })
+
     it('writes each page-number preset', async () => {
         /** The footer's text and fields in order: fields as {PAGE}, text as it is. */
         const footerText = async (format: PdfExportProfile['footer']['pageNumbers'], template = '') => {

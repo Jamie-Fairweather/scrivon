@@ -1963,7 +1963,9 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
 
     const doc = new Document({
         title: document.metadata.title,
-        creator: document.metadata.author || undefined,
+        // An empty string, not undefined, so docx leaves these out instead of writing 'Un-named'.
+        creator: document.metadata.author || '',
+        lastModifiedBy: document.metadata.author || '',
         description: document.metadata.subtitle || undefined,
         // No `updateFields`: it makes Word ask about updating fields every time the file opens.
         // Header and footer page numbers refresh on their own; the contents numbers show their estimate until F9.
