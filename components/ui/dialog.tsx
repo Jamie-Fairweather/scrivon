@@ -38,9 +38,13 @@ export function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop
 }
 
 export function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props): React.ReactElement {
+    // The window's title bar stays above open dialogs (window-titlebar-controls.tsx), so start below it.
     return (
         <DialogPrimitive.Viewport
-            className={cn('fixed inset-0 z-50 grid grid-rows-[1fr_auto_3fr] justify-items-center p-4', className)}
+            className={cn(
+                'fixed inset-0 z-50 grid grid-rows-[1fr_auto_3fr] justify-items-center p-4 pt-[calc(var(--titlebar-height)+--spacing(4))]',
+                className
+            )}
             data-slot="dialog-viewport"
             {...props}
         />

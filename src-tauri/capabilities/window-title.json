@@ -1,0 +1,7 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "window-title",
+    "description": "Lets the main window show the open file and folder in its title (taskbar, Alt+Tab)",
+    "windows": ["main"],
+    "permissions": ["core:window:allow-set-title"]
+}

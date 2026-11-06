@@ -41,9 +41,14 @@ export function CommandDialogBackdrop({ className, ...props }: CommandDialogPrim
 }
 
 export function CommandDialogViewport({ className, ...props }: CommandDialogPrimitive.Viewport.Props): React.ReactElement {
+    // The window's title bar stays above open dialogs (window-titlebar-controls.tsx), so start below it.
     return (
         <CommandDialogPrimitive.Viewport
-            className={cn('fixed inset-0 z-50 flex flex-col items-center px-4 py-[max(--spacing(4),4vh)] sm:py-[10vh]', className)}
+            className={cn(
+                `fixed inset-0 z-50 flex flex-col items-center px-4 py-[max(--spacing(4),4vh)] pt-[max(calc(var(--titlebar-height)+--spacing(4)),4vh)]
+                sm:py-[10vh] sm:pt-[max(calc(var(--titlebar-height)+--spacing(4)),10vh)]`,
+                className
+            )}
             data-slot="command-dialog-viewport"
             {...props}
         />

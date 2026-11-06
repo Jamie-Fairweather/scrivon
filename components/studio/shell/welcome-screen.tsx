@@ -16,70 +16,79 @@ function truncatePath(path: string, max = 56): string {
 export function WelcomeScreen() {
     const { isDesktop, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, removeRecent } = useWorkspaceSession()
 
+    // The column scrolls when it is taller than the window; my-auto keeps it centred when it fits.
     return (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-6">
-            <div className="flex flex-col items-center gap-2 text-center">
-                <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
-                <p className="max-w-md text-sm text-muted-foreground">{APP_TAGLINE}</p>
-                <p className="max-w-md text-sm text-muted-foreground/80">
-                    Open a folder to browse `.md` and `.mmd` files, edit in the editor, and preview diagrams or rendered Markdown.
-                </p>
-            </div>
-
-            {!isDesktop && (
-                <div
-                    className="flex max-w-md items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
-                >
-                    <Monitor className="mt-0.5 size-4 shrink-0" />
-                    <p>
-                        Folder workspaces require the desktop app. Run <code className="rounded bg-black/30 px-1 py-0.5">bun run tauri dev</code> to
-                        open folders on disk.
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6">
+            <div className="my-auto flex w-full flex-col items-center gap-8 py-8">
+                <div className="flex flex-col items-center gap-2 text-center">
+                    <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
+                    <p className="max-w-md text-sm text-muted-foreground">{APP_TAGLINE}</p>
+                    <p className="max-w-md text-sm text-muted-foreground/80">
+                        Open a folder to browse `.md` and `.mmd` files, edit in the editor, and preview diagrams or rendered Markdown.
                     </p>
                 </div>
-            )}
 
-            <Button size="lg" onClick={() => void pickAndOpenWorkspace()} disabled={!isDesktop}>
-                <FolderOpen className="size-4" />
-                Open Folder
-            </Button>
+                {!isDesktop && (
+                    <div
+                        className="flex max-w-md items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm
+                            text-warning-foreground"
+                    >
+                        <Monitor className="mt-0.5 size-4 shrink-0" />
+                        <p>
+                            Folder workspaces require the desktop app. Run <code className="rounded bg-muted px-1 py-0.5">bun run tauri dev</code> to
+                            open folders on disk.
+                        </p>
+                    </div>
+                )}
 
-            {recentWorkspaces.length > 0 && (
-                <div className="w-full max-w-lg">
-                    <h2 className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Recent folders</h2>
-                    <ul className="flex flex-col gap-1">
-                        {recentWorkspaces.map((path) => {
-                            const name = path.split(/[/\\]/).pop() ?? path
-                            return (
-                                <li key={path}>
-                                    <div
-                                        className="group flex items-center gap-2 rounded-lg border border-transparent px-3 py-2 transition-colors
-                                            hover:border-border hover:bg-muted/50"
-                                    >
-                                        <button
-                                            type="button"
-                                            className="flex min-w-0 flex-1 flex-col items-start text-left"
-                                            onClick={() => void openWorkspace(path)}
-                                            disabled={!isDesktop}
+                <Button size="lg" onClick={() => void pickAndOpenWorkspace()} disabled={!isDesktop}>
+                    <FolderOpen className="size-4" />
+                    Open Folder
+                </Button>
+
+                {recentWorkspaces.length > 0 && (
+                    <div className="w-full max-w-lg">
+                        <h2 className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Recent folders</h2>
+                        <ul className="flex flex-col gap-1">
+                            {recentWorkspaces.map((path) => {
+                                const name = path.split(/[/\\]/).pop() ?? path
+                                return (
+                                    <li key={path}>
+                                        <div
+                                            className="group flex items-center gap-2 rounded-lg border border-transparent px-3 py-2 transition-colors
+                                                focus-within:border-border focus-within:bg-muted/50 hover:border-border hover:bg-muted/50"
                                         >
-                                            <span className="truncate text-sm font-medium">{name}</span>
-                                            <span className="truncate text-xs text-muted-foreground">{truncatePath(path)}</span>
-                                        </button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon-sm"
-                                            className={cn('shrink-0 opacity-0 transition-opacity group-hover:opacity-100')}
-                                            aria-label="Remove from recents"
-                                            onClick={() => void removeRecent(path)}
-                                        >
-                                            <FolderX className="size-4" />
-                                        </Button>
-                                    </div>
-                                </li>
-                            )
-                        })}
-                    </ul>
-                </div>
-            )}
+                                            <button
+                                                type="button"
+                                                className="flex min-w-0 flex-1 flex-col items-start text-left"
+                                                onClick={() => void openWorkspace(path)}
+                                                disabled={!isDesktop}
+                                            >
+                                                <span className="truncate text-sm font-medium">{name}</span>
+                                                <span className="truncate text-xs text-muted-foreground">{truncatePath(path)}</span>
+                                            </button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                // Hidden until the row is hovered or focused, but always shown on touch screens.
+                                                className={cn(
+                                                    'shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
+                                                    'focus-visible:opacity-100 pointer-coarse:opacity-100'
+                                                )}
+                                                aria-label={`Remove ${name || path} from recent folders`}
+                                                title="Remove from recent folders"
+                                                onClick={() => void removeRecent(path)}
+                                            >
+                                                <FolderX className="size-4" />
+                                            </Button>
+                                        </div>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
