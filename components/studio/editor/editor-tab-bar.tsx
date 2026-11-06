@@ -76,6 +76,8 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     const tabKind = activeTab ? documentKind(activeTab.name) : null
     const markdownNeedsExpand = tabKind === 'markdown' && !expanded
     const fitDisabled = !canFitToView || markdownNeedsExpand
+    // Says why when Fit can't be used: a diagram that failed to draw, an empty file, no tab.
+    const fitLabel = markdownNeedsExpand ? 'Expand a Mermaid block to fit' : fitDisabled ? 'No diagram to fit' : 'Fit diagram to screen'
 
     const stripRef = useRef<HTMLDivElement>(null)
     const tabRefs = useRef(new Map<string, HTMLButtonElement>())
@@ -195,7 +197,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                 <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
                     <DocumentExportMenu />
                     {/* aria-disabled rather than disabled, so it can still be focused or hovered to say why. */}
-                    <IconTooltip label={markdownNeedsExpand ? 'Expand a Mermaid block to fit' : 'Fit diagram to screen'}>
+                    <IconTooltip label={fitLabel}>
                         <Button
                             variant="ghost"
                             size="icon-sm"

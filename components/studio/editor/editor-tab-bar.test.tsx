@@ -9,6 +9,7 @@ const setActiveTab = vi.fn(async (id: string) => {
 })
 const closeTab = vi.fn(async () => {})
 const fitToView = vi.fn()
+let canFitToView = false
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
@@ -22,7 +23,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     }),
 }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
-    useCanvasControls: () => ({ canFitToView: false, fitToView }),
+    useCanvasControls: () => ({ canFitToView, fitToView }),
 }))
 vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({ useMarkdownExpand: () => ({ expanded: false }) }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
@@ -43,6 +44,7 @@ beforeEach(() => {
     setActiveTab.mockClear()
     closeTab.mockClear()
     fitToView.mockClear()
+    canFitToView = false
 })
 
 describe('EditorTabBar', () => {
@@ -170,6 +172,23 @@ describe('EditorTabBar', () => {
 
         act(() => fit.focus())
         expect(await screen.findByText('Expand a Mermaid block to fit')).toBeInTheDocument()
+    })
+
+    it('says why Fit is unavailable for a diagram that cannot be drawn, and fits one that can', async () => {
+        tabs = [tab('/w/broken.mmd')]
+        activeTabId = '/w/broken.mmd'
+        const view = render(<EditorTabBar />)
+
+        const fit = screen.getByRole('button', { name: 'Fit diagram to screen' })
+        expect(fit).toHaveAttribute('aria-disabled', 'true')
+        act(() => fit.focus())
+        expect(await screen.findByText('No diagram to fit')).toBeInTheDocument()
+
+        canFitToView = true
+        view.rerender(<EditorTabBar />)
+        expect(fit).not.toHaveAttribute('aria-disabled')
+        fireEvent.click(fit)
+        expect(fitToView).toHaveBeenCalledTimes(1)
     })
 
     it('shows the folder when two open files have the same name', () => {
