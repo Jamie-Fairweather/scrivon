@@ -15,6 +15,10 @@
                 "title": "Scrivon",
                 "width": 1440,
                 "height": 810,
+                "minWidth": 640,
+                "minHeight": 480,
+                "center": true,
+                "preventOverflow": true,
                 "decorations": false,
                 "backgroundColor": "#161616"
             }
