@@ -66,6 +66,7 @@ describe('EditorTabBar', () => {
             tab('/w/saving.md', { isSaving: true }),
             tab('example:x', { name: 'Example.mmd', readOnly: true }),
             tab('/w/failed.md', { isDirty: true, saveError: 'Disk full' }),
+            tab('/w/legacy.md', { readOnly: true }),
         ]
         activeTabId = '/w/dirty.md'
         const view = render(<EditorTabBar />)
@@ -73,6 +74,8 @@ describe('EditorTabBar', () => {
         expect(screen.getByRole('tab', { name: 'dirty.md , unsaved changes' })).toBeInTheDocument()
         expect(screen.getByRole('tab', { name: 'saving.md , saving' })).toBeInTheDocument()
         expect(screen.getByRole('tab', { name: 'Example.mmd , read-only example' })).toBeInTheDocument()
+        // A read-only file from the folder is not an example.
+        expect(screen.getByRole('tab', { name: 'legacy.md , read-only' })).toBeInTheDocument()
         const failed = screen.getByRole('tab', { name: 'failed.md , unsaved changes, save failed: Disk full' })
         // The failure doesn't hide which file it is.
         expect(failed).toHaveAttribute('title', '/w/failed.md\nSave failed: Disk full')

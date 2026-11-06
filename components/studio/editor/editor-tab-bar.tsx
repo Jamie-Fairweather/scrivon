@@ -10,6 +10,7 @@ import { getTabFolderHints } from '@/components/studio/editor/tab-labels'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { documentKind } from '@/lib/workspace/file-types'
+import { isExampleTabId } from '@/lib/examples/example-tab'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -20,12 +21,13 @@ type EditorTabBarProps = {
     style?: CSSProperties
 }
 
-type TabState = { name: string; isDirty: boolean; isSaving: boolean; saveError?: string; readOnly?: boolean }
+type TabState = { id: string; name: string; isDirty: boolean; isSaving: boolean; saveError?: string; readOnly?: boolean }
 
 /** What a screen reader should hear after the tab's name. */
 function tabStatusText(tab: TabState): string {
     const parts: string[] = []
-    if (tab.readOnly) parts.push('read-only example')
+    // Examples are read-only, and so are files on disk that can't be edited safely.
+    if (tab.readOnly) parts.push(isExampleTabId(tab.id) ? 'read-only example' : 'read-only')
     else if (tab.isDirty) parts.push('unsaved changes')
     if (tab.isSaving) parts.push('saving')
     if (tab.saveError) parts.push(`save failed: ${tab.saveError}`)
