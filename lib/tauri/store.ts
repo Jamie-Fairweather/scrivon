@@ -1,4 +1,5 @@
 import { LazyStore } from '@tauri-apps/plugin-store'
+import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
 import { loadSettings } from '@/lib/settings/storage'
 import { normalizePath, samePath } from '@/lib/tauri/fs'
@@ -23,15 +24,92 @@ export type WorkspaceTabSession = {
     activeTabId: string | null
 }
 
-let store: LazyStore | null = null
+/**
+ * A copy of workspace.json, taken each time Scrivon starts and reads it without trouble. The store plugin
+ * quietly starts empty when the file can't be read (a crash mid-save can leave it empty or full of zeros),
+ * and its next save replaces the file, so this copy is what brings recent folders and open tabs back.
+ */
+const BACKUP_STORE_PATH = 'workspace.backup.json'
+const BACKUP_SNAPSHOT_KEY = 'snapshot'
+const STORE_DAMAGED_NOTICE_ID = 'workspace-store-damaged'
+/** The OS error for a file (or the app's data folder) that isn't there yet, as on a first launch. */
+const FILE_MISSING = /\(os error [23]\)/
+
+let storeReady: Promise<LazyStore> | null = null
 
 async function getStore(): Promise<LazyStore | null> {
     if (!isTauri()) return null
-    if (!store) {
-        store = new LazyStore(STORE_PATH)
-        await store.init()
+    storeReady ??= openStore()
+    return storeReady
+}
+
+async function openStore(): Promise<LazyStore> {
+    const s = new LazyStore(STORE_PATH)
+    await s.init()
+    // init() ignores a file it can't read or parse and starts empty; reading the file again says why.
+    let readError: unknown = null
+    try {
+        await s.reload()
+    } catch (err) {
+        readError = err
     }
-    return store
+    if (readError === null) void keepStoreBackup(s)
+    else if (!FILE_MISSING.test(errorMessage(readError, ''))) await recoverStore(s, readError)
+    return s
+}
+
+async function openBackupStore(): Promise<LazyStore> {
+    // Written by hand, once per launch.
+    const backup = new LazyStore(BACKUP_STORE_PATH, { defaults: {}, autoSave: false })
+    await backup.init()
+    return backup
+}
+
+async function keepStoreBackup(s: LazyStore): Promise<void> {
+    try {
+        const snapshot = Object.fromEntries(await s.entries())
+        const backup = await openBackupStore()
+        await backup.set(BACKUP_SNAPSHOT_KEY, snapshot)
+        await backup.save()
+    } catch (err) {
+        console.warn("Couldn't update the copy of workspace.json", err)
+    }
+}
+
+async function readStoreBackup(): Promise<Record<string, unknown> | null> {
+    const snapshot = await (await openBackupStore()).get<unknown>(BACKUP_SNAPSHOT_KEY)
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
+    return Object.keys(snapshot).length > 0 ? (snapshot as Record<string, unknown>) : null
+}
+
+/** workspace.json is there but couldn't be read: it is filled from the copy, before anything can save over it. */
+async function recoverStore(s: LazyStore, readError: unknown): Promise<void> {
+    console.warn("Couldn't read workspace.json", readError)
+    // Still held from earlier in this run (the window was reloaded): that is newer than the copy.
+    if ((await s.length()) > 0) return
+    let restored = false
+    try {
+        const snapshot = await readStoreBackup()
+        if (snapshot) {
+            for (const [key, value] of Object.entries(snapshot)) await s.set(key, value)
+            await s.save()
+            restored = true
+        }
+    } catch (err) {
+        console.warn("Couldn't restore workspace.json from its copy", err)
+    }
+    const what = "Scrivon couldn't read the file that keeps your recent folders and open tabs"
+    if (restored) {
+        notifyWarning('Recent folders restored', {
+            id: STORE_DAMAGED_NOTICE_ID,
+            description: `${what}, so it brought back the copy from when Scrivon last started. Your documents aren't affected.`,
+        })
+    } else {
+        notifyWarning('Recent folders were reset', {
+            id: STORE_DAMAGED_NOTICE_ID,
+            description: `${what}, so those lists start empty. Your documents aren't affected.`,
+        })
+    }
 }
 
 export async function getRecentWorkspaces(): Promise<string[]> {
