@@ -527,6 +527,8 @@ type RenderState = {
     quoteDepth: number
     /** Set while a footnote's text is rendered: smaller type, and no footnotes inside it. */
     inFootnote: boolean
+    /** Text width, in pixels, of the table cell being rendered, so its pictures fit inside it. Null outside tables. */
+    cellPx: number | null
 }
 
 function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
@@ -560,6 +562,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         extraLeft: 0,
         quoteDepth: 0,
         inFootnote: false,
+        cellPx: null,
     }
 }
 
@@ -581,9 +584,10 @@ function contentIndent(state: RenderState): { left: number } | undefined {
     return state.extraLeft > 0 ? { left: state.extraLeft } : undefined
 }
 
-/** Width left for a picture once nested blocks have stepped in. */
+/** Width left for a picture once nested blocks have stepped in, or inside the table cell it sits in. */
 function availablePx(state: RenderState): number {
-    return Math.max(1, state.contentPx - Math.round(state.extraLeft / 15))
+    const width = Math.max(1, state.contentPx - Math.round(state.extraLeft / 15))
+    return state.cellPx === null ? width : Math.min(width, state.cellPx)
 }
 
 /** The quote's accent bar, on every block inside a quote. Word draws it `space` points left of the text, at the quote's edge. */
@@ -833,44 +837,104 @@ function tableColumns(table: MdTable): number {
 function renderTable(state: RenderState, table: MdTable): Table {
     const width = Math.max(1, state.contentTwip - state.extraLeft)
     const columns = tableColumns(table)
+    const widths = columnWidths(table, columns, width)
     return new Table({
         width: { size: width, type: WidthType.DXA },
-        columnWidths: columnWidths(columns, width),
+        columnWidths: widths,
         indent: state.extraLeft > 0 ? { size: state.extraLeft, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
-        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, columns, table.align, rowIndex === 0)),
+        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, widths, table.align, rowIndex === 0)),
     })
 }
 
-function columnWidths(count: number, width: number): number[] {
-    const column = Math.round(width / count)
-    return Array.from({ length: count }, () => column)
+/** A picture in a cell counts as this many characters when columns are sized. */
+const TABLE_IMAGE_UNITS = 20
+/** Column weights, in characters, are kept in this range so one long column can't squeeze the rest to nothing. */
+const TABLE_WEIGHT_RANGE = { min: 4, max: 60 } as const
+/** No column is made narrower than this (0.625in) unless the table is too narrow for that. */
+const TABLE_MIN_COLUMN_TWIP = 900
+
+/** How wide a cell's content is, in narrow characters. Bold header text is a little wider. */
+function cellUnits(cell: MdTableCell, header: boolean): number {
+    let images = 0
+    visit(cell, (node) => {
+        if (node.type === 'image' || node.type === 'imageReference') images += 1
+    })
+    return textUnits(plainText(cell), 1 / 0.45) * (header ? 1.1 : 1) + images * TABLE_IMAGE_UNITS
 }
 
-function renderTableRow(state: RenderState, row: MdTableRow, columns: number, align: MdTable['align'], header: boolean): TableRow {
+/**
+ * Column widths, in twips, that add up to `width`. Each column gets a share in line with its longest
+ * cell, like the PDF's automatic table layout, so a short ID column leaves room for a long description.
+ * Every column keeps a minimum width, and the rounding is settled on the last column.
+ */
+function columnWidths(table: MdTable, columns: number, width: number): number[] {
+    const weights = Array.from({ length: columns }, (_, index) => {
+        let longest = 0
+        table.children.forEach((row, rowIndex) => {
+            const cell = row.children[index]
+            if (cell) longest = Math.max(longest, cellUnits(cell, rowIndex === 0))
+        })
+        return Math.min(TABLE_WEIGHT_RANGE.max, Math.max(TABLE_WEIGHT_RANGE.min, longest))
+    })
+    const floor = Math.min(TABLE_MIN_COLUMN_TWIP, Math.floor(width / columns))
+    // Columns whose share would fall under the floor are pinned to it; the rest share what is left by weight.
+    const pinned = new Set<number>()
+    let widths: number[] = []
+    for (let pass = 0; pass <= columns; pass += 1) {
+        const free = weights.reduce((sum, weight, index) => (pinned.has(index) ? sum : sum + weight), 0)
+        const room = width - floor * pinned.size
+        widths = weights.map((weight, index) => (pinned.has(index) ? floor : Math.floor((room * weight) / free)))
+        const under = widths.findIndex((size, index) => !pinned.has(index) && size < floor)
+        if (under < 0) break
+        pinned.add(under)
+    }
+    widths[columns - 1]! += width - widths.reduce((sum, size) => sum + size, 0)
+    return widths
+}
+
+/** Text width, in pixels, of a cell in a column `columnTwip` wide. Pictures in the cell are kept inside it. */
+function cellTextPx(columnTwip: number): number {
+    return Math.max(1, Math.floor((columnTwip - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right) / 15))
+}
+
+function renderTableRow(state: RenderState, row: MdTableRow, widths: number[], align: MdTable['align'], header: boolean): TableRow {
     return new TableRow({
         tableHeader: header,
-        children: Array.from({ length: columns }, (_, index) =>
-            renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, align?.[index], header)
+        children: widths.map((columnTwip, index) =>
+            renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, columnTwip, align?.[index], header)
         ),
     })
 }
 
-function renderTableCell(state: RenderState, cell: MdTableCell, align: 'left' | 'center' | 'right' | null | undefined, header: boolean): TableCell {
-    return new TableCell({
-        verticalAlign: VerticalAlignTable.TOP,
-        margins: TABLE_CELL_MARGIN,
-        shading: header ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
-        borders: { top: GRID_BORDER, bottom: GRID_BORDER, left: GRID_BORDER, right: GRID_BORDER },
-        children: [
-            new Paragraph({
-                spacing: { after: 0, ...bodyLineSpacing(state) },
-                alignment: align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.END : AlignmentType.START,
-                children: renderInlines(state, cell.children, header ? { bold: true } : {}),
-            }),
-        ],
-    })
+function renderTableCell(
+    state: RenderState,
+    cell: MdTableCell,
+    columnTwip: number,
+    align: 'left' | 'center' | 'right' | null | undefined,
+    header: boolean
+): TableCell {
+    const saved = state.cellPx
+    state.cellPx = cellTextPx(columnTwip)
+    try {
+        return new TableCell({
+            width: { size: columnTwip, type: WidthType.DXA },
+            verticalAlign: VerticalAlignTable.TOP,
+            margins: TABLE_CELL_MARGIN,
+            shading: header ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
+            borders: { top: GRID_BORDER, bottom: GRID_BORDER, left: GRID_BORDER, right: GRID_BORDER },
+            children: [
+                new Paragraph({
+                    spacing: { after: 0, ...bodyLineSpacing(state) },
+                    alignment: align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.END : AlignmentType.START,
+                    children: renderInlines(state, cell.children, header ? { bold: true } : {}),
+                }),
+            ],
+        })
+    } finally {
+        state.cellPx = saved
+    }
 }
 
 function codeFill(theme: PdfExportProfile['content']['codeTheme']): string {
@@ -1394,15 +1458,18 @@ function placeBlock(cursor: { page: number; used: number }, pageHeight: number, 
 /** Characters a full em wide: Chinese, Japanese and Korean script, full-width forms, and emoji. */
 const WIDE_CHAR = /[ᄀ-ᅟ⺀-〿぀-ヿ㄀-ㇿ㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]|\p{Emoji_Presentation}/u
 
+/** Length of `text` in narrow-character widths, counted by code point so a surrogate pair is one character. A wide one counts `wide`. */
+function textUnits(text: string, wide: number): number {
+    let units = 0
+    for (const char of text.replace(/\s+/g, ' ').trim()) units += WIDE_CHAR.test(char) ? wide : 1
+    return units
+}
+
 /** How many lines `text` wraps to in `width` twips. Most characters are about 0.45 em wide; wide ones a full em. */
 function lineCount(text: string, halfPoints: number, width: number): number {
     const charTwip = Math.max(60, Math.round(halfPoints * 4.5))
     const perLine = Math.max(8, Math.floor(Math.max(width, charTwip) / charTwip))
-    // Counted in narrow-character widths, by code point, so a surrogate pair is one character.
-    const wide = (halfPoints * 10) / charTwip
-    let units = 0
-    for (const char of text.replace(/\s+/g, ' ').trim()) units += WIDE_CHAR.test(char) ? wide : 1
-    return Math.max(1, Math.ceil(units / perLine))
+    return Math.max(1, Math.ceil(textUnits(text, (halfPoints * 10) / charTwip) / perLine))
 }
 
 function textBlockTwip(state: RenderState, text: string, halfPoints: number, width: number, before: number, after: number): number {
@@ -1481,13 +1548,15 @@ function measureFlow(
         } else if (node.type === 'code') {
             placeBlock(cursor, pageHeight, codeTwip(state, node))
         } else if (node.type === 'table') {
-            const columns = tableColumns(node)
-            const column = Math.max(200, Math.floor(width / columns) - 360)
+            // Each cell wraps in its own column's width, as renderTable sizes them; its margins add 120 above.
+            const widths = columnWidths(node, tableColumns(node), width)
             let table = 200
             for (const row of node.children) {
                 let rowHeight = 240
-                for (const cell of row.children.slice(0, columns))
-                    rowHeight = Math.max(rowHeight, textBlockTwip(state, plainText(cell), state.bodyHalfPoints, column, 120, 120))
+                row.children.slice(0, widths.length).forEach((cell, index) => {
+                    const text = Math.max(200, widths[index]! - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right)
+                    rowHeight = Math.max(rowHeight, 120 + paragraphTwip(state, { type: 'paragraph', children: cell.children }, text))
+                })
                 table += rowHeight
             }
             placeBlock(cursor, pageHeight, table)

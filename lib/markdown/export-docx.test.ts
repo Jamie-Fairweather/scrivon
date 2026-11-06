@@ -587,6 +587,39 @@ describe('renderExportDocx', () => {
         expect(table).not.toContain('>4</w:t>')
     })
 
+    it('sizes table columns by their content and keeps pictures inside their cell', async () => {
+        const notes = 'A long note that would wrap over many lines if every column had the same width. '.repeat(3)
+        const { xml } = await render(
+            [`| Icon | ID | Notes |`, `| --- | --- | --- |`, `| ![wide](${dataUrl('image/png', sizedPng(640, 320))}) | 7 | ${notes} |`].join('\n')
+        )
+        const table = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)![0]
+        const grid = [...table.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
+        // The short ID column keeps the minimum width, the long notes get the most, and together they fill the 10773-twip text width.
+        expect(grid[1]).toBe(900)
+        expect(grid[2]!).toBeGreaterThan(grid[0]!)
+        expect(grid[0]!).toBeGreaterThan(grid[1]!)
+        expect(grid.reduce((sum, size) => sum + size, 0)).toBe(10773)
+        // Each cell states its width too, which older Word versions follow.
+        for (const size of grid) expect(table).toContain(`<w:tcW w:type="dxa" w:w="${size}"/>`)
+        // The picture is shrunk to its cell's text width (less the 180-twip margins each side), not the page's 640px.
+        const cellPx = Math.floor((grid[0]! - 360) / 15)
+        expect(drawingSize(xml, 'wide')).toEqual({ width: cellPx, height: Math.round(cellPx / 2) })
+
+        // Columns with the same content stay the same width.
+        const even = await render('| a | b |\n| --- | --- |\n| one | two |')
+        expect([...even.xml.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))).toEqual([5386, 5387])
+    })
+
+    it('estimates contents page numbers with each table column at its own width', async () => {
+        const rows = Array.from({ length: 30 }, (_, index) => `| ${index} | ${'Description words. '.repeat(16)} |`)
+        const { xml } = await render(['# Start', '', '| ID | Description |', '| --- | --- |', ...rows, '', '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        // The description wraps in its wide column: 4 lines a row, not the 7 two equal columns gave, which put End on page 8.
+        expect(tocPage(xml, 'end')).toBe(6)
+    })
+
     it('justifies body paragraphs and leaves headings, lists, quotes, and tables left aligned', async () => {
         const { xml } = await render('# Title\n\nJustified body.\n\n> Quoted.\n\n- item\n\n| a |\n| --- |\n| b |', (draft) => {
             draft.typography.justify = true
