@@ -136,6 +136,34 @@ function wordFont(stack: string, fallback: string): string {
     return names.find((name) => !MAC_ONLY_FONTS.has(name.toLowerCase())) ?? names[0] ?? fallback
 }
 
+/**
+ * Characters XML 1.0 doesn't allow: control characters other than tab, line feed and carriage return,
+ * U+FFFE/U+FFFF, and half surrogate pairs. docx writes them as they are, and one of them makes Word refuse the whole file.
+ */
+const XML_ILLEGAL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿\uD800-\uDFFF]/gu
+
+/** Text Word can open. A form feed is whitespace in the PDF's HTML, so it becomes a space; the others are dropped. */
+function xmlSafe(text: string): string {
+    return text.replace(XML_ILLEGAL, (char) => (char === '\f' ? ' ' : ''))
+}
+
+/** Copies plain data with every string made {@link xmlSafe}. */
+function xmlSafeCopy<T>(value: T): T {
+    if (typeof value === 'string') return xmlSafe(value) as T
+    if (Array.isArray(value)) return value.map(xmlSafeCopy) as T
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, xmlSafeCopy(item)])) as T
+    return value
+}
+
+/**
+ * The document with every piece of text Word will get made safe: body, code, alt text, links, title and other
+ * metadata, contents, header and footer text, and the watermark. The Settings images are only decoded, so they stay as they are.
+ */
+function xmlSafeDocument(document: ExportDocument): ExportDocument {
+    const { assets, ...text } = document
+    return { ...xmlSafeCopy(text), assets }
+}
+
 function escapeXml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
 }
@@ -1679,14 +1707,15 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
             return { kind: 'diagram', png: await diagramPng(svg, profile.content.mermaidThemeId), size: getSvgDimensions(svg), source: text }
         } catch (err) {
-            return { kind: 'error', message: errorMessage(err) }
+            return { kind: 'error', message: xmlSafe(errorMessage(err)) }
         }
     }
     return { kind: 'code', lines: await highlightFencedCodeTokens(text, node.lang ?? undefined, profile.content.codeTheme) }
 }
 
 /** Word renderer for an {@link ExportDocument}. */
-export async function renderExportDocx(document: ExportDocument): Promise<Uint8Array> {
+export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
+    const document = xmlSafeDocument(source)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {
         codes.push(node)

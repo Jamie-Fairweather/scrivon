@@ -400,6 +400,47 @@ describe('renderExportDocx', () => {
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
     })
 
+    it('leaves out characters XML forbids, so Word can open the file', async () => {
+        const { xml, parts } = await render(
+            [
+                '---',
+                'title: Bell\u0007 report',
+                '---',
+                '',
+                '# Log\u0001 review',
+                '',
+                'Page one\u000cPage two, a bell\u0007 and a tab\u000b stop. Half a pair: \ud83d.',
+                '',
+                'Inline `\u001b[31mred\u001b[0m` code.',
+                '',
+                fence('bash', 'log\u001b[31mred\u001b[0m\u0000'),
+                '',
+                '![alt\u0002 text](https://example.com/a\u0003.png)',
+                '',
+                'A note[^n]. Kept: tab\there, emoji 😀.',
+                '',
+                '[^n]: Foot\u0008note.',
+            ].join('\n'),
+            (draft) => {
+                draft.frontMatter.titlePage = true
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocExcludeH1 = false
+                draft.header.enabled = true
+                draft.header.left.text = 'Head\u0001er {{title}}'
+                draft.content.watermark = 'Draft\u0007'
+            }
+        )
+        expect(xml).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+        // A form feed is whitespace, as in the PDF. Everything around the dropped characters is kept.
+        expect(xml).toContain('Page one Page two, a bell and a tab stop.')
+        expect(xml).toContain('log[31mred[0m')
+        expect(xml).toContain('emoji 😀.')
+        expect(xml).toContain('Header Bell report')
+        expect(xml).toContain('Footnote.')
+        expect(parts['docProps/core.xml']).toContain('<dc:title>Bell report</dc:title>')
+        expect(tocPage(xml, 'log-review')).toBe(3)
+    })
+
     it('keeps links, formatting, pictures, and paragraphs in footnotes', async () => {
         const { parts } = await render(
             [
