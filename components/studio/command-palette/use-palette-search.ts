@@ -9,7 +9,7 @@ import { getRecentFiles } from '@/lib/tauri/store'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { buildCommandRegistry, themeToggleTarget, type ThemeToggle } from '@/components/studio/command-palette/command-registry'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
-import { searchActions } from '@/components/studio/command-palette/search-actions'
+import { matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import {
     createContentCache,
     DEBOUNCE_MS,
@@ -53,13 +53,19 @@ export const MAX_MIXED_COMMANDS = 5
 
 /**
  * The best few commands for the default results, so F1 finds commands without typing '>'.
- * With nothing typed only runnable commands are suggested. While typing, a matching command that
- * can't run stays in place with its reason, rather than letting a weaker match take its spot and
- * run on Enter. With no folder open, recent folders already have their own group.
+ * Only runnable commands whose name has every typed word, so a word typed to find a file or text
+ * doesn't pull in a command that would run on Enter. Commands that can't run, examples, and (with
+ * no folder open) recent folders are left to the '>' list, which shows why a command can't run.
  */
 function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, hasWorkspace: boolean): PaletteGroup | null {
     const items = searchActions(actions, query)
-        .filter((action) => (query || !action.disabled) && (hasWorkspace || !action.value.startsWith('action:recent-workspace:')))
+        .filter(
+            (action) =>
+                !action.disabled &&
+                !action.value.startsWith('action:example:') &&
+                (hasWorkspace || !action.value.startsWith('action:recent-workspace:')) &&
+                (!query || matchesCommandName(action, query))
+        )
         .slice(0, MAX_MIXED_COMMANDS)
     if (items.length === 0) return null
     return { id: 'actions', label: 'Commands', items }
@@ -204,15 +210,13 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             return result
         }
 
-        // Commands lead when nothing is typed (or no folder is open) so they're easy to find,
-        // and follow the file results while typing so a file name still comes first.
         const commandGroup = mode === 'all' ? buildMixedCommandGroup(allActions, parsedQuery, Boolean(workspaceRoot)) : null
-        const commandsFirst = !parsedQuery || !workspaceRoot
-        if (commandGroup && commandsFirst) result.push(commandGroup)
 
         if (!workspaceRoot) {
+            // Recent folders lead, so typing a folder's name and pressing Enter opens it.
             const workspaceGroup = buildWorkspaceItems(recentWorkspaces, parsedQuery)
             if (workspaceGroup) result.push(workspaceGroup)
+            if (commandGroup) result.push(commandGroup)
             return result
         }
 
@@ -234,17 +238,22 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 shownPaths.push(...recentItems.map((item) => item.path))
             }
 
+            // With nothing typed, commands follow the open and recent files: easy to find, while
+            // Enter still goes back to the file the user was in.
+            if (commandGroup && !parsedQuery) result.push(commandGroup)
+
             const fileItems = searchFiles(filePaths, workspaceRoot, parsedQuery, shownPaths)
             if (fileItems.length > 0) {
                 result.push({ id: 'files', label: 'Files', items: fileItems })
             }
         }
 
-        if (commandGroup && !commandsFirst) result.push(commandGroup)
-
         if (textResolved && textItems && (mode === 'all' || mode === 'text')) {
             result.push(textItems)
         }
+
+        // While typing, commands come last, so a matching file name or text hit is what Enter opens.
+        if (commandGroup && parsedQuery) result.push(commandGroup)
 
         return result
     }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textItems, mode, textResolved])

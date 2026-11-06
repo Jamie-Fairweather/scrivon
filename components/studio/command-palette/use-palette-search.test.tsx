@@ -294,18 +294,51 @@ describe('usePaletteSearch commands in the default results', () => {
         return groups.map((group) => group.id)
     }
 
-    it('lists runnable commands first when nothing is typed and no folder is open', () => {
+    it('lists recent folders first, then runnable commands, when nothing is typed and no folder is open', () => {
         state.session.workspaceRoot = null
         state.session.recentWorkspaces = ['/projects/alpha']
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
-        expect(groupIds(result.current.groups)).toEqual(['actions', 'workspaces'])
+        expect(groupIds(result.current.groups)).toEqual(['workspaces', 'actions'])
         const commands = groupPaths(result.current.groups, 'actions')
         expect(commands).toContain('action:open-folder')
         // Close Folder needs a folder, and the recent folder already has its own group.
         expect(commands).not.toContain('action:close-folder')
         expect(commands.some((value) => value.startsWith('action:recent-workspace:'))).toBe(false)
         expect(commands.length).toBeLessThanOrEqual(5)
+    })
+
+    it('lists commands first on a fresh start with no recent folders', () => {
+        state.session.workspaceRoot = null
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        expect(groupIds(result.current.groups)).toEqual(['actions'])
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:open-folder')
+    })
+
+    it.each(['scr', 'scrivon', 'code', 'notes', 'work'])(
+        'puts the recent folder typed (%s) first when no folder is open, so Enter opens it',
+        (query) => {
+            state.session.workspaceRoot = null
+            state.session.recentWorkspaces = ['C:\\code\\scrivon', 'C:\\work\\notes']
+            const { result } = renderHook(() => usePaletteSearch('all', true))
+
+            act(() => result.current.setQuery(query))
+            expect(groupIds(result.current.groups)[0]).toBe('workspaces')
+            expect(result.current.groups[0]?.items[0]?.kind).toBe('workspace')
+        }
+    )
+
+    it('never suggests a command that cannot run, or an example, next to the results', () => {
+        state.session.workspaceRoot = null
+        state.session.recentWorkspaces = ['/p/alpha']
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        for (const query of ['alpha', 'docs', 'example', 'fit diagram']) {
+            act(() => result.current.setQuery(query))
+            const commands = result.current.groups.find((group) => group.id === 'actions')?.items ?? []
+            expect(commands.filter((item) => item.kind === 'action' && (item.disabled || item.value.startsWith('action:example:')))).toEqual([])
+        }
     })
 
     it('finds a command by name without the > prefix', () => {
@@ -323,10 +356,18 @@ describe('usePaletteSearch commands in the default results', () => {
         expect(groupPaths(result.current.groups, 'actions')).toContain('action:open-settings')
     })
 
-    it('lists commands first when nothing is typed in a folder', () => {
+    it('lists commands after open editors and before the other files when nothing is typed in a folder', () => {
+        state.tabs.tabs = [{ id: '/ws/notes.md', path: '/ws/notes.md', name: 'notes.md', content: '', isDirty: false }]
+        state.tabs.activeTabId = '/ws/notes.md'
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
-        expect(groupIds(result.current.groups)[0]).toBe('actions')
+        expect(groupIds(result.current.groups)).toEqual(['tabs', 'actions', 'files'])
+    })
+
+    it('lists commands first when nothing is typed and no file has been opened yet', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        expect(groupIds(result.current.groups)).toEqual(['actions', 'files'])
     })
 
     it('keeps commands out of Go to File and Find in Workspace', () => {
@@ -334,6 +375,40 @@ describe('usePaletteSearch commands in the default results', () => {
 
         act(() => result.current.setQuery('settings'))
         expect(groupIds(result.current.groups)).toEqual(['files'])
+    })
+})
+
+describe('usePaletteSearch commands next to text hits', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/plan.md'), file('/ws/theme.md')]
+        state.session.recentWorkspaces = []
+        state.tabs.tabs = []
+        state.tabs.activeTabId = null
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readTextFile).mockImplementation(async () => '- todo: pick a theme')
+    })
+
+    it('opens a text hit, not a command, when a word found in files is typed', async () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('todo'))
+        expect(groupPaths(result.current.groups, 'actions')).toEqual([])
+
+        await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/plan.md', '/ws/theme.md']))
+        expect(result.current.groups[0]?.items[0]?.kind).toBe('text')
+        expect(groupPaths(result.current.groups, 'actions')).toEqual([])
+    })
+
+    it('lists matching commands after file names and text hits', async () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('theme'))
+        await waitFor(() => expect(result.current.isSearchingText).toBe(false))
+        expect(result.current.groups.map((group) => group.id)).toEqual(['files', 'text', 'actions'])
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
     })
 })
 
@@ -382,10 +457,17 @@ describe('usePaletteSearch unavailable commands', () => {
         vi.mocked(isTauri).mockReturnValue(false)
     })
 
-    it('keeps a matching command that cannot run on top, instead of a weaker match that would run on Enter', () => {
+    it('does not offer a weaker command that would run on Enter when the one typed cannot run', () => {
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
         act(() => result.current.setQuery('close tab'))
+        expect(groupPaths(result.current.groups, 'actions')).toEqual([])
+    })
+
+    it('keeps a matching command that cannot run on top of the > list, with its reason', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('>close tab'))
         const first = result.current.groups[0]?.items[0]
         expect(first?.kind === 'action' && first.value).toBe('action:close-tab')
         expect(first?.kind === 'action' && first.disabled).toBe(true)

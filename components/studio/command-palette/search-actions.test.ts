@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { searchActions } from '@/components/studio/command-palette/search-actions'
+import { matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import type { ActionPaletteItem } from '@/components/studio/command-palette/types'
 
 function action(id: string, label: string, disabled = false): ActionPaletteItem {
@@ -43,5 +43,31 @@ describe('searchActions', () => {
         expect(values(searchActions(actions, 'close')).indexOf('action:close-tab')).toBeLessThan(
             values(searchActions(actions, 'close')).indexOf('action:close-folder')
         )
+    })
+})
+
+describe('matchesCommandName', () => {
+    const theme = action('toggle-theme', 'Switch to Dark Theme')
+    const editor = action('toggle-editor', 'Hide Editor')
+
+    it('matches when every typed word starts a word of the name, in any order and case', () => {
+        expect(matchesCommandName(theme, 'theme')).toBe(true)
+        expect(matchesCommandName(theme, 'dark th')).toBe(true)
+        expect(matchesCommandName(theme, 'THEME dark')).toBe(true)
+    })
+
+    it('does not match letters scattered across the name', () => {
+        // 'todo' and 'data' are letters-in-order matches for these names, not words in them.
+        expect(matchesCommandName(editor, 'todo')).toBe(false)
+        expect(matchesCommandName(theme, 'data')).toBe(false)
+        expect(matchesCommandName(theme, 'heme')).toBe(false)
+    })
+
+    it('needs every typed word to match', () => {
+        expect(matchesCommandName(theme, 'dark folder')).toBe(false)
+    })
+
+    it('matches nothing when only punctuation is typed', () => {
+        expect(matchesCommandName(theme, '::')).toBe(false)
     })
 })
