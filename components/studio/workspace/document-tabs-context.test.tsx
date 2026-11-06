@@ -515,6 +515,31 @@ describe('DocumentTabsProvider', () => {
         expect(result.current.activeTabId).toBe('/ws/new.mmd')
     })
 
+    it('keeps the active tab selected when the folder it is in is renamed', async () => {
+        const initial = {
+            tabs: [tab('/ws/other.mmd', 'other.mmd'), tab('/ws/docs/readme.md', 'readme.md')],
+            activeTabId: '/ws/docs/readme.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+        vi.mocked(setWorkspaceTabSession).mockClear()
+
+        act(() => {
+            coordinator.remapTabsAfterRename.current('/ws/docs', '/ws/manual', 'manual')
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/other.mmd', '/ws/manual/readme.md'])
+        expect(result.current.activeTabId).toBe('/ws/manual/readme.md')
+        expect(result.current.activeTab).toMatchObject({ path: '/ws/manual/readme.md', name: 'readme.md' })
+        expect(setWorkspaceTabSession).toHaveBeenCalledWith('/ws', {
+            tabIds: ['/ws/other.mmd', '/ws/manual/readme.md'],
+            activeTabId: '/ws/manual/readme.md',
+        })
+    })
+
     it('closes tabs when coordinator delete handler runs', async () => {
         const initial = {
             tabs: [tab('/ws/docs/readme.md', 'readme.md'), tab('/ws/other.mmd', 'other.mmd')],
