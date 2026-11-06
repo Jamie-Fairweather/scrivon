@@ -30,10 +30,10 @@ export function StudioLayout() {
                     {layout.explorerOpen && !isMobile && <WorkspaceExplorer />}
 
                     <MarkdownExpandProvider tabId={activeTabId}>
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                             <EditorTabBar />
 
-                            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
+                            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                                 {layout.editorOpen && editorLayout.hydrated && (
                                     <CodeEditorPanel width={editorLayout.width} onWidthChange={editorLayout.onWidthChange} />
                                 )}
