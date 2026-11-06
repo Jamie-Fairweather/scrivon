@@ -406,6 +406,22 @@ ${rows.join(',\n')}
 `
 }
 
+/**
+ * Writes lib/legal/third-party-licenses.ts when its text changed (line endings don't count: a Windows
+ * checkout can have CRLF), then calls `rebuild`. This script runs after next build (postbuild), so out/,
+ * which Tauri packs into the app, still has the old list until it is built again. The list adds no
+ * packages, so one more build is always enough.
+ */
+export function updateLicensesModule(path, source, rebuild) {
+    const current = existsSync(path) ? readFileSync(path, 'utf8').replace(/\r\n/g, '\n') : null
+    if (current === source.replace(/\r\n/g, '\n')) return false
+
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, source)
+    rebuild()
+    return true
+}
+
 function main() {
     const appPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
@@ -421,9 +437,13 @@ function main() {
         console.warn(`No licence text found for: ${missing.join(', ')}`)
     }
 
-    mkdirSync(dirname(outPath), { recursive: true })
-    writeFileSync(outPath, renderLicensesModule(entries, appPkg.version))
-    console.log(`Wrote ${npmPackages.length} npm packages, ${rustCrates.length} Rust crates and ${BUNDLED_FONTS.length} fonts to ${outPath}`)
+    const summary = `${npmPackages.length} npm packages, ${rustCrates.length} Rust crates and ${BUNDLED_FONTS.length} fonts`
+    const changed = updateLicensesModule(outPath, renderLicensesModule(entries, appPkg.version), () => {
+        console.log(`Wrote ${summary} to ${outPath}`)
+        console.log('The licence list changed after next build bundled it; building again so the app ships the new list…')
+        runProductionBuild({ sourceMaps: false })
+    })
+    if (!changed) console.log(`Licence list is up to date (${summary})`)
 
     const removedMaps = removeSourceMaps(shippedDir)
     console.log(`Removed ${removedMaps} source maps from ${shippedDir} so they are not bundled into the app`)

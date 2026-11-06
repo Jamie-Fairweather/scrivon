@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THIRD_PARTY_PACKAGES } from '@/lib/legal/third-party-licenses'
 import {
     findLicenseFiles,
@@ -10,6 +10,7 @@ import {
     renderLicensesModule,
     rustCratesFromMetadata,
     spdxIds,
+    updateLicensesModule,
     withUniqueNames,
 } from './generate-licenses.mjs'
 
@@ -179,6 +180,42 @@ describe('removeSourceMaps', () => {
         expect(readFileSync(join(chunks, 'style.css'), 'utf8')).toBe('a{color:red}')
         expect(readFileSync(join(chunks, 'min.css'), 'utf8')).toBe('b{color:blue}')
         expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe('<html></html>')
+    })
+})
+
+describe('updateLicensesModule', () => {
+    const NEW_LIST = 'export const LIST = ["new"]\n'
+
+    it('writes a changed list, then builds again so the app ships it', () => {
+        const path = join(dir, 'third-party-licenses.ts')
+        writeFileSync(path, 'export const LIST = ["old"]\n')
+        const rebuild = vi.fn(() => {
+            // The second build must already see the new list.
+            expect(readFileSync(path, 'utf8')).toBe(NEW_LIST)
+        })
+
+        expect(updateLicensesModule(path, NEW_LIST, rebuild)).toBe(true)
+        expect(rebuild).toHaveBeenCalledTimes(1)
+    })
+
+    it('writes a missing list and builds again', () => {
+        const path = join(dir, 'legal', 'third-party-licenses.ts')
+        const rebuild = vi.fn()
+
+        expect(updateLicensesModule(path, NEW_LIST, rebuild)).toBe(true)
+        expect(readFileSync(path, 'utf8')).toBe(NEW_LIST)
+        expect(rebuild).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves an unchanged list alone, even with Windows line endings, and skips the second build', () => {
+        const path = join(dir, 'third-party-licenses.ts')
+        const crlf = 'export const A = 1\r\nexport const B = 2\r\n'
+        writeFileSync(path, crlf)
+        const rebuild = vi.fn()
+
+        expect(updateLicensesModule(path, 'export const A = 1\nexport const B = 2\n', rebuild)).toBe(false)
+        expect(readFileSync(path, 'utf8')).toBe(crlf)
+        expect(rebuild).not.toHaveBeenCalled()
     })
 })
 

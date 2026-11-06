@@ -39,6 +39,16 @@ jobs:
             - name: Build Next.js app
               run: bun run build
 
+            # The build regenerates these and always ships the fresh copy. A diff only means the
+            # committed copy is stale (for example after a Dependabot bump), so this warns instead of failing.
+            - name: Check generated files are committed
+              shell: bash
+              run: |
+                  if ! git diff --quiet -- lib/legal/third-party-licenses.ts lib/examples; then
+                    git diff --stat -- lib/legal/third-party-licenses.ts lib/examples
+                    echo "::warning title=Generated files are out of date::Run 'bun run build' and commit lib/legal/third-party-licenses.ts and lib/examples."
+                  fi
+
             - name: Test with coverage
               run: bun run test:coverage
 
