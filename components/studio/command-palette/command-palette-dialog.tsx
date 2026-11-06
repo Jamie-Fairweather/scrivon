@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon, XIcon } from 'lucide-react'
-import { Fragment, useCallback, useRef, type KeyboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
 import { MAX_HITS, MIN_QUERY_LENGTH } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
@@ -181,7 +181,19 @@ export function CommandPaletteDialog({
     )
 
     const inputRef = useRef<HTMLInputElement>(null)
+    const selectOnFocusRef = useRef(true)
     const filterLabel = MODE_FILTER_LABELS[mode]
+
+    useEffect(() => {
+        if (!open) selectOnFocusRef.current = true
+    }, [open])
+
+    // Select a pre-filled query when the palette opens, so typing replaces it instead of appending.
+    const handleInputFocus = useCallback((event: FocusEvent<HTMLInputElement>) => {
+        if (!selectOnFocusRef.current) return
+        selectOnFocusRef.current = false
+        event.currentTarget.select()
+    }, [])
 
     const showAllResults = useCallback(() => {
         onModeChange('all')
@@ -230,6 +242,7 @@ export function CommandPaletteDialog({
                         // Make room for the filter chip so typed text doesn't run under it.
                         className={filterLabel ? '*:data-[slot=autocomplete-input]:pe-24 sm:*:data-[slot=autocomplete-input]:pe-24' : undefined}
                         endAddon={endAddon}
+                        onFocus={handleInputFocus}
                         onKeyDown={handleInputKeyDown}
                         placeholder={MODE_PLACEHOLDERS[mode]}
                         ref={inputRef}

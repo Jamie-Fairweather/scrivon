@@ -1,9 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 
 type DialogProps = ComponentProps<typeof CommandPaletteDialog>
+
+beforeAll(() => {
+    // happy-dom has no Web Animations API, which Base UI's scroll area calls on a timer.
+    if (typeof Element.prototype.getAnimations !== 'function') Element.prototype.getAnimations = () => []
+})
 
 function renderDialog(overrides: Partial<DialogProps> = {}) {
     const props: DialogProps = {
@@ -73,5 +78,16 @@ describe('CommandPaletteDialog modes', () => {
     it('explains that results are filtered when nothing matches in a narrowed mode', () => {
         renderDialog({ mode: 'text', query: 'readme' })
         expect(screen.getByText(/^No text matches\. Remove the Text filter to search file names too\./)).toBeInTheDocument()
+    })
+})
+
+describe('CommandPaletteDialog pre-filled query', () => {
+    it('selects a pre-filled query when it opens, so typing replaces it', async () => {
+        renderDialog({ mode: 'text', query: 'flowchart' })
+        const input = screen.getByRole<HTMLInputElement>('combobox')
+
+        await waitFor(() => expect(input).toHaveFocus())
+        expect(input.selectionStart).toBe(0)
+        expect(input.selectionEnd).toBe('flowchart'.length)
     })
 })

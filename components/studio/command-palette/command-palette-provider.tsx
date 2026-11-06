@@ -1,7 +1,8 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
+import { queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
 import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -27,6 +28,7 @@ type CommandPaletteProviderProps = {
 export function CommandPaletteProvider({ children, coordinator }: CommandPaletteProviderProps) {
     const [open, setOpen] = useState(false)
     const [mode, setMode] = useState<PaletteMode>('all')
+    const openRef = useRef(false)
 
     const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, textUnreadableFiles, runItem, hasWorkspace } = usePaletteSearch(
         mode,
@@ -35,11 +37,14 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
 
     const openPalette = useCallback(
         (nextMode: PaletteMode = 'all') => {
-            const selectedText = coordinator.getEditorSelectedText.current()?.trim()
-            if (selectedText) {
-                setQuery(selectedText)
-            }
             setMode(nextMode)
+            // Already open (e.g. F1 pressed inside the palette): switch mode but keep what the user typed.
+            if (openRef.current) return
+
+            // Like VS Code, only Find in Workspace starts from the editor selection.
+            const seed = nextMode === 'text' ? queryFromEditorSelection(coordinator.getEditorSelectedText.current()) : null
+            if (seed) setQuery(seed)
+            openRef.current = true
             setOpen(true)
         },
         [coordinator, setQuery]
@@ -47,6 +52,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
+            openRef.current = nextOpen
             setOpen(nextOpen)
             if (!nextOpen) resetSearch()
         },
