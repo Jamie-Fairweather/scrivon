@@ -13,6 +13,7 @@ import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { clampEditorWidth } from '@/components/studio/editor/editor-width'
 import { documentKind } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -30,9 +31,6 @@ const MonacoEditor = dynamic(
     },
     { ssr: false, loading: () => <EditorLoading /> }
 )
-
-const MIN_WIDTH = 280
-const MAX_WIDTH_RATIO = 0.6
 
 const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
@@ -70,11 +68,6 @@ type CodeEditorPanelProps = {
     onWidthChange: (width: number) => void
 }
 
-function clampWidth(width: number) {
-    const maxWidth = typeof window !== 'undefined' ? window.innerWidth * MAX_WIDTH_RATIO : 800
-    return Math.min(maxWidth, Math.max(MIN_WIDTH, width))
-}
-
 function languageForTab(tab: DocumentTab) {
     if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
@@ -87,6 +80,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
     const resizeStart = useRef({ x: 0, width: 0 })
+    const rootRef = useRef<HTMLDivElement>(null)
+    const [rowWidth, setRowWidth] = useState(0)
     const monacoRef = useRef<Monaco | null>(null)
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
@@ -139,15 +134,31 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
         revealPosition(pending.path, pending.line, pending.column)
     }, [activeTab?.path, revealPosition])
 
+    // Measure the row shared with the preview, so a saved width that no longer fits (smaller
+    // window or monitor) is shown narrower instead of pushing the preview off-screen. The
+    // saved width is left alone and comes back when there is room again.
+    useEffect(() => {
+        const row = rootRef.current?.parentElement
+        if (!row || typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(([entry]) => {
+            if (entry) setRowWidth(entry.contentRect.width)
+        })
+        observer.observe(row)
+        return () => observer.disconnect()
+    }, [])
+
+    const effectiveWidth = rowWidth > 0 ? clampEditorWidth(width, rowWidth) : width
+
     const onResizePointerDown = useCallback(
         (e: React.PointerEvent) => {
             e.preventDefault()
-            resizeStart.current = { x: e.clientX, width }
+            resizeStart.current = { x: e.clientX, width: effectiveWidth }
             e.currentTarget.setPointerCapture(e.pointerId)
+            const available = rowWidth > 0 ? rowWidth : window.innerWidth
 
             const onMove = (moveEvent: PointerEvent) => {
                 const delta = moveEvent.clientX - resizeStart.current.x
-                onWidthChange(clampWidth(resizeStart.current.width + delta))
+                onWidthChange(clampEditorWidth(resizeStart.current.width + delta, available))
             }
 
             const onUp = () => {
@@ -158,7 +169,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
             window.addEventListener('pointermove', onMove)
             window.addEventListener('pointerup', onUp)
         },
-        [width, onWidthChange]
+        [effectiveWidth, rowWidth, onWidthChange]
     )
 
     const onEditorChange = useCallback(
@@ -287,7 +298,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange }: CodeEdito
     }, [tokens, isLight])
 
     return (
-        <div className={cn('relative flex h-full shrink-0 flex-col border-r border-border bg-code', !open && 'hidden')} style={{ width }}>
+        <div
+            ref={rootRef}
+            className={cn('relative flex h-full shrink-0 flex-col border-r border-border bg-code', !open && 'hidden')}
+            style={{ width: effectiveWidth }}
+        >
             <div className="min-h-0 flex-1 overflow-hidden bg-code">
                 {editorPath ? (
                     <MonacoEditor

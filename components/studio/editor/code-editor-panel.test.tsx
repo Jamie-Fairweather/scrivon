@@ -297,3 +297,31 @@ describe('CodeEditorPanel keeps editing state', () => {
         expect(model!.disposed).toBe(false)
     })
 })
+
+describe('CodeEditorPanel width', () => {
+    it('shows a saved width that no longer fits narrower, leaving room for the preview', () => {
+        const callbacks: ResizeObserverCallback[] = []
+        const original = globalThis.ResizeObserver
+        globalThis.ResizeObserver = class {
+            constructor(callback: ResizeObserverCallback) {
+                callbacks.push(callback)
+            }
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        } as unknown as typeof ResizeObserver
+        try {
+            const view = render(<CodeEditorPanel width={1500} onWidthChange={() => {}} />)
+            const panel = view.container.firstElementChild as HTMLElement
+            expect(panel.style.width).toBe('1500px')
+
+            act(() => callbacks.forEach((cb) => cb([{ contentRect: { width: 1110 } } as ResizeObserverEntry], {} as ResizeObserver)))
+            expect(panel.style.width).toBe('666px')
+
+            act(() => callbacks.forEach((cb) => cb([{ contentRect: { width: 3000 } } as ResizeObserverEntry], {} as ResizeObserver)))
+            expect(panel.style.width).toBe('1500px')
+        } finally {
+            globalThis.ResizeObserver = original
+        }
+    })
+})
