@@ -103,6 +103,18 @@ describe('semantic-release plugins', () => {
         expect(await analyze('docs: update readme')).toBeNull()
     })
 
+    it('commits every file sync-version.mjs rewrites, Cargo.lock included', () => {
+        expect(pluginOptions('@semantic-release/git').assets).toEqual(
+            expect.arrayContaining([
+                'package.json',
+                'src-tauri/Cargo.toml',
+                'src-tauri/Cargo.lock',
+                'src-tauri/tauri.conf.json',
+                'lib/legal/third-party-licenses.ts',
+            ])
+        )
+    })
+
     it('creates the GitHub Release as a draft, for the Windows build job to publish', () => {
         expect(pluginOptions('@semantic-release/github')).toMatchObject({ draftRelease: true })
     })

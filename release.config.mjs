@@ -30,7 +30,14 @@ const exec = [
     },
 ]
 
-const versionAssets = ['package.json', 'src-tauri/Cargo.toml', 'src-tauri/tauri.conf.json', 'lib/legal/third-party-licenses.ts']
+// Everything scripts/sync-version.mjs rewrites, so the release commit and tag carry matching versions.
+const versionAssets = [
+    'package.json',
+    'src-tauri/Cargo.toml',
+    'src-tauri/Cargo.lock',
+    'src-tauri/tauri.conf.json',
+    'lib/legal/third-party-licenses.ts',
+]
 
 /** @param {string[]} assets */
 function git(assets) {

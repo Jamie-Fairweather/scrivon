@@ -95,8 +95,9 @@ jobs:
               with:
                   workspaces: src-tauri -> target
 
+            # --locked: fail when Cargo.lock is out of date instead of quietly rewriting it.
             - name: Test
-              run: cargo test
+              run: cargo test --locked
               working-directory: src-tauri
 
     # Windows is the main platform. The WebView2 PDF exporter and the Windows shortcut
@@ -122,11 +123,11 @@ jobs:
                   workspaces: src-tauri -> target
 
             - name: Clippy
-              run: cargo clippy --all-targets
+              run: cargo clippy --all-targets --locked
               working-directory: src-tauri
 
             - name: Test
-              run: cargo test
+              run: cargo test --locked
               working-directory: src-tauri
 
     # Catches Windows path handling (backslashes, drive letters) that POSIX-only runs miss.
