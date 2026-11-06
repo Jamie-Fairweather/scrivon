@@ -62,6 +62,39 @@ text
         }
     })
 
+    it('keeps prose labels and quotes between two rules, which only look like YAML', () => {
+        for (const source of [
+            '---\nNote: this is a draft.\n---\n\nRest',
+            '---\nAgenda:\n- item one\n- item two\n---\n\nRest',
+            '---\nThe plan is simple: ship it.\n---\nRest',
+            '---\n> Note: quoted\n---\nRest',
+            '---\n**Status**: draft\n---\nRest',
+            '---\n[docs]: https://example.com\n---\nRest',
+        ]) {
+            expect(parsePdfExportFrontMatter(source)).toEqual({ matter: {}, body: source })
+        }
+    })
+
+    it('reads front matter with spaced, non-English, quoted or capitalised keys, comments and flow lists', () => {
+        for (const source of [
+            '---\ntitle: Report\ndate created: 2024-01-01\n---\nHello',
+            '---\n标题: 报告\ntitle: Report\n---\nHello',
+            '---\ncatégorie: notes\ntitle: Report\n---\nHello',
+            '---\n"my key": x\ntitle: Report\n---\nHello',
+            "---\n'title': Report\n---\nHello",
+            '---\n# exported from Obsidian\ntitle: Report\n---\nHello',
+            '---\ntitle: Report\ntags: [\n  draft,\n  notes\n]\n---\nHello',
+            '---\nTitle: Report\n---\nHello',
+        ]) {
+            expect(parsePdfExportFrontMatter(source)).toEqual({ matter: { title: 'Report' }, body: 'Hello' })
+            expect(resolvePdfExportMetadata(source, 'report.md').metadata.title).toBe('Report')
+        }
+        // Lower-case keys the export doesn't use are still front matter, just not read.
+        expect(parsePdfExportFrontMatter('---\nid: 42\nstatus: draft\n---\nHello')).toEqual({ matter: {}, body: 'Hello' })
+        // A `title:` nested under another key is not the document's title.
+        expect(parsePdfExportFrontMatter('---\nseries:\n  title: Other\n---\nHello')).toEqual({ matter: {}, body: 'Hello' })
+    })
+
     it('only closes on a --- line of its own', () => {
         // `----` and a pipe-less table divider are not the closing fence.
         expect(parsePdfExportFrontMatter('---\ntitle: Report\n----\n# Body\n').body).toBe('---\ntitle: Report\n----\n# Body\n')

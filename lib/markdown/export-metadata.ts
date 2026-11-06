@@ -89,24 +89,49 @@ function stripQuotes(value: string): string {
     return trimmed
 }
 
-/** A YAML `key:` line, the kind of line front matter is made of. */
-const YAML_KEY_LINE = /^[A-Za-z_][\w-]*\s*:/
-/** What YAML allows after a key: indented (nested) values, list items and comments. */
-const YAML_CONTINUATION_LINE = /^(?:\s|-\s|-$|#)/
+/**
+ * A top-level YAML `key:` line, the kind of line front matter is made of: a quoted key, or text
+ * that doesn't start with a YAML indicator (list item, comment, `>`, `[`, `*`...), then a `:`
+ * followed by a space or the line end. So `date created:`, `标题:` and `"my key":` all count.
+ */
+const YAML_KEY_LINE = /^(?:"([^"]*)"|'([^']*)'|([^\s#:\-?,[\]{}&*!|>'"%@`][^:]*?))\s*:(?:\s|$)/u
+/** A YAML comment, allowed anywhere in front matter. */
+const YAML_COMMENT_LINE = /^#/
+/** What YAML allows after a key: indented (nested) values, list items, and a flow list's closing `]` or `}`. */
+const YAML_CONTINUATION_LINE = /^(?:\s|-(?:\s|$)|[\]}])/
+/** A key written the way front matter keys are: lower case, or a script with no capitals (`标题`). */
+const FRONT_MATTER_STYLE_KEY = /^[\p{Ll}\p{Lo}_]/u
+/** Keys the export reads, so `Title:` still counts even though front matter keys are usually lower case. */
+const EXPORT_KEYS = new Set([...FRONT_MATTER_KEYS, 'lang'])
+
+/** The key and the raw value of a top-level YAML `key: value` line, or null for any other line. */
+function yamlKeyLine(line: string): { key: string; value: string } | null {
+    const match = YAML_KEY_LINE.exec(line)
+    if (!match) return null
+    return { key: (match[1] ?? match[2] ?? match[3]!).trim(), value: line.slice(match[0].length) }
+}
 
 /**
- * Whether the text between two leading `---` lines is front matter rather than
- * ordinary Markdown between two horizontal rules. Only `key: value` lines (and
- * the values nested under them) count, so paragraphs between rules are kept.
+ * Whether the text between two leading `---` lines is front matter rather than ordinary
+ * Markdown between two horizontal rules. Every line must be YAML-shaped (keys, the values
+ * nested under them, comments), and at least one key must look like a front-matter key, so a
+ * paragraph between rules, or a prose label like `Note: draft` or `Agenda:` with a list, is kept.
  */
 function isFrontMatterBlock(block: string): boolean {
     let sawKey = false
+    let frontMatterKey = false
+    let blank = true
     for (const line of block.split(/\r?\n/)) {
         if (!line.trim()) continue
-        if (YAML_KEY_LINE.test(line)) sawKey = true
+        blank = false
+        const entry = yamlKeyLine(line)
+        if (entry) {
+            sawKey = true
+            if (FRONT_MATTER_STYLE_KEY.test(entry.key) || EXPORT_KEYS.has(entry.key.toLowerCase())) frontMatterKey = true
+        } else if (YAML_COMMENT_LINE.test(line)) continue
         else if (!sawKey || !YAML_CONTINUATION_LINE.test(line)) return false
     }
-    return true
+    return blank || frontMatterKey
 }
 
 /** A BCP-47 language tag such as `ja`, `en-GB` or `zh-Hant-TW`. */
@@ -124,10 +149,11 @@ export function parsePdfExportFrontMatter(source: string): { matter: Partial<Pdf
     const matter: Partial<PdfExportMetadata> = {}
     let lang: string | undefined
     for (const line of match[1]!.split(/\r?\n/)) {
-        const colon = line.indexOf(':')
-        if (colon <= 0) continue
-        const key = line.slice(0, colon).trim().toLowerCase()
-        const value = stripQuotes(line.slice(colon + 1))
+        // Only top-level keys: a `title:` nested under another key is not the document's title.
+        const entry = yamlKeyLine(line)
+        if (!entry) continue
+        const key = entry.key.toLowerCase()
+        const value = stripQuotes(entry.value)
         if (key === 'lang' && LANGUAGE_TAG.test(value)) lang = value
         if (!FRONT_MATTER_KEYS.has(key) || !value) continue
         matter[key as keyof PdfExportMetadata] = value
