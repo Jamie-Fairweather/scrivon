@@ -70,7 +70,8 @@ export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
                 <AlertDialogPopup>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete {isDirectory ? 'folder' : 'file'}?</AlertDialogTitle>
-                        <AlertDialogDescription>{description}</AlertDialogDescription>
+                        {/* Long names with no spaces (snake_case, dotted) break anywhere instead of running past the dialog. */}
+                        <AlertDialogDescription className="wrap-anywhere">{description}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogClose render={<Button type="button" variant="ghost" />} onClick={() => finish(false)}>
