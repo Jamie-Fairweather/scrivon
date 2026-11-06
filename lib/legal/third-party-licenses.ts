@@ -1357,20 +1357,20 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[62] + SEP + T[52]
     },
     {
-        "name": "cargo_metadata",
-        "version": "0.19.2",
-        "license": "MIT",
-        "repository": "https://github.com/oli-obk/cargo_metadata",
-        "ecosystem": "rust",
-        "licenseText": T[52]
-    },
-    {
         "name": "cargo-platform",
         "version": "0.1.9",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/cargo",
         "ecosystem": "rust",
         "licenseText": T[51] + SEP + T[52]
+    },
+    {
+        "name": "cargo_metadata",
+        "version": "0.19.2",
+        "license": "MIT",
+        "repository": "https://github.com/oli-obk/cargo_metadata",
+        "ecosystem": "rust",
+        "licenseText": T[52]
     },
     {
         "name": "cbc",
@@ -2285,20 +2285,20 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[105] + SEP + T[163]
     },
     {
-        "name": "multiversion_no_op",
-        "version": "1.0.0",
-        "license": "Apache-2.0 OR MIT",
-        "repository": "https://github.com/hsivonen/multiversion_no_op",
-        "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[106] + SEP + T[164]
-    },
-    {
         "name": "multiversion-macros",
         "version": "0.9.0",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/calebzulawski/multiversion",
         "ecosystem": "rust",
         "licenseText": T[105] + SEP + T[163]
+    },
+    {
+        "name": "multiversion_no_op",
+        "version": "1.0.0",
+        "license": "Apache-2.0 OR MIT",
+        "repository": "https://github.com/hsivonen/multiversion_no_op",
+        "ecosystem": "rust",
+        "licenseText": T[105] + SEP + T[106] + SEP + T[164]
     },
     {
         "name": "new_debug_unreachable",
@@ -2741,6 +2741,14 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[61] + SEP + T[52]
     },
     {
+        "name": "serde-untagged",
+        "version": "0.1.9",
+        "license": "MIT OR Apache-2.0",
+        "repository": "https://github.com/dtolnay/serde-untagged",
+        "ecosystem": "rust",
+        "licenseText": T[61] + SEP + T[52]
+    },
+    {
         "name": "serde_core",
         "version": "1.0.228",
         "license": "MIT OR Apache-2.0",
@@ -2803,14 +2811,6 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "repository": "https://github.com/jonasbb/serde_with/",
         "ecosystem": "rust",
         "licenseText": T[62] + SEP + T[104]
-    },
-    {
-        "name": "serde-untagged",
-        "version": "0.1.9",
-        "license": "MIT OR Apache-2.0",
-        "repository": "https://github.com/dtolnay/serde-untagged",
-        "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[52]
     },
     {
         "name": "serialize-to-javascript",
@@ -3549,14 +3549,6 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[260] + SEP + T[261]
     },
     {
-        "name": "windows_x86_64_msvc",
-        "version": "0.52.6, 0.53.1",
-        "license": "MIT OR Apache-2.0",
-        "repository": "https://github.com/microsoft/windows-rs",
-        "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
-    },
-    {
         "name": "windows-collections",
         "version": "0.2.0",
         "license": "MIT OR Apache-2.0",
@@ -3655,6 +3647,14 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     {
         "name": "windows-version",
         "version": "0.1.7",
+        "license": "MIT OR Apache-2.0",
+        "repository": "https://github.com/microsoft/windows-rs",
+        "ecosystem": "rust",
+        "licenseText": T[260] + SEP + T[261]
+    },
+    {
+        "name": "windows_x86_64_msvc",
+        "version": "0.52.6, 0.53.1",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",

@@ -30,6 +30,14 @@ const NOT_LICENSE_TEXT_RE = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml|lock|sh|ps1|py|rs
 const METADATA_ONLY_RE = /\.spdx$/i
 const TEXT_SEPARATOR = '\n\n----------------------------------------\n\n'
 
+/**
+ * Plain character order. localeCompare follows the machine's locale, which puts `-` and `_` in a different
+ * order on Windows (en-GB) than on the Linux CI runners (C.UTF-8), so the file would change with every build.
+ */
+const compareNames = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+/** Versions with numbers compared as numbers (0.9 before 0.10), in a fixed locale for the same reason. */
+const compareVersions = (a, b) => a.localeCompare(b, 'en', { numeric: true })
+
 const NODE_MODULES_PKG_RE = /node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\][^/\\]+)|[^/\\]+)/
 
 function ensureShippedBuild() {
@@ -151,14 +159,17 @@ export function normalizeText(text) {
         .trim()
 }
 
-/** Licence-like files in a package directory: LICENSE* first, then COPYING, NOTICE and the rest. */
+/**
+ * Licence-like files in a package directory: LICENSE* first, then COPYING, NOTICE and the rest, and
+ * LICENSE.spdx (metadata, not a licence text) last.
+ */
 export function findLicenseFiles(dir) {
     if (!existsSync(dir)) return []
-    const rank = (file) => (/^licen[cs]e/i.test(file) ? 0 : 1)
+    const rank = (file) => (METADATA_ONLY_RE.test(file) ? 2 : /^licen[cs]e/i.test(file) ? 0 : 1)
     return readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isFile() && LICENSE_FILE_RE.test(entry.name) && !NOT_LICENSE_TEXT_RE.test(entry.name))
         .map((entry) => entry.name)
-        .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+        .sort((a, b) => rank(a) - rank(b) || compareNames(a, b))
 }
 
 /** Licence ids in an SPDX expression, including the old `MIT/Apache-2.0` form. */
@@ -304,12 +315,12 @@ export function rustCratesFromMetadata(metadata) {
     }
 
     return [...byName.values()]
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => compareNames(a.name, b.name))
         .map((crate) => {
             const license = crate.licenses.join('; ') || 'Unknown'
             return {
                 name: crate.name,
-                version: crate.versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', '),
+                version: crate.versions.sort(compareVersions).join(', '),
                 license,
                 repository: normalizeRepository(crate.repository) ?? `https://crates.io/crates/${crate.name}`,
                 ecosystem: 'rust',
@@ -427,7 +438,7 @@ function main() {
 
     ensureShippedBuild()
 
-    const shippedNames = [...collectShippedPackageNames()].sort((a, b) => a.localeCompare(b))
+    const shippedNames = [...collectShippedPackageNames()].sort(compareNames)
     const npmPackages = shippedNames.map(npmPackageEntry).filter(Boolean)
     const rustCrates = rustCratesFromMetadata(readCargoMetadata())
     const entries = withUniqueNames([...npmPackages, ...fontEntries(), ...rustCrates])

@@ -46,10 +46,19 @@ describe('licence files', () => {
         expect(findLicenseFiles(path)).toEqual(['LICENCE.txt', 'LICENSE_APACHE-2.0', 'LICENSE_MIT', 'NOTICE'])
     })
 
+    it('orders licence files by plain character order, whatever the machine locale', () => {
+        // en-GB collation puts _ before -, the C locale on Linux runners puts - first.
+        // LICENSE.spdx only describes the licences, so it goes after the real texts.
+        const path = packageDir('pkg', { LICENSE_APACHE: 'apache', 'LICENSE-MIT': 'mit', 'LICENSE.md': 'md', 'LICENSE.spdx': 'spdx', NOTICE: 'n' })
+
+        expect(findLicenseFiles(path)).toEqual(['LICENSE-MIT', 'LICENSE.md', 'LICENSE_APACHE', 'NOTICE', 'LICENSE.spdx'])
+    })
+
     it('keeps every licence a package ships, once each', () => {
         const path = packageDir('tauri', { LICENSE_MIT: 'MIT text\r\n', 'LICENSE_APACHE-2.0': 'Apache text', 'LICENSE.md': 'MIT text' })
 
-        expect(readLicenseTexts([path], { name: 'tauri', license: 'Apache-2.0 OR MIT' })).toEqual(['Apache text', 'MIT text'])
+        // LICENSE.md sorts first, and LICENSE_MIT repeats its text.
+        expect(readLicenseTexts([path], { name: 'tauri', license: 'Apache-2.0 OR MIT' })).toEqual(['MIT text', 'Apache text'])
     })
 
     it('falls back to the standard texts when a package only ships SPDX metadata', () => {
@@ -125,6 +134,29 @@ describe('rustCratesFromMetadata', () => {
             licenseTexts: ['Copyright tauri'],
         })
         expect(crates[1].licenseTexts).toEqual(['Copyright windows-sys'])
+    })
+
+    it('sorts names by plain character order and versions numerically, whatever the machine locale', () => {
+        const names = ['serde_core', 'serde-untagged', 'cargo_metadata', 'cargo-platform', 'Inflector']
+        const packages = [crate('app', '1.0.0'), ...names.map((name) => crate(name, '1.0.0')), crate('syn', '0.10.0'), crate('syn', '0.9.1')]
+        const metadata = {
+            packages,
+            resolve: {
+                root: 'app@1.0.0',
+                nodes: [{ id: 'app@1.0.0', deps: packages.slice(1).map((pkg) => ({ pkg: pkg.id, dep_kinds: normal })) }],
+            },
+        }
+
+        const crates = rustCratesFromMetadata(metadata)
+
+        expect(crates.map((c: { name: string; version: string }) => `${c.name} ${c.version}`)).toEqual([
+            'Inflector 1.0.0',
+            'cargo-platform 1.0.0',
+            'cargo_metadata 1.0.0',
+            'serde-untagged 1.0.0',
+            'serde_core 1.0.0',
+            'syn 0.9.1, 0.10.0',
+        ])
     })
 })
 
