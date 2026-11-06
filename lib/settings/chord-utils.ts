@@ -60,11 +60,40 @@ export function isReservedKey(key: string): boolean {
 }
 
 /**
+ * What KeyboardEvent.key says when it can't name the key: an input method (IME) is composing,
+ * a dead key (´ ^ ` on many layouts) is waiting for the next letter, or the key is unknown.
+ * A shortcut on one of these would match every such key.
+ */
+const UNNAMED_KEYS = new Set(['Process', 'Dead', 'Unidentified'])
+
+export function isUnnamedKey(key: string): boolean {
+    return UNNAMED_KEYS.has(key)
+}
+
+/** True while an input method (Japanese, Chinese, Korean…) is composing text: the key is part of it. */
+export function isComposingKeyEvent(event: { key: string; isComposing?: boolean; keyCode?: number }): boolean {
+    return Boolean(event.isComposing) || event.keyCode === 229 || event.key === 'Process'
+}
+
+/**
+ * True when AltGr makes this key type something, like AltGr+Q typing "@" on a German keyboard or
+ * AltGr+E typing "ę" on a Polish one. Windows reports AltGr as Ctrl+Alt, so a Ctrl+Alt shortcut
+ * there would stop that character being typed. A key that still gives its own letter or digit
+ * (Ctrl+Alt+T on a German keyboard) types nothing, so it can be a shortcut.
+ */
+export function typesAltGraphCharacter(event: { key: string; getModifierState?: (key: string) => boolean }): boolean {
+    if (typeof event.getModifierState !== 'function' || !event.getModifierState('AltGraph')) return false
+    if (event.key === 'Dead') return true
+    return [...event.key].length === 1 && !/^[a-z0-9]$/i.test(event.key)
+}
+
+/**
  * Whether a chord can be an app shortcut: it needs Ctrl, Alt or Cmd unless it is a function key,
- * and it can never use Tab, Enter, Space, Escape, Backspace, Delete or the arrow keys.
+ * and it can never use Tab, Enter, Space, Escape, Backspace, Delete, the arrow keys, or a key
+ * the browser can't name (IME, dead keys).
  */
 export function isAllowedChord(chord: KeybindChord): boolean {
-    if (isReservedKey(chord.key)) return false
+    if (isReservedKey(chord.key) || isUnnamedKey(chord.key)) return false
     return hasCommandModifier(chord) || isFunctionKey(chord.key)
 }
 

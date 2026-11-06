@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { isModifierKey, normalizeChord, physicalKeyFallback } from '@/lib/settings/chord-utils'
+import { isComposingKeyEvent, isModifierKey, normalizeChord, physicalKeyFallback, typesAltGraphCharacter } from '@/lib/settings/chord-utils'
 import { describeDisallowedChord } from '@/lib/settings/conflicts'
 import { formatChord } from '@/lib/settings/format-keybind'
 import type { KeybindChord } from '@/lib/settings/types'
@@ -43,7 +43,13 @@ export function KeybindCapture({ active, label, onCapture, onCancel, onReject }:
                 return
             }
 
-            if (isModifierKey(event.key)) return
+            // Modifiers wait for the real key; IME keystrokes belong to the text being composed.
+            if (isModifierKey(event.key) || isComposingKeyEvent(event)) return
+
+            if (typesAltGraphCharacter(event)) {
+                onReject('That combination types a character on your keyboard layout')
+                return
+            }
 
             const chord = normalizeChord({
                 // Record the physical key on non-Latin layouts and for Shift+digit, so it matches on any layout.

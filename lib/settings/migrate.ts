@@ -1,6 +1,6 @@
 import { isAppThemeId, parseStoredTheme } from '@/lib/theme/catalog'
 import { createDefaultSettings } from '@/lib/settings/defaults'
-import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey } from '@/lib/settings/chord-utils'
+import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
@@ -22,7 +22,8 @@ function readNumber(value: string | null, defaultValue: number, min: number, max
 function normalizeChord(raw: unknown): KeybindChord | null {
     if (!raw || typeof raw !== 'object') return null
     const value = raw as Record<string, unknown>
-    if (typeof value.key !== 'string' || value.key.length === 0 || isModifierKey(value.key)) return null
+    // A modifier on its own, or a key that couldn't be named (IME "Process", "Dead"), was never a real choice.
+    if (typeof value.key !== 'string' || value.key.length === 0 || isModifierKey(value.key) || isUnnamedKey(value.key)) return null
 
     return {
         key: value.key,

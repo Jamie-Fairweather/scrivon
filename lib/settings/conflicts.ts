@@ -1,4 +1,4 @@
-import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, isReservedKey } from '@/lib/settings/chord-utils'
+import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, isReservedKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
@@ -27,6 +27,7 @@ export function findKeybindConflicts(bindings: KeybindBindings): KeybindConflict
 
 /** A short reason a chord can't be used as a shortcut, or null when it can. */
 export function describeDisallowedChord(chord: KeybindChord, isMac = isMacPlatform()): string | null {
+    if (isUnnamedKey(chord.key)) return "That key can't be used in shortcuts on your keyboard layout"
     if (isReservedKey(chord.key)) return "Tab, Enter, Space, Backspace, Delete and arrow keys can't be used in shortcuts"
     if (!isAllowedChord(chord)) return isMac ? 'Add ⌘, ⌃ or ⌥, or use a function key' : 'Add Ctrl or Alt, or use a function key'
     return null

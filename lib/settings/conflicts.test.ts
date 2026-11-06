@@ -65,6 +65,11 @@ describe('describeDisallowedChord', () => {
         expect(describeDisallowedChord({ key: 'e', shift: true }, true)).toBe('Add ⌘, ⌃ or ⌥, or use a function key')
     })
 
+    it('explains that a dead key or IME key cannot be a shortcut', () => {
+        expect(describeDisallowedChord({ key: 'Dead', ctrl: true }, false)).toBe("That key can't be used in shortcuts on your keyboard layout")
+        expect(describeDisallowedChord({ key: 'Process', ctrl: true }, false)).toBe("That key can't be used in shortcuts on your keyboard layout")
+    })
+
     it('explains that navigation and editing keys are off limits', () => {
         expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
     })

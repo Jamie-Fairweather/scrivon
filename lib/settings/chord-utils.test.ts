@@ -4,9 +4,11 @@ import {
     chordKey,
     chordsEqual,
     isAllowedChord,
+    isComposingKeyEvent,
     isMacPlatform,
     normalizeChord,
     physicalKeyFallback,
+    typesAltGraphCharacter,
 } from '@/lib/settings/chord-utils'
 
 describe('chordKey', () => {
@@ -55,6 +57,42 @@ describe('isAllowedChord', () => {
             expect(isAllowedChord({ key })).toBe(false)
             expect(isAllowedChord({ key, ctrl: true })).toBe(false)
         }
+    })
+
+    it('rejects keys the browser could not name (IME, dead keys)', () => {
+        for (const key of ['Process', 'Dead', 'Unidentified']) {
+            expect(isAllowedChord({ key, ctrl: true, alt: true })).toBe(false)
+        }
+    })
+})
+
+describe('isComposingKeyEvent', () => {
+    it('spots key presses that belong to IME input', () => {
+        expect(isComposingKeyEvent({ key: 'a', isComposing: true })).toBe(true)
+        expect(isComposingKeyEvent({ key: 'a', keyCode: 229 })).toBe(true)
+        expect(isComposingKeyEvent({ key: 'Process' })).toBe(true)
+        expect(isComposingKeyEvent({ key: 'a', keyCode: 65 })).toBe(false)
+    })
+})
+
+describe('typesAltGraphCharacter', () => {
+    const pressed = (key: string, altGraph = true) => ({ key, getModifierState: (name: string) => name === 'AltGraph' && altGraph })
+
+    it('is true when AltGr turns the key into another character or a dead key', () => {
+        for (const key of ['@', 'ę', '€', '{', 'Dead']) {
+            expect(typesAltGraphCharacter(pressed(key))).toBe(true)
+        }
+    })
+
+    it('is false when the key keeps its own letter or digit, or is a named key', () => {
+        for (const key of ['t', 'T', '1', 'F5']) {
+            expect(typesAltGraphCharacter(pressed(key))).toBe(false)
+        }
+    })
+
+    it('is false without AltGr', () => {
+        expect(typesAltGraphCharacter(pressed('@', false))).toBe(false)
+        expect(typesAltGraphCharacter({ key: '@' })).toBe(false)
     })
 })
 

@@ -8,8 +8,12 @@ function row(label: string): HTMLElement {
     return screen.getByText(label).parentElement!.parentElement!
 }
 
-function press(key: string, init: KeyboardEventInit = {}) {
-    fireEvent.keyDown(document.activeElement ?? document.body, { key, ...init })
+/** altGraph: AltGr held, or Ctrl+Alt on a layout that has AltGr (happy-dom would read it from altKey). */
+function press(key: string, { altGraph = false, ...init }: KeyboardEventInit & { altGraph?: boolean } = {}) {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    const modifierState = event.getModifierState.bind(event)
+    Object.defineProperty(event, 'getModifierState', { value: (name: string) => (name === 'AltGraph' ? altGraph : modifierState(name)) })
+    fireEvent(document.activeElement ?? document.body, event)
 }
 
 function renderKeyboardSettings() {
@@ -94,6 +98,40 @@ describe('KeyboardSettings recording', () => {
         fireEvent.click(within(explorer).getByRole('button', { name: /^Edit shortcut/ }))
         press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' })
         expect(within(explorer).getByText('Ctrl+Shift+1')).toBeInTheDocument()
+    })
+
+    it('refuses a character typed with AltGr and keeps recording', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        // Polish: AltGr+E (reported as Ctrl+Alt) types ę.
+        press('ę', { ctrlKey: true, altKey: true, code: 'KeyE', altGraph: true })
+
+        expect(within(editor).getByRole('alert')).toHaveTextContent('That combination types a character on your keyboard layout')
+        expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
+
+        press('t', { ctrlKey: true, altKey: true, code: 'KeyT', altGraph: true })
+        expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
+    })
+
+    it('ignores IME keystrokes and refuses a dead key while recording', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        press('Process', { ctrlKey: true, keyCode: 229 })
+        press('a', { ctrlKey: true, isComposing: true })
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
+
+        press('Dead', { ctrlKey: true, code: 'Quote' })
+        expect(within(editor).getByRole('alert')).toHaveTextContent("That key can't be used in shortcuts on your keyboard layout")
+        expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
+
+        press('Escape')
+        expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
     })
 
     it('warns on both rows when two shortcuts share a chord', () => {

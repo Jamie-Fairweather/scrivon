@@ -1,5 +1,13 @@
 import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
-import { chordsEqual, hasCommandModifier, isFunctionKey, physicalKeyFallback } from '@/lib/settings/chord-utils'
+import {
+    chordsEqual,
+    hasCommandModifier,
+    isComposingKeyEvent,
+    isFunctionKey,
+    isUnnamedKey,
+    physicalKeyFallback,
+    typesAltGraphCharacter,
+} from '@/lib/settings/chord-utils'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
 export function isNativeTextField(target: EventTarget | null): boolean {
@@ -17,7 +25,10 @@ export function isInsideCodeEditor(target: EventTarget | null): boolean {
     return (target as Element).closest('.monaco-editor') !== null
 }
 
-/** The chords a key press can stand for: as typed, plus the physical key when the layout gets in the way. */
+/**
+ * The chords a key press can stand for: as typed, plus the physical key when the layout gets in
+ * the way. A dead key or an unknown key only stands for its physical key, when it has one.
+ */
 function eventToChords(event: KeyboardEvent): KeybindChord[] {
     const pressed: KeybindChord = {
         key: event.key,
@@ -26,8 +37,9 @@ function eventToChords(event: KeyboardEvent): KeybindChord[] {
         shift: event.shiftKey || undefined,
         alt: event.altKey || undefined,
     }
+    const candidates = isUnnamedKey(pressed.key) ? [] : [pressed]
     const fallback = physicalKeyFallback(event)
-    return fallback ? [pressed, { ...pressed, key: fallback }] : [pressed]
+    return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
 }
 
 function shouldSkipForTarget(actionId: KeybindActionId, target: EventTarget | null, pressed: KeybindChord): boolean {
@@ -41,8 +53,11 @@ function shouldSkipForTarget(actionId: KeybindActionId, target: EventTarget | nu
 
 export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: { hasWorkspace?: boolean } = {}): KeybindActionId | null {
     if (event.repeat) return null
+    // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
+    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return null
 
     const pressed = eventToChords(event)
+    if (pressed.length === 0) return null
 
     for (const [actionId, chords] of Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]) {
         if (chords.length === 0) continue

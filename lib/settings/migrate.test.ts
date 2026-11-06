@@ -144,6 +144,21 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
+    it('keeps the default when a stored chord is an IME or dead key', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.toggleExplorer': [{ key: 'Process', ctrl: true }],
+                    'view.toggleEditor': [{ key: 'Dead', ctrl: true, alt: true }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
     it('keeps a shortcut the user cleared unassigned', () => {
         const merged = mergeStoredSettings({ keybinds: { 'document.save': [] } }, false)
 
