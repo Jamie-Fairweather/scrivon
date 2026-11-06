@@ -110,6 +110,8 @@ const HEADING_SPACING = [
 ] as const
 /** PDF list padding (`padding-left: 1.25rem`) is about this. The marker hangs inside it, not in the page margin. */
 const LIST_STEP = 360
+/** PDF quotes are `padding-left: 1rem` beside the bar. Each nested quote steps in this far. */
+const QUOTE_STEP = 240
 /** PDF table cells are `padding: 0.5rem 0.75rem`. */
 const TABLE_CELL_MARGIN = { marginUnitType: WidthType.DXA, top: 120, bottom: 120, left: 180, right: 180 }
 const HEADING_LEVELS = [
@@ -485,6 +487,10 @@ type RenderState = {
     /** Paragraph inset used when the page's own side margins are zero so a bar can reach the paper edge. */
     insetLeft: number
     insetRight: number
+    /** Extra left indent, in twips, for blocks nested in list items and quotes. */
+    extraLeft: number
+    /** How many quotes the blocks being rendered sit inside. */
+    quoteDepth: number
 }
 
 function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
@@ -519,6 +525,8 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         pageWidthTwip: widthTwip,
         insetLeft: sidesBleed ? marginLeft : 0,
         insetRight: sidesBleed ? marginRight : 0,
+        extraLeft: 0,
+        quoteDepth: 0,
     }
 }
 
@@ -535,12 +543,40 @@ function bodyLineSpacing(state: RenderState): { line: number; lineRule: (typeof 
     return { line: lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST }
 }
 
-/** Body text inset. Empty when the page margins already provide it. */
-function contentIndent(state: RenderState, extraLeft = 0): { left: number; right: number } | undefined {
-    const left = state.insetLeft + extraLeft
+/** Body text inset, including any list or quote the block sits in. Empty when the page margins already provide it. */
+function contentIndent(state: RenderState): { left: number; right: number } | undefined {
+    const left = state.insetLeft + state.extraLeft
     const right = state.insetRight
     if (left === 0 && right === 0) return undefined
     return { left, right }
+}
+
+/** Width left for a picture once nested blocks have stepped in. */
+function availablePx(state: RenderState): number {
+    return Math.max(1, state.contentPx - Math.round(state.extraLeft / 15))
+}
+
+/** The quote's accent bar, on every block inside a quote. Word draws it `space` points left of the text, at the quote's edge. */
+function quoteBorder(state: RenderState) {
+    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, size: 12, color: state.accent, space: 11 } } : undefined
+}
+
+/** Quote text is grey and italic, as in the PDF. */
+function quoteMarks(state: RenderState): Marks {
+    return state.quoteDepth > 0 ? { quote: true } : {}
+}
+
+/** Renders blocks nested one step in: under a list item's text, or inside a quote. */
+async function nested<T>(state: RenderState, extraLeft: number, quote: boolean, render: () => Promise<T>): Promise<T> {
+    const saved = { extraLeft: state.extraLeft, quoteDepth: state.quoteDepth }
+    state.extraLeft += extraLeft
+    if (quote) state.quoteDepth += 1
+    try {
+        return await render()
+    } finally {
+        state.extraLeft = saved.extraLeft
+        state.quoteDepth = saved.quoteDepth
+    }
 }
 
 function footnoteId(state: RenderState, identifier: string): number {
@@ -619,23 +655,23 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
 }
 
 function renderImage(state: RenderState, node: Image): ImageRun | null {
-    return embeddedImage(decodeImage(state.images, node.url), Math.min(state.contentPx, 640), 480, node.alt || 'image')
+    return embeddedImage(decodeImage(state.images, node.url), Math.min(availablePx(state), 640), 480, node.alt || 'image')
 }
 
-function paragraphOptions(state: RenderState, marks: Marks = {}) {
+function paragraphOptions(state: RenderState) {
     return {
         spacing: { after: 120, ...bodyLineSpacing(state) },
-        border: marks.quote ? { left: { style: BorderStyle.SINGLE, size: 12, color: state.accent, space: 8 } } : undefined,
-        indent: contentIndent(state, marks.quote ? 120 : 0),
+        border: quoteBorder(state),
+        indent: contentIndent(state),
     }
 }
 
-function renderParagraph(state: RenderState, node: MdParagraph, marks: Marks = {}): Paragraph {
-    const justify = state.document.profile.typography.justify && !marks.quote
+function renderParagraph(state: RenderState, node: MdParagraph): Paragraph {
+    const justify = state.document.profile.typography.justify && state.quoteDepth === 0
     return new Paragraph({
-        ...paragraphOptions(state, marks),
+        ...paragraphOptions(state),
         alignment: justify ? AlignmentType.JUSTIFIED : undefined,
-        children: renderInlines(state, node.children, marks),
+        children: renderInlines(state, node.children, quoteMarks(state)),
     })
 }
 
@@ -659,12 +695,13 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
             lineRule: LineRuleType.AT_LEAST,
         },
         indent: contentIndent(state),
+        border: quoteBorder(state),
         children: id ? [new Bookmark({ id, children: inlines })] : inlines,
     })
 }
 
 function listIndent(state: RenderState, depth: number, hang: boolean): { left: number; hanging: number; right: number } {
-    const text = state.insetLeft + LIST_STEP * (depth + 1)
+    const text = state.insetLeft + state.extraLeft + LIST_STEP * (depth + 1)
     return { left: text, hanging: hang ? LIST_STEP : 0, right: state.insetRight }
 }
 
@@ -702,12 +739,13 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     const prefix = item.checked === true ? '☑ ' : item.checked === false ? '☐ ' : ''
     for (const child of item.children) {
         if (child.type === 'paragraph') {
-            const inlines = renderInlines(state, child.children)
-            if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix))
+            const inlines = renderInlines(state, child.children, quoteMarks(state))
+            if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix, quoteMarks(state)))
             blocks.push(
                 new Paragraph({
                     spacing: { after: 60, ...bodyLineSpacing(state) },
                     indent: listIndent(state, depth, !task && !markerPlaced),
+                    border: quoteBorder(state),
                     numbering: task || markerPlaced ? undefined : { reference, level: 0 },
                     children: inlines,
                 })
@@ -716,7 +754,8 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
         } else if (child.type === 'list') {
             blocks.push(...(await renderList(state, child, depth + 1)))
         } else {
-            blocks.push(...(await renderBlocks(state, [child])))
+            // Code, tables, and quotes line up with the item's text, as in the PDF.
+            blocks.push(...(await nested(state, LIST_STEP * (depth + 1), false, () => renderBlocks(state, [child]))))
         }
     }
     if (!markerPlaced) {
@@ -724,6 +763,7 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
             new Paragraph({
                 spacing: { after: 60, ...bodyLineSpacing(state) },
                 indent: listIndent(state, depth, true),
+                border: quoteBorder(state),
                 numbering: { reference, level: 0 },
             })
         )
@@ -731,21 +771,18 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     return blocks
 }
 
+/** Everything inside a quote, not only its paragraphs, gets the bar, the indent, and the quote text style. */
 async function renderBlockquote(state: RenderState, node: Blockquote): Promise<Block[]> {
-    const blocks: Block[] = []
-    for (const child of node.children) {
-        if (child.type === 'paragraph') blocks.push(renderParagraph(state, child, { quote: true, italics: true }))
-        else blocks.push(...(await renderBlocks(state, [child])))
-    }
-    return blocks
+    return nested(state, QUOTE_STEP, true, () => renderBlocks(state, node.children))
 }
 
 function renderTable(state: RenderState, table: MdTable): Table {
-    const width = Math.max(1, state.contentTwip)
+    const width = Math.max(1, state.contentTwip - state.extraLeft)
+    const indent = state.insetLeft + state.extraLeft
     return new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: columnWidths(table, width),
-        indent: state.insetLeft > 0 ? { size: state.insetLeft, type: WidthType.DXA } : undefined,
+        indent: indent > 0 ? { size: indent, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
         rows: table.children.map((row, rowIndex) => renderTableRow(state, row, table.align, rowIndex === 0)),
@@ -802,6 +839,7 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
         return new Paragraph({
             shading: { type: ShadingType.CLEAR, fill },
             indent: contentIndent(state),
+            border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
             children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size: 18 })],
         })
@@ -826,7 +864,7 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
                     new ImageRun({
                         type: 'png',
                         data: prepared.png,
-                        transformation: fit(size, Math.min(state.contentPx, 640), 480),
+                        transformation: fit(size, Math.min(availablePx(state), 640), 480),
                         altText: { name: 'Diagram', description: 'Diagram' },
                     }),
                 ],
@@ -847,9 +885,15 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
         else if (node.type === 'code') blocks.push(...renderPrepared(state, state.prepared.get(node)!))
         else if (node.type === 'table') blocks.push(renderTable(state, node))
         else if (node.type === 'thematicBreak') {
-            blocks.push(new Paragraph({ border: { bottom: GRID_BORDER }, indent: contentIndent(state), spacing: { before: 200, after: 200 } }))
+            blocks.push(
+                new Paragraph({
+                    border: { bottom: GRID_BORDER, ...quoteBorder(state) },
+                    indent: contentIndent(state),
+                    spacing: { before: 200, after: 200 },
+                })
+            )
         } else if (node.type === 'html') {
-            blocks.push(new Paragraph({ ...paragraphOptions(state), children: [textRun(state, (node as Html).value)] }))
+            blocks.push(new Paragraph({ ...paragraphOptions(state), children: [textRun(state, (node as Html).value, quoteMarks(state))] }))
         } else if (node.type === 'footnoteDefinition') {
             const id = footnoteId(state, node.identifier)
             const note = plainText(node).trim()
@@ -1303,7 +1347,7 @@ function measureFlow(
         } else if (node.type === 'list') {
             measureList(state, node, 0, width, pages, cursor, pageHeight)
         } else if (node.type === 'blockquote') {
-            measureFlow(state, node.children, Math.max(200, width - 120), pages, cursor, pageHeight, false)
+            measureFlow(state, node.children, Math.max(200, width - QUOTE_STEP), pages, cursor, pageHeight, false)
         } else if (node.type === 'code') {
             placeBlock(cursor, pageHeight, codeTwip(state, node))
         } else if (node.type === 'table') {

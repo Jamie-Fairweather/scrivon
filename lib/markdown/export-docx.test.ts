@@ -118,6 +118,13 @@ function runWith(xml: string, text: string): string {
     return xml.slice(xml.lastIndexOf('<w:r>', end), end)
 }
 
+/** The `<w:p>` (or, with `tag`, other element) that holds `text`, from its start up to that text. */
+function blockWith(xml: string, text: string, tag = '<w:p>'): string {
+    const end = xml.indexOf(`>${text}</w:t>`)
+    if (end < 0) return ''
+    return xml.slice(xml.lastIndexOf(tag, end), end)
+}
+
 /** Display size, in pixels, of the drawing whose alt text is `descr`. */
 function drawingSize(xml: string, descr: string): { width: number; height: number } | null {
     const at = xml.indexOf(`descr="${descr}"`)
@@ -318,6 +325,51 @@ describe('renderExportDocx', () => {
             draft.typography.monoFont = '"A&B Mono"'
         })
         expect(escaped.xml).toContain('<w:font w:name="A&amp;B Mono">')
+    })
+
+    it('keeps blocks nested in list items and quotes indented, with the quote bar on all of them', async () => {
+        const { xml } = await render(
+            [
+                '- item',
+                '',
+                '  ```js',
+                '  list-code',
+                '  ```',
+                '',
+                '  | list-head |',
+                '  | --- |',
+                '  | list-cell |',
+                '',
+                '  > list-quote',
+                '',
+                '> outer-quote',
+                '>',
+                '> - quote-item',
+                '>',
+                '> ```js',
+                '> quote-code',
+                '> ```',
+                '>',
+                '> > inner-quote',
+            ].join('\n')
+        )
+        const bar = '<w:pBdr><w:left w:val="single" w:color="262626" w:sz="12" w:space="11"/></w:pBdr>'
+        // Under a list item's text (360 twips in), not at the page margin.
+        expect(blockWith(xml, 'list-code')).toContain('w:left="360"')
+        expect(blockWith(xml, 'list-cell', '<w:tbl>')).toContain('<w:tblInd w:type="dxa" w:w="360"/>')
+        expect(blockWith(xml, 'list-quote')).toContain('w:left="600"')
+        expect(blockWith(xml, 'list-quote')).toContain(bar)
+        // Inside a quote: the bar, the quote step, and grey italic text for lists too.
+        expect(blockWith(xml, 'outer-quote')).toContain('w:left="240"')
+        expect(blockWith(xml, 'quote-item')).toContain(bar)
+        expect(blockWith(xml, 'quote-item')).toContain('w:left="600"')
+        expect(runWith(xml, 'quote-item')).toContain('<w:i/>')
+        expect(runWith(xml, 'quote-item')).toContain('<w:color w:val="525252"/>')
+        expect(blockWith(xml, 'quote-code')).toContain(bar)
+        expect(blockWith(xml, 'quote-code')).toContain('w:left="240"')
+        // A nested quote steps in again instead of sitting on its parent's line.
+        expect(blockWith(xml, 'inner-quote')).toContain('w:left="480"')
+        expect(blockWith(xml, 'inner-quote')).toContain(bar)
     })
 
     it('justifies body paragraphs and leaves headings, lists, quotes, and tables left aligned', async () => {
