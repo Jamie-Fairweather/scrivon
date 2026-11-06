@@ -1,4 +1,6 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use base64::Engine;
 use serde::Deserialize;
@@ -23,6 +25,106 @@ pub struct PdfPrintOptions {
     pub page_number_color: String,
 }
 
+/// How long to wait for the export page's images and web fonts before
+/// printing it anyway.
+#[cfg(windows)]
+const READY_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(windows)]
+const READY_POLL: Duration = Duration::from_millis(100);
+/// How often the HTML is written again if the page turns up empty.
+const MAX_REWRITES: usize = 3;
+/// PrintToPdf has no time limit of its own.
+#[cfg(windows)]
+const PRINT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Run after the export HTML is written: `"empty"` if the written HTML was
+/// lost, `"ready"` once the page and its images have loaded and its web fonts
+/// are in, else `"waiting"`. Reading `offsetHeight` lays the page out, which
+/// starts loading the fonts it uses.
+#[cfg(windows)]
+const READY_CHECK: &str = r#"(() => {
+  if (window.__scrivonExportWritten !== true) return 'empty';
+  if (!window.__scrivonExportFonts) {
+    window.__scrivonExportFonts = 'loading';
+    void document.documentElement.offsetHeight;
+    const done = () => { window.__scrivonExportFonts = 'ready'; };
+    document.fonts.ready.then(done, done);
+  }
+  return document.readyState === 'complete' && window.__scrivonExportFonts === 'ready' ? 'ready' : 'waiting';
+})()"#;
+
+/// The hidden window the export prints from. It's closed when dropped, so an
+/// early return doesn't leave it running in the background.
+#[cfg(windows)]
+struct ExportWindow(tauri::WebviewWindow);
+
+#[cfg(windows)]
+impl std::ops::Deref for ExportWindow {
+    type Target = tauri::WebviewWindow;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ExportWindow {
+    fn drop(&mut self) {
+        self.0.close().ok();
+    }
+}
+
+/// Asks the page for its `READY_CHECK` status. `None` if it doesn't answer.
+#[cfg(windows)]
+async fn page_status(window: &tauri::WebviewWindow) -> Option<String> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    let tx = std::sync::Mutex::new(Some(tx));
+    window
+        .eval_with_callback(READY_CHECK, move |result| {
+            if let Some(tx) = tx.lock().ok().and_then(|mut tx| tx.take()) {
+                let _ = tx.send(result);
+            }
+        })
+        .ok()?;
+    let result = tokio::time::timeout(Duration::from_secs(2), rx)
+        .await
+        .ok()?
+        .ok()?;
+    serde_json::from_str(&result).ok()
+}
+
+/// Polls `status` until the page is ready to print, writing the HTML again
+/// with `rewrite` if the page turns up empty. Stops waiting after `limit` and
+/// returns false; the page is then printed as it is.
+#[cfg_attr(not(windows), allow(dead_code))]
+async fn wait_until_ready<F, Fut>(
+    mut status: F,
+    mut rewrite: impl FnMut(),
+    limit: Duration,
+    every: Duration,
+) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<String>>,
+{
+    let deadline = tokio::time::Instant::now() + limit;
+    let mut rewrites = 0;
+    loop {
+        match status().await.as_deref() {
+            Some("ready") => return true,
+            Some("empty") if rewrites < MAX_REWRITES => {
+                rewrites += 1;
+                rewrite();
+            }
+            _ => {}
+        }
+        if tokio::time::Instant::now() + every > deadline {
+            return false;
+        }
+        tokio::time::sleep(every).await;
+    }
+}
+
 #[cfg(windows)]
 async fn export_html_to_pdf_impl(
     app: tauri::AppHandle,
@@ -30,8 +132,6 @@ async fn export_html_to_pdf_impl(
     output_path: String,
     options: PdfPrintOptions,
 ) -> Result<Option<String>, String> {
-    use std::time::Duration;
-
     use tauri::utils::config::WebviewUrl;
     use tauri::webview::{PlatformWebview, WebviewWindowBuilder};
     use webview2_com::{Microsoft::Web::WebView2::Win32::*, PrintToPdfCompletedHandler};
@@ -53,11 +153,27 @@ async fn export_html_to_pdf_impl(
     .inner_size(794.0, 1123.0)
     .build()
     .map_err(|e| e.to_string())?;
+    let window = ExportWindow(window);
 
-    let script = format!("document.open();document.write({html_json});document.close();");
+    let script = format!(
+        "document.open();document.write({html_json});document.close();\
+         window.__scrivonExportWritten=true;"
+    );
     window.eval(&script).map_err(|e| e.to_string())?;
 
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    // Print once the page's images and fonts are in, not after a fixed wait.
+    let ready = wait_until_ready(
+        || page_status(&window),
+        || {
+            let _ = window.eval(&script);
+        },
+        READY_TIMEOUT,
+        READY_POLL,
+    )
+    .await;
+    if !ready {
+        eprintln!("PDF export: the page wasn't ready after {READY_TIMEOUT:?}; printing it anyway.");
+    }
 
     // Print next to the chosen file, not over it: the page numbers are added to
     // a copy, and the chosen file is only replaced once there's a whole PDF.
@@ -149,9 +265,12 @@ async fn export_html_to_pdf_impl(
         })
         .map_err(|e| e.to_string())?;
 
-    let result = rx.await.map_err(|_| "PDF export failed.".to_string())?;
+    let result = match tokio::time::timeout(PRINT_TIMEOUT, rx).await {
+        Ok(result) => result.map_err(|_| "PDF export failed.".to_string())?,
+        Err(_) => Err("Creating the PDF took too long, so it was stopped. Try again.".into()),
+    };
 
-    window.close().ok();
+    drop(window);
 
     if let Err(err) = result {
         let _ = std::fs::remove_file(&printed);
@@ -383,9 +502,13 @@ pub fn read_export_image(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::time::Duration;
+
     use super::{
         check_output_path, check_output_writable, could_not_save_message, mime_from_path,
-        read_export_image, save_printed_pdf, temp_sibling, PdfPrintOptions,
+        read_export_image, save_printed_pdf, temp_sibling, wait_until_ready, PdfPrintOptions,
+        MAX_REWRITES,
     };
 
     #[test]
@@ -676,5 +799,61 @@ mod tests {
         assert!(result.unwrap_err().contains("Couldn't save \"Report.pdf\""));
         assert_eq!(saved, b"%PDF-1.7 last week's export");
         assert_eq!(names, ["Report.pdf"], "temporary files were left behind");
+    }
+
+    /// Runs `wait_until_ready` against a page that answers `statuses` in turn
+    /// (repeating the last one). Returns whether it was ready, and how many
+    /// times it was asked and written again.
+    fn wait_for(statuses: &[Option<&str>], limit: Duration) -> (bool, usize, usize) {
+        let polls = Cell::new(0);
+        let rewrites = Cell::new(0);
+        let ready = tauri::async_runtime::block_on(wait_until_ready(
+            || {
+                let asked = polls.get();
+                polls.set(asked + 1);
+                let status = statuses
+                    .get(asked)
+                    .or(statuses.last())
+                    .copied()
+                    .flatten()
+                    .map(String::from);
+                async move { status }
+            },
+            || rewrites.set(rewrites.get() + 1),
+            limit,
+            Duration::from_millis(1),
+        ));
+        (ready, polls.get(), rewrites.get())
+    }
+
+    #[test]
+    fn prints_as_soon_as_the_page_is_ready() {
+        let limit = Duration::from_secs(5);
+        assert_eq!(
+            wait_for(&[Some("waiting"), Some("waiting"), Some("ready")], limit),
+            (true, 3, 0)
+        );
+        // A page that doesn't answer once is still waited for.
+        assert_eq!(wait_for(&[None, Some("ready")], limit), (true, 2, 0));
+    }
+
+    #[test]
+    fn writes_the_html_again_when_the_page_turns_up_empty() {
+        assert_eq!(
+            wait_for(&[Some("empty"), Some("ready")], Duration::from_secs(5)),
+            (true, 2, 1)
+        );
+        let (ready, _, rewrites) = wait_for(&[Some("empty")], Duration::from_millis(50));
+        assert!(!ready);
+        assert_eq!(rewrites, MAX_REWRITES);
+    }
+
+    #[test]
+    fn stops_waiting_for_a_page_that_never_gets_ready() {
+        let started = std::time::Instant::now();
+        let (ready, polls, _) = wait_for(&[Some("waiting")], Duration::from_millis(50));
+        assert!(!ready);
+        assert!(polls > 1);
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }
