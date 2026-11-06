@@ -1,4 +1,4 @@
-import { readDir, readFile, writeFile, writeTextFile, mkdir, rename, remove, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
+import { readDir, readFile, writeFile, writeTextFile, mkdir, rename, remove, stat, lstat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { decodeText, DEFAULT_TEXT_FORMAT, encodeText, type DecodedText, type TextFileFormat } from '@/lib/workspace/text-encoding'
 import type { FileNode } from '@/lib/workspace/types'
@@ -55,6 +55,7 @@ async function readDirTree(dirPath: string): Promise<FileNode[]> {
                 nodes.push({ kind: 'directory', name: entry.name, path: fullPath, children: [], unreadable: true })
             }
         } else if (entry.isFile) {
+            if (isSaveTempFile(entry.name)) continue
             nodes.push({
                 kind: 'file',
                 name: entry.name,
@@ -95,10 +96,72 @@ export async function getWorkspaceFileSize(path: string): Promise<number | null>
     }
 }
 
-/** Saves text in the file's own encoding (`format`, from readWorkspaceTextFile), UTF-8 when left out. */
+const SAVE_TEMP_FILE = /^\.scrivon-save-[a-z0-9]+\.tmp$/
+
+/** The temporary file a save writes before it replaces the real one. Left behind only if the app dies mid-save. */
+function isSaveTempFile(name: string): boolean {
+    return SAVE_TEMP_FILE.test(name)
+}
+
+function saveTempPath(path: string): string {
+    const id = Math.random().toString(36).slice(2, 10) || '0'
+    return joinPath(getParentPath(path), `.scrivon-save-${id}.tmp`)
+}
+
+/** Antivirus, sync and search tools can hold a just-written file for a moment, so replacing it is tried a few times. */
+const REPLACE_ATTEMPTS = 5
+const REPLACE_RETRY_MS = 50
+
+async function replaceFile(tempPath: string, path: string): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            await rename(tempPath, path)
+            return
+        } catch (err) {
+            if (attempt >= REPLACE_ATTEMPTS) throw err
+            await new Promise((resolve) => setTimeout(resolve, REPLACE_RETRY_MS))
+        }
+    }
+}
+
+/**
+ * A link is written through, not replaced: replacing would turn it into a plain file and cut it off
+ * from the file it points to. A path that isn't there yet is a new file.
+ */
+async function isLink(path: string): Promise<boolean> {
+    try {
+        const info = await lstat(path)
+        return info.isSymlink || (info.nlink ?? 1) > 1
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Saves text in the file's own encoding (`format`, from readWorkspaceTextFile), UTF-8 when left out.
+ * The bytes go to a temporary file next to it, which then replaces the file in one step. So a save that
+ * fails or is cut short (full disk, unplugged drive, crash) leaves the old version, never an empty or
+ * half-written file. If the replace fails, the temporary file is removed.
+ */
 export async function writeWorkspaceFile(path: string, content: string, format: TextFileFormat = DEFAULT_TEXT_FORMAT): Promise<void> {
     if (!isTauri()) return
-    await writeFile(path, encodeText(content, format))
+    const bytes = encodeText(content, format)
+    if (await isLink(path)) {
+        await writeFile(path, bytes)
+        return
+    }
+    const tempPath = saveTempPath(path)
+    await writeFile(tempPath, bytes, { createNew: true })
+    try {
+        await replaceFile(tempPath, path)
+    } catch (err) {
+        try {
+            await removeWorkspacePath(tempPath)
+        } catch {
+            // The save already failed; a stray temporary file is hidden from the explorer anyway.
+        }
+        throw err
+    }
 }
 
 /** Creates a new folder. Throws PathExistsError if something with that name is already there. */

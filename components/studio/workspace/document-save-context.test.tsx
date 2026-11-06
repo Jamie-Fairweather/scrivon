@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { writeFile } from '@tauri-apps/plugin-fs'
+import { rename, writeFile } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
@@ -57,7 +57,10 @@ function useHarness() {
     return { save: useDocumentSave(), tabs: useDocumentTabs() }
 }
 
-/** Makes every write wait until the test finishes it, and records what reached the disk. */
+/**
+ * Makes every write wait until the test finishes it, and records what reached the disk. A save writes a
+ * temporary file and then renames it over the real one.
+ */
 function deferWrites() {
     const disk = new Map<string, string>()
     const pending: Array<() => void> = []
@@ -70,6 +73,10 @@ function deferWrites() {
                 })
             })
     )
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+        disk.set(String(to), disk.get(String(from))!)
+        disk.delete(String(from))
+    })
     const finishNext = async () => {
         await act(async () => {
             pending.shift()?.()
@@ -83,6 +90,8 @@ describe('DocumentSaveProvider', () => {
         vi.clearAllMocks()
         settingsState.autosave = { enabled: true, delayMs: 400 }
         vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
     })
 
     it('keeps a tab dirty when it was edited while its save was running, then saves the newer text', async () => {
@@ -143,11 +152,18 @@ describe('DocumentSaveProvider', () => {
 
         expect(vi.mocked(writeFile).mock.calls.map((call) => new TextDecoder().decode(call[1] as Uint8Array))).toEqual(['v1', 'v2'])
         expect(writes.disk.get('/ws/a.mmd')).toBe('v2')
+        expect([...writes.disk.keys()]).toEqual(['/ws/a.mmd'])
         expect(result.current.tabs.tabs[0]?.isDirty).toBe(false)
     })
 
     it('saves a UTF-16 file as UTF-16 with its byte-order mark', async () => {
-        vi.mocked(writeFile).mockResolvedValue(undefined)
+        const written = new Map<string, Uint8Array>()
+        vi.mocked(writeFile).mockImplementation(async (path, data) => {
+            written.set(String(path), data as Uint8Array)
+        })
+        vi.mocked(rename).mockImplementation(async (from, to) => {
+            written.set(String(to), written.get(String(from))!)
+        })
         const { result } = renderHook(useHarness, {
             wrapper: createWrapper([tab('/ws/ps.md', { content: 'A', format: { encoding: 'utf-16le', bom: true } })]),
         })
@@ -158,7 +174,7 @@ describe('DocumentSaveProvider', () => {
             await result.current.save.flushSave('/ws/ps.md')
         })
 
-        expect(writeFile).toHaveBeenCalledWith('/ws/ps.md', new Uint8Array([0xff, 0xfe, 0xe9, 0x00]))
+        expect(written.get('/ws/ps.md')).toEqual(new Uint8Array([0xff, 0xfe, 0xe9, 0x00]))
     })
 
     it('keeps the real error text when a save fails', async () => {
@@ -181,6 +197,8 @@ describe('save error notices', () => {
         vi.clearAllMocks()
         settingsState.autosave = { enabled: true, delayMs: 400 }
         vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
     })
 
     async function failingTab() {

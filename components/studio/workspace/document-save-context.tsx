@@ -76,9 +76,11 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
                 await writeWorkspaceFile(tab.path, content, tab.format)
                 if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
                 // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
-                setTabs((prev) =>
-                    prev.map((t) => (t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t))
-                )
+                const markSaved = (t: DocumentTab) =>
+                    t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t
+                // A save queued behind this one starts before React re-renders, so it must already see this one's result.
+                tabsRef.current = tabsRef.current.map(markSaved)
+                setTabs((prev) => prev.map(markSaved))
                 return true
             } catch (err) {
                 const message = errorMessage(err, 'Failed to save file')

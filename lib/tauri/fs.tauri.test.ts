@@ -12,6 +12,7 @@ const {
     removeMock,
     copyFileMock,
     statMock,
+    lstatMock,
     existsMock,
 } = vi.hoisted(() => ({
     isTauriMock: vi.fn(),
@@ -25,6 +26,7 @@ const {
     removeMock: vi.fn(),
     copyFileMock: vi.fn(),
     statMock: vi.fn(),
+    lstatMock: vi.fn(),
     existsMock: vi.fn(),
 }))
 
@@ -43,6 +45,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     remove: removeMock,
     copyFile: copyFileMock,
     stat: statMock,
+    lstat: lstatMock,
     exists: existsMock,
 }))
 
@@ -67,7 +70,15 @@ describe('workspace fs (Tauri)', () => {
         vi.clearAllMocks()
         isTauriMock.mockReturnValue(true)
         existsMock.mockResolvedValue(false)
+        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null })
+        renameMock.mockResolvedValue(undefined)
     })
+
+    /** Where the last save wrote its bytes, and what that temporary file was then renamed to. */
+    function lastSave() {
+        const [tempPath, bytes, options] = writeFileMock.mock.calls.at(-1)!
+        return { tempPath, bytes, options, replaced: renameMock.mock.calls.find((call) => call[0] === tempPath)?.[1] }
+    }
 
     it('reads workspace files through Tauri', async () => {
         readFileMock.mockResolvedValue(new TextEncoder().encode('graph TD\n  A --> B'))
@@ -77,7 +88,37 @@ describe('workspace fs (Tauri)', () => {
 
     it('writes workspace files through Tauri as UTF-8 by default', async () => {
         await writeWorkspaceFile('/ws/diagram.mmd', 'updated é')
-        expect(writeFileMock).toHaveBeenCalledWith('/ws/diagram.mmd', new TextEncoder().encode('updated é'))
+        expect(lastSave()).toEqual({
+            tempPath: expect.stringMatching(/^\/ws\/\.scrivon-save-[a-z0-9]+\.tmp$/),
+            bytes: new TextEncoder().encode('updated é'),
+            options: { createNew: true },
+            replaced: '/ws/diagram.mmd',
+        })
+    })
+
+    it('leaves the old file alone and removes the temporary one when it cannot be replaced', async () => {
+        renameMock.mockRejectedValue('Access is denied. (os error 5)')
+        await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('Access is denied. (os error 5)')
+        const { tempPath } = lastSave()
+        expect(tempPath).toMatch(/^C:\\ws\\\.scrivon-save-[a-z0-9]+\.tmp$/)
+        expect(renameMock).toHaveBeenCalledTimes(5)
+        expect(removeMock).toHaveBeenCalledWith(tempPath, { recursive: false })
+        // Nothing was ever written to the real file.
+        expect(writeFileMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('tries the replace again when the file is busy for a moment', async () => {
+        renameMock.mockRejectedValueOnce('The process cannot access the file because it is being used by another process. (os error 32)')
+        await writeWorkspaceFile('/ws/a.md', 'text')
+        expect(renameMock).toHaveBeenCalledTimes(2)
+        expect(lastSave().replaced).toBe('/ws/a.md')
+    })
+
+    it('writes through a link instead of replacing it with a plain file', async () => {
+        lstatMock.mockResolvedValue({ isFile: false, isDirectory: false, isSymlink: true, size: 1, mtime: null, nlink: null })
+        await writeWorkspaceFile('/ws/linked.md', 'text')
+        expect(writeFileMock).toHaveBeenCalledWith('/ws/linked.md', new TextEncoder().encode('text'))
+        expect(renameMock).not.toHaveBeenCalled()
     })
 
     it('saves a UTF-16 file with a byte-order mark the way it was read', async () => {
@@ -88,7 +129,7 @@ describe('workspace fs (Tauri)', () => {
         expect(file).toEqual({ content: '# Café', format: { encoding: 'utf-16le', bom: true } })
 
         await writeWorkspaceFile('C:\\ws\\notes.md', file.content, file.format)
-        expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\notes.md', original)
+        expect(lastSave()).toMatchObject({ bytes: original, replaced: 'C:\\ws\\notes.md' })
     })
 
     it('keeps the byte-order mark of a UTF-8 file and flags an ANSI file', async () => {
@@ -96,7 +137,7 @@ describe('workspace fs (Tauri)', () => {
         readFileMock.mockResolvedValueOnce(withMark)
         const file = await readWorkspaceTextFile('/ws/a.md')
         await writeWorkspaceFile('/ws/a.md', file.content, file.format)
-        expect(writeFileMock).toHaveBeenCalledWith('/ws/a.md', withMark)
+        expect(lastSave()).toMatchObject({ bytes: withMark, replaced: '/ws/a.md' })
 
         readFileMock.mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
         await expect(readWorkspaceTextFile('/ws/ansi.md')).resolves.toMatchObject({ content: 'Café', issue: 'legacy-encoding' })
@@ -185,6 +226,7 @@ describe('workspace fs (Tauri)', () => {
                     { name: 'node_modules', isDirectory: true, isFile: false, isSymlink: false },
                     { name: 'link', isDirectory: false, isFile: false, isSymlink: true },
                     { name: 'b.mmd', isDirectory: false, isFile: true, isSymlink: false },
+                    { name: '.scrivon-save-k3j9x2.tmp', isDirectory: false, isFile: true, isSymlink: false },
                     { name: 'docs', isDirectory: true, isFile: false, isSymlink: false },
                 ]
             }
