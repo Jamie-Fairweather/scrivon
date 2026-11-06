@@ -34,6 +34,11 @@ describe('extractMermaidBlockSources', () => {
         ].join('\n\n')
         expect(extractMermaidBlockSources(markdown)).toEqual(['graph BODY', 'graph FOOT'])
     })
+
+    it('skips front matter, which the preview does not show', () => {
+        const markdown = ['---', 'notes: |', '  ```mermaid', '  graph HIDDEN', '  ```', '---', '', fence('mermaid', 'graph BODY')].join('\n')
+        expect(extractMermaidBlockSources(markdown)).toEqual(['graph BODY'])
+    })
 })
 
 describe('locateMermaidBlock', () => {

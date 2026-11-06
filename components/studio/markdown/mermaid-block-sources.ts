@@ -4,6 +4,7 @@ import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
+import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 
 const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype, { allowDangerousHtml: true })
 
@@ -26,7 +27,7 @@ function isMermaidCode(node: Element): boolean {
  * definitions) line up with the preview.
  */
 export function extractMermaidBlockSources(markdown: string): string[] {
-    const tree = processor.runSync(processor.parse(markdown)) as HastRoot
+    const tree = processor.runSync(processor.parse(markdownPreviewBody(markdown))) as HastRoot
     const sources: string[] = []
     visit(tree, 'element', (node: Element) => {
         if (isMermaidCode(node)) sources.push(textOf(node).replace(/\n$/, ''))

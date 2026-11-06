@@ -43,4 +43,12 @@ describe('MarkdownPreview', () => {
             expect(container.querySelector('a[data-footnote-backref]')).toHaveAttribute('aria-label', 'Back to reference 1')
         })
     })
+
+    it('leaves YAML front matter out, as export does', () => {
+        const { container } = preview('---\r\ntitle: Quarterly report\r\nauthor: Jamie\r\n---\r\n\r\n# Body')
+        expect(container.querySelector('hr')).toBeNull()
+        expect(container.querySelector('h2')).toBeNull()
+        expect(container).not.toHaveTextContent('title:')
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Body')
+    })
 })

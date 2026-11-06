@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
 import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
+import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
@@ -183,11 +184,13 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, cla
         }
     }, [onExpandBlock, onLinkClick, tabId])
 
+    const body = useMemo(() => markdownPreviewBody(source), [source])
+
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             <article className="w-full max-w-3xl min-w-0">
                 <ReactMarkdown remarkPlugins={remarkPlugins} components={components} urlTransform={markdownUrlTransform}>
-                    {source}
+                    {body}
                 </ReactMarkdown>
             </article>
         </div>
