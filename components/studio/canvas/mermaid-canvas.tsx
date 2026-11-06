@@ -104,7 +104,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
         })
     }, [registerFitToView, fitToView])
 
-    useCanvasFitOnRequest(canvasFitRequestId, viewKey, source, dimensions, fitToView, lastHandledFitRequestRef)
+    useCanvasFitOnRequest(canvasFitRequestId, dimensions, fitToView, lastHandledFitRequestRef)
     useCanvasFitOnFirstView(dimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
     const emptyMessage = !viewKey ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'

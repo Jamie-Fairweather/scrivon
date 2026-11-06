@@ -19,11 +19,12 @@ function runFitWithRetry(attemptFit: FitAttempt): (() => void) | void {
     }
 }
 
-/** Fits the canvas when a fit request id changes (e.g. new file opened). */
+/**
+ * Fits the canvas when a fit request id changes (e.g. new file opened). A request that can't fit
+ * yet (no diagram, or the canvas has no size) stays open, so a later render can still fit it.
+ */
 export function useCanvasFitOnRequest(
     canvasFitRequestId: number,
-    activeTabId: string | null,
-    source: string,
     dimensions: { width: number; height: number } | null,
     fitToView: (width: number, height: number) => boolean,
     lastHandledFitRequestRef: MutableRefObject<number>
@@ -32,24 +33,12 @@ export function useCanvasFitOnRequest(
         if (canvasFitRequestId === 0 || canvasFitRequestId === lastHandledFitRequestRef.current) return
         if (!dimensions) return
 
-        const fitRequest = { requestId: canvasFitRequestId, tabId: activeTabId, source }
-
-        const attemptFit = () => {
-            if (fitRequest.requestId !== canvasFitRequestId) return false
-            if (fitRequest.tabId !== activeTabId || fitRequest.source !== source) return false
-            return fitToView(dimensions.width, dimensions.height)
-        }
-
-        const markHandledIfFit = (): boolean => {
-            if (!attemptFit()) return false
+        return runFitWithRetry(() => {
+            if (!fitToView(dimensions.width, dimensions.height)) return false
             lastHandledFitRequestRef.current = canvasFitRequestId
             return true
-        }
-
-        if (markHandledIfFit()) return
-
-        return runFitWithRetry(markHandledIfFit)
-    }, [canvasFitRequestId, activeTabId, source, dimensions, fitToView, lastHandledFitRequestRef])
+        })
+    }, [canvasFitRequestId, dimensions, fitToView, lastHandledFitRequestRef])
 }
 
 /** Fits the canvas once per tab when a diagram first appears without saved view state. */

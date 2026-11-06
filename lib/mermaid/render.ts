@@ -16,15 +16,6 @@ export function getMermaidExportRenderOptions(themeId: AppThemeId): RenderOption
     }
 }
 
-export function scheduleIdleRender(run: () => void): () => void {
-    if (typeof requestIdleCallback !== 'undefined') {
-        const id = requestIdleCallback(run, { timeout: 100 })
-        return () => cancelIdleCallback(id)
-    }
-    const id = window.setTimeout(run, 0)
-    return () => clearTimeout(id)
-}
-
 const STYLE_BLOCK = /<style>([\s\S]*?)<\/style>/g
 const REMOTE_FONT_IMPORT = /[ \t]*@import\s+url\(\s*['"]?https?:\/\/fonts\.(?:googleapis|gstatic)\.com[^)]*\)\s*;?[ \t]*(?:\r?\n)?/g
 
