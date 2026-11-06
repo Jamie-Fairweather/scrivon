@@ -557,6 +557,48 @@ describe('renderExportDocx', () => {
         expect(latin.parts['word/fontTable.xml']).not.toContain('w:charset')
     })
 
+    it('keeps a Chinese, Japanese or Korean font the profile picks, as the PDF does', async () => {
+        const japanese = await render('# 見出し\n\n日本語の文章です。', (draft) => {
+            draft.typography.bodyFont = '"Meiryo", sans-serif'
+            draft.typography.headingFont = '"Segoe UI", "Yu Mincho", serif'
+        })
+        expect(runWith(japanese.xml, '日本語の文章です。')).toContain(
+            '<w:rFonts w:ascii="Meiryo" w:cs="Meiryo" w:eastAsia="Meiryo" w:hAnsi="Meiryo"/>'
+        )
+        // Latin text takes the first font; Japanese the first Japanese one, as the browser picks per character.
+        expect(runWith(japanese.xml, '見出し')).toContain('w:ascii="Segoe UI" w:cs="Segoe UI" w:eastAsia="Yu Mincho"')
+        // Code names no Japanese font, so it gets the Windows one for the script.
+        const fontTable = japanese.parts['word/fontTable.xml']!
+        expect(fontTable).toContain('<w:font w:name="Meiryo"><w:charset w:val="80"/>')
+        expect(fontTable).toContain('<w:font w:name="Yu Mincho"><w:charset w:val="80"/>')
+        expect(fontTable).toContain('<w:font w:name="Yu Gothic"><w:charset w:val="80"/>')
+
+        const chinese = await render('中文段落。', (draft) => {
+            draft.typography.bodyFont = 'SimSun, serif'
+        })
+        expect(runWith(chinese.xml, '中文段落。')).toContain('w:eastAsia="SimSun"')
+        expect(chinese.parts['word/fontTable.xml']).toContain('<w:font w:name="SimSun"><w:charset w:val="86"/>')
+
+        // A name in Hangul is a Korean font; a name with no script takes the document's.
+        const korean = await render('한국어 문장입니다.', (draft) => {
+            draft.typography.bodyFont = '"맑은 고딕", sans-serif'
+            draft.typography.headingFont = '"Source Han Sans", sans-serif'
+        })
+        expect(runWith(korean.xml, '한국어 문장입니다.')).toContain('w:eastAsia="맑은 고딕"')
+        expect(korean.parts['word/fontTable.xml']).toContain('<w:font w:name="맑은 고딕"><w:charset w:val="81"/>')
+        expect(korean.parts['word/fontTable.xml']).toContain('<w:font w:name="Source Han Sans"><w:charset w:val="81"/>')
+
+        // A Japanese code font is listed once, fixed-pitch with its charset, and kept with no Japanese text.
+        const code = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = '"MS Gothic", monospace'
+        })
+        expect(runWith(code.xml, 'code')).toContain('w:eastAsia="MS Gothic"')
+        expect(code.parts['word/fontTable.xml']!.match(/w:name="MS Gothic"/g)).toHaveLength(1)
+        expect(code.parts['word/fontTable.xml']).toContain(
+            '<w:font w:name="MS Gothic"><w:charset w:val="80"/><w:family w:val="modern"/><w:pitch w:val="fixed"/></w:font>'
+        )
+    })
+
     it('keeps blocks nested in list items and quotes indented, with the quote bar on all of them', async () => {
         const { xml } = await render(
             [

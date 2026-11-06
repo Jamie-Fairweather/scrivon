@@ -133,16 +133,24 @@ const HEADING_LEVELS = [
     HeadingLevel.HEADING_6,
 ] as const
 
-function wordFont(stack: string, fallback: string): string {
-    const names = stack
+/** The font families a CSS stack names, in order, without generic families and browser-only names. */
+function fontNames(stack: string): string[] {
+    return stack
         .split(',')
         .map((part) => part.trim().replace(/^["']|["']$/g, ''))
         .filter((name) => name && !name.startsWith('-') && !GENERIC_FONTS.has(name.toLowerCase()) && !SKIP_FONTS.has(name.toLowerCase()))
+}
+
+function wordFont(stack: string, fallback: string): string {
+    const names = fontNames(stack)
     return names.find((name) => !MAC_ONLY_FONTS.has(name.toLowerCase())) ?? names[0] ?? fallback
 }
 
-/** A Windows font for Chinese, Japanese or Korean text, and its Word charset so Word swaps in one of the same script if it's missing. */
-type EastAsianFont = { name: string; charset: string }
+/**
+ * A font for Chinese, Japanese or Korean text, and its Word charset so Word swaps in one of the same script if it's
+ * missing. No charset when the script isn't known.
+ */
+type EastAsianFont = { name: string; charset?: string }
 
 const EAST_ASIAN_FONTS = {
     japanese: { name: 'Yu Gothic', charset: '80' },
@@ -176,6 +184,37 @@ function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
     const hangul = text.match(HANGUL)?.length ?? 0
     if (kana > 0 || hangul > 0) return kana >= hangul ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.korean
     return HAN.test(text) ? EAST_ASIAN_FONTS.chinese : undefined
+}
+
+/** Fonts made for Chinese, Japanese or Korean, by name, with their script's charset. Null where the name doesn't say which script. */
+const CJK_FONT_NAMES: [pattern: RegExp, charset: string | null][] = [
+    [/^(?:yu (?:gothic|mincho)|meiryo|ms p?(?:gothic|mincho)|ms ui gothic|biz ud|hiragino|noto (?:sans|serif)(?: cjk)? jp)/i, '80'],
+    [/^(?:malgun gothic|gulim|dotum|batang|gungsuh|noto (?:sans|serif)(?: cjk)? kr)/i, '81'],
+    [/^(?:microsoft yahei|dengxian|n?simsun|simhei|kaiti|fangsong|noto (?:sans|serif)(?: cjk)? sc|pingfang sc)/i, '86'],
+    [/^(?:microsoft jhenghei|p?mingliu|dfkai-sb|noto (?:sans|serif)(?: cjk)? (?:tc|hk)|pingfang (?:tc|hk))/i, '88'],
+    [/^(?:noto (?:sans|serif) cjk|source han (?:sans|serif)|pingfang)/i, null],
+]
+
+/** The charset a font name says it is for, null when it is a CJK font of no known script, undefined when it isn't one. */
+function cjkCharset(name: string): string | null | undefined {
+    const known = CJK_FONT_NAMES.find(([pattern]) => pattern.test(name))
+    if (known) return known[1]
+    // A name written in kana or Hangul, such as メイリオ or 맑은 고딕, is a Japanese or Korean font; one in Chinese characters is CJK.
+    if (name.search(KANA) >= 0) return '80'
+    if (name.search(HANGUL) >= 0) return '81'
+    return HAN.test(name) ? null : undefined
+}
+
+/**
+ * The first Chinese, Japanese or Korean font a CSS stack names, which is what the PDF draws such text with.
+ * Undefined when the stack names none. A font of no known script takes the document's.
+ */
+function stackEastAsianFont(stack: string, script: EastAsianFont | undefined): EastAsianFont | undefined {
+    for (const name of fontNames(stack)) {
+        const charset = cjkCharset(name)
+        if (charset !== undefined) return { name, charset: charset ?? script?.charset }
+    }
+    return undefined
 }
 
 function wordFontSlots(name: string, eastAsian: EastAsianFont | undefined): WordFont {
@@ -217,16 +256,18 @@ function escapeXml(text: string): string {
 /**
  * docx only lists embedded fonts, so Word gets no hint about the code font.
  * Marking it fixed-pitch makes Word swap in another monospace font when it isn't installed.
- * The East Asian font's charset does the same for its script, so a missing Yu Gothic becomes another Japanese font.
+ * Each East Asian font's charset does the same for its script, so a missing Yu Gothic becomes another Japanese font.
  */
-function fontTableXml(monoFont: string, eastAsian: EastAsianFont | undefined): string {
+function fontTableXml(monoFont: string, eastAsian: EastAsianFont[]): string {
+    const entry = (name: string, charset: string | undefined, family: string, pitch: string) =>
+        `<w:font w:name="${escapeXml(name)}">${charset ? `<w:charset w:val="${charset}"/>` : ''}<w:family w:val="${family}"/><w:pitch w:val="${pitch}"/></w:font>`
+    // A CJK code font is listed once, as the code font, with its charset.
+    const mono = eastAsian.find((font) => font.name === monoFont)
     return [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
-        `<w:font w:name="${escapeXml(monoFont)}"><w:family w:val="modern"/><w:pitch w:val="fixed"/></w:font>`,
-        eastAsian
-            ? `<w:font w:name="${eastAsian.name}"><w:charset w:val="${eastAsian.charset}"/><w:family w:val="swiss"/><w:pitch w:val="variable"/></w:font>`
-            : '',
+        entry(monoFont, mono?.charset, 'modern', 'fixed'),
+        ...eastAsian.filter((font) => font !== mono).map((font) => entry(font.name, font.charset, 'swiss', 'variable')),
         '</w:fonts>',
     ].join('')
 }
@@ -596,8 +637,8 @@ type RenderState = {
     footnotes: Record<number, { children: Paragraph[] }>
     definitions: Map<string, string>
     footnoteIds: Map<string, number>
-    /** Chinese, Japanese or Korean font for the document's East Asian text, if it has any. */
-    eastAsian: EastAsianFont | undefined
+    /** The Chinese, Japanese or Korean fonts the body, heading and code fonts use, once each, for the font table. */
+    eastAsianFonts: EastAsianFont[]
     bodyFont: WordFont
     headingFont: WordFont
     monoFont: WordFont
@@ -677,7 +718,14 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     const marginLeft = convertMillimetersToTwip(profile.page.marginsMm.left)
     const marginRight = convertMillimetersToTwip(profile.page.marginsMm.right)
     const widthTwip = convertMillimetersToTwip(widthMm)
-    const eastAsian = eastAsianFont(document)
+    // A CJK font the stack names wins, as in the PDF. The script's Windows font stands in only when it names none.
+    const script = eastAsianFont(document)
+    const [bodyEast, headingEast, monoEast] = [profile.typography.bodyFont, profile.typography.headingFont, profile.typography.monoFont].map(
+        (stack) => stackEastAsianFont(stack, script) ?? script
+    )
+    const eastAsianFonts = [bodyEast, headingEast, monoEast].filter(
+        (font, index, all): font is EastAsianFont => font !== undefined && all.findIndex((other) => other?.name === font.name) === index
+    )
     return {
         document,
         prepared,
@@ -689,10 +737,10 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         footnotes: {},
         definitions: collectDefinitions(document.tree),
         footnoteIds: new Map(),
-        eastAsian,
-        bodyFont: wordFontSlots(wordFont(profile.typography.bodyFont, 'Calibri'), eastAsian),
-        headingFont: wordFontSlots(wordFont(profile.typography.headingFont, 'Calibri'), eastAsian),
-        monoFont: wordFontSlots(wordFont(profile.typography.monoFont, 'Consolas'), eastAsian),
+        eastAsianFonts,
+        bodyFont: wordFontSlots(wordFont(profile.typography.bodyFont, 'Calibri'), bodyEast),
+        headingFont: wordFontSlots(wordFont(profile.typography.headingFont, 'Calibri'), headingEast),
+        monoFont: wordFontSlots(wordFont(profile.typography.monoFont, 'Consolas'), monoEast),
         accent: hexColor(profile.brand.accentColor, '262626'),
         link: hexColor(profile.brand.linkColor.trim() || profile.brand.accentColor, '262626'),
         bodyHalfPoints: Math.round(profile.typography.bodySizePt * 2),
@@ -2077,7 +2125,9 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         sections: buildSections(state, groups, watermark),
     })
 
-    const buffer = await Packer.toBuffer(doc, undefined, [{ path: 'word/fontTable.xml', data: fontTableXml(state.monoFont.ascii, state.eastAsian) }])
+    const buffer = await Packer.toBuffer(doc, undefined, [
+        { path: 'word/fontTable.xml', data: fontTableXml(state.monoFont.ascii, state.eastAsianFonts) },
+    ])
     warnAboutDroppedImages(state)
     return new Uint8Array(buffer)
 }
