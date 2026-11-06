@@ -6,7 +6,8 @@ use tauri_plugin_prevent_default::{Builder, Flags};
 fn blocked_shortcuts() -> Flags {
     let flags = Flags::all().difference(Flags::FOCUS_MOVE);
 
-    // Keep devtools and reload available while developing.
+    // Keep devtools and reload available while developing (see also
+    // `with_platform_options`).
     #[cfg(debug_assertions)]
     let flags = flags.difference(Flags::DEV_TOOLS | Flags::RELOAD);
 
@@ -17,7 +18,10 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<Wry> {
     with_platform_options(Builder::new().with_flags(blocked_shortcuts())).build()
 }
 
-#[cfg(windows)]
+/// Release builds on Windows also turn off WebView2's own browser keys and
+/// menu. Those include F12, Ctrl+Shift+I and F5, so debug builds leave them on
+/// to keep DevTools and reload working.
+#[cfg(all(windows, not(debug_assertions)))]
 fn with_platform_options(builder: Builder) -> Builder {
     use tauri_plugin_prevent_default::PlatformOptions;
 
@@ -28,7 +32,7 @@ fn with_platform_options(builder: Builder) -> Builder {
     )
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), debug_assertions))]
 fn with_platform_options(builder: Builder) -> Builder {
     builder
 }
