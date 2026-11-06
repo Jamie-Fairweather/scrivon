@@ -1,4 +1,6 @@
-/** Scores `needle` as a subsequence of `hay` (both lower-cased), without the length penalty. */
+import { foldText } from '@/components/studio/command-palette/fold-text'
+
+/** Scores `needle` as a subsequence of `hay` (both folded), without the length penalty. */
 function subsequenceScore(hay: string, needle: string): number | null {
     let score = 0
     let hayIdx = 0
@@ -33,8 +35,8 @@ function subsequenceScore(hay: string, needle: string): number | null {
 export function fuzzyScore(text: string, query: string): number | null {
     if (!query) return 0
 
-    const hay = text.toLowerCase()
-    const score = subsequenceScore(hay, query.toLowerCase())
+    const hay = foldText(text)
+    const score = subsequenceScore(hay, foldText(query))
     if (score === null) return null
     return score - hay.length * 0.05
 }
@@ -47,10 +49,10 @@ export function fuzzyScoreTerms(text: string, query: string): number | null {
     const terms = query.trim().split(/\s+/).filter(Boolean)
     if (terms.length <= 1) return fuzzyScore(text, terms[0] ?? '')
 
-    const hay = text.toLowerCase()
+    const hay = foldText(text)
     let total = 0
     for (const term of terms) {
-        const score = subsequenceScore(hay, term.toLowerCase())
+        const score = subsequenceScore(hay, foldText(term))
         if (score === null) return null
         total += score
     }

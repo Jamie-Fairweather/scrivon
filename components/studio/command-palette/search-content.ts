@@ -1,4 +1,5 @@
 import { documentKind, getBaseName } from '@/lib/tauri/fs'
+import { foldLine, foldText, originalSpan } from '@/components/studio/command-palette/fold-text'
 import type { TextSearchHit } from '@/components/studio/command-palette/types'
 
 export const MIN_QUERY_LENGTH = 2
@@ -26,27 +27,30 @@ export function buildPreview(line: string, matchIndex: number, matchLength: numb
 
 function searchInContent(content: string, query: string, path: string, source: 'buffer' | 'disk', maxHits: number): TextSearchHit[] {
     const hits: TextSearchHit[] = []
-    const lowerQuery = query.toLowerCase()
+    const needle = foldText(query)
+    if (!needle) return hits
     const lines = content.split('\n')
 
     for (let lineIdx = 0; lineIdx < lines.length && hits.length < maxHits; lineIdx++) {
         const line = lines[lineIdx]!
-        const lowerLine = line.toLowerCase()
+        const folded = foldLine(line)
         let col = 0
 
-        while (col < lowerLine.length && hits.length < maxHits) {
-            const idx = lowerLine.indexOf(lowerQuery, col)
+        while (col < folded.folded.length && hits.length < maxHits) {
+            const idx = folded.folded.indexOf(needle, col)
             if (idx === -1) break
 
+            // Report the match where it sits in the original line, which folding may have shifted.
+            const match = originalSpan(folded, idx, needle.length)
             hits.push({
                 path,
                 line: lineIdx + 1,
-                column: idx + 1,
-                length: query.length,
-                preview: buildPreview(line, idx, query.length),
+                column: match.start + 1,
+                length: match.length,
+                preview: buildPreview(line, match.start, match.length),
                 source,
             })
-            col = idx + lowerQuery.length
+            col = idx + needle.length
         }
     }
 

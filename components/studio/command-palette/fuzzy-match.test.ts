@@ -44,6 +44,14 @@ describe('fuzzyScore', () => {
     it('scores matches at the start of the string', () => {
         expect(fuzzyScore('readme.md', 'r')).not.toBeNull()
     })
+
+    it('matches names stored decomposed, as macOS does, against composed typing', () => {
+        // Korean typed on Windows is composed; a zip from a Mac often keeps the separate parts.
+        expect(fuzzyScore('한글.md'.normalize('NFD'), '한글')).not.toBeNull()
+        expect(fuzzyScore('café.md', 'café')).not.toBeNull()
+        expect(fuzzyScore('café.md', 'café')).not.toBeNull()
+        expect(fuzzyScoreTerms('한글.md'.normalize('NFD'), '한글 md')).not.toBeNull()
+    })
 })
 
 describe('fuzzyScoreTerms', () => {

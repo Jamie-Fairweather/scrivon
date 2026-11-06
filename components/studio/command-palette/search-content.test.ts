@@ -218,6 +218,48 @@ describe('searchWorkspaceContent', () => {
         expect(result.unreadableFiles).toBe(1)
     })
 
+    it('matches decomposed text against a composed query and reports the original position', async () => {
+        const line = 'Le café est bon'
+        const result = await searchWorkspaceContent({
+            query: 'café',
+            paths: [],
+            openBuffers: new Map([['/a.md', line]]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits).toHaveLength(1)
+        expect(result.hits[0]).toMatchObject({ column: 4, length: 5 })
+        expect(line.slice(3, 3 + 5)).toBe('café')
+    })
+
+    it('keeps columns right after decomposed Korean text', async () => {
+        const line = `${'한글'.normalize('NFD')} target`
+        const result = await searchWorkspaceContent({
+            query: 'target',
+            paths: [],
+            openBuffers: new Map([['/a.md', line]]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits[0]?.column).toBe(line.indexOf('target') + 1)
+        expect(result.hits[0]?.length).toBe(6)
+    })
+
+    it('finds decomposed Korean when the query is typed composed', async () => {
+        const result = await searchWorkspaceContent({
+            query: '한글',
+            paths: [],
+            openBuffers: new Map([['/a.md', `notes ${'한글'.normalize('NFD')}`]]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits).toHaveLength(1)
+        expect(result.hits[0]).toMatchObject({ column: 7, length: '한글'.normalize('NFD').length })
+    })
+
     it('finds multiple matches on one line', async () => {
         const result = await searchWorkspaceContent({
             query: 'aa',
