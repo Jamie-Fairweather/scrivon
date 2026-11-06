@@ -96,33 +96,54 @@ async fn page_status(window: &tauri::WebviewWindow) -> Option<String> {
     serde_json::from_str(&result).ok()
 }
 
+/// How waiting for the export page ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+enum PageReadiness {
+    Ready,
+    /// Still loading images or fonts when time ran out: printed as it is.
+    TimedOut,
+    /// The HTML never stayed written, so there's nothing to print.
+    NeverWritten,
+}
+
 /// Polls `status` until the page is ready to print, writing the HTML again
-/// with `rewrite` if the page turns up empty. Stops waiting after `limit` and
-/// returns false; the page is then printed as it is.
+/// with `rewrite` if the page turns up empty. Stops waiting after `limit`.
 #[cfg_attr(not(windows), allow(dead_code))]
 async fn wait_until_ready<F, Fut>(
     mut status: F,
     mut rewrite: impl FnMut(),
     limit: Duration,
     every: Duration,
-) -> bool
+) -> PageReadiness
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Option<String>>,
 {
     let deadline = tokio::time::Instant::now() + limit;
     let mut rewrites = 0;
+    // What the page last said was "empty".
+    let mut empty = false;
     loop {
         match status().await.as_deref() {
-            Some("ready") => return true,
-            Some("empty") if rewrites < MAX_REWRITES => {
+            Some("ready") => return PageReadiness::Ready,
+            Some("empty") => {
+                if rewrites == MAX_REWRITES {
+                    return PageReadiness::NeverWritten;
+                }
                 rewrites += 1;
                 rewrite();
+                empty = true;
             }
-            _ => {}
+            Some(_) => empty = false,
+            None => {}
         }
         if tokio::time::Instant::now() + every > deadline {
-            return false;
+            return if empty {
+                PageReadiness::NeverWritten
+            } else {
+                PageReadiness::TimedOut
+            };
         }
         tokio::time::sleep(every).await;
     }
@@ -165,7 +186,7 @@ async fn export_html_to_pdf_impl(
     window.eval(&script).map_err(|e| e.to_string())?;
 
     // Print once the page's images and fonts are in, not after a fixed wait.
-    let ready = wait_until_ready(
+    let readiness = wait_until_ready(
         || page_status(&window),
         || {
             let _ = window.eval(&script);
@@ -174,8 +195,15 @@ async fn export_html_to_pdf_impl(
         READY_POLL,
     )
     .await;
-    if !ready {
-        eprintln!("PDF export: the page wasn't ready after {READY_TIMEOUT:?}; printing it anyway.");
+    match readiness {
+        PageReadiness::Ready => {}
+        PageReadiness::TimedOut => eprintln!(
+            "PDF export: the page wasn't ready after {READY_TIMEOUT:?}; printing it anyway."
+        ),
+        // Printing now would replace the chosen file with a blank page.
+        PageReadiness::NeverWritten => {
+            return Err("Couldn't prepare the PDF. Try exporting again.".into())
+        }
     }
 
     // Print next to the chosen file, not over it: the page numbers are added to
@@ -550,7 +578,7 @@ mod tests {
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
         mime_from_path, place_printed_pdf, read_export_image, save_printed_pdf, temp_sibling,
-        wait_until_ready, PdfPrintOptions, MAX_REWRITES,
+        wait_until_ready, PageReadiness, PdfPrintOptions, MAX_REWRITES,
     };
 
     #[test]
@@ -931,9 +959,9 @@ mod tests {
     }
 
     /// Runs `wait_until_ready` against a page that answers `statuses` in turn
-    /// (repeating the last one). Returns whether it was ready, and how many
-    /// times it was asked and written again.
-    fn wait_for(statuses: &[Option<&str>], limit: Duration) -> (bool, usize, usize) {
+    /// (repeating the last one). Returns how it ended, and how many times the
+    /// page was asked and written again.
+    fn wait_for(statuses: &[Option<&str>], limit: Duration) -> (PageReadiness, usize, usize) {
         let polls = Cell::new(0);
         let rewrites = Cell::new(0);
         let ready = tauri::async_runtime::block_on(wait_until_ready(
@@ -960,28 +988,37 @@ mod tests {
         let limit = Duration::from_secs(5);
         assert_eq!(
             wait_for(&[Some("waiting"), Some("waiting"), Some("ready")], limit),
-            (true, 3, 0)
+            (PageReadiness::Ready, 3, 0)
         );
         // A page that doesn't answer once is still waited for.
-        assert_eq!(wait_for(&[None, Some("ready")], limit), (true, 2, 0));
+        assert_eq!(
+            wait_for(&[None, Some("ready")], limit),
+            (PageReadiness::Ready, 2, 0)
+        );
     }
 
     #[test]
     fn writes_the_html_again_when_the_page_turns_up_empty() {
         assert_eq!(
             wait_for(&[Some("empty"), Some("ready")], Duration::from_secs(5)),
-            (true, 2, 1)
+            (PageReadiness::Ready, 2, 1)
         );
-        let (ready, _, rewrites) = wait_for(&[Some("empty")], Duration::from_millis(50));
-        assert!(!ready);
-        assert_eq!(rewrites, MAX_REWRITES);
+        // Still empty after every rewrite: stop at once rather than print a blank page.
+        let started = std::time::Instant::now();
+        let (readiness, polls, rewrites) = wait_for(&[Some("empty")], Duration::from_secs(5));
+        assert_eq!(readiness, PageReadiness::NeverWritten);
+        assert_eq!((polls, rewrites), (MAX_REWRITES + 1, MAX_REWRITES));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // Out of time while the page was still empty.
+        let (readiness, _, _) = wait_for(&[Some("empty"), None], Duration::from_millis(50));
+        assert_eq!(readiness, PageReadiness::NeverWritten);
     }
 
     #[test]
     fn stops_waiting_for_a_page_that_never_gets_ready() {
         let started = std::time::Instant::now();
-        let (ready, polls, _) = wait_for(&[Some("waiting")], Duration::from_millis(50));
-        assert!(!ready);
+        let (readiness, polls, _) = wait_for(&[Some("waiting")], Duration::from_millis(50));
+        assert_eq!(readiness, PageReadiness::TimedOut);
         assert!(polls > 1);
         assert!(started.elapsed() < Duration::from_secs(5));
     }
