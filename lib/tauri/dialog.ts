@@ -146,3 +146,28 @@ export async function confirmCloseAfterSaveFailure(failures: SaveFailure[]): Pro
     if (choice === 'no') return 'discard'
     return 'cancel'
 }
+
+/** What happened to a file outside Scrivon while it was open. */
+export type DiskChange = 'changed' | 'deleted'
+
+/**
+ * Asks before a save replaces a file someone else changed, or puts back a file someone deleted.
+ * Resolves true only when the user picks Overwrite (or Save Again); anything else keeps the file as it is.
+ */
+export async function confirmOverwriteDiskChange(fileName: string, change: DiskChange): Promise<boolean> {
+    const changed = change === 'changed'
+    const title = changed ? 'File changed on disk' : 'File deleted'
+    const body = changed
+        ? `${fileName} was changed outside Scrivon since you opened it.\n\nOverwrite it with your version? The other changes will be lost.`
+        : `${fileName} was deleted or moved outside Scrivon.\n\nSave your version there again?`
+    const confirm = changed ? 'Overwrite' : 'Save Again'
+    const keep = "Don't Save"
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}. Cancel: ${keep}.`)
+    }
+
+    const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: keep } })
+    return result === confirm || result === 'Ok'
+}

@@ -3,8 +3,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
-import { writeWorkspaceFile } from '@/lib/tauri/fs'
-import type { DocumentTab } from '@/lib/workspace/types'
+import { confirmOverwriteDiskChange, type DiskChange } from '@/lib/tauri/dialog'
+import { DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
+import type { DocumentTab, FileStamp } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
@@ -61,10 +62,26 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         saveTimers.current.clear()
     }, [autosaveEnabled])
 
+    // One question about a file changed on disk at a time, so saves of several tabs can't stack dialogs.
+    const diskQuestion = useRef<Promise<unknown>>(Promise.resolve())
+    const openDiskQuestions = useRef(0)
+
+    const askToOverwrite = useCallback((fileName: string, change: DiskChange): Promise<boolean> => {
+        openDiskQuestions.current += 1
+        const answer = diskQuestion.current.then(() => confirmOverwriteDiskChange(fileName, change))
+        diskQuestion.current = answer.catch(() => undefined)
+        return answer.finally(() => {
+            openDiskQuestions.current -= 1
+        })
+    }, [])
+
     const writeTab = useCallback(
         async (id: string, silent: boolean): Promise<boolean> => {
             const tab = tabsRef.current.find((t) => t.id === id)
             if (!tab || tab.readOnly || !tab.isDirty) return true
+            const disk = tab.disk
+            // The user chose not to save over a change made elsewhere: only an explicit save asks again.
+            if (silent && disk?.conflict) return false
 
             const content = tab.content
             if (!silent) {
@@ -73,7 +90,22 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             }
 
             try {
-                await writeWorkspaceFile(tab.path, content, tab.format)
+                let stamp: FileStamp | null
+                try {
+                    // Refused if the file was changed or deleted outside Scrivon since it was read or last saved.
+                    stamp = await writeWorkspaceFile(tab.path, content, { format: tab.format, expected: disk ? disk.stamp : undefined })
+                } catch (err) {
+                    if (!(err instanceof DiskChangedError) || !disk) throw err
+                    if (!(await askToOverwrite(tab.name, err.change))) {
+                        disk.conflict = err.change
+                        throw err
+                    }
+                    stamp = await writeWorkspaceFile(tab.path, content, { format: tab.format })
+                }
+                if (disk) {
+                    disk.stamp = stamp
+                    disk.conflict = undefined
+                }
                 if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
                 // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
                 const markSaved = (t: DocumentTab) =>
@@ -105,7 +137,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
                 return false
             }
         },
-        [coordinator, setTabs, tabsRef]
+        [askToOverwrite, coordinator, setTabs, tabsRef]
     )
 
     const flushSave = useCallback(
@@ -138,7 +170,8 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         (id: string) => {
             if (!autosaveEnabledRef.current) return
             const tab = tabsRef.current.find((t) => t.id === id)
-            if (tab?.readOnly) return
+            // A tab whose file changed elsewhere waits for the user (Try Again on its notice, or closing it).
+            if (tab?.readOnly || tab?.disk?.conflict) return
 
             const existing = saveTimers.current.get(id)
             if (existing) clearTimeout(existing)
@@ -180,6 +213,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             cancelScheduledSave,
             getAutosaveEnabled: () => autosaveEnabledRef.current,
             getSaveError: (id) => saveErrors.current.get(id),
+            isAskingUser: () => openDiskQuestions.current > 0,
         })
     }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, cancelScheduledSave])
 

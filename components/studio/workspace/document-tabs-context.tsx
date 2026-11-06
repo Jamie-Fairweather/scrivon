@@ -44,10 +44,15 @@ const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
 /** How long closing waits for a save before treating it as failed (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
 
-function saveWithin(save: Promise<boolean>, ms: number): Promise<boolean | 'timeout'> {
+/** Time spent waiting for the user to answer a question during the save doesn't count. */
+function saveWithin(save: Promise<boolean>, ms: number, isAskingUser: () => boolean): Promise<boolean | 'timeout'> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<'timeout'>((resolve) => {
-        timer = setTimeout(() => resolve('timeout'), ms)
+        const check = () => {
+            if (isAskingUser()) timer = setTimeout(check, ms)
+            else resolve('timeout')
+        }
+        timer = setTimeout(check, ms)
     })
     return Promise.race([save, timeout]).finally(() => clearTimeout(timer))
 }
@@ -300,7 +305,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 const results = await Promise.all(
                     toSave.map(async (tab) => ({
                         tab,
-                        result: await saveWithin(coordinator.flushSave.current(tab.id), SAVE_BEFORE_CLOSE_TIMEOUT_MS),
+                        result: await saveWithin(
+                            coordinator.flushSave.current(tab.id),
+                            SAVE_BEFORE_CLOSE_TIMEOUT_MS,
+                            coordinator.isAskingUser.current
+                        ),
                     }))
                 )
                 const failed = results.filter((r) => r.result !== true)

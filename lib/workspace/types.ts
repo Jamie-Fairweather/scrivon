@@ -15,6 +15,20 @@ export type FileNode =
           path: string
       }
 
+/** When a file was last changed and how big it was, to tell whether someone else changed it since. */
+export type FileStamp = { mtimeMs: number | null; size: number }
+
+/**
+ * What Scrivon last knew about a tab's file on disk. Every copy of a tab shares this one object (tabs are
+ * copied on each edit), so a save can update it without waiting for React. Never render from it.
+ */
+export type TabDiskRecord = {
+    /** From the last read or save; null when it couldn't be read, which only checks the file is still there. */
+    stamp: FileStamp | null
+    /** Set when the user chose not to save over a change made outside Scrivon; autosave then leaves the tab alone. */
+    conflict?: 'changed' | 'deleted'
+}
+
 export type DocumentTab = {
     id: string
     path: string
@@ -28,6 +42,8 @@ export type DocumentTab = {
     format?: TextFileFormat
     /** Set when the file couldn't be read safely as text, so the tab is read-only to protect it. */
     encodingIssue?: TextDecodeIssue
+    /** Set for tabs read from disk, so saves can tell when the file was changed or deleted outside Scrivon. */
+    disk?: TabDiskRecord
 }
 
 export type StudioLayoutState = {

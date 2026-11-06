@@ -12,6 +12,8 @@ export type WorkspaceCoordinatorRefs = {
     getAutosaveEnabled: MutableRefObject<() => boolean>
     /** The error from the tab's last failed save, if its last save failed. */
     getSaveError: MutableRefObject<(id: string) => string | undefined>
+    /** True while a save is waiting for the user to answer a question (such as overwriting a file changed elsewhere). */
+    isAskingUser: MutableRefObject<() => boolean>
     /** The text of the open tab for `path` when it has edits that aren't saved yet, otherwise undefined. */
     getUnsavedContent: MutableRefObject<(path: string) => string | undefined>
     /**
@@ -39,6 +41,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         cancelScheduledSave: { current: () => {} },
         getAutosaveEnabled: { current: () => true },
         getSaveError: { current: () => undefined },
+        isAskingUser: { current: () => false },
         getUnsavedContent: { current: () => undefined },
         confirmCloseTabs: { current: async () => true },
         remapTabsAfterRename: { current: () => {} },

@@ -31,6 +31,7 @@ vi.mock('@/lib/tauri/scope', () => ({
 
 import {
     confirmCloseAfterSaveFailure,
+    confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickOpenFile,
     pickSavePath,
@@ -265,5 +266,37 @@ describe('confirmCloseAfterSaveFailure', () => {
 
         messageMock.mockResolvedValueOnce('Cancel')
         await expect(confirmCloseAfterSaveFailure([{ name: 'a.md' }])).resolves.toBe('cancel')
+    })
+})
+
+describe('confirmOverwriteDiskChange', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('asks before replacing a file changed elsewhere, and only Overwrite goes ahead', async () => {
+        messageMock.mockResolvedValueOnce('Overwrite')
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('a.md was changed outside Scrivon')
+        expect(options).toMatchObject({ title: 'File changed on disk', buttons: { ok: 'Overwrite', cancel: "Don't Save" } })
+
+        messageMock.mockResolvedValueOnce("Don't Save")
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+    })
+
+    it('offers to save a deleted file again', async () => {
+        messageMock.mockResolvedValueOnce('Save Again')
+        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe(true)
+        expect(messageMock.mock.calls[0]![1]).toMatchObject({ title: 'File deleted', buttons: { ok: 'Save Again', cancel: "Don't Save" } })
+    })
+
+    it('never overwrites outside Tauri when it cannot ask', async () => {
+        isTauriMock.mockReturnValue(false)
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        expect(messageMock).not.toHaveBeenCalled()
     })
 })

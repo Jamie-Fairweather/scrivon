@@ -1,9 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { exists, mkdir, readDir, readFile, readTextFile, remove, rename, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError, notifyWarning, type NotifyOptions } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { confirmCloseAfterSaveFailure, confirmOverwriteDiskChange, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
@@ -39,6 +39,20 @@ vi.mock('@/lib/tauri/dialog', () => ({
     showError: vi.fn(async () => undefined),
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
+    confirmOverwriteDiskChange: vi.fn(async () => false),
+}))
+
+const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
+
+vi.mock('@tauri-apps/api/window', () => ({
+    getCurrentWindow: () => ({
+        onFocusChanged: async (handler: (event: { payload: boolean }) => void) => {
+            windowFocus.handler = handler
+            return () => {
+                if (windowFocus.handler === handler) windowFocus.handler = undefined
+            }
+        },
+    }),
 }))
 
 type Entry = { name: string; isDirectory: boolean; isFile: boolean; isSymlink: boolean }
@@ -51,6 +65,10 @@ function createWindowsDisk(files: Record<string, string>) {
     const key = (path: string | URL) => String(path).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
     const contents = new Map(Object.entries(files).map(([path, text]) => [key(path), { path, text }]))
     const folders = new Map<string, string>()
+    // Each write gets a later modified time; a rename keeps it, like a real disk.
+    let clock = 1
+    const mtimes = new Map<string, number>()
+    const touch = (path: string | URL) => mtimes.set(key(path), ++clock)
     const isFolder = (k: string) => folders.has(k) || [...contents.keys()].some((c) => c.startsWith(`${k}\\`))
     return {
         contents,
@@ -62,6 +80,7 @@ function createWindowsDisk(files: Record<string, string>) {
         write: async (path: string | URL, text: string, options?: { createNew?: boolean }) => {
             if (options?.createNew && (contents.has(key(path)) || isFolder(key(path)))) throw 'The file exists. (os error 80)'
             contents.set(key(path), { path: String(path), text })
+            touch(path)
         },
         readBytes: async (path: string | URL) => {
             const file = contents.get(key(path))
@@ -71,6 +90,16 @@ function createWindowsDisk(files: Record<string, string>) {
         writeBytes: async (path: string | URL, data: Uint8Array | ReadableStream<Uint8Array>, options?: { createNew?: boolean }) => {
             if (options?.createNew && (contents.has(key(path)) || isFolder(key(path)))) throw 'The file exists. (os error 80)'
             contents.set(key(path), { path: String(path), text: new TextDecoder().decode(data as Uint8Array) })
+            touch(path)
+        },
+        stat: async (path: string | URL) => {
+            const file = contents.get(key(path))
+            if (file) {
+                const size = new TextEncoder().encode(file.text).length
+                return { isFile: true, isDirectory: false, isSymlink: false, size, mtime: new Date(mtimes.get(key(path)) ?? 1), nlink: null }
+            }
+            if (isFolder(key(path))) return { isFile: false, isDirectory: true, isSymlink: false, size: 0, mtime: null, nlink: null }
+            throw 'The system cannot find the file specified. (os error 2)'
         },
         exists: async (path: string | URL) => contents.has(key(path)) || isFolder(key(path)),
         mkdir: async (path: string | URL) => {
@@ -95,6 +124,7 @@ function createWindowsDisk(files: Record<string, string>) {
             if (!file) throw new Error(`not found: ${String(from)}`)
             contents.delete(key(from))
             contents.set(key(to), { path: String(to), text: file.text })
+            mtimes.set(key(to), mtimes.get(key(from)) ?? 1)
         },
         list: async (dir: string): Promise<Entry[]> => {
             if (!isFolder(key(dir)))
@@ -123,6 +153,8 @@ function mountDisk(disk: ReturnType<typeof createWindowsDisk>) {
     vi.mocked(remove).mockImplementation(disk.remove)
     vi.mocked(readFile).mockImplementation(disk.readBytes)
     vi.mocked(writeFile).mockImplementation(disk.writeBytes)
+    vi.mocked(stat).mockImplementation(disk.stat as unknown as typeof stat)
+    vi.mocked(lstat).mockImplementation(disk.stat as unknown as typeof lstat)
 }
 
 function useHarness() {
@@ -703,5 +735,114 @@ describe('duplicating', () => {
         expect(await disk.read('C:\\ws\\notes copy 2.md')).toBe('UNSAVED EDITS')
         expect(await disk.read('C:\\ws\\notes.md')).toBe('SAVED')
         expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({ isDirty: true, content: 'UNSAVED EDITS' })
+    })
+})
+
+describe('changes made outside Scrivon', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // A long delay keeps the autosave timer out of the way; the tests save when they choose to.
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine v1' })
+        mountDisk(disk)
+    })
+
+    async function openAndEdit(result: { current: ReturnType<typeof useHarness> }, text = 'MY EDITS') {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', text))
+    }
+
+    async function save() {
+        let ok!: boolean
+        await act(async () => {
+            ok = await coordinatorOut.current!.flushSave.current('C:\\ws\\notes.md')
+        })
+        return ok
+    }
+
+    it('saves again and again without asking when nothing else touched the file', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await expect(save()).resolves.toBe(true)
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
+        await expect(save()).resolves.toBe(true)
+
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS 2')
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('asks before saving over a change made in another app, and keeps that change when told to', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+
+        await expect(save()).resolves.toBe(false)
+
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        expect(result.current.tabs.tabs[0]).toMatchObject({
+            content: 'MY EDITS',
+            isDirty: true,
+            saveError: 'It was changed outside Scrivon since you opened it.',
+        })
+        expect(notifyError).toHaveBeenCalledWith("Couldn't save notes.md", expect.anything(), expect.objectContaining({ timeout: 0 }))
+
+        // Typing doesn't ask again after every pause; switching tabs doesn't either.
+        act(() => coordinatorOut.current!.flushSaveOnTabLeave.current('C:\\ws\\notes.md'))
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
+
+        // Try Again on the notice asks once more, and Overwrite saves.
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        await expect(save()).resolves.toBe(true)
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: false, saveError: undefined })
+
+        // The overwrite is now the version the tab knows, so the next save doesn't ask.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
+        await expect(save()).resolves.toBe(true)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
+    })
+
+    it('asks before bringing back a file deleted in another app', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        disk.contents.clear()
+
+        await expect(save()).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'deleted')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        await expect(save()).resolves.toBe(true)
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
+    })
+
+    it('shows files added in another app when the window gets focus again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        await disk.write('C:\\ws\\from-git.md', '# new')
+
+        await act(async () => {
+            windowFocus.handler!({ payload: false })
+        })
+        expect(result.current.session.tree.map((n) => n.name)).toEqual(['notes.md'])
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
     })
 })

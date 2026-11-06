@@ -1241,6 +1241,38 @@ describe('closing tabs with unsaved changes', () => {
         expect(result.current.tabs).toHaveLength(2)
     })
 
+    it('does not count time the user spends answering a question during the save', async () => {
+        const { result, coordinator } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        // The save is waiting on "File changed on disk: Overwrite?" for 25 seconds, then succeeds.
+        let asking = true
+        let finish!: (ok: boolean) => void
+        coordinator.isAskingUser.current = () => asking
+        coordinator.flushSave.current = vi.fn(() => new Promise<boolean>((resolve) => (finish = resolve)))
+
+        vi.useFakeTimers()
+        try {
+            let closing!: Promise<void>
+            act(() => {
+                closing = result.current.closeTab('/ws/a.mmd')
+            })
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(25_000)
+            })
+            expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
+            asking = false
+            finish(true)
+            await act(async () => {
+                await closing
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+
+        expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
     it('ignores a second close request while the first is still being answered', async () => {
         let answer!: (choice: 'discard') => void
         vi.mocked(confirmUnsavedChanges).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))

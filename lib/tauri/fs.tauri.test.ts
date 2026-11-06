@@ -52,6 +52,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 import {
     createWorkspaceDirectory,
     createWorkspaceFile,
+    DiskChangedError,
     duplicateWorkspaceFile,
     getWorkspaceFileSize,
     joinPath,
@@ -62,6 +63,7 @@ import {
     readWorkspaceTextFile,
     removeWorkspacePath,
     renameWorkspacePath,
+    stampChanged,
     writeWorkspaceFile,
 } from './fs'
 
@@ -116,6 +118,7 @@ describe('workspace fs (Tauri)', () => {
 
     it('writes through a link instead of replacing it with a plain file', async () => {
         lstatMock.mockResolvedValue({ isFile: false, isDirectory: false, isSymlink: true, size: 1, mtime: null, nlink: null })
+        statMock.mockResolvedValue({ size: 4, mtime: null })
         await writeWorkspaceFile('/ws/linked.md', 'text')
         expect(writeFileMock).toHaveBeenCalledWith('/ws/linked.md', new TextEncoder().encode('text'))
         expect(renameMock).not.toHaveBeenCalled()
@@ -126,17 +129,56 @@ describe('workspace fs (Tauri)', () => {
         const original = new Uint8Array([0xff, 0xfe, 0x23, 0x00, 0x20, 0x00, 0x43, 0x00, 0x61, 0x00, 0x66, 0x00, 0xe9, 0x00])
         readFileMock.mockResolvedValue(original)
         const file = await readWorkspaceTextFile('C:\\ws\\notes.md')
-        expect(file).toEqual({ content: '# Café', format: { encoding: 'utf-16le', bom: true } })
+        expect(file).toMatchObject({ content: '# Café', format: { encoding: 'utf-16le', bom: true } })
 
-        await writeWorkspaceFile('C:\\ws\\notes.md', file.content, file.format)
+        await writeWorkspaceFile('C:\\ws\\notes.md', file.content, { format: file.format })
         expect(lastSave()).toMatchObject({ bytes: original, replaced: 'C:\\ws\\notes.md' })
+    })
+
+    it('notes when and how big a file was when it was read, and after it is saved', async () => {
+        statMock.mockResolvedValueOnce({ size: 4, mtime: new Date(1000) }).mockResolvedValueOnce({ size: 6, mtime: new Date(2000) })
+        readFileMock.mockResolvedValue(new TextEncoder().encode('text'))
+
+        const file = await readWorkspaceTextFile('/ws/a.md')
+        expect(file.stamp).toEqual({ mtimeMs: 1000, size: 4 })
+
+        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 4, mtime: new Date(1000), nlink: null })
+        await expect(writeWorkspaceFile('/ws/a.md', 'text!!', { expected: file.stamp })).resolves.toEqual({ mtimeMs: 2000, size: 6 })
+    })
+
+    it('refuses to save over a file changed outside the app since it was read', async () => {
+        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 9, mtime: new Date(5000), nlink: null })
+
+        const save = writeWorkspaceFile('/ws/a.md', 'mine', { expected: { mtimeMs: 1000, size: 4 } })
+        await expect(save).rejects.toBeInstanceOf(DiskChangedError)
+        await expect(save).rejects.toMatchObject({ change: 'changed', message: 'It was changed outside Scrivon since you opened it.' })
+        // Only the time changed (same size) still counts as a change.
+        await expect(writeWorkspaceFile('/ws/a.md', 'mine', { expected: { mtimeMs: 1000, size: 9 } })).rejects.toMatchObject({ change: 'changed' })
+        expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('refuses to bring back a file deleted outside the app, unless saved without a check', async () => {
+        lstatMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
+        existsMock.mockResolvedValue(false)
+
+        await expect(writeWorkspaceFile('/ws/gone.md', 'mine', { expected: null })).rejects.toMatchObject({ change: 'deleted' })
+        expect(writeFileMock).not.toHaveBeenCalled()
+
+        await writeWorkspaceFile('/ws/gone.md', 'mine')
+        expect(lastSave().replaced).toBe('/ws/gone.md')
+    })
+
+    it('treats an unknown time as unchanged when the size matches', () => {
+        expect(stampChanged({ mtimeMs: null, size: 4 }, { mtimeMs: 2000, size: 4 })).toBe(false)
+        expect(stampChanged({ mtimeMs: 1000, size: 4 }, { mtimeMs: 1000, size: 4 })).toBe(false)
+        expect(stampChanged({ mtimeMs: null, size: 4 }, { mtimeMs: null, size: 5 })).toBe(true)
     })
 
     it('keeps the byte-order mark of a UTF-8 file and flags an ANSI file', async () => {
         const withMark = new Uint8Array([0xef, 0xbb, 0xbf, 0x41])
         readFileMock.mockResolvedValueOnce(withMark)
         const file = await readWorkspaceTextFile('/ws/a.md')
-        await writeWorkspaceFile('/ws/a.md', file.content, file.format)
+        await writeWorkspaceFile('/ws/a.md', file.content, { format: file.format })
         expect(lastSave()).toMatchObject({ bytes: withMark, replaced: '/ws/a.md' })
 
         readFileMock.mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))

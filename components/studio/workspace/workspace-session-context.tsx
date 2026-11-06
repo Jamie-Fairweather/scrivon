@@ -1,6 +1,7 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { DEFAULT_MARKDOWN } from '@/lib/default-markdown'
 import { pickWorkspaceFolder } from '@/lib/tauri/dialog'
@@ -105,14 +106,55 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [])
 
     /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
+    // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown.
+    const treeRead = useRef(0)
+
     const refreshTree = useCallback(async () => {
         if (!workspaceRoot) return
+        const read = ++treeRead.current
         try {
-            setTree(await listWorkspaceTree(workspaceRoot))
+            const next = await listWorkspaceTree(workspaceRoot)
+            if (read === treeRead.current) setTree(next)
         } catch (err) {
             notifyError("Couldn't refresh the file list", err)
         }
     }, [workspaceRoot])
+
+    // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up when the user comes
+    // back to the window. A failed read is left quiet here; the next action that changes the disk reports it.
+    useEffect(() => {
+        if (!isDesktop || !workspaceRoot) return
+        const root = workspaceRoot
+        let disposed = false
+        let unlisten: (() => void) | undefined
+        const reload = async () => {
+            const read = ++treeRead.current
+            try {
+                const next = await listWorkspaceTree(root)
+                if (!disposed && read === treeRead.current) setTree(next)
+            } catch {
+                // See above.
+            }
+        }
+        try {
+            void getCurrentWindow()
+                .onFocusChanged(({ payload: focused }) => {
+                    if (focused) void reload()
+                })
+                .then((fn) => {
+                    // The effect may have been cleaned up while the listener was still being added.
+                    if (disposed) fn()
+                    else unlisten = fn
+                })
+                .catch(() => undefined)
+        } catch {
+            // No window to listen to (not running in the desktop app).
+        }
+        return () => {
+            disposed = true
+            unlisten?.()
+        }
+    }, [isDesktop, workspaceRoot])
 
     const removeRecent = useCallback(async (path: string) => {
         const next = await removeRecentWorkspace(path)
@@ -184,6 +226,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
 
             setWorkspaceRoot(path)
+            treeRead.current += 1
             setTree(nextTree)
             setRecentWorkspaces(recents)
             coordinator.clearTabs.current()

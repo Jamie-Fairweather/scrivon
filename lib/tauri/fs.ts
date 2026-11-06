@@ -1,7 +1,20 @@
 import { readDir, readFile, writeFile, writeTextFile, mkdir, rename, remove, stat, lstat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { decodeText, DEFAULT_TEXT_FORMAT, encodeText, type DecodedText, type TextFileFormat } from '@/lib/workspace/text-encoding'
-import type { FileNode } from '@/lib/workspace/types'
+import type { FileNode, FileStamp } from '@/lib/workspace/types'
+
+/** Thrown instead of saving over a file that was changed, or deleted, outside Scrivon since it was read. */
+export class DiskChangedError extends Error {
+    readonly path: string
+    readonly change: 'changed' | 'deleted'
+
+    constructor(path: string, change: 'changed' | 'deleted') {
+        super(change === 'changed' ? 'It was changed outside Scrivon since you opened it.' : 'It was deleted or moved outside Scrivon.')
+        this.name = 'DiskChangedError'
+        this.path = path
+        this.change = change
+    }
+}
 
 /** Thrown instead of replacing a file or folder that is already there. */
 export class PathExistsError extends Error {
@@ -76,10 +89,35 @@ export async function listWorkspaceTree(rootPath: string): Promise<FileNode[]> {
     return readDirTree(normalizePath(rootPath))
 }
 
-/** Reads a file as text, noting how it is stored (UTF-8 or UTF-16, with or without a mark) so a save can keep it that way. */
-export async function readWorkspaceTextFile(path: string): Promise<DecodedText> {
-    if (!isTauri()) return { content: '', format: DEFAULT_TEXT_FORMAT }
-    return decodeText(await readFile(path))
+function stampOf(info: { size: number; mtime: Date | null }): FileStamp {
+    return { mtimeMs: info.mtime ? info.mtime.getTime() : null, size: info.size }
+}
+
+/** True when the file now on disk isn't the one `before` was taken from. Sizes always count; times only when both are known. */
+export function stampChanged(before: FileStamp, now: FileStamp): boolean {
+    if (before.size !== now.size) return true
+    return before.mtimeMs !== null && now.mtimeMs !== null && before.mtimeMs !== now.mtimeMs
+}
+
+async function readStamp(path: string): Promise<FileStamp | null> {
+    try {
+        return stampOf(await stat(path))
+    } catch {
+        return null
+    }
+}
+
+export type TextFileRead = DecodedText & { stamp: FileStamp | null }
+
+/**
+ * Reads a file as text, noting how it is stored (UTF-8 or UTF-16, with or without a mark) so a save can
+ * keep it that way, and its stamp so a save can tell whether someone else changed it in the meantime.
+ */
+export async function readWorkspaceTextFile(path: string): Promise<TextFileRead> {
+    if (!isTauri()) return { content: '', format: DEFAULT_TEXT_FORMAT, stamp: null }
+    // Stamped before reading: a change made during the read then looks like a change, never the other way round.
+    const stamp = await readStamp(path)
+    return { ...decodeText(await readFile(path)), stamp }
 }
 
 export async function readWorkspaceFile(path: string): Promise<string> {
@@ -124,31 +162,57 @@ async function replaceFile(tempPath: string, path: string): Promise<void> {
     }
 }
 
-/**
- * A link is written through, not replaced: replacing would turn it into a plain file and cut it off
- * from the file it points to. A path that isn't there yet is a new file.
- */
-async function isLink(path: string): Promise<boolean> {
+/** What is at `path` now, or null when nothing is. */
+async function inspectFile(path: string): Promise<{ link: boolean; stamp: FileStamp } | null> {
+    let info: Awaited<ReturnType<typeof lstat>>
     try {
-        const info = await lstat(path)
-        return info.isSymlink || (info.nlink ?? 1) > 1
+        info = await lstat(path)
+    } catch (err) {
+        if (!(await exists(path))) return null
+        throw err
+    }
+    // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file it points to.
+    const link = info.isSymlink || (info.nlink ?? 1) > 1
+    if (!info.isSymlink) return { link, stamp: stampOf(info) }
+    try {
+        return { link, stamp: stampOf(await stat(path)) }
     } catch {
-        return false
+        // The link points at a file that is gone.
+        return null
     }
 }
 
+export type WriteWorkspaceFileOptions = {
+    /** The file's encoding, from readWorkspaceTextFile. UTF-8 when left out. */
+    format?: TextFileFormat
+    /**
+     * The stamp from when the file was read or last saved. When given, the save is refused with
+     * DiskChangedError if the file changed or went away since; `null` only checks it is still there.
+     */
+    expected?: FileStamp | null
+}
+
 /**
- * Saves text in the file's own encoding (`format`, from readWorkspaceTextFile), UTF-8 when left out.
- * The bytes go to a temporary file next to it, which then replaces the file in one step. So a save that
- * fails or is cut short (full disk, unplugged drive, crash) leaves the old version, never an empty or
- * half-written file. If the replace fails, the temporary file is removed.
+ * Saves text in the file's own encoding. The bytes go to a temporary file next to it, which then replaces
+ * the file in one step. So a save that fails or is cut short (full disk, unplugged drive, crash) leaves the
+ * old version, never an empty or half-written file. If the replace fails, the temporary file is removed.
+ * Resolves to the saved file's new stamp (null if it couldn't be read).
  */
-export async function writeWorkspaceFile(path: string, content: string, format: TextFileFormat = DEFAULT_TEXT_FORMAT): Promise<void> {
-    if (!isTauri()) return
+export async function writeWorkspaceFile(
+    path: string,
+    content: string,
+    { format = DEFAULT_TEXT_FORMAT, expected }: WriteWorkspaceFileOptions = {}
+): Promise<FileStamp | null> {
+    if (!isTauri()) return null
+    const current = await inspectFile(path)
+    if (expected !== undefined) {
+        if (!current) throw new DiskChangedError(path, 'deleted')
+        if (expected && stampChanged(expected, current.stamp)) throw new DiskChangedError(path, 'changed')
+    }
     const bytes = encodeText(content, format)
-    if (await isLink(path)) {
+    if (current?.link) {
         await writeFile(path, bytes)
-        return
+        return readStamp(path)
     }
     const tempPath = saveTempPath(path)
     await writeFile(tempPath, bytes, { createNew: true })
@@ -162,6 +226,7 @@ export async function writeWorkspaceFile(path: string, content: string, format: 
         }
         throw err
     }
+    return readStamp(path)
 }
 
 /** Creates a new folder. Throws PathExistsError if something with that name is already there. */
