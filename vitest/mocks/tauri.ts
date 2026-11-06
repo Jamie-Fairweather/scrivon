@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 vi.mock('@tauri-apps/plugin-fs', () => ({
     readDir: vi.fn(async () => []),
     readTextFile: vi.fn(async () => ''),
+    readFile: vi.fn(async () => new Uint8Array()),
     writeTextFile: vi.fn(async () => undefined),
     writeFile: vi.fn(async () => undefined),
     mkdir: vi.fn(async () => undefined),

@@ -133,6 +133,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 setTabs([])
                 setActiveTabId(null)
             },
+            getUnsavedContent: (path) => {
+                const tab = tabsRef.current.find((t) => samePath(t.path, path))
+                return tab?.isDirty ? tab.content : undefined
+            },
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
                 setTabs(nextTabs)
                 setActiveTabId(nextActiveId)

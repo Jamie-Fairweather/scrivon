@@ -11,6 +11,7 @@ import {
     getBaseName,
     getParentPath,
     joinPath,
+    listFolderNames,
     listWorkspaceTree,
     normalizePath,
     readWorkspaceFile,
@@ -24,7 +25,7 @@ import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, remove
 import { tabFromPath } from '@/lib/workspace/document-tab'
 import { notifyError } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
-import { childrenOf, collectFileNames, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
+import { childrenOf, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
 import type { FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
@@ -304,11 +305,14 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         async (path: string) => {
             const parent = getParentPath(path)
             const baseName = getBaseName(path)
-            const siblingNames = collectFileNames(tree)
-            const newName = uniqueFileName(baseName, siblingNames)
-            const destPath = joinPath(parent, newName)
+            let destPath: string
             try {
-                await duplicateWorkspaceFile(path, destPath)
+                // Names in use come from the folder on disk, not the cached tree, so a file added elsewhere
+                // since the last reload is seen (the copy itself also refuses to replace anything).
+                const newName = uniqueFileName(baseName, await listFolderNames(parent))
+                destPath = joinPath(parent, newName)
+                // The copy holds what the user sees, including edits that aren't saved yet.
+                await duplicateWorkspaceFile(path, destPath, coordinator.getUnsavedContent.current(path))
             } catch (err) {
                 notifyError(`Couldn't duplicate ${baseName}`, err)
                 await refreshTree()
@@ -317,7 +321,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             await refreshTree()
             await coordinator.openFile.current(destPath)
         },
-        [tree, refreshTree, coordinator]
+        [refreshTree, coordinator]
     )
 
     const value = useMemo(

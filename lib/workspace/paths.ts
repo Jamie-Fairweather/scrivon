@@ -22,13 +22,19 @@ export function validateFileName(name: string): string | null {
     return null
 }
 
-export function uniqueFileName(base: string, existing: Set<string>): string {
-    if (!existing.has(base)) return base
+/**
+ * A name for a copy of `base` that no sibling uses: `notes copy.md`, then `notes copy 2.md`…
+ * Names are compared ignoring letter case, because Windows treats `Notes copy.md` and `notes copy.md` as one file.
+ */
+export function uniqueFileName(base: string, existing: Iterable<string>): string {
+    const taken = new Set([...existing].map((name) => name.toLowerCase()))
+    const isTaken = (name: string) => taken.has(name.toLowerCase())
+    if (!isTaken(base)) return base
     const dot = base.lastIndexOf('.')
     const stem = dot > 0 ? base.slice(0, dot) : base
     const ext = dot > 0 ? base.slice(dot) : ''
     let i = 1
-    while (existing.has(`${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`)) {
+    while (isTaken(`${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`)) {
         i += 1
     }
     return `${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`

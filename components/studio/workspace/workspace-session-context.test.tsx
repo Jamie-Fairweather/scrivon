@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { exists, mkdir, readDir, readTextFile, remove, rename, writeTextFile } from '@tauri-apps/plugin-fs'
+import { exists, mkdir, readDir, readFile, readTextFile, remove, rename, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { PathExistsError } from '@/lib/tauri/fs'
@@ -62,6 +62,15 @@ function createWindowsDisk(files: Record<string, string>) {
             if (options?.createNew && (contents.has(key(path)) || isFolder(key(path)))) throw 'The file exists. (os error 80)'
             contents.set(key(path), { path: String(path), text })
         },
+        readBytes: async (path: string | URL) => {
+            const file = contents.get(key(path))
+            if (!file) throw new Error(`not found: ${String(path)}`)
+            return new TextEncoder().encode(file.text)
+        },
+        writeBytes: async (path: string | URL, data: Uint8Array | ReadableStream<Uint8Array>, options?: { createNew?: boolean }) => {
+            if (options?.createNew && (contents.has(key(path)) || isFolder(key(path)))) throw 'The file exists. (os error 80)'
+            contents.set(key(path), { path: String(path), text: new TextDecoder().decode(data as Uint8Array) })
+        },
         exists: async (path: string | URL) => contents.has(key(path)) || isFolder(key(path)),
         mkdir: async (path: string | URL) => {
             if (contents.has(key(path)) || isFolder(key(path))) throw 'Cannot create a file when that file already exists. (os error 183)'
@@ -97,6 +106,8 @@ function mountDisk(disk: ReturnType<typeof createWindowsDisk>) {
     vi.mocked(exists).mockImplementation(disk.exists)
     vi.mocked(mkdir).mockImplementation(disk.mkdir)
     vi.mocked(rename).mockImplementation(disk.rename)
+    vi.mocked(readFile).mockImplementation(disk.readBytes)
+    vi.mocked(writeFile).mockImplementation(disk.writeBytes)
 }
 
 function useHarness() {
@@ -560,5 +571,88 @@ describe('file system errors', () => {
         expect(await disk.read('C:\\ws\\flow.mmd')).toBe('graph LR')
         expect(notifyError).toHaveBeenCalledWith("Couldn't refresh the file list", 'Access is denied. (os error 5)')
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\flow.mmd')
+    })
+
+    it('says why a duplicate failed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        vi.mocked(readFile).mockRejectedValueOnce('The process cannot access the file because it is being used by another process. (os error 32)')
+
+        await act(async () => {
+            await result.current.session.duplicateFile('C:\\ws\\sub\\a.mmd')
+        })
+
+        expect(notifyError).toHaveBeenCalledWith(
+            "Couldn't duplicate a.mmd",
+            'The process cannot access the file because it is being used by another process. (os error 32)'
+        )
+        expect(result.current.tabs.tabs).toEqual([])
+    })
+})
+
+describe('duplicating', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({
+            'C:\\ws\\notes.md': 'SAVED',
+            'C:\\ws\\Notes copy.md': 'OTHER WORK',
+            'C:\\ws\\other\\notes copy 2.md': 'IN ANOTHER FOLDER',
+        })
+        mountDisk(disk)
+    })
+
+    async function openWorkspace(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    it('picks a name no file in the folder uses, ignoring letter case and other folders', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.duplicateFile('C:\\ws\\notes.md')
+        })
+
+        expect(await disk.read('C:\\ws\\Notes copy.md')).toBe('OTHER WORK')
+        expect(await disk.read('C:\\ws\\notes copy 2.md')).toBe('SAVED')
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes copy 2.md')
+    })
+
+    it('sees a copy made outside the app since the tree was read, instead of overwriting it', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        await disk.write('C:\\ws\\notes copy 2.md', 'MADE ELSEWHERE')
+
+        await act(async () => {
+            await result.current.session.duplicateFile('C:\\ws\\notes.md')
+        })
+
+        expect(await disk.read('C:\\ws\\notes copy 2.md')).toBe('MADE ELSEWHERE')
+        expect(await disk.read('C:\\ws\\notes copy 3.md')).toBe('SAVED')
+    })
+
+    it('copies the unsaved edits the user sees, without saving the original', async () => {
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'UNSAVED EDITS'))
+
+        await act(async () => {
+            await result.current.session.duplicateFile('C:\\ws\\notes.md')
+        })
+
+        expect(await disk.read('C:\\ws\\notes copy 2.md')).toBe('UNSAVED EDITS')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('SAVED')
+        expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({ isDirty: true, content: 'UNSAVED EDITS' })
     })
 })

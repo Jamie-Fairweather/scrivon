@@ -1,18 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { isTauriMock, readDirMock, readTextFileMock, writeTextFileMock, mkdirMock, renameMock, removeMock, copyFileMock, statMock, existsMock } =
-    vi.hoisted(() => ({
-        isTauriMock: vi.fn(),
-        readDirMock: vi.fn(),
-        readTextFileMock: vi.fn(),
-        writeTextFileMock: vi.fn(),
-        mkdirMock: vi.fn(),
-        renameMock: vi.fn(),
-        removeMock: vi.fn(),
-        copyFileMock: vi.fn(),
-        statMock: vi.fn(),
-        existsMock: vi.fn(),
-    }))
+const {
+    isTauriMock,
+    readDirMock,
+    readFileMock,
+    readTextFileMock,
+    writeFileMock,
+    writeTextFileMock,
+    mkdirMock,
+    renameMock,
+    removeMock,
+    copyFileMock,
+    statMock,
+    existsMock,
+} = vi.hoisted(() => ({
+    isTauriMock: vi.fn(),
+    readDirMock: vi.fn(),
+    readFileMock: vi.fn(),
+    readTextFileMock: vi.fn(),
+    writeFileMock: vi.fn(),
+    writeTextFileMock: vi.fn(),
+    mkdirMock: vi.fn(),
+    renameMock: vi.fn(),
+    removeMock: vi.fn(),
+    copyFileMock: vi.fn(),
+    statMock: vi.fn(),
+    existsMock: vi.fn(),
+}))
 
 vi.mock('@/lib/tauri/platform', () => ({
     isTauri: isTauriMock,
@@ -20,7 +34,9 @@ vi.mock('@/lib/tauri/platform', () => ({
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
     readDir: readDirMock,
+    readFile: readFileMock,
     readTextFile: readTextFileMock,
+    writeFile: writeFileMock,
     writeTextFile: writeTextFileMock,
     mkdir: mkdirMock,
     rename: renameMock,
@@ -36,6 +52,7 @@ import {
     duplicateWorkspaceFile,
     getWorkspaceFileSize,
     joinPath,
+    listFolderNames,
     listWorkspaceTree,
     PathExistsError,
     readWorkspaceFile,
@@ -77,12 +94,35 @@ describe('workspace fs (Tauri)', () => {
     })
 
     it('renames, removes, and duplicates paths', async () => {
+        const bytes = new Uint8Array([0xff, 0xfe, 0x41, 0x00])
+        readFileMock.mockResolvedValue(bytes)
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
         await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
         expect(renameMock).toHaveBeenCalledWith('/ws/old.mmd', '/ws/new.mmd')
         expect(removeMock).toHaveBeenCalledWith('/ws/new.mmd')
-        expect(copyFileMock).toHaveBeenCalledWith('/ws/source.mmd', '/ws/copy.mmd')
+        // A byte-for-byte copy that refuses to replace an existing file (copyFile would replace it).
+        expect(readFileMock).toHaveBeenCalledWith('/ws/source.mmd')
+        expect(writeFileMock).toHaveBeenCalledWith('/ws/copy.mmd', bytes, { createNew: true })
+        expect(copyFileMock).not.toHaveBeenCalled()
+    })
+
+    it('duplicates unsaved text when given, and never over an existing file', async () => {
+        await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd', 'UNSAVED')
+        expect(writeTextFileMock).toHaveBeenCalledWith('/ws/copy.mmd', 'UNSAVED', { createNew: true })
+        expect(readFileMock).not.toHaveBeenCalled()
+
+        existsMock.mockResolvedValue(true)
+        await expect(duplicateWorkspaceFile('/ws/source.mmd', '/ws/taken.mmd')).rejects.toBeInstanceOf(PathExistsError)
+        expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('lists the names in a folder straight from disk', async () => {
+        readDirMock.mockResolvedValue([
+            { name: 'a.md', isDirectory: false, isFile: true, isSymlink: false },
+            { name: 'sub', isDirectory: true, isFile: false, isSymlink: false },
+        ])
+        await expect(listFolderNames('/ws')).resolves.toEqual(['a.md', 'sub'])
     })
 
     it('refuses to rename onto a file or folder that already exists', async () => {
@@ -196,7 +236,9 @@ describe('workspace fs (Tauri)', () => {
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
         await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
+        await expect(listFolderNames('/ws')).resolves.toEqual([])
         expect(writeTextFileMock).not.toHaveBeenCalled()
+        expect(writeFileMock).not.toHaveBeenCalled()
         expect(mkdirMock).not.toHaveBeenCalled()
         expect(renameMock).not.toHaveBeenCalled()
         expect(removeMock).not.toHaveBeenCalled()

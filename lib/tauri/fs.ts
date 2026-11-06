@@ -1,4 +1,4 @@
-import { readDir, readTextFile, writeTextFile, mkdir, rename, remove, copyFile, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
+import { readDir, readFile, readTextFile, writeFile, writeTextFile, mkdir, rename, remove, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -117,9 +117,26 @@ export async function removeWorkspacePath(path: string): Promise<void> {
     await remove(path)
 }
 
-export async function duplicateWorkspaceFile(sourcePath: string, destPath: string): Promise<void> {
+/** The names of everything directly inside a folder, read from disk rather than the cached tree. */
+export async function listFolderNames(dirPath: string): Promise<string[]> {
+    if (!isTauri()) return []
+    return (await readDir(dirPath)).map((entry) => entry.name)
+}
+
+/**
+ * Copies a file to a new name. Never replaces an existing file (plain copy does): throws PathExistsError
+ * instead. With `content`, such as a tab's unsaved edits, the copy holds that text instead of the disk version.
+ */
+export async function duplicateWorkspaceFile(sourcePath: string, destPath: string, content?: string): Promise<void> {
     if (!isTauri()) return
-    await copyFile(sourcePath, destPath)
+    if (await exists(destPath)) throw new PathExistsError(destPath)
+    // createNew also refuses a file that turns up between the check and the write.
+    if (content !== undefined) {
+        await writeTextFile(destPath, content, { createNew: true })
+        return
+    }
+    // Copying the bytes keeps the file's encoding exactly as it is.
+    await writeFile(destPath, await readFile(sourcePath), { createNew: true })
 }
 
 export function compareFileNodes(a: FileNode, b: FileNode): number {

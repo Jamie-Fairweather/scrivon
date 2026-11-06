@@ -80,6 +80,10 @@ describe('uniqueFileName', () => {
         expect(uniqueFileName('doc.mmd', existing)).toBe('doc copy 2.mmd')
     })
 
+    it('ignores letter case, so it never picks a name Windows sees as taken', () => {
+        expect(uniqueFileName('notes.md', ['notes.md', 'Notes Copy.md'])).toBe('notes copy 2.md')
+    })
+
     it('handles names without extension', () => {
         const existing = new Set(['README'])
         expect(uniqueFileName('README', existing)).toBe('README copy')
