@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { errorMessage } from '@/lib/notify'
 import { writeWorkspaceFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
@@ -36,6 +37,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
     const autosaveEnabled = settings.autosave.enabled
     const autosaveDelayMs = settings.autosave.delayMs
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+    const inFlightSaves = useRef<Map<string, Promise<boolean>>>(new Map())
     const autosaveEnabledRef = useRef(autosaveEnabled)
     const autosaveDelayMsRef = useRef(autosaveDelayMs)
 
@@ -53,27 +55,25 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         saveTimers.current.clear()
     }, [autosaveEnabled])
 
-    const flushSave = useCallback(
-        async (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
-            const timer = saveTimers.current.get(id)
-            if (timer) {
-                clearTimeout(timer)
-                saveTimers.current.delete(id)
-            }
-
+    const writeTab = useCallback(
+        async (id: string, silent: boolean): Promise<boolean> => {
             const tab = tabsRef.current.find((t) => t.id === id)
             if (!tab || tab.readOnly || !tab.isDirty) return true
 
+            const content = tab.content
             if (!silent) {
                 setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: true, saveError: undefined } : t)))
             }
 
             try {
-                await writeWorkspaceFile(tab.path, tab.content)
-                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isDirty: false, isSaving: false, saveError: undefined } : t)))
+                await writeWorkspaceFile(tab.path, content)
+                // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
+                setTabs((prev) =>
+                    prev.map((t) => (t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t))
+                )
                 return true
             } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to save file'
+                const message = errorMessage(err, 'Failed to save file')
                 setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: false, saveError: message } : t)))
                 return false
             }
@@ -81,9 +81,29 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         [setTabs, tabsRef]
     )
 
+    const flushSave = useCallback(
+        (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
+            const timer = saveTimers.current.get(id)
+            if (timer) {
+                clearTimeout(timer)
+                saveTimers.current.delete(id)
+            }
+
+            // Saves for one tab run one after another, so an older write can never land after a newer one.
+            const previous = inFlightSaves.current.get(id)
+            const run = previous ? previous.then(() => writeTab(id, silent)) : writeTab(id, silent)
+            inFlightSaves.current.set(id, run)
+            void run.finally(() => {
+                if (inFlightSaves.current.get(id) === run) inFlightSaves.current.delete(id)
+            })
+            return run
+        },
+        [writeTab]
+    )
+
     const flushAllSaves = useCallback(async (): Promise<boolean> => {
-        const dirtyIds = tabsRef.current.filter((t) => t.isDirty).map((t) => t.id)
-        const results = await Promise.all(dirtyIds.map((id) => flushSave(id)))
+        const ids = new Set([...tabsRef.current.filter((t) => t.isDirty).map((t) => t.id), ...inFlightSaves.current.keys()])
+        const results = await Promise.all([...ids].map((id) => flushSave(id)))
         return results.every(Boolean)
     }, [flushSave, tabsRef])
 
