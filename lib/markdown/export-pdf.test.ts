@@ -126,6 +126,8 @@ describe('export-pdf helpers', () => {
         await expect(exportMarkdownToPdf('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved' })
         expect(print).toHaveBeenCalled()
         expect(invoke).not.toHaveBeenCalled()
+        // No stamper behind the print dialog: the html must not carry its marks.
+        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', expect.objectContaining({ stamped: false }))
     })
 
     it('awaits document fonts when available before printing', async () => {
@@ -240,6 +242,8 @@ describe('export-pdf helpers', () => {
             outputPath: 'C:/out.pdf',
             options: EXPORT_DOCUMENT.print,
         })
+        // The Windows exporter stamps the page numbers, so the html keeps its marks.
+        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', expect.objectContaining({ stamped: true }))
     })
 
     it('cancels windows save when dialog is dismissed', async () => {

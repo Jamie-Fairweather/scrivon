@@ -5,14 +5,30 @@ import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
-import { buildPdfExportCss, PDF_PAGE_NUMBER_MARK, pdfTocMark, resolvePdfExportLayout, resolvePdfPrintOptions } from '@/lib/markdown/export-html-css'
+import {
+    buildPdfExportCss,
+    PDF_PAGE_NUMBER_MARK,
+    pdfTocMark,
+    printDialogPageNumberCss,
+    resolvePdfExportLayout,
+    resolvePdfPrintOptions,
+} from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-export type MarkdownToExportHtmlOptions = BuildExportDocumentOptions
+export type PdfRenderOptions = {
+    /**
+     * Whether the Windows exporter stamps the page numbers into the printed PDF (the default).
+     * The system print dialog has no stamper, so then the hidden marks are left out, the TOC
+     * has no page column, and footer numbers come from CSS page counters where the engine draws them.
+     */
+    stamped?: boolean
+}
+
+export type MarkdownToExportHtmlOptions = BuildExportDocumentOptions & PdfRenderOptions
 
 function escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -97,12 +113,16 @@ function renderTitlePage(metadata: PdfExportMetadata, assets: PdfExportResolvedA
     return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1>${escapeHtml(metadata.title)}</h1>${subtitle}${author}${date}</div></section>`
 }
 
-function renderToc(items: PdfExportOutlineItem[]): string {
+function renderToc(items: PdfExportOutlineItem[], stamped: boolean): string {
     if (items.length === 0) return ''
     const list = items
         .map((item, index) => {
             const level = Math.min(item.level, 4)
-            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title">${escapeHtml(item.text)}</span><span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${pdfTocMark(index, 'slot')}</span></span></a></li>`
+            // Only the stamper can fill in a TOC page number; without it the row is just the linked title.
+            const page = stamped
+                ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${pdfTocMark(index, 'slot')}</span></span>`
+                : ''
+            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title">${escapeHtml(item.text)}</span>${page}</a></li>`
         })
         .join('')
     return `<section class="pdf-toc-page"><h1>Contents</h1><ol class="pdf-toc-list">${list}</ol></section>`
@@ -118,12 +138,14 @@ function chromeLabel(text: string, metadata: PdfExportMetadata): string {
 }
 
 /** The footer's right-hand text: a page counter slot for the stamper, or plain text. */
-function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
+function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata, stamped: boolean): string {
     const format = profile.footer.pageNumbers
     if (format === 'none') return ''
     if (format === 'custom' && !pdfPageNumberTemplate(profile, metadata)) {
         return chromeLabel(profile.footer.right.text, metadata)
     }
+    // With no stamper the number is a CSS page counter in the page margin instead.
+    if (!stamped) return ''
     return `<span class="pdf-page-number"><span class="pdf-page-number-mark">${PDF_PAGE_NUMBER_MARK}</span></span>`
 }
 
@@ -135,11 +157,12 @@ function renderChromeCell(
     kind: 'header' | 'footer',
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
-    metadata: PdfExportMetadata
+    metadata: PdfExportMetadata,
+    stamped: boolean
 ): string {
     const chrome = kind === 'header' ? profile.header : profile.footer
     const images = kind === 'header' ? assets.header : assets.footer
-    const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata)
+    const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata, stamped)
     return `<div class="pdf-chrome-bar pdf-${kind}-bar"><span class="pdf-chrome-side pdf-chrome-left">${chromeImage(images.left)}${chromeLabel(chrome.left.text, metadata)}</span><span class="pdf-chrome-side pdf-chrome-right">${rightText}${chromeImage(images.right)}</span></div>`
 }
 
@@ -169,13 +192,14 @@ function chromeTable(
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
     metadata: PdfExportMetadata,
-    fixedFooter: boolean
+    fixedFooter: boolean,
+    stamped: boolean
 ): string {
     const footClass = fixedFooter ? ' class="pdf-footer-spacer" aria-hidden="true"' : ''
     return `<table class="pdf-chrome-table pdf-${kind}-table">
-    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', profile, assets, metadata)}</td></tr></thead>
+    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', profile, assets, metadata, stamped)}</td></tr></thead>
     <tbody><tr><td>${inner}</td></tr></tbody>
-    <tfoot${footClass}><tr><td>${renderChromeCell('footer', profile, assets, metadata)}</td></tr></tfoot>
+    <tfoot${footClass}><tr><td>${renderChromeCell('footer', profile, assets, metadata, stamped)}</td></tr></tfoot>
   </table>`
 }
 
@@ -185,7 +209,8 @@ function wrapWithChrome(
     bodyHtml: string,
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
-    metadata: PdfExportMetadata
+    metadata: PdfExportMetadata,
+    stamped: boolean
 ): string {
     const body = `<div class="pdf-body">${bodyHtml}</div>`
     const layout = resolvePdfExportLayout(profile)
@@ -197,11 +222,11 @@ function wrapWithChrome(
 
     const fixedFooter = footerOnEveryPage(profile, Boolean(titlePageHtml), Boolean(tocHtml))
     const sections = [
-        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata, fixedFooter) : '',
-        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata, fixedFooter) : '',
-        chromeTable('body', body, profile, assets, metadata, fixedFooter),
+        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata, fixedFooter, stamped) : '',
+        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata, fixedFooter, stamped) : '',
+        chromeTable('body', body, profile, assets, metadata, fixedFooter, stamped),
     ]
-    const footer = fixedFooter ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', profile, assets, metadata)}</div>` : ''
+    const footer = fixedFooter ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', profile, assets, metadata, stamped)}</div>` : ''
     return `<article class="export-article">
   ${sections.filter(Boolean).join('\n  ')}${footer}
 </article>`
@@ -213,16 +238,17 @@ function wrapWithChrome(
  * when the body is empty after front matter is removed.
  */
 export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<PdfExportDocument> {
-    return renderExportPdf(buildExportDocument(source, options))
+    const { stamped, ...build } = options
+    return renderExportPdf(buildExportDocument(source, build), { stamped })
 }
 
 /** PDF renderer for an {@link ExportDocument}. Replaces fenced code in `tree` with HTML placeholders. */
-export async function renderExportPdf(document: ExportDocument): Promise<PdfExportDocument> {
+export async function renderExportPdf(document: ExportDocument, { stamped = true }: PdfRenderOptions = {}): Promise<PdfExportDocument> {
     const { profile, assets, metadata, tree, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
     const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
-    addHeadingMarks(hast, tocItems)
+    if (stamped) addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
@@ -231,7 +257,8 @@ export async function renderExportPdf(document: ExportDocument): Promise<PdfExpo
     }
 
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
-    const toc = renderToc(tocItems)
+    const toc = renderToc(tocItems, stamped)
+    const css = stamped ? buildPdfExportCss(profile) : `${buildPdfExportCss(profile)}\n  ${printDialogPageNumberCss(profile, metadata)}`
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -239,10 +266,10 @@ export async function renderExportPdf(document: ExportDocument): Promise<PdfExpo
   <meta charset="utf-8" />
   <meta name="color-scheme" content="light only" />
   <title>${escapeHtml(metadata.title)}</title>
-  <style>${buildPdfExportCss(profile)}</style>
+  <style>${css}</style>
 </head>
 <body>
-  ${wrapWithChrome(titlePage, toc, bodyHtml, profile, assets, metadata)}
+  ${wrapWithChrome(titlePage, toc, bodyHtml, profile, assets, metadata, stamped)}
 </body>
 </html>`
 

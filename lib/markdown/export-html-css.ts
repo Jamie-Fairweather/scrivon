@@ -176,8 +176,13 @@ function linkColor(profile: PdfExportProfile): string {
     return profile.brand.linkColor.trim() || profile.brand.accentColor
 }
 
+/** Text safe inside a double-quoted CSS string in a <style> element. */
 function escapeCssString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    return value
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/</g, '\\3c ')
+        .replace(/[\r\n]+/g, ' ')
 }
 
 function headingPageBreakCss(level: PdfNewPageFromHeading): string {
@@ -205,10 +210,62 @@ function pageNumberCss(footer: PdfExportProfile['footer']): string {
     .pdf-page-number-mark { color: rgba(64, 64, 64, 0.01); }`
 }
 
+function hiddenChromeSections(firstPages: PdfExportProfile['header']['hideOnFirstPages']): string[] {
+    if (firstPages === 'none') return []
+    return firstPages === 'title' ? ['.pdf-title-table'] : ['.pdf-title-table', '.pdf-toc-table']
+}
+
 function chromeHideCss(firstPages: PdfExportProfile['header']['hideOnFirstPages'], barClass: string): string {
-    if (firstPages === 'none') return ''
-    const sections = firstPages === 'title' ? ['.pdf-title-table'] : ['.pdf-title-table', '.pdf-toc-table']
+    const sections = hiddenChromeSections(firstPages)
+    if (sections.length === 0) return ''
     return `${sections.map((section) => `${section} ${barClass}`).join(', ')} { display: none !important; }`
+}
+
+/** CSS `content` for a page counter that reads like the stamper's label for the same format. */
+function pageCounterContent(format: string): string {
+    if (format === 'number') return 'counter(page)'
+    if (format === 'page-n') return '"Page " counter(page)'
+    if (format === 'n-of-total') return 'counter(page) " / " counter(pages)'
+    if (!format.startsWith('custom:')) return ''
+    return format
+        .slice('custom:'.length)
+        .split(/(\{\{\s*(?:page|total)\s*\}\})/)
+        .filter(Boolean)
+        .map((part) => {
+            if (/^\{\{\s*page\s*\}\}$/.test(part)) return 'counter(page)'
+            if (/^\{\{\s*total\s*\}\}$/.test(part)) return 'counter(pages)'
+            return `"${escapeCssString(part)}"`
+        })
+        .join(' ')
+}
+
+/** Named page for the sections that hide the footer, so the print-dialog page counter skips them. */
+const NO_FOOTER_PAGE = 'pdf-no-footer'
+
+/**
+ * Page numbers for a print no stamper fills in (the system print dialog): a CSS page counter
+ * in the bottom-right page margin, just under the footer bar, in the stamper's label format.
+ * Chromium draws it; an engine without page margin boxes prints none. Always the bar's default
+ * colour, since it sits on bare paper. Nothing when the sheet has no bottom margin to draw in.
+ */
+export function printDialogPageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
+    const content = pageCounterContent(pdfPageNumberFormat(profile, metadata))
+    if (!content || pdfPrintMarginsMm(profile).bottom <= 0) return ''
+    const hidden = hiddenChromeSections(profile.footer.hideOnFirstPages)
+    const skip =
+        hidden.length > 0 ? `${hidden.join(', ')} { page: ${NO_FOOTER_PAGE}; }\n  @page ${NO_FOOTER_PAGE} { @bottom-right { content: none; } }` : ''
+    return `@page {
+    @bottom-right {
+      content: ${content};
+      vertical-align: top;
+      text-align: right;
+      padding-top: 1.5mm;
+      font-family: ${profile.typography.bodyFont};
+      font-size: ${(profile.typography.bodySizePt * 0.85).toFixed(2)}pt;
+      color: #404040;
+    }
+  }
+  ${skip}`
 }
 
 /** Rough height a header or footer bar takes up when it has no fixed height. */

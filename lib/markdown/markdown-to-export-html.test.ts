@@ -263,6 +263,47 @@ SHIKI_FAIL
         expect(empty).not.toContain('class="pdf-chrome-table')
     })
 
+    it('leaves the stamper marks out of a print-dialog export and counts pages with CSS instead', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.footer.pageNumbers = 'n-of-total'
+        profile.footer.hideOnFirstPages = 'title+toc'
+
+        const { html } = await markdownToExportHtml('# Report\n\n## Section\n\nBody', { profile, assets: EMPTY_ASSETS, stamped: false })
+        for (const mark of ['SFPN', 'SFT0', 'SFH0', 'class="pdf-toc-leader"', 'class="pdf-toc-num"', 'pdf-heading-mark"']) {
+            expect(html).not.toContain(mark)
+        }
+        // The TOC still links each heading, it just has no page column.
+        expect(html).toContain('<a href="#section"><span class="pdf-toc-title">Section</span></a>')
+        expect(html).toContain('content: counter(page) " / " counter(pages);')
+        // The sections that hide the footer are a named page without the counter.
+        expect(html).toContain('.pdf-title-table, .pdf-toc-table { page: pdf-no-footer; }')
+        expect(html).toContain('@page pdf-no-footer { @bottom-right { content: none; } }')
+    })
+
+    it('builds the print-dialog counter from a custom template and skips it with no bottom margin', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = 'Sheet {{ page }} of {{total}} - "{{title}}" </style>'
+        profile.footer.hideOnFirstPages = 'none'
+
+        const source = '---\ntitle: Spec\n---\n# Only'
+        const { html } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(html).toContain('content: "Sheet " counter(page) " of " counter(pages) " - \\"Spec\\" \\3c /style>";')
+        expect(html.match(/<\/style>/g)).toHaveLength(1)
+        expect(html).not.toContain('pdf-no-footer')
+
+        profile.footer.enabled = true
+        profile.footer.ignoreMargins = true
+        const { html: bleed } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(bleed).not.toContain('counter(page)')
+        expect(bleed).not.toContain('SFPN')
+    })
+
     it('wraps title text in a body block and adds the chrome table when only the logo bleeds', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

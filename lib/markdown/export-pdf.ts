@@ -162,10 +162,12 @@ async function renderAndSave(
         return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`)
     }
 
-    const { html, print } = await markdownToExportHtml(source, { profile, tabName, overrides, assets })
+    // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
+    const stamped = isWindowsTauri()
+    const { html, print } = await markdownToExportHtml(source, { profile, tabName, overrides, assets, stamped })
     const filename = `${markdownExportBaseName(tabName)}.pdf`
 
-    if (isWindowsTauri()) {
+    if (stamped) {
         const path = await pickSavePath({ title: 'Save PDF', defaultPath: filename, filters: PDF_FILTERS })
         if (!path) return { status: 'cancelled' }
         await savePdfWithWebView2(html, path, print)
