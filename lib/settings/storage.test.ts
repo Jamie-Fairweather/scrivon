@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultSettings } from '@/lib/settings/defaults'
-import { loadSettings, loadSettingsWithRecovery, saveSettings, SETTINGS_BACKUP_KEY, SETTINGS_CORRUPT_KEY_PREFIX } from '@/lib/settings/storage'
+import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import {
+    loadSettings,
+    loadSettingsWithRecovery,
+    saveSettings,
+    SETTINGS_BACKUP_KEY,
+    SETTINGS_CORRUPT_KEY_PREFIX,
+    SETTINGS_NEWER_COPY_KEY_PREFIX,
+    SETTINGS_SCHEMA_VERSION,
+} from '@/lib/settings/storage'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
@@ -129,6 +138,96 @@ describe('loadSettings and saveSettings with localStorage', () => {
         const stored = JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as { keybinds: Record<string, unknown> }
         expect(stored.keybinds).toEqual({ 'document.save': [], 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] })
         expect(loadSettings().keybinds).toEqual(settings.keybinds)
+    })
+
+    describe('settings saved by a newer version', () => {
+        // What a future Scrivon might save: a new section, a new theme and page size, a new
+        // profile field, and a shortcut for an action this version doesn't have.
+        function newerSettings() {
+            const settings = createDefaultSettings(false)
+            const profile = { ...settings.pdfExport.profiles[0]!, name: 'Report', futureField: 'kept' }
+            profile.page = { ...profile.page, size: 'a5' as 'a4' }
+            return {
+                ...settings,
+                schemaVersion: 2,
+                futureSection: { enabled: true },
+                theme: { id: 'future-theme' },
+                editor: { ...settings.editor, futureOption: true },
+                pdfExport: { ...settings.pdfExport, profiles: [profile] },
+                keybinds: { 'tabs.close': [{ key: 'w', ctrl: true }] },
+            }
+        }
+
+        type Saved = {
+            schemaVersion: number
+            futureSection?: unknown
+            theme: { id: string }
+            layout: { editorWidth: number }
+            editor: Record<string, unknown>
+            pdfExport?: { profiles: { page: { size: string }; futureField?: string }[] }
+            keybinds: Record<string, unknown>
+        }
+
+        function saved(): Saved {
+            return JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as Saved
+        }
+
+        it('keeps what this version cannot read through an unrelated change', () => {
+            const text = JSON.stringify(newerSettings())
+            store.set(SETTINGS_STORAGE_KEY, text)
+
+            const loaded = loadSettings()
+            expect(loaded.theme.id).toBe(createDefaultSettings(false).theme.id)
+            expect(loaded.pdfExport.profiles[0]!.page.size).toBe('a4')
+
+            saveSettings({ ...loaded, layout: { ...loaded.layout, editorWidth: 500 } })
+
+            const after = saved()
+            expect(after.layout.editorWidth).toBe(500)
+            expect(after.futureSection).toEqual({ enabled: true })
+            expect(after.theme.id).toBe('future-theme')
+            expect(after.editor.futureOption).toBe(true)
+            expect(after.pdfExport?.profiles[0]?.page.size).toBe('a5')
+            expect(after.pdfExport?.profiles[0]?.futureField).toBe('kept')
+            expect(after.keybinds['tabs.close']).toEqual([{ key: 'w', ctrl: true }])
+            expect(after.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
+            // The newer version's settings are also kept untouched.
+            expect(store.get(`${SETTINGS_NEWER_COPY_KEY_PREFIX}2`)).toBe(text)
+        })
+
+        it('still saves a change the user makes to one of those values', () => {
+            store.set(SETTINGS_STORAGE_KEY, JSON.stringify(newerSettings()))
+            const loaded = loadSettings()
+
+            saveSettings({ ...loaded, theme: { id: 'tokyo-night' } })
+            expect(saved().theme.id).toBe('tokyo-night')
+
+            // Changed back within the same session: saved as chosen, not as first read.
+            saveSettings({ ...loaded, theme: { id: loaded.theme.id } })
+            expect(saved().theme.id).toBe(loaded.theme.id)
+        })
+
+        it('drops a known shortcut the user resets to its default', () => {
+            store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'document.save': [{ key: 's', ctrl: true, alt: true }] } }))
+            const loaded = loadSettings()
+
+            saveSettings({ ...loaded, keybinds: createDefaultSettings(false).keybinds })
+
+            expect(saved().keybinds).toEqual({})
+        })
+
+        it('brings export profiles back after an older version saved without them', () => {
+            const settings = createDefaultSettings(false)
+            settings.pdfExport = createPdfExportProfile(settings.pdfExport, 'Company report')
+            saveSettings(settings)
+
+            // Scrivon 1.4.2 doesn't know about export profiles and saves settings without them.
+            const older = saved()
+            delete older.pdfExport
+            store.set(SETTINGS_STORAGE_KEY, JSON.stringify(older))
+
+            expect(loadSettings().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
+        })
     })
 
     it('refuses to overwrite stored settings with a missing value', () => {
