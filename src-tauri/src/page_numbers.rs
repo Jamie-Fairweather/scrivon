@@ -5,8 +5,12 @@
 //! After printing we locate that marker on every page, which tells us both
 //! *whether* the footer was drawn on that page (title/TOC pages hide it) and
 //! *exactly where* the number belongs, then draw the label right-aligned to it.
+//! The marker glyphs are then cut out of the page content, so the codes don't
+//! turn up when the PDF's text is copied, searched or read by a screen reader.
 
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
 
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Encoding, Object, ObjectId, Stream, StringFormat};
@@ -22,6 +26,8 @@ const FALLBACK_FONT_SIZE: f32 = 9.0;
 const FALLBACK_PAD_PT: f32 = 6.0;
 const FALLBACK_BASELINE_OFFSET_PT: f32 = 8.0;
 const MAX_XOBJECT_DEPTH: usize = 4;
+/// The export CSS draws markers at 1% opacity; anything more opaque is document text.
+const MARKER_MAX_ALPHA: f32 = 0.05;
 
 /// Prefix for a user template; the remainder may contain `{{page}}` / `{{total}}`.
 const CUSTOM_FORMAT_PREFIX: &str = "custom:";
@@ -506,11 +512,41 @@ pub struct TextSlot {
     pub font_size: f32,
 }
 
+/// Which content stream an operation lives in, so marker text can be cut out of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Source {
+    Page(ObjectId),
+    Form(ObjectId),
+}
+
+/// The part of one text operation that drew (some of) a marker: byte offsets
+/// into that operation's decoded text.
+#[derive(Clone, Debug)]
+struct Cover {
+    source: Source,
+    op: usize,
+    range: Range<usize>,
+}
+
+/// A marker found in the page text.
+struct Hit {
+    slot: TextSlot,
+    /// Every part of it was drawn almost transparent, the way the export CSS
+    /// draws markers. Document text that happens to spell a marker is opaque.
+    translucent: bool,
+    covers: Vec<Cover>,
+}
+
 struct Run {
     text: String,
     start: (f32, f32),
     end: (f32, f32),
     font_size: f32,
+    /// Index of the operation that drew it, in its content stream.
+    op: usize,
+    font: FontSlot,
+    /// Fill alpha it was drawn with.
+    alpha: f32,
 }
 
 struct TextState {
@@ -521,14 +557,44 @@ struct TextState {
     tlm: Matrix,
 }
 
-fn slot_span(runs: &[Run], mark_start: usize, mark_end: usize) -> Option<TextSlot> {
+/// The parts of the graphics state the scan follows (`q` saves them, `Q` restores them).
+#[derive(Clone, Copy)]
+struct Graphics {
+    ctm: Matrix,
+    fill_alpha: f32,
+}
+
+impl Graphics {
+    const DEFAULT: Graphics = Graphics {
+        ctm: Matrix::IDENTITY,
+        fill_alpha: 1.0,
+    };
+}
+
+fn marker_hit(
+    runs: &[Run],
+    source: Option<Source>,
+    mark_start: usize,
+    mark_end: usize,
+) -> Option<Hit> {
     let mut offset = 0;
     let mut first = None;
     let mut last = None;
+    let mut translucent = true;
+    let mut covers = Vec::new();
     for run in runs {
         let run_end = offset + run.text.len();
-        if first.is_none() && run_end > mark_start {
-            first = Some(run);
+        let range = mark_start.saturating_sub(offset)..mark_end.min(run_end).saturating_sub(offset);
+        if run_end > mark_start && !range.is_empty() {
+            first.get_or_insert(run);
+            translucent &= run.alpha < MARKER_MAX_ALPHA;
+            if let Some(source) = source {
+                covers.push(Cover {
+                    source,
+                    op: run.op,
+                    range,
+                });
+            }
         }
         if run_end >= mark_end {
             last = Some(run);
@@ -537,17 +603,23 @@ fn slot_span(runs: &[Run], mark_start: usize, mark_end: usize) -> Option<TextSlo
         offset = run_end;
     }
     let (first, last) = (first?, last?);
-    Some(TextSlot {
-        right: last.end.0,
-        baseline: first.start.1,
-        font_size: first.font_size,
+    Some(Hit {
+        slot: TextSlot {
+            right: last.end.0,
+            baseline: first.start.1,
+            font_size: first.font_size,
+        },
+        translucent,
+        covers,
     })
 }
 
-fn find_marker_in_runs(runs: &[Run]) -> Option<TextSlot> {
+fn find_footer_marks(runs: &[Run], source: Option<Source>) -> Vec<Hit> {
     let joined: String = runs.iter().map(|run| run.text.as_str()).collect();
-    let mark_start = joined.find(FOOTER_MARK)?;
-    slot_span(runs, mark_start, mark_start + FOOTER_MARK.len())
+    joined
+        .match_indices(FOOTER_MARK)
+        .filter_map(|(start, _)| marker_hit(runs, source, start, start + FOOTER_MARK.len()))
+        .collect()
 }
 
 const TOC_SLOT_PREFIX: &str = "SFT";
@@ -555,7 +627,7 @@ const TOC_HEAD_PREFIX: &str = "SFH";
 const TOC_ID_DIGITS: usize = 4;
 
 /// `SFT0001` / `SFH0001` tokens inside one text block, paired by their four digits.
-fn find_toc_tokens(runs: &[Run]) -> Vec<(String, TextSlot)> {
+fn find_toc_tokens(runs: &[Run], source: Option<Source>) -> Vec<(String, Hit)> {
     let joined: String = runs.iter().map(|run| run.text.as_str()).collect();
     let mut hits = Vec::new();
     for prefix in [TOC_SLOT_PREFIX, TOC_HEAD_PREFIX] {
@@ -574,8 +646,8 @@ fn find_toc_tokens(runs: &[Run]) -> Vec<(String, TextSlot)> {
                 .nth(TOC_ID_DIGITS)
                 .is_some_and(|c| c.is_ascii_digit());
             if digits.len() == TOC_ID_DIGITS && !followed_by_digit {
-                if let Some(slot) = slot_span(runs, start, after + TOC_ID_DIGITS) {
-                    hits.push((format!("{prefix}{digits}"), slot));
+                if let Some(hit) = marker_hit(runs, source, start, after + TOC_ID_DIGITS) {
+                    hits.push((format!("{prefix}{digits}"), hit));
                 }
             }
             from = start + prefix.len();
@@ -584,23 +656,158 @@ fn find_toc_tokens(runs: &[Run]) -> Vec<(String, TextSlot)> {
     hits
 }
 
+/// One glyph of a text operation.
+struct Glyph {
+    code: Vec<u8>,
+    /// Length in bytes of the text it decodes to.
+    text_len: usize,
+    /// Advance width, in thousandths of a text space unit.
+    width: f32,
+}
+
+enum GlyphItem {
+    Text(StringFormat, Vec<Glyph>),
+    /// A `TJ` position adjustment, kept as it is.
+    Adjust(Object),
+}
+
+/// A `Tj`/`TJ` split into glyphs, so a marker's glyphs can be cut out of it.
+struct OpGlyphs(Vec<GlyphItem>);
+
+impl OpGlyphs {
+    /// `None` when decoding glyph by glyph doesn't give back `text` (the run's
+    /// decoded text), since marker offsets would then point at the wrong glyphs.
+    fn new(op: &Operation, font: &FontInfo<'_>, text: &str) -> Option<Self> {
+        let encoding = font.encoding.as_ref()?;
+        let mut decoded = String::new();
+        let mut split = |bytes: &[u8], format: StringFormat| {
+            let glyphs = bytes
+                .chunks(font.code_len())
+                .map(|code| {
+                    let glyph_text = encoding.bytes_to_string(code).unwrap_or_default();
+                    decoded.push_str(&glyph_text);
+                    let value = code.iter().fold(0u32, |acc, b| acc * 256 + u32::from(*b));
+                    Glyph {
+                        code: code.to_vec(),
+                        text_len: glyph_text.len(),
+                        width: font.width(value),
+                    }
+                })
+                .collect();
+            GlyphItem::Text(format, glyphs)
+        };
+        let mut items = Vec::new();
+        match (op.operator.as_str(), op.operands.first()) {
+            ("Tj", Some(Object::String(bytes, format))) => items.push(split(bytes, *format)),
+            ("TJ", Some(Object::Array(parts))) => {
+                for part in parts {
+                    match part {
+                        Object::String(bytes, format) => items.push(split(bytes, *format)),
+                        Object::Integer(_) | Object::Real(_) => {
+                            items.push(GlyphItem::Adjust(part.clone()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => return None,
+        }
+        (decoded == text).then_some(Self(items))
+    }
+
+    /// The operation as a `TJ` without the glyphs inside `remove`. Each removed
+    /// stretch becomes a position adjustment of the same width, so the text
+    /// after it stays where it was.
+    fn without(&self, remove: &[Range<usize>]) -> Operation {
+        let removed = |at: usize, len: usize| {
+            len > 0 && remove.iter().any(|r| r.start <= at && at + len <= r.end)
+        };
+        let mut parts = Vec::new();
+        let mut gap = 0.0_f32;
+        let mut at = 0;
+        for item in &self.0 {
+            match item {
+                GlyphItem::Adjust(adjust) => {
+                    push_gap(&mut parts, &mut gap);
+                    parts.push(adjust.clone());
+                }
+                GlyphItem::Text(format, glyphs) => {
+                    let mut kept = Vec::new();
+                    for glyph in glyphs {
+                        if removed(at, glyph.text_len) {
+                            if !kept.is_empty() {
+                                parts.push(Object::String(std::mem::take(&mut kept), *format));
+                            }
+                            gap += glyph.width;
+                        } else {
+                            push_gap(&mut parts, &mut gap);
+                            kept.extend_from_slice(&glyph.code);
+                        }
+                        at += glyph.text_len;
+                    }
+                    if !kept.is_empty() {
+                        parts.push(Object::String(kept, *format));
+                    }
+                }
+            }
+        }
+        push_gap(&mut parts, &mut gap);
+        Operation::new("TJ", vec![Object::Array(parts)])
+    }
+}
+
+/// A `TJ` number moves the pen back by that many thousandths of a text space
+/// unit, so skipping `gap` takes `-gap`.
+fn push_gap(parts: &mut Vec<Object>, gap: &mut f32) {
+    if *gap != 0.0 {
+        parts.push(Object::Real(-*gap));
+        *gap = 0.0;
+    }
+}
+
+#[derive(Default)]
 struct Walked {
-    footer: Option<TextSlot>,
-    marks: Vec<(String, TextSlot)>,
+    footers: Vec<Hit>,
+    marks: Vec<(String, Hit)>,
+    /// The operations the markers were drawn by, split into glyphs. Only these
+    /// are kept: holding every page's decoded content would take far more memory.
+    glyphs: HashMap<(Source, usize), OpGlyphs>,
+}
+
+impl Walked {
+    fn hits(&self) -> impl Iterator<Item = &Hit> {
+        self.footers
+            .iter()
+            .chain(self.marks.iter().map(|(_, hit)| hit))
+    }
+}
+
+/// Fill alpha (`ca`) of the named ExtGState, if it sets one.
+fn fill_alpha(doc: &Document, resources: Option<&Dictionary>, name: &[u8]) -> Option<f32> {
+    let states = resources?
+        .get_deref(b"ExtGState", doc)
+        .and_then(Object::as_dict)
+        .ok()?;
+    let state = deref(doc, states.get(name).ok()?).as_dict().ok()?;
+    state.get_deref(b"ca", doc).ok().map(operand_f32)
 }
 
 fn show_text(
     state: &mut TextState,
     fonts: &PageFonts<'_>,
     cache: &FontCache<'_>,
-    ctm: Matrix,
+    gfx: Graphics,
+    op: usize,
     operands: &[Object],
     runs: &mut Vec<Run>,
 ) {
-    let Some(font) = state.font.and_then(|slot| fonts.resolve(slot, cache)) else {
+    let Some(slot) = state.font else {
         return;
     };
-    let trm = state.tm.then(ctm);
+    let Some(font) = fonts.resolve(slot, cache) else {
+        return;
+    };
+    let trm = state.tm.then(gfx.ctm);
     let start = trm.apply(0.0, 0.0);
     let font_size = state.size * trm.vertical_scale();
 
@@ -645,6 +852,9 @@ fn show_text(
         start,
         end,
         font_size,
+        op,
+        font: slot,
+        alpha: gfx.fill_alpha,
     });
 }
 
@@ -652,19 +862,17 @@ fn walk_content(
     doc: &Document,
     cache: &FontCache<'_>,
     bytes: &[u8],
-    base_ctm: Matrix,
+    base: Graphics,
     resources: Option<&Dictionary>,
     depth: usize,
+    source: Option<Source>,
 ) -> Walked {
     let Some(content) = Content::decode(bytes).ok() else {
-        return Walked {
-            footer: None,
-            marks: Vec::new(),
-        };
+        return Walked::default();
     };
     let fonts = page_fonts(doc, cache, resources);
 
-    let mut ctm = base_ctm;
+    let mut gfx = base;
     let mut stack = Vec::new();
     let mut state = TextState {
         font: None,
@@ -674,22 +882,29 @@ fn walk_content(
         tlm: Matrix::IDENTITY,
     };
     let mut runs: Vec<Run> = Vec::new();
-    let mut found = Walked {
-        footer: None,
-        marks: Vec::new(),
-    };
+    let mut found = Walked::default();
 
-    for op in &content.operations {
+    for (index, op) in content.operations.iter().enumerate() {
         match op.operator.as_str() {
-            "q" => stack.push(ctm),
+            "q" => stack.push(gfx),
             "Q" => {
                 if let Some(saved) = stack.pop() {
-                    ctm = saved;
+                    gfx = saved;
                 }
             }
             "cm" => {
                 if let Some(m) = Matrix::from_operands(&op.operands) {
-                    ctm = m.then(ctm);
+                    gfx.ctm = m.then(gfx.ctm);
+                }
+            }
+            "gs" => {
+                let alpha = op
+                    .operands
+                    .first()
+                    .and_then(|o| o.as_name().ok())
+                    .and_then(|name| fill_alpha(doc, resources, name));
+                if let Some(alpha) = alpha {
+                    gfx.fill_alpha = alpha;
                 }
             }
             "BT" => {
@@ -698,10 +913,26 @@ fn walk_content(
                 runs.clear();
             }
             "ET" => {
-                if found.footer.is_none() {
-                    found.footer = find_marker_in_runs(&runs);
+                let footers = find_footer_marks(&runs, source);
+                let marks = find_toc_tokens(&runs, source);
+                let covers = footers
+                    .iter()
+                    .chain(marks.iter().map(|(_, hit)| hit))
+                    .flat_map(|hit| &hit.covers);
+                for cover in covers {
+                    let Entry::Vacant(entry) = found.glyphs.entry((cover.source, cover.op)) else {
+                        continue;
+                    };
+                    let split = runs.iter().find(|run| run.op == cover.op).and_then(|run| {
+                        let font = fonts.resolve(run.font, cache)?;
+                        OpGlyphs::new(&content.operations[cover.op], font, &run.text)
+                    });
+                    if let Some(split) = split {
+                        entry.insert(split);
+                    }
                 }
-                found.marks.extend(find_toc_tokens(&runs));
+                found.footers.extend(footers);
+                found.marks.extend(marks);
                 runs.clear();
             }
             "Tf" => {
@@ -736,19 +967,34 @@ fn walk_content(
                 state.tlm = Matrix::translate(0.0, -state.leading).then(state.tlm);
                 state.tm = state.tlm;
             }
-            "Tj" | "TJ" => show_text(&mut state, &fonts, cache, ctm, &op.operands, &mut runs),
+            "Tj" | "TJ" => show_text(
+                &mut state,
+                &fonts,
+                cache,
+                gfx,
+                index,
+                &op.operands,
+                &mut runs,
+            ),
             "'" | "\"" => {
                 state.tlm = Matrix::translate(0.0, -state.leading).then(state.tlm);
                 state.tm = state.tlm;
                 let text_operand = op.operands.last().into_iter().cloned().collect::<Vec<_>>();
-                show_text(&mut state, &fonts, cache, ctm, &text_operand, &mut runs);
+                show_text(
+                    &mut state,
+                    &fonts,
+                    cache,
+                    gfx,
+                    index,
+                    &text_operand,
+                    &mut runs,
+                );
             }
             "Do" if depth < MAX_XOBJECT_DEPTH => {
-                let inner = walk_xobject(doc, cache, op, ctm, resources, depth);
-                if found.footer.is_none() {
-                    found.footer = inner.footer;
-                }
+                let inner = walk_xobject(doc, cache, op, gfx, resources, depth);
+                found.footers.extend(inner.footers);
                 found.marks.extend(inner.marks);
+                found.glyphs.extend(inner.glyphs);
             }
             _ => {}
         }
@@ -761,33 +1007,28 @@ fn walk_xobject(
     doc: &Document,
     cache: &FontCache<'_>,
     op: &Operation,
-    ctm: Matrix,
+    gfx: Graphics,
     resources: Option<&Dictionary>,
     depth: usize,
 ) -> Walked {
-    let empty = Walked {
-        footer: None,
-        marks: Vec::new(),
-    };
     let Some(name) = op.operands.first().and_then(|o| o.as_name().ok()) else {
-        return empty;
+        return Walked::default();
     };
     let Some(xobjects) = resources
         .and_then(|r| r.get_deref(b"XObject", doc).ok())
         .and_then(|o| o.as_dict().ok())
     else {
-        return empty;
+        return Walked::default();
     };
-    let Some(stream) = xobjects
-        .get(name)
-        .ok()
-        .map(|o| deref(doc, o))
-        .and_then(|o| o.as_stream().ok())
-    else {
-        return empty;
+    let Ok(entry) = xobjects.get(name) else {
+        return Walked::default();
+    };
+    let source = entry.as_reference().ok().map(Source::Form);
+    let Ok(stream) = deref(doc, entry).as_stream() else {
+        return Walked::default();
     };
     if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Form") {
-        return empty;
+        return Walked::default();
     }
     let matrix = stream
         .dict
@@ -808,9 +1049,13 @@ fn walk_xobject(
         doc,
         cache,
         &bytes,
-        matrix.then(ctm),
+        Graphics {
+            ctm: matrix.then(gfx.ctm),
+            ..gfx
+        },
         inner_resources.or(resources),
         depth + 1,
+        source,
     )
 }
 
@@ -828,26 +1073,107 @@ fn cache_for_pages<'a>(doc: &'a Document, pages: &[ObjectId]) -> FontCache<'a> {
 
 fn scan_page(doc: &Document, cache: &FontCache<'_>, page_id: ObjectId) -> Walked {
     let Ok(bytes) = doc.get_page_content(page_id) else {
-        return Walked {
-            footer: None,
-            marks: Vec::new(),
-        };
+        return Walked::default();
     };
     walk_content(
         doc,
         cache,
         &bytes,
-        Matrix::IDENTITY,
+        Graphics::DEFAULT,
         page_resources(doc, page_id),
         0,
+        Some(Source::Page(page_id)),
     )
+}
+
+/// Drops marker look-alikes that are really document text. The export draws
+/// real markers almost transparent, so once any translucent marker is found,
+/// opaque matches (body text that happens to read `SFPN`) are left alone. If
+/// none is translucent the alpha couldn't be read, and every match is kept.
+fn keep_real_markers(scans: &mut [Walked]) {
+    let alpha_known = scans
+        .iter()
+        .any(|scan| scan.hits().any(|hit| hit.translucent));
+    if !alpha_known {
+        return;
+    }
+    for scan in scans {
+        scan.footers.retain(|hit| hit.translucent);
+        scan.marks.retain(|(_, hit)| hit.translucent);
+    }
+}
+
+/// Cuts the markers' glyphs out of the content streams that drew them, so the
+/// codes don't show up when the PDF's text is copied, searched or read aloud.
+fn blank_markers(doc: &mut Document, scans: Vec<Walked>) {
+    let mut covers: HashMap<Source, BTreeMap<usize, Vec<Range<usize>>>> = HashMap::new();
+    let mut glyphs: HashMap<(Source, usize), OpGlyphs> = HashMap::new();
+    for scan in scans {
+        for cover in scan.hits().flat_map(|hit| &hit.covers) {
+            covers
+                .entry(cover.source)
+                .or_default()
+                .entry(cover.op)
+                .or_default()
+                .push(cover.range.clone());
+        }
+        glyphs.extend(scan.glyphs);
+    }
+
+    for (source, ops) in covers {
+        let cuts: Vec<(usize, Operation)> = ops
+            .iter()
+            .filter_map(|(op, ranges)| Some((*op, glyphs.get(&(source, *op))?.without(ranges))))
+            .collect();
+        // A stream that can't be rewritten keeps its (invisible) markers; the
+        // page numbers still go on.
+        if let Err(err) = cut_stream(doc, source, cuts) {
+            eprintln!("Could not remove page-number markers: {err}");
+        }
+    }
+}
+
+/// Re-reads one content stream the way the scan read it, swaps in `cuts` by
+/// operation index and writes it back.
+fn cut_stream(
+    doc: &mut Document,
+    source: Source,
+    cuts: Vec<(usize, Operation)>,
+) -> lopdf::Result<()> {
+    if cuts.is_empty() {
+        return Ok(());
+    }
+    let bytes = match source {
+        Source::Page(page_id) => doc.get_page_content(page_id)?,
+        Source::Form(id) => {
+            let stream = doc.get_object(id).and_then(Object::as_stream)?;
+            stream
+                .decompressed_content()
+                .unwrap_or_else(|_| stream.content.clone())
+        }
+    };
+    let mut content = Content::decode(&bytes)?;
+    for (index, op) in cuts {
+        if let Some(slot) = content.operations.get_mut(index) {
+            *slot = op;
+        }
+    }
+    let bytes = content.encode()?;
+    match source {
+        Source::Page(page_id) => doc.change_page_content(page_id, bytes)?,
+        Source::Form(id) => doc.change_content_stream(id, bytes),
+    }
+    Ok(())
 }
 
 /// Finds the page-number slot marker on a page, if the footer was drawn there.
 #[cfg(test)]
 fn footer_slot(doc: &Document, page_id: ObjectId) -> Option<TextSlot> {
     let cache = cache_for_pages(doc, &[page_id]);
-    scan_page(doc, &cache, page_id).footer
+    scan_page(doc, &cache, page_id)
+        .footers
+        .first()
+        .map(|hit| hit.slot)
 }
 
 // ---------------------------------------------------------------------------
@@ -971,14 +1297,35 @@ struct LabelPaint {
     translucent: bool,
 }
 
+/// What a stamped label is. Both kinds are marked as artifacts (not part of the
+/// document's reading order), so screen readers don't read them out of place.
+#[derive(Clone, Copy)]
+enum LabelRole {
+    /// The footer's page number: page furniture.
+    Footer,
+    /// A TOC row's page number.
+    Toc,
+}
+
 fn label_operations(
     label: &str,
     slot: TextSlot,
     paint: LabelPaint,
+    role: LabelRole,
 ) -> Vec<Operation> {
     let font_size = slot.font_size.clamp(6.0, 24.0);
     let x = slot.right - label_width(label, font_size);
-    let mut ops = Vec::with_capacity(7);
+    let mut ops = Vec::with_capacity(9);
+    ops.push(match role {
+        LabelRole::Footer => Operation::new(
+            "BDC",
+            vec![
+                "Artifact".into(),
+                Object::Dictionary(dictionary! { "Type" => "Pagination", "Subtype" => "Footer" }),
+            ],
+        ),
+        LabelRole::Toc => Operation::new("BMC", vec!["Artifact".into()]),
+    });
     if paint.translucent {
         ops.push(Operation::new("gs", vec![ALPHA_GS_NAME.into()]));
     }
@@ -995,6 +1342,7 @@ fn label_operations(
             vec![Object::String(win_ansi_bytes(label), StringFormat::Literal)],
         ),
         Operation::new("ET", vec![]),
+        Operation::new("EMC", vec![]),
     ]);
     ops
 }
@@ -1010,9 +1358,9 @@ fn toc_entries(pages: &[(u32, ObjectId)], scans: &[Walked]) -> Vec<TocEntry> {
     let mut slots = Vec::new();
     let mut heading_pages: BTreeMap<String, u32> = BTreeMap::new();
     for ((index, page_id), scan) in pages.iter().zip(scans) {
-        for (token, slot) in &scan.marks {
+        for (token, hit) in &scan.marks {
             if let Some(id) = token.strip_prefix(TOC_SLOT_PREFIX) {
-                slots.push((id.to_string(), *page_id, *slot));
+                slots.push((id.to_string(), *page_id, hit.slot));
             } else if let Some(id) = token.strip_prefix(TOC_HEAD_PREFIX) {
                 heading_pages.entry(id.to_string()).or_insert(*index);
             }
@@ -1053,16 +1401,18 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
     }
 
     let cache = cache_for_pages(&doc, &pages.iter().map(|(_, id)| *id).collect::<Vec<_>>());
-    let scans: Vec<Walked> = pages
+    let mut scans: Vec<Walked> = pages
         .iter()
         .map(|(_, id)| scan_page(&doc, &cache, *id))
         .collect();
+    keep_real_markers(&mut scans);
     let toc = toc_entries(&pages, &scans);
-    if !want_footer && toc.is_empty() {
+    let has_markers = scans.iter().any(|scan| scan.hits().next().is_some());
+    if !want_footer && toc.is_empty() && !has_markers {
         return Ok(());
     }
 
-    let any_footer = scans.iter().any(|scan| scan.footer.is_some());
+    let any_footer = scans.iter().any(|scan| !scan.footers.is_empty());
 
     let font_id = doc.add_object(dictionary! {
         "Type" => "Font",
@@ -1084,8 +1434,8 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
             let Some(label) = format_page_label(format, *page_index, total) else {
                 continue;
             };
-            let slot = match scan.footer {
-                Some(slot) => slot,
+            let slot = match scan.footers.first() {
+                Some(hit) => hit.slot,
                 // The footer was hidden on this page (title / TOC): no number.
                 None if any_footer => continue,
                 // No footer markers anywhere: number every page inside the bottom margin.
@@ -1098,7 +1448,12 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
                     }
                 }
             };
-            operations[position].extend(label_operations(&label, slot, footer_paint));
+            operations[position].extend(label_operations(
+                &label,
+                slot,
+                footer_paint,
+                LabelRole::Footer,
+            ));
         }
     }
     let page_at: HashMap<ObjectId, usize> = pages
@@ -1110,8 +1465,17 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
         let Some(position) = page_at.get(&entry.page_id).copied() else {
             continue;
         };
-        operations[position].extend(label_operations(&entry.label, entry.slot, toc_paint));
+        operations[position].extend(label_operations(
+            &entry.label,
+            entry.slot,
+            toc_paint,
+            LabelRole::Toc,
+        ));
     }
+
+    // Cut the markers out first: the overlay below splits each page's content
+    // into several streams.
+    blank_markers(&mut doc, scans);
 
     for (position, page_ops) in operations.into_iter().enumerate() {
         if page_ops.is_empty() {
@@ -1702,6 +2066,336 @@ end";
             "toc should show the heading's page"
         );
         assert!(!stamped.extract_text(&[2]).unwrap().contains('3'));
+    }
+
+    /// Resources whose `/G1` state paints at 1% fill alpha, like the export CSS's markers.
+    fn marker_resources() -> Dictionary {
+        dictionary! {
+            "Font" => dictionary! { "F1" => helvetica() },
+            "ExtGState" => dictionary! { "G1" => dictionary! { "ca" => 0.01_f32 } },
+        }
+    }
+
+    /// A marker drawn nearly transparent, the way the export draws it.
+    fn marker_text(size: f32, x: f32, y: f32, mark: &str) -> Vec<Operation> {
+        [
+            vec![
+                Operation::new("q", vec![]),
+                Operation::new("gs", vec!["G1".into()]),
+            ],
+            text("F1", size, x, y, Object::string_literal(mark)),
+            vec![Operation::new("Q", vec![])],
+        ]
+        .concat()
+    }
+
+    fn page_operations(doc: &Document, page_number: u32) -> Vec<Operation> {
+        let page_id = doc.get_pages()[&page_number];
+        Content::decode(&doc.get_page_content(page_id).unwrap())
+            .unwrap()
+            .operations
+    }
+
+    /// Every string a text operation shows.
+    fn shown_strings(operations: &[Operation]) -> Vec<Vec<u8>> {
+        let mut strings = Vec::new();
+        for operand in operations.iter().flat_map(|op| &op.operands) {
+            match operand {
+                Object::String(bytes, _) => strings.push(bytes.clone()),
+                Object::Array(items) => {
+                    for item in items {
+                        if let Object::String(bytes, _) = item {
+                            strings.push(bytes.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        strings
+    }
+
+    #[test]
+    fn removes_marker_text_but_keeps_the_document_text() {
+        let mut doc = Document::with_version("1.5");
+        let footer = || {
+            [
+                text(
+                    "F1",
+                    9.0,
+                    100.0,
+                    1060.0,
+                    Object::string_literal("6 November 2026"),
+                ),
+                marker_text(9.0, 700.0, 1060.0, FOOTER_MARK),
+            ]
+            .concat()
+        };
+        let toc = [
+            vec![flip()],
+            text(
+                "F1",
+                11.0,
+                100.0,
+                400.0,
+                Object::string_literal("Chapter One"),
+            ),
+            marker_text(11.0, 700.0, 400.0, "SFT0001"),
+        ]
+        .concat();
+        let chapter = [
+            vec![flip()],
+            marker_text(1.0, 100.0, 200.0, "SFH0001"),
+            text(
+                "F1",
+                18.0,
+                101.0,
+                200.0,
+                Object::string_literal("Chapter One"),
+            ),
+            footer(),
+        ]
+        .concat();
+        let body = [vec![flip()], footer()].concat();
+        build_pdf(
+            &mut doc,
+            vec![
+                (toc, marker_resources()),
+                (chapter, marker_resources()),
+                (body, marker_resources()),
+            ],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-blank.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("n-of-total", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        for page in 1..=3 {
+            let text = stamped.extract_text(&[page]).unwrap();
+            for mark in [TOC_SLOT_PREFIX, TOC_HEAD_PREFIX, FOOTER_MARK] {
+                assert!(
+                    !text.contains(mark),
+                    "page {page} still reads {mark}: {text:?}"
+                );
+            }
+            let strings = shown_strings(&page_operations(&stamped, page));
+            assert!(!strings.iter().any(|s| s.starts_with(b"SF")));
+        }
+        let toc_text = stamped.extract_text(&[1]).unwrap();
+        assert!(toc_text.contains("Chapter One"), "{toc_text:?}");
+        assert!(toc_text.contains('2'), "toc shows the heading's page");
+        let chapter_text = stamped.extract_text(&[2]).unwrap();
+        assert!(chapter_text.contains("Chapter One"), "{chapter_text:?}");
+        assert!(chapter_text.contains("6 November 2026"));
+        assert!(chapter_text.contains("2 / 3"));
+        assert!(stamped.extract_text(&[3]).unwrap().contains("3 / 3"));
+
+        // The TOC number is an artifact too, so it isn't read out of order.
+        assert!(page_operations(&stamped, 1).iter().any(|op| {
+            op.operator == "BMC" && op.operands.first() == Some(&Object::Name(b"Artifact".to_vec()))
+        }));
+    }
+
+    #[test]
+    fn cutting_a_marker_out_of_a_run_keeps_the_text_after_it_in_place() {
+        let mut doc = Document::with_version("1.5");
+        let page = [
+            vec![flip()],
+            text(
+                "F1",
+                10.0,
+                100.0,
+                1000.0,
+                Object::string_literal("ab SFPN cd"),
+            ),
+        ]
+        .concat();
+        build_pdf(
+            &mut doc,
+            vec![(
+                page,
+                dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+            )],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-cut.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let operations = page_operations(&stamped, 1);
+        let cut = operations
+            .iter()
+            .find(|op| op.operator == "TJ")
+            .expect("the marker's run is rewritten as a TJ");
+        let Some(Object::Array(parts)) = cut.operands.first() else {
+            panic!("TJ without an array: {cut:?}");
+        };
+        // S, F, P and N are 600 wide in the test font: the gap keeps " cd" where it was.
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        assert_eq!(parts[0], Object::string_literal("ab "));
+        assert!((operand_f32(&parts[1]) + 2400.0).abs() < 0.01);
+        assert_eq!(parts[2], Object::string_literal(" cd"));
+    }
+
+    #[test]
+    fn leaves_document_text_that_spells_a_marker_alone() {
+        let mut doc = Document::with_version("1.5");
+        let page = [
+            vec![flip()],
+            text(
+                "F1",
+                10.0,
+                100.0,
+                300.0,
+                Object::string_literal("Type SFPN here"),
+            ),
+            marker_text(9.0, 700.0, 1060.0, FOOTER_MARK),
+        ]
+        .concat();
+        let ids = build_pdf(&mut doc, vec![(page, marker_resources())]);
+        let expected_right = (700.0 + 4.0 * 0.6 * 9.0) * 0.75;
+        let path = save_temp(&mut doc, "scrivon-page-numbers-lookalike.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let text = stamped.extract_text(&[1]).unwrap();
+        assert!(text.contains("Type SFPN here"), "{text:?}");
+        let (right, _, _) = stamped_label_extent(&stamped, ids[0], "Page 1");
+        assert!(
+            (right - expected_right).abs() < 0.1,
+            "label belongs at the real marker, right was {right}"
+        );
+    }
+
+    #[test]
+    fn removes_markers_drawn_with_skia_glyph_ids() {
+        let mut doc = Document::with_version("1.5");
+        let font = skia_type0(&mut doc);
+        let ops = vec![
+            flip(),
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 1.into()]),
+            Operation::new(
+                "Tm",
+                vec![
+                    12.into(),
+                    0.into(),
+                    0.into(),
+                    (-12).into(),
+                    500.into(),
+                    1080.into(),
+                ],
+            ),
+            Operation::new(
+                "Tj",
+                vec![Object::String(
+                    vec![0, 1, 0, 2, 0, 3, 0, 4],
+                    lopdf::StringFormat::Hexadecimal,
+                )],
+            ),
+            Operation::new("ET", vec![]),
+        ];
+        build_pdf(
+            &mut doc,
+            vec![(ops, dictionary! { "Font" => dictionary! { "F1" => font } })],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-skia-blank.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let strings = shown_strings(&page_operations(&stamped, 1));
+        assert!(!strings
+            .iter()
+            .any(|s| s.as_slice() == [0, 1, 0, 2, 0, 3, 0, 4]));
+        assert!(strings.contains(&b"1".to_vec()), "page is still numbered");
+    }
+
+    #[test]
+    fn removes_markers_drawn_inside_form_xobjects() {
+        let mut doc = Document::with_version("1.5");
+        let inner = Content {
+            operations: text(
+                "F1",
+                10.0,
+                400.0,
+                1000.0,
+                Object::string_literal(FOOTER_MARK),
+            ),
+        };
+        let form_id = doc.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 1000.into(), 1200.into()],
+                "Resources" => dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+            },
+            inner.encode().unwrap(),
+        ));
+        let ops = vec![flip(), Operation::new("Do", vec!["X1".into()])];
+        build_pdf(
+            &mut doc,
+            vec![(
+                ops,
+                dictionary! { "XObject" => dictionary! { "X1" => form_id } },
+            )],
+        );
+        let path = save_temp(&mut doc, "scrivon-page-numbers-form-blank.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let form = stamped.get_object(form_id).unwrap().as_stream().unwrap();
+        let form_ops =
+            Content::decode(&form.decompressed_content().unwrap_or(form.content.clone()))
+                .unwrap()
+                .operations;
+        assert!(!shown_strings(&form_ops).contains(&FOOTER_MARK.as_bytes().to_vec()));
+        assert!(stamped.extract_text(&[1]).unwrap().contains('1'));
+    }
+
+    #[test]
+    fn footer_labels_are_marked_as_pagination_artifacts() {
+        let mut doc = Document::with_version("1.5");
+        let page = [vec![flip()], marker_text(9.0, 700.0, 1060.0, FOOTER_MARK)].concat();
+        build_pdf(&mut doc, vec![(page, marker_resources())]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-artifact.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("page-n", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let operations = page_operations(&stamped, 1);
+        let begin = operations
+            .iter()
+            .position(|op| {
+                op.operator == "BDC"
+                    && op.operands.first() == Some(&Object::Name(b"Artifact".to_vec()))
+            })
+            .expect("label opens an artifact");
+        let label = operations
+            .iter()
+            .position(|op| {
+                op.operator == "Tj"
+                    && op.operands.first() == Some(&Object::string_literal("Page 1"))
+            })
+            .expect("label is drawn");
+        let end = operations
+            .iter()
+            .rposition(|op| op.operator == "EMC")
+            .expect("artifact is closed");
+        assert!(begin < label && label < end);
+        let properties = operations[begin].operands[1].as_dict().unwrap();
+        assert_eq!(
+            properties.get(b"Type").unwrap().as_name().unwrap(),
+            b"Pagination"
+        );
     }
 
     /// Device-space right edge, baseline and flip state of the stamped label on a page.
