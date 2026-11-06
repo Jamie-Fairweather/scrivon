@@ -1,3 +1,4 @@
+mod crash_report;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
@@ -30,7 +31,10 @@ fn allow_workspace(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+    crash_report::install(&context.config().identifier);
+
+    let result = tauri::Builder::default()
         .manage(PendingUpdate(Mutex::new(None)))
         .plugin(tauri_plugin_process::init())
         .plugin(prevent_browser_shortcuts::plugin())
@@ -42,6 +46,8 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir().ok();
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
+            // The main window was created before this runs.
+            crash_report::mark_started();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -53,6 +59,9 @@ pub fn run() {
             updater::install_app_update,
             updater::take_update_attempt,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(context);
+    if let Err(err) = result {
+        crash_report::startup_failed(&err.to_string());
+        std::process::exit(1);
+    }
 }
