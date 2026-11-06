@@ -453,9 +453,10 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('w:type="page"')
         expect(xml).not.toContain('w:val="nextPage"')
         expect(xml).toContain('0D1117')
-        // Header ignores margins, so the bar starts at the paper edge and spans the sheet.
+        // Header ignores margins, so the bar starts at the paper edge and spans the sheet. The page keeps its own margins.
         expect(xml).toContain('w:header="0"')
-        expect(xml).toContain('w:left="0"')
+        expect(xml).toContain('<w:tblW w:type="dxa" w:w="15840"/><w:tblInd w:type="dxa" w:w="-566"/>')
+        expect(xml).not.toMatch(/<w:pgMar[^>]*w:left="0"/)
         expect(xml).toContain('cx="10058400"')
         expect(xml).toContain('relativeFrom="page"')
         // Contents is laid out in the file: dotted leaders and a page number, not an empty Word TOC field.
@@ -484,13 +485,12 @@ describe('renderExportDocx', () => {
             { logoDataUrl: PNG_URL, header: { left: '', right: '' }, footer: { left: '', right: '' } }
         )
         // Cover page has no margins, so the image is inline and reaches the sheet.
-        expect(xml).toContain('w:top="0"')
+        expect(xml).toMatch(/<w:pgMar w:top="0" w:right="0" w:bottom="\d+" w:left="0"/)
         expect(xml).toContain('wp:inline')
         expect(xml).toContain('cx="7553325"')
-        // Later pages bleed the bars to the top, bottom, and side edges.
-        expect(xml).toContain('w:header="0"')
-        expect(xml).toContain('w:footer="0"')
-        expect(xml).toContain('w:left="0"')
+        // Later pages keep their margins and pull the bars out to the top, bottom, and side edges.
+        expect(xml).toMatch(/<w:pgMar w:top="\d+" w:right="566" w:bottom="\d+" w:left="566" w:header="0" w:footer="0"/)
+        expect(xml).toContain('<w:tblW w:type="dxa" w:w="11905"/><w:tblInd w:type="dxa" w:w="-566"/>')
         expect(xml).toContain('w:anchor="alpha"')
         expect(xml).toContain('w:anchor="beta"')
     })
@@ -750,13 +750,49 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('quoted')
     })
 
-    it('indents a table when the header bar reaches the page edge', async () => {
-        const { xml } = await render('| a |\n| --- |\n| b |', (draft) => {
+    it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
+        const { xml } = await render('Body text[^1] here.\n\n| a |\n| --- |\n| cell |\n\n[^1]: The note.', (draft) => {
             draft.header.enabled = true
             draft.header.ignoreMargins = true
+            draft.header.left.text = 'Head'
+            draft.header.right.text = 'Tail'
         })
-        expect(xml).toContain('w:tblInd')
-        expect(xml).toContain('b')
+        // 10mm margins are 566 twips. The page keeps them, so footnotes and anything typed in Word sit inside them.
+        expect(xml).toMatch(/<w:pgMar w:top="\d+" w:right="566" w:bottom="\d+" w:left="566" w:header="0"/)
+        expect(xml).not.toMatch(/<w:pgMar[^>]*w:left="0"/)
+        // Only the bar reaches the edge: as wide as the A4 sheet, pulled left by the margin.
+        const bar = blockWith(xml, 'Head', '<w:tbl>')
+        expect(bar).toContain('<w:tblW w:type="dxa" w:w="11905"/>')
+        expect(bar).toContain('<w:tblInd w:type="dxa" w:w="-566"/>')
+        // The bar's text still lines up with the body text.
+        expect(blockWith(xml, 'Head')).toContain('w:left="566"')
+        expect(blockWith(xml, 'Tail')).toContain('w:right="566"')
+        // Body blocks need no made-up inset any more.
+        expect(blockWith(xml, 'Body text')).not.toContain('<w:ind')
+        expect(blockWith(xml, 'cell', '<w:tbl>')).not.toContain('w:tblInd')
+        expect(blockWith(xml, 'The note.')).not.toContain('<w:ind')
+    })
+
+    it('keeps a footer in place on the edge-to-edge cover page, which has no side margins', async () => {
+        const edit = (ignoreMargins: boolean) => (draft: PdfExportProfile) => {
+            draft.frontMatter.titlePage = true
+            draft.brand.logoIgnoreMargins = true
+            draft.header.enabled = true
+            draft.header.hideOnFirstPages = 'title'
+            draft.footer.enabled = true
+            draft.footer.hideOnFirstPages = 'none'
+            draft.footer.ignoreMargins = ignoreMargins
+            draft.footer.left.text = 'Foot'
+        }
+        const assets = { logoDataUrl: PNG_URL, header: { left: '', right: '' }, footer: { left: '', right: '' } }
+        // A footer inside the margins is pushed in by the margin the cover page doesn't have.
+        const inside = await render('# Alpha', edit(false), assets)
+        expect(inside.xml).toMatch(/<w:pgMar w:top="0" w:right="0" w:bottom="\d+" w:left="0"/)
+        expect(inside.xml).toContain('<w:tblW w:type="dxa" w:w="10773"/><w:tblInd w:type="dxa" w:w="566"/>')
+        // A bleeding footer already starts at the edge there; elsewhere it is pulled out past the margin.
+        const bleeding = await render('# Alpha', edit(true), assets)
+        expect(bleeding.xml).toContain('<w:tblW w:type="dxa" w:w="11905"/><w:tblBorders>')
+        expect(bleeding.xml).toContain('<w:tblW w:type="dxa" w:w="11905"/><w:tblInd w:type="dxa" w:w="-566"/>')
     })
 
     it('redraws SVG and WebP logos, bar images, and body images as PNG for Word', async () => {

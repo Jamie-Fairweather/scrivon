@@ -484,9 +484,6 @@ type RenderState = {
     contentTwip: number
     pageWidthPx: number
     pageWidthTwip: number
-    /** Paragraph inset used when the page's own side margins are zero so a bar can reach the paper edge. */
-    insetLeft: number
-    insetRight: number
     /** Extra left indent, in twips, for blocks nested in list items and quotes. */
     extraLeft: number
     /** How many quotes the blocks being rendered sit inside. */
@@ -501,8 +498,6 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     const marginLeft = convertMillimetersToTwip(profile.page.marginsMm.left)
     const marginRight = convertMillimetersToTwip(profile.page.marginsMm.right)
     const widthTwip = convertMillimetersToTwip(widthMm)
-    const layout = resolvePdfExportLayout(profile)
-    const sidesBleed = layout.headerBleeds || layout.footerBleeds
     return {
         document,
         prepared,
@@ -523,8 +518,6 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         contentTwip: widthTwip - marginLeft - marginRight,
         pageWidthPx: mmToPx(widthMm),
         pageWidthTwip: widthTwip,
-        insetLeft: sidesBleed ? marginLeft : 0,
-        insetRight: sidesBleed ? marginRight : 0,
         extraLeft: 0,
         quoteDepth: 0,
     }
@@ -543,12 +536,9 @@ function bodyLineSpacing(state: RenderState): { line: number; lineRule: (typeof 
     return { line: lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST }
 }
 
-/** Body text inset, including any list or quote the block sits in. Empty when the page margins already provide it. */
-function contentIndent(state: RenderState): { left: number; right: number } | undefined {
-    const left = state.insetLeft + state.extraLeft
-    const right = state.insetRight
-    if (left === 0 && right === 0) return undefined
-    return { left, right }
+/** Left indent for a block nested in a list item or quote. Empty at the top level, where the page margins are enough. */
+function contentIndent(state: RenderState): { left: number } | undefined {
+    return state.extraLeft > 0 ? { left: state.extraLeft } : undefined
 }
 
 /** Width left for a picture once nested blocks have stepped in. */
@@ -700,9 +690,8 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     })
 }
 
-function listIndent(state: RenderState, depth: number, hang: boolean): { left: number; hanging: number; right: number } {
-    const text = state.insetLeft + state.extraLeft + LIST_STEP * (depth + 1)
-    return { left: text, hanging: hang ? LIST_STEP : 0, right: state.insetRight }
+function listIndent(state: RenderState, depth: number, hang: boolean): { left: number; hanging: number } {
+    return { left: state.extraLeft + LIST_STEP * (depth + 1), hanging: hang ? LIST_STEP : 0 }
 }
 
 function listNumbering(state: RenderState, ordered: boolean, depth: number, start: number): string {
@@ -778,11 +767,10 @@ async function renderBlockquote(state: RenderState, node: Blockquote): Promise<B
 
 function renderTable(state: RenderState, table: MdTable): Table {
     const width = Math.max(1, state.contentTwip - state.extraLeft)
-    const indent = state.insetLeft + state.extraLeft
     return new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: columnWidths(table, width),
-        indent: indent > 0 ? { size: indent, type: WidthType.DXA } : undefined,
+        indent: state.extraLeft > 0 ? { size: state.extraLeft, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
         rows: table.children.map((row, rowIndex) => renderTableRow(state, row, table.align, rowIndex === 0)),
@@ -955,10 +943,15 @@ function chromeParagraph(
     align: (typeof AlignmentType)[keyof typeof AlignmentType],
     children: (TextRun | ImageRun)[]
 ) {
-    const bleeds =
-        kind === 'header' ? resolvePdfExportLayout(state.document.profile).headerBleeds : resolvePdfExportLayout(state.document.profile).footerBleeds
+    const { profile } = state.document
+    const bleeds = kind === 'header' ? resolvePdfExportLayout(profile).headerBleeds : resolvePdfExportLayout(profile).footerBleeds
+    // A bar that runs to the paper edge pads its text out to the page margins, so it lines up with the body.
+    const margins = profile.page.marginsMm
     const pad = bleeds
-        ? { left: align === AlignmentType.RIGHT ? 0 : state.insetLeft, right: align === AlignmentType.RIGHT ? state.insetRight : 0 }
+        ? {
+              left: align === AlignmentType.RIGHT ? 0 : convertMillimetersToTwip(margins.left),
+              right: align === AlignmentType.RIGHT ? convertMillimetersToTwip(margins.right) : 0,
+          }
         : { left: 0, right: 0 }
     return new Paragraph({
         alignment: align,
@@ -973,12 +966,17 @@ function chromeGap(mm: number): Paragraph {
     return new Paragraph({ spacing: { before: 0, after: 0, line: Math.max(20, convertMillimetersToTwip(mm)), lineRule: LineRuleType.EXACT } })
 }
 
-function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph | Table)[] {
+/**
+ * The header or footer bar. The page keeps its real side margins, so a bar that ignores them is
+ * pulled out to the paper edge with a negative indent. `zeroSides` is a page with no side margins at all (the edge-to-edge cover).
+ */
+function chromeTable(state: RenderState, kind: 'header' | 'footer', zeroSides: boolean): (Paragraph | Table)[] {
     const { profile, metadata, assets } = state.document
     const layout = resolvePdfExportLayout(profile)
     const chrome = kind === 'header' ? profile.header : profile.footer
     const bleeds = kind === 'header' ? layout.headerBleeds : layout.footerBleeds
-    const sidesBleed = layout.headerBleeds || layout.footerBleeds
+    const marginLeft = convertMillimetersToTwip(profile.page.marginsMm.left)
+    const indent = bleeds ? (zeroSides ? 0 : -marginLeft) : zeroSides ? marginLeft : 0
     const images = kind === 'header' ? assets.header : assets.footer
     const fill = chrome.backgroundColor.trim() ? hexColor(chrome.backgroundColor, 'FFFFFF') : undefined
     const color = hexColor(chrome.textColor, CHROME_TEXT_COLOR, fill)
@@ -1005,7 +1003,7 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
     const table = new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: [leftWidth, rightWidth],
-        indent: !bleeds && sidesBleed ? { size: state.insetLeft, type: WidthType.DXA } : undefined,
+        indent: indent !== 0 ? { size: indent, type: WidthType.DXA } : undefined,
         layout: TableLayoutType.FIXED,
         margins: { marginUnitType: WidthType.DXA, top: 0, bottom: 0, left: 0, right: 0 },
         borders: { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER, insideHorizontal: NO_BORDER, insideVertical: NO_BORDER },
@@ -1187,9 +1185,9 @@ async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx:
     }
 }
 
+/** The edge-to-edge cover page has no margins of its own, so its text is indented by them instead. */
 function titleIndent(state: RenderState, edge: boolean): { left: number; right: number } | undefined {
-    const inset = contentIndent(state)
-    if (inset || !edge) return inset
+    if (!edge) return undefined
     const { left, right } = state.document.profile.page.marginsMm
     return { left: convertMillimetersToTwip(left), right: convertMillimetersToTwip(right) }
 }
@@ -1426,16 +1424,16 @@ function tocRun(state: RenderState, text: string, level: number, pageNumber = fa
 
 function tocBlocks(state: RenderState): Paragraph[] {
     const pages = headingPages(state)
-    const tab = state.contentTwip + state.insetLeft
+    const tab = state.contentTwip
     let first = true
     const entries = state.document.toc.map((item) => {
         const level = Math.min(Math.max(item.level, 1), 6)
         const spacing = tocEntrySpacing(level, first)
         first = false
-        const left = state.insetLeft + (level - 1) * 240
+        const left = (level - 1) * 240
         return new Paragraph({
             spacing,
-            indent: { left, right: state.insetRight },
+            indent: { left },
             tabStops: [{ type: TabStopType.RIGHT, position: Math.max(left + 240, tab), leader: LeaderType.DOT }],
             children: [
                 new InternalHyperlink({
@@ -1462,14 +1460,18 @@ function tocBlocks(state: RenderState): Paragraph[] {
 
 type FrontGroup = 'title' | 'toc' | 'body'
 
+/** A cover page on its own with no header, so its image can run to every paper edge on a zero-margin page. */
+function isCoverEdge(state: RenderState, showHeader: boolean, titleOnly: boolean): boolean {
+    return titleOnly && logoHasBleed(state) && !showHeader
+}
+
 function sectionProperties(state: RenderState, showHeader: boolean, showFooter: boolean, titleOnly: boolean): ISectionOptions['properties'] {
     const { profile } = state.document
     const layout = resolvePdfExportLayout(profile)
     const portrait = pdfPageSizeMm(profile)
     const landscape = profile.page.orientation === 'landscape'
     const margins = profile.page.marginsMm
-    const sidesBleed = layout.headerBleeds || layout.footerBleeds
-    const coverEdge = titleOnly && logoHasBleed(state) && !showHeader
+    const coverEdge = isCoverEdge(state, showHeader, titleOnly)
     const center = titleOnly && !logoHasBleed(state)
     const topMm = coverEdge
         ? 0
@@ -1477,7 +1479,9 @@ function sectionProperties(state: RenderState, showHeader: boolean, showFooter: 
           ? Math.max(margins.top, profile.header.heightMm + profile.header.gapMm)
           : margins.top
     const bottomMm = layout.footerBleeds && showFooter ? Math.max(margins.bottom, profile.footer.heightMm + profile.footer.gapMm) : margins.bottom
-    const zeroSides = sidesBleed || coverEdge
+    // Only the edge-to-edge cover drops the side margins. Bars that ignore margins reach the edge on their own (see chromeTable),
+    // so footnotes and anything typed later in Word keep the real margins.
+    const zeroSides = coverEdge
     return {
         verticalAlign: center ? VerticalAlignSection.CENTER : undefined,
         page: {
@@ -1516,7 +1520,8 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
     }
 
     return merged.map((section, index) => {
-        const chrome = section.showHeader ? chromeTable(state, 'header') : []
+        const zeroSides = isCoverEdge(state, section.showHeader, section.titleOnly)
+        const chrome = section.showHeader ? chromeTable(state, 'header', zeroSides) : []
         const headerChildren = [...chrome, ...watermarkBlocks(state, watermark)]
         return {
             properties: {
@@ -1524,7 +1529,7 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
                 type: index === 0 ? undefined : SectionType.NEXT_PAGE,
             },
             headers: headerChildren.length > 0 ? { default: new Header({ children: headerChildren }) } : undefined,
-            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer') }) } : undefined,
+            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer', zeroSides) }) } : undefined,
             children: section.children,
         }
     })
