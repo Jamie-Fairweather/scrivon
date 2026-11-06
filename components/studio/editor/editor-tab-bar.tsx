@@ -39,9 +39,11 @@ function TabCloseButton({ tab, label, isActive, onClose }: { tab: TabState; labe
     return (
         <button
             type="button"
-            // One tab stop for the whole strip (arrow keys move between tabs); Ctrl+W and the
-            // tab's context menu close it from the keyboard.
+            // One tab stop for the whole strip (arrow keys move between tabs). Hidden from screen
+            // readers too, since a tab list may only hold tabs: Delete or Ctrl+W on the tab, or
+            // its context menu, close it from the keyboard.
             tabIndex={-1}
+            aria-hidden="true"
             className={cn(
                 'mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground',
                 showCloseSlot ? 'opacity-100' : 'opacity-0 group-focus-within/tab:opacity-100 group-hover/tab:opacity-100'
@@ -107,13 +109,17 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
             else if (e.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
             else if (e.key === 'Home') next = 0
             else if (e.key === 'End') next = tabs.length - 1
-            else return
+            else if (e.key === 'Delete') {
+                e.preventDefault()
+                void closeTab(tabs[index]!.id)
+                return
+            } else return
             e.preventDefault()
             const nextTab = tabs[next]!
             tabRefs.current.get(nextTab.id)?.focus()
             void setActiveTab(nextTab.id)
         },
-        [tabs, setActiveTab]
+        [tabs, setActiveTab, closeTab]
     )
 
     return (

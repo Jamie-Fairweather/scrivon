@@ -34,6 +34,11 @@ function tab(path: string, extra: Partial<DocumentTab> = {}): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content: '', isDirty: false, isSaving: false, ...extra }
 }
 
+/** Close buttons are hidden from assistive tech, so find them by their label. */
+function closeButton(container: HTMLElement, label: string) {
+    return container.querySelector(`button[aria-label="${label}"]`)
+}
+
 beforeEach(() => {
     setActiveTab.mockClear()
     closeTab.mockClear()
@@ -63,7 +68,7 @@ describe('EditorTabBar', () => {
             tab('/w/failed.md', { isDirty: true, saveError: 'Disk full' }),
         ]
         activeTabId = '/w/dirty.md'
-        render(<EditorTabBar />)
+        const view = render(<EditorTabBar />)
 
         expect(screen.getByRole('tab', { name: 'dirty.md , unsaved changes' })).toBeInTheDocument()
         expect(screen.getByRole('tab', { name: 'saving.md , saving' })).toBeInTheDocument()
@@ -71,7 +76,27 @@ describe('EditorTabBar', () => {
         const failed = screen.getByRole('tab', { name: 'failed.md , unsaved changes, save failed: Disk full' })
         // The failure doesn't hide which file it is.
         expect(failed).toHaveAttribute('title', '/w/failed.md\nSave failed: Disk full')
-        expect(screen.getByRole('button', { name: 'Close dirty.md, unsaved changes' })).toHaveAttribute('tabindex', '-1')
+        expect(closeButton(view.container, 'Close dirty.md, unsaved changes')).toHaveAttribute('tabindex', '-1')
+    })
+
+    it('holds only tabs in the tab list, and closes the focused tab with Delete', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md', { isDirty: true })]
+        activeTabId = '/w/a.md'
+        render(<EditorTabBar />)
+
+        // The close buttons are for the mouse; assistive tech sees only the tabs.
+        expect(screen.queryAllByRole('button', { name: /^Close / })).toHaveLength(0)
+        const close = screen.getAllByRole('button', { hidden: true }).filter((b) => b.getAttribute('aria-label')?.startsWith('Close '))
+        expect(close).toHaveLength(2)
+        for (const button of close) {
+            expect(button).toHaveAttribute('aria-hidden', 'true')
+            expect(button).toHaveAttribute('tabindex', '-1')
+        }
+
+        fireEvent.keyDown(screen.getByRole('tab', { name: 'b.md , unsaved changes' }), { key: 'Delete' })
+        expect(closeTab).toHaveBeenCalledWith('/w/b.md')
+        fireEvent.click(close[0]!)
+        expect(closeTab).toHaveBeenLastCalledWith('/w/a.md')
     })
 
     it('moves between tabs with the arrow, Home and End keys', () => {
@@ -147,13 +172,13 @@ describe('EditorTabBar', () => {
     it('shows the folder when two open files have the same name', () => {
         tabs = [tab('/w/docs/api/README.md'), tab('/w/docs/guide/README.md'), tab('/w/notes.md')]
         activeTabId = '/w/notes.md'
-        render(<EditorTabBar />)
+        const view = render(<EditorTabBar />)
 
         expect(screen.getByRole('tab', { name: /^README\.md\s*in api$/ })).toBeInTheDocument()
         expect(screen.getByRole('tab', { name: /^README\.md\s*in guide$/ })).toBeInTheDocument()
         expect(screen.getByRole('tab', { name: 'notes.md' })).toBeInTheDocument()
         expect(screen.getByText('api')).toHaveClass('text-muted-foreground')
-        expect(screen.getByRole('button', { name: 'Close README.md in guide' })).toBeInTheDocument()
+        expect(closeButton(view.container, 'Close README.md in guide')).toBeInTheDocument()
     })
 
     it('opens the right-click menu of a background tab without switching to it, and closes that tab from it', async () => {
