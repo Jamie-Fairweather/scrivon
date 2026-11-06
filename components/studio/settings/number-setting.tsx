@@ -22,10 +22,13 @@ type NumberSettingProps = {
 /** Changes that come from typing. They wait until the field is committed (blur or Enter). */
 const TYPING_REASONS = new Set(['input-change', 'input-clear', 'input-paste', 'input-blur'])
 
-/** Decimal places in a step: 1 → 0, 0.5 → 1, 0.25 → 2. */
+/** Decimal places in a number: 1 → 0, 0.5 → 1, 0.25 → 2. */
 function decimalsOf(step: number): number {
     return (String(step).split('.')[1] ?? '').length
 }
+
+/** Enough for any value a person typed; past this it's floating-point noise (1.7000000000000002). */
+const MAX_SHOWN_DECIMALS = 6
 
 /** Commit what was typed: blurring runs the field's own parsing, then focus comes straight back. */
 function commitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
@@ -39,13 +42,17 @@ function commitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
  * Labelled stepper for a bounded numeric setting. Steps (arrow keys, the +/- buttons) apply at
  * once; typed text applies when you leave the field or press Enter, so a half-typed number never
  * does. Values are kept within min and max and rounded to the step's decimal places. Cleared
- * input is ignored and the previous value stays.
+ * input is ignored and the previous value stays. A saved value with more decimals than the step
+ * (a 12.7 mm margin from an older version) is shown as it is and kept until it's changed.
  */
 export function NumberSetting({ id, label, description, value, min, max, step, disabled, onChange, className }: NumberSettingProps) {
     const decimals = decimalsOf(step)
+    // Showing fewer decimals would round the saved value, and leaving the field would then save that.
+    const shownDecimals = Math.max(decimals, Math.min(MAX_SHOWN_DECIMALS, decimalsOf(value)))
 
     const apply = (next: number | null) => {
-        if (next == null || !Number.isFinite(next)) return
+        // The saved value typed again is left as it is, even with more decimals than the step.
+        if (next == null || !Number.isFinite(next) || next === value) return
         const clean = Math.min(max, Math.max(min, Number(next.toFixed(decimals))))
         if (clean !== value) onChange(clean)
     }
@@ -63,7 +70,7 @@ export function NumberSetting({ id, label, description, value, min, max, step, d
                 step={step}
                 smallStep={step}
                 largeStep={step * 10}
-                format={{ maximumFractionDigits: decimals }}
+                format={{ maximumFractionDigits: shownDecimals }}
                 disabled={disabled}
                 onValueChange={(next, details) => {
                     if (!TYPING_REASONS.has(details.reason)) apply(next)

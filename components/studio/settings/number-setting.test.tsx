@@ -78,6 +78,34 @@ describe('NumberSetting', () => {
         expect(onChange).toHaveBeenLastCalledWith(1.3)
     })
 
+    it('shows a saved value with more decimals than the step as it is, and keeps it when left or retyped', () => {
+        const lineHeight = renderSetting({ initial: 1.15, min: 1, max: 2.5, step: 0.1 })
+        expect(lineHeight.input.value).toBe('1.15')
+        act(() => lineHeight.input.focus())
+        fireEvent.blur(lineHeight.input)
+        type(lineHeight.input, '1.15')
+        fireEvent.blur(lineHeight.input)
+        expect(lineHeight.onChange).not.toHaveBeenCalled()
+        expect(lineHeight.input.value).toBe('1.15')
+    })
+
+    it('shows a saved fraction of a whole-number step (a half-inch margin) and keeps it', () => {
+        const margin = renderSetting({ initial: 12.7, min: 0, max: 50, step: 1 })
+        expect(margin.input.value).toBe('12.7')
+        act(() => margin.input.focus())
+        fireEvent.blur(margin.input)
+        expect(margin.onChange).not.toHaveBeenCalled()
+    })
+
+    it('rounds a new value to the step once a saved value with more decimals is changed', () => {
+        const { input, onChange } = renderSetting({ initial: 1.15, min: 1, max: 2.5, step: 0.1 })
+
+        fireEvent.keyDown(input, { key: 'ArrowUp' })
+
+        expect(onChange).toHaveBeenLastCalledWith(1.3)
+        expect(input.value).toBe('1.3')
+    })
+
     it('applies typed text on Enter', () => {
         const { input, onChange } = renderSetting({ initial: 13, min: 8, max: 32, step: 1 })
 
