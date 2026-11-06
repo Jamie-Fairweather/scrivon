@@ -545,3 +545,11 @@ describe('CodeEditorPanel font', () => {
         expect(editor.options.fontFamily).toBe('ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace')
     })
 })
+
+describe('CodeEditorPanel indentation', () => {
+    it('uses the Tab size setting instead of guessing indentation from the file', async () => {
+        tabsState = { tabs: [tab('/w/a.mmd', 'flowchart TD\n    A --> B')], activeTabId: '/w/a.mmd' }
+        const { editor } = await mountEditor()
+        expect(editor.options).toMatchObject({ tabSize: 2, detectIndentation: false, insertSpaces: true })
+    })
+})

@@ -61,6 +61,10 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     lineNumbers: 'on',
     renderLineHighlight: 'all',
     tabSize: 2,
+    // Monaco would otherwise guess indentation from each file and ignore the Tab size setting
+    // for any file that is already indented. Tab inserts spaces.
+    detectIndentation: false,
+    insertSpaces: true,
     // Monaco's defaults are for source code: they box ordinary Cyrillic, Greek and CJK
     // letters and punctuation, curly quotes and en dashes. Off, as in VS Code for Markdown.
     unicodeHighlight: {
