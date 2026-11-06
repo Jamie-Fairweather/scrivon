@@ -11,6 +11,7 @@ import {
     duplicateWorkspaceFile,
     getBaseName,
     getParentPath,
+    isPathInside,
     joinPath,
     listFolderNames,
     listWorkspaceTree,
@@ -22,12 +23,13 @@ import {
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
+import { deleteUnsavedBackup, listUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
-import { tabFromFile } from '@/lib/workspace/document-tab'
+import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { notifyError, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
-import type { FileNode } from '@/lib/workspace/types'
+import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type WorkspaceSessionContextValue = {
@@ -58,6 +60,18 @@ type WorkspaceSessionContextValue = {
 }
 
 const WorkspaceSessionContext = createContext<WorkspaceSessionContextValue | null>(null)
+
+const RECOVERED_CHANGES_NOTICE_ID = 'recovered-changes'
+
+/** The copies of unsaved text kept from earlier; none when they can't be read (they are only a safety net). */
+async function listBackupsSafely(): Promise<UnsavedBackup[]> {
+    try {
+        return await listUnsavedBackups()
+    } catch (err) {
+        console.warn("Couldn't read the copies of unsaved changes", err)
+        return []
+    }
+}
 
 /** Tells the user which folders show up empty because they couldn't be read (the rest of the folder still opens). */
 function warnAboutUnreadableFolders(tree: FileNode[]) {
@@ -99,11 +113,41 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
 
+    const workspaceRootRef = useRef(workspaceRoot)
+    useEffect(() => {
+        workspaceRootRef.current = workspaceRoot
+    }, [workspaceRoot])
+
+    const openWorkspaceRef = useRef<(path: string) => Promise<void>>(async () => {})
+
     useEffect(() => {
         void getRecentWorkspaces()
             .then(setRecentWorkspaces)
             .catch(() => setRecentWorkspaces([]))
     }, [])
+
+    // After a crash or a forced restart, says which folder has unsaved changes waiting and offers to open it.
+    useEffect(() => {
+        if (!isDesktop) return
+        let cancelled = false
+        void listBackupsSafely().then((backups) => {
+            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
+            const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
+            const root = folderOf(backups[0]!)
+            const here = backups.filter((b) => samePath(folderOf(b), root))
+            const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
+            const elsewhere = here.length < backups.length ? ' Changes in other folders come back when you open them.' : ''
+            notifyWarning('Unsaved changes from last time', {
+                id: RECOVERED_CHANGES_NOTICE_ID,
+                description: `Scrivon closed before ${what} in ${getBaseName(root) || root} were saved. Open the folder to get them back.${elsewhere}`,
+                timeout: 0,
+                action: { label: 'Open Folder', onClick: () => void openWorkspaceRef.current(root) },
+            })
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [isDesktop])
 
     /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
     // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown.
@@ -161,36 +205,60 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         setRecentWorkspaces(next)
     }, [])
 
-    /** Reopens the tabs saved for this folder. Files that can't be read any more are skipped. */
+    /**
+     * Reopens the tabs saved for this folder. Files that can't be read any more are skipped, unless they
+     * have unsaved text kept from when Scrivon last closed: that text is always brought back, unsaved.
+     */
     const restoreTabSession = useCallback(
         async (path: string) => {
             const tabSession = await getWorkspaceTabSession(path)
-            if (tabSession && tabSession.tabIds.length > 0) {
-                // Older sessions can hold the same file twice with different separators.
-                const sessionPaths: string[] = []
-                for (const id of tabSession.tabIds) {
-                    const normalized = normalizePath(id)
-                    if (!sessionPaths.some((p) => samePath(p, normalized))) sessionPaths.push(normalized)
-                }
-                const restoredTabs = (
-                    await Promise.all(
-                        sessionPaths.map(async (filePath) => {
-                            try {
-                                return tabFromFile(filePath, await readWorkspaceTextFile(filePath))
-                            } catch {
-                                return null
-                            }
-                        })
-                    )
-                ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
+            const backups = (await listBackupsSafely()).filter((b) => isPathInside(b.path, path))
+            // Older sessions can hold the same file twice with different separators.
+            const paths: string[] = []
+            for (const id of [...(tabSession?.tabIds ?? []), ...backups.map((b) => b.path)]) {
+                const normalized = normalizePath(id)
+                if (!paths.some((p) => samePath(p, normalized))) paths.push(normalized)
+            }
+            if (paths.length === 0) return
 
-                if (restoredTabs.length > 0) {
-                    const savedActiveId = tabSession.activeTabId
-                    const activeTab = savedActiveId ? restoredTabs.find((t) => samePath(t.path, savedActiveId)) : undefined
-                    const activeId = activeTab?.id ?? restoredTabs[0].id
-                    coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
-                    coordinator.requestCanvasFit.current()
-                }
+            const recovered: string[] = []
+            const restoredTabs = (
+                await Promise.all(
+                    paths.map(async (filePath) => {
+                        let tab: DocumentTab | null
+                        try {
+                            tab = tabFromFile(filePath, await readWorkspaceTextFile(filePath))
+                        } catch {
+                            tab = null
+                        }
+                        const backup = backups.find((b) => samePath(b.path, filePath))
+                        if (!backup) return tab
+                        if (tab && tab.content === backup.content) {
+                            // Already on disk: the copy was kept by mistake (its removal failed).
+                            void deleteUnsavedBackup(backup.path).catch(() => undefined)
+                            return tab
+                        }
+                        const recoveredTab = tabWithRecoveredText(tab, backup)
+                        recovered.push(recoveredTab.name)
+                        return recoveredTab
+                    })
+                )
+            ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
+
+            if (restoredTabs.length > 0) {
+                const savedActiveId = tabSession?.activeTabId
+                const activeTab = savedActiveId ? restoredTabs.find((t) => samePath(t.path, savedActiveId)) : undefined
+                const activeId = activeTab?.id ?? restoredTabs[0].id
+                coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
+                coordinator.requestCanvasFit.current()
+            }
+            if (recovered.length > 0) {
+                const what = recovered.length === 1 ? `your changes to ${recovered[0]}` : `your changes to ${recovered.length} files`
+                notifyWarning('Recovered unsaved changes', {
+                    id: RECOVERED_CHANGES_NOTICE_ID,
+                    description: `Scrivon closed before ${what} were saved. They're open again, but not saved yet.`,
+                    timeout: 0,
+                })
             }
         },
         [coordinator]
@@ -240,6 +308,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         },
         [isDesktop, workspaceRoot, recentWorkspaces, removeRecent, restoreTabSession, coordinator]
     )
+
+    useEffect(() => {
+        openWorkspaceRef.current = openWorkspace
+    }, [openWorkspace])
 
     const pickAndOpenWorkspace = useCallback(async () => {
         let path: string | null

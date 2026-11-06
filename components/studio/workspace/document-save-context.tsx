@@ -2,7 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { isExampleTabId } from '@/lib/examples/example-tab'
 import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
+import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
 import { confirmOverwriteDiskChange, type DiskChange } from '@/lib/tauri/dialog'
 import { DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
 import type { DocumentTab, FileStamp } from '@/lib/workspace/types'
@@ -24,6 +26,17 @@ function saveErrorToastId(tabId: string): string {
     return `save-error:${tabId}`
 }
 
+/** How long after the last keystroke a copy of unsaved text is kept, whether autosave is on or off. */
+export const BACKUP_DELAY_MS = 1000
+
+/** Text longer than this isn't copied on every pause: rewriting it would slow typing down. */
+const MAX_BACKUP_LENGTH = 5_000_000
+
+function warnBackupFailed(err: unknown) {
+    // Only the safety net failed; saving still works, so the user isn't interrupted.
+    console.warn("Couldn't keep a copy of unsaved changes", err)
+}
+
 export function useDocumentSave(): DocumentSaveContextValue {
     const ctx = useContext(DocumentSaveContext)
     if (!ctx) throw new Error('useDocumentSave must be used within WorkspaceProvider')
@@ -35,18 +48,22 @@ type DocumentSaveProviderProps = {
     coordinator: WorkspaceCoordinatorRefs
     tabsRef: React.MutableRefObject<DocumentTab[]>
     setTabs: React.Dispatch<React.SetStateAction<DocumentTab[]>>
+    /** The open folder, kept with each copy of unsaved text so the app can offer to reopen it after a crash. */
+    workspaceRoot?: string | null
 }
 
-export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }: DocumentSaveProviderProps) {
+export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, workspaceRoot = null }: DocumentSaveProviderProps) {
     const { settings, setAutosaveEnabled } = useAppSettings()
     const autosaveEnabled = settings.autosave.enabled
     const autosaveDelayMs = settings.autosave.delayMs
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+    const backupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
     const inFlightSaves = useRef<Map<string, Promise<boolean>>>(new Map())
     // Read right after a failed save, before React has put the error on the tab.
     const saveErrors = useRef<Map<string, string>>(new Map())
     const autosaveEnabledRef = useRef(autosaveEnabled)
     const autosaveDelayMsRef = useRef(autosaveDelayMs)
+    const workspaceRootRef = useRef(workspaceRoot)
 
     useEffect(() => {
         autosaveEnabledRef.current = autosaveEnabled
@@ -55,6 +72,55 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
     useEffect(() => {
         autosaveDelayMsRef.current = autosaveDelayMs
     }, [autosaveDelayMs])
+
+    useEffect(() => {
+        workspaceRootRef.current = workspaceRoot
+    }, [workspaceRoot])
+
+    /** Writes (or, once the tab is clean, removes) the copy of a tab's unsaved text. */
+    const writeBackup = useCallback(
+        (id: string) => {
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (!tab || tab.readOnly || isExampleTabId(tab.id)) return
+            if (!tab.isDirty) {
+                void deleteUnsavedBackup(tab.path).catch(warnBackupFailed)
+                return
+            }
+            if (tab.content.length > MAX_BACKUP_LENGTH) return
+            void saveUnsavedBackup({
+                path: tab.path,
+                root: workspaceRootRef.current,
+                content: tab.content,
+                format: tab.format,
+                stamp: tab.disk?.stamp ?? null,
+                savedAt: Date.now(),
+            }).catch(warnBackupFailed)
+        },
+        [tabsRef]
+    )
+
+    const scheduleBackup = useCallback(
+        (id: string) => {
+            const existing = backupTimers.current.get(id)
+            if (existing) clearTimeout(existing)
+            const timer = setTimeout(() => {
+                backupTimers.current.delete(id)
+                writeBackup(id)
+            }, BACKUP_DELAY_MS)
+            backupTimers.current.set(id, timer)
+        },
+        [writeBackup]
+    )
+
+    /** The text is on disk, or the user chose to drop it: the copy is no longer needed. */
+    const clearBackup = useCallback((id: string, path: string) => {
+        const timer = backupTimers.current.get(id)
+        if (timer) {
+            clearTimeout(timer)
+            backupTimers.current.delete(id)
+        }
+        void deleteUnsavedBackup(path).catch(warnBackupFailed)
+    }, [])
 
     useEffect(() => {
         if (autosaveEnabled) return
@@ -113,6 +179,8 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
                 // A save queued behind this one starts before React re-renders, so it must already see this one's result.
                 tabsRef.current = tabsRef.current.map(markSaved)
                 setTabs((prev) => prev.map(markSaved))
+                const saved = tabsRef.current.find((t) => t.id === id)
+                if (saved && !saved.isDirty) clearBackup(id, saved.path)
                 return true
             } catch (err) {
                 const message = errorMessage(err, 'Failed to save file')
@@ -137,7 +205,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
                 return false
             }
         },
-        [askToOverwrite, coordinator, setTabs, tabsRef]
+        [askToOverwrite, clearBackup, coordinator, setTabs, tabsRef]
     )
 
     const flushSave = useCallback(
@@ -186,15 +254,32 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         [flushSave, tabsRef]
     )
 
-    const cancelScheduledSave = useCallback((id: string) => {
-        const timer = saveTimers.current.get(id)
-        if (timer) {
-            clearTimeout(timer)
-            saveTimers.current.delete(id)
-        }
-        // The tab is closing, so its "couldn't save" notice no longer applies.
-        if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
-    }, [])
+    const cancelScheduledSave = useCallback(
+        (id: string) => {
+            const timer = saveTimers.current.get(id)
+            if (timer) {
+                clearTimeout(timer)
+                saveTimers.current.delete(id)
+            }
+            // The tab is closing: its edits were saved, or the user chose to close without saving them.
+            clearBackup(id, tabsRef.current.find((t) => t.id === id)?.path ?? id)
+            // The tab is closing, so its "couldn't save" notice no longer applies.
+            if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
+        },
+        [clearBackup, tabsRef]
+    )
+
+    const tabsMoved = useCallback(
+        (moves: ReadonlyArray<{ from: string; to: string }>) => {
+            for (const { from, to } of moves) {
+                if (from === to) continue
+                // The copy is kept under the file's path, so it moves with the file.
+                clearBackup(from, from)
+                scheduleBackup(to)
+            }
+        },
+        [clearBackup, scheduleBackup]
+    )
 
     const flushSaveOnTabLeave = useCallback(
         (id: string) => {
@@ -210,12 +295,22 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             flushSave,
             flushSaveOnTabLeave,
             scheduleSave,
+            scheduleBackup,
             cancelScheduledSave,
+            tabsMoved,
             getAutosaveEnabled: () => autosaveEnabledRef.current,
             getSaveError: (id) => saveErrors.current.get(id),
             isAskingUser: () => openDiskQuestions.current > 0,
         })
-    }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, cancelScheduledSave])
+    }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, scheduleBackup, cancelScheduledSave, tabsMoved])
+
+    useEffect(() => {
+        const timers = backupTimers.current
+        return () => {
+            for (const timer of timers.values()) clearTimeout(timer)
+            timers.clear()
+        }
+    }, [])
 
     const value = useMemo(
         () => ({

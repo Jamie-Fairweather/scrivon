@@ -7,8 +7,12 @@ export type WorkspaceCoordinatorRefs = {
     flushSave: MutableRefObject<(id: string) => Promise<boolean>>
     flushSaveOnTabLeave: MutableRefObject<(id: string) => void>
     scheduleSave: MutableRefObject<(id: string) => void>
-    /** For a tab that is closing: drops its pending autosave and its "couldn't save" notice. */
+    /** Keeps a copy of the tab's unsaved text shortly after the user stops typing, so a crash can't lose it. */
+    scheduleBackup: MutableRefObject<(id: string) => void>
+    /** For a tab that is closing: drops its pending autosave, its copy of unsaved text and its "couldn't save" notice. */
     cancelScheduledSave: MutableRefObject<(id: string) => void>
+    /** Tabs whose file was renamed or moved: their pending saves and copies of unsaved text follow them. */
+    tabsMoved: MutableRefObject<(moves: ReadonlyArray<{ from: string; to: string }>) => void>
     getAutosaveEnabled: MutableRefObject<() => boolean>
     /** The error from the tab's last failed save, if its last save failed. */
     getSaveError: MutableRefObject<(id: string) => string | undefined>
@@ -38,7 +42,9 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         flushSave: { current: async () => true },
         flushSaveOnTabLeave: { current: () => {} },
         scheduleSave: { current: () => {} },
+        scheduleBackup: { current: () => {} },
         cancelScheduledSave: { current: () => {} },
+        tabsMoved: { current: () => {} },
         getAutosaveEnabled: { current: () => true },
         getSaveError: { current: () => undefined },
         isAskingUser: { current: () => false },

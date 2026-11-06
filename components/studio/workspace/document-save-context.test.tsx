@@ -3,10 +3,11 @@ import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { rename, writeFile } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure } from '@/lib/tauri/dialog'
+import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
+import { confirmCloseAfterSaveFailure, confirmUnsavedChanges } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab } from '@/lib/workspace/types'
-import { DocumentSaveProvider, useDocumentSave } from './document-save-context'
+import { BACKUP_DELAY_MS, DocumentSaveProvider, useDocumentSave } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs } from './workspace-coordinator'
 
@@ -25,6 +26,13 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
 vi.mock('@/lib/tauri/dialog', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/tauri/dialog')>()),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
+    confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
+}))
+
+vi.mock('@/lib/tauri/backups', () => ({
+    saveUnsavedBackup: vi.fn(async () => undefined),
+    deleteUnsavedBackup: vi.fn(async () => undefined),
+    listUnsavedBackups: vi.fn(async () => []),
 }))
 
 function tab(id: string, overrides: Partial<DocumentTab> = {}): DocumentTab {
@@ -45,7 +53,7 @@ function createWrapper(initialTabs: DocumentTab[]) {
         }, [tabsState])
         return (
             <DocumentTabsProvider coordinator={coordinator} workspaceRoot="/ws" tabsState={tabsState}>
-                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
+                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs} workspaceRoot="/ws">
                     {children}
                 </DocumentSaveProvider>
             </DocumentTabsProvider>
@@ -267,5 +275,85 @@ describe('save error notices', () => {
 
         expect(result.current.tabs.tabs).toEqual([])
         expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
+    })
+})
+
+describe('copies of unsaved text', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
+    })
+
+    async function typeAndWait(result: { current: ReturnType<typeof useHarness> }, steps: Array<[text: string, waitMs: number]>) {
+        vi.useFakeTimers()
+        try {
+            for (const [text, waitMs] of steps) {
+                act(() => result.current.tabs.updateTabContent('/ws/a.mmd', text))
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(waitMs)
+                })
+            }
+        } finally {
+            vi.useRealTimers()
+        }
+    }
+
+    it('keeps a copy a second after typing stops, with autosave off, and drops it once the file is saved', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { disk: { stamp: null } })]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        await typeAndWait(result, [
+            ['draft 1', 500],
+            ['draft 2', BACKUP_DELAY_MS],
+        ])
+
+        expect(saveUnsavedBackup).toHaveBeenCalledTimes(1)
+        expect(saveUnsavedBackup).toHaveBeenCalledWith(expect.objectContaining({ path: '/ws/a.mmd', root: '/ws', content: 'draft 2', stamp: null }))
+        expect(writeFile).not.toHaveBeenCalled()
+
+        await act(async () => {
+            await result.current.save.flushSave('/ws/a.mmd')
+        })
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
+    })
+
+    it('keeps the copy while saving fails', async () => {
+        vi.mocked(writeFile).mockRejectedValue('The device is not ready. (os error 21)')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+
+        await act(async () => {
+            await result.current.save.flushSave('/ws/a.mmd')
+        })
+
+        expect(saveUnsavedBackup).toHaveBeenCalledTimes(1)
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+    })
+
+    it('drops the copy when the user closes the file without saving', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+
+        await act(async () => {
+            await result.current.tabs.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(writeFile).not.toHaveBeenCalled()
+    })
+
+    it('never copies text the user did not type, such as a read-only file', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { readOnly: true })]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+
+        expect(saveUnsavedBackup).not.toHaveBeenCalled()
     })
 })

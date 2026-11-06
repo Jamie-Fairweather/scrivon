@@ -161,6 +161,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 const nextActiveId = activeIndex >= 0 ? nextTabs[activeIndex]!.id : activeTabIdRef.current
                 setTabs(nextTabs)
                 if (nextActiveId !== activeTabIdRef.current) setActiveTabId(nextActiveId)
+                coordinator.tabsMoved.current(
+                    prevTabs.flatMap((t, i) => (t.isDirty && t.id !== nextTabs[i]!.id ? [{ from: t.id, to: nextTabs[i]!.id }] : []))
+                )
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
             closeTabsForDelete: (path, isDirectory) => {
@@ -282,6 +285,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             // A save error stays until a save works, so typing doesn't hide that edits aren't reaching the disk.
             setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content, isDirty: true } : t)))
             coordinator.scheduleSave.current(id)
+            coordinator.scheduleBackup.current(id)
         },
         [coordinator, setTabs, tabsRef]
     )

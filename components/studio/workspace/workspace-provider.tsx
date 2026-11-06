@@ -50,7 +50,7 @@ function WorkspaceInner({
 
     return (
         <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
-            <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
+            <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs} workspaceRoot={workspaceRoot}>
                 <StudioLayoutProvider>
                     <CanvasFitProvider coordinator={coordinator}>
                         <CoordinatorContext.Provider value={coordinator}>

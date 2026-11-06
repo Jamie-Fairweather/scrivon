@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { notifyError, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { confirmCloseAfterSaveFailure, confirmOverwriteDiskChange, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
@@ -26,6 +27,12 @@ vi.mock('@/lib/tauri/store', () => ({
     setWorkspaceTabSession: vi.fn(async () => undefined),
     getRecentFiles: vi.fn(async () => []),
     addRecentFile: vi.fn(async () => []),
+}))
+
+vi.mock('@/lib/tauri/backups', () => ({
+    saveUnsavedBackup: vi.fn(async () => undefined),
+    deleteUnsavedBackup: vi.fn(async () => undefined),
+    listUnsavedBackups: vi.fn(async () => []),
 }))
 
 vi.mock('@/lib/notify', async (importOriginal) => ({
@@ -167,7 +174,7 @@ function createWrapper(coordinatorOut: { current?: WorkspaceCoordinatorRefs } = 
         const tabsState = useDocumentTabsState()
         return (
             <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
-                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
+                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs} workspaceRoot={workspaceRoot}>
                     {children}
                 </DocumentSaveProvider>
             </DocumentTabsProvider>
@@ -844,5 +851,142 @@ describe('changes made outside Scrivon', () => {
             windowFocus.handler!({ payload: true })
         })
         await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
+    })
+})
+
+describe('unsaved text kept from a crash', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+
+    // What the disk mock reports for a file that hasn't been written since the test began.
+    const untouched = (text: string) => ({ mtimeMs: 1, size: new TextEncoder().encode(text).length })
+
+    function kept(path: string, content: string, overrides: Partial<UnsavedBackup> = {}): UnsavedBackup {
+        return { path, root: 'C:\\ws', content, stamp: untouched('on disk'), savedAt: 1, ...overrides }
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'on disk', 'C:\\ws\\other.md': 'same' })
+        mountDisk(disk)
+    })
+
+    afterEach(() => {
+        vi.mocked(listUnsavedBackups).mockReset()
+        vi.mocked(listUnsavedBackups).mockResolvedValue([])
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    async function save(path: string) {
+        let ok!: boolean
+        await act(async () => {
+            ok = await coordinatorOut.current!.flushSave.current(path)
+        })
+        return ok
+    }
+
+    it('reopens the file with the unsaved text, not saved yet, and says so', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        expect(result.current.tabs.tabs).toEqual([
+            expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'typed before the crash', isDirty: true }),
+        ])
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('on disk')
+        expect(notifyWarning).toHaveBeenCalledWith(
+            'Recovered unsaved changes',
+            expect.objectContaining({ id: 'recovered-changes', timeout: 0, description: expect.stringContaining('notes.md') })
+        )
+
+        await expect(save('C:\\ws\\notes.md')).resolves.toBe(true)
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('typed before the crash')
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+    })
+
+    it('asks before saving the recovered text over a file changed in another app since', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'mine', { stamp: untouched('older') })])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        await expect(save('C:\\ws\\notes.md')).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('on disk')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'mine', isDirty: true })
+    })
+
+    it('brings the text back even when the file was deleted since, and asks before saving it there again', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\gone.md', 'only copy')])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\gone.md', content: 'only copy', isDirty: true })])
+        await expect(save('C:\\ws\\gone.md')).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('gone.md', 'deleted')
+    })
+
+    it('leaves other folders alone and forgets a copy that is already on disk', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            kept('D:\\elsewhere\\x.md', 'not this folder', { root: 'D:\\elsewhere' }),
+            kept('C:\\ws\\other.md', 'same'),
+        ])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\other.md', content: 'same', isDirty: false })])
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\other.md')
+        expect(notifyWarning).not.toHaveBeenCalledWith('Recovered unsaved changes', expect.anything())
+    })
+
+    it('offers to open the folder with unsaved changes when the app starts', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+        await waitFor(() =>
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Unsaved changes from last time',
+                expect.objectContaining({ id: 'recovered-changes', action: expect.objectContaining({ label: 'Open Folder' }) })
+            )
+        )
+        const options = vi.mocked(notifyWarning).mock.calls.find((call) => call[0] === 'Unsaved changes from last time')![1] as NotifyOptions
+        expect(options.description).toContain('notes.md in ws')
+
+        await act(async () => {
+            options.action!.onClick()
+        })
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'typed before the crash', isDirty: true }))
+    })
+
+    it('moves the copy with the file when it is renamed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'unsaved'))
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'renamed.md', false)
+        })
+
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+        await waitFor(
+            () =>
+                expect(saveUnsavedBackup).toHaveBeenCalledWith(
+                    expect.objectContaining({ path: 'C:\\ws\\renamed.md', content: 'unsaved', root: 'C:\\ws' })
+                ),
+            { timeout: 3000 }
+        )
     })
 })
