@@ -1165,6 +1165,30 @@ describe('closing tabs with unsaved changes', () => {
         expect(result.current.tabs).toHaveLength(2)
     })
 
+    it('treats a save that hangs for 10 seconds as failed so closing is never stuck', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
+        const { result, coordinator } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        coordinator.flushSave.current = vi.fn(() => new Promise<boolean>(() => {}))
+
+        vi.useFakeTimers()
+        try {
+            let closing!: Promise<void>
+            act(() => {
+                closing = result.current.closeTab('/ws/a.mmd')
+            })
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(10_000)
+                await closing
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Saving is taking too long.' }])
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
     it('ignores a second close request while the first is still being answered', async () => {
         let answer!: (choice: 'discard') => void
         vi.mocked(confirmUnsavedChanges).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
