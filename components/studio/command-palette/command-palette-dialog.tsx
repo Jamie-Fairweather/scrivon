@@ -29,6 +29,8 @@ import { Spinner } from '@/components/ui/spinner'
 type CommandPaletteDialogProps = {
     open: boolean
     onOpenChange: (open: boolean) => void
+    /** Called after the open or close animation has finished. */
+    onOpenChangeComplete?: (open: boolean) => void
     mode: PaletteMode
     onModeChange: (mode: PaletteMode) => void
     query: string
@@ -189,6 +191,7 @@ function paletteItemToStringValue(itemValue: unknown): string {
 export function CommandPaletteDialog({
     open,
     onOpenChange,
+    onOpenChangeComplete,
     mode,
     onModeChange,
     query,
@@ -268,7 +271,7 @@ export function CommandPaletteDialog({
         ) : undefined
 
     return (
-        <CommandDialog onOpenChange={onOpenChange} open={open}>
+        <CommandDialog onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete} open={open}>
             <CommandDialogPopup>
                 <CommandDialogPrimitive.Title className="sr-only">Command palette</CommandDialogPrimitive.Title>
                 <div aria-live="polite" className="sr-only" role="status">

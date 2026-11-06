@@ -27,11 +27,13 @@ type CommandPaletteProviderProps = {
 
 export function CommandPaletteProvider({ children, coordinator }: CommandPaletteProviderProps) {
     const [open, setOpen] = useState(false)
+    // Stays true until the close animation ends, so the fading palette keeps showing its results.
+    const [mounted, setMounted] = useState(false)
     const [mode, setMode] = useState<PaletteMode>('all')
     const openRef = useRef(false)
 
     const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, textUnreadableFiles, textTruncatedFiles, runItem, hasWorkspace } =
-        usePaletteSearch(mode, open)
+        usePaletteSearch(mode, mounted)
 
     const openPalette = useCallback(
         (nextMode: PaletteMode = 'all') => {
@@ -39,20 +41,30 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
             // Already open (e.g. F1 pressed inside the palette): switch mode but keep what the user typed.
             if (openRef.current) return
 
+            // Reopened while still fading out: start fresh rather than from the last query.
+            resetSearch()
             // Like VS Code, only Find in Workspace starts from the editor selection.
             const seed = nextMode === 'text' ? queryFromEditorSelection(coordinator.getEditorSelectedText.current()) : null
             if (seed) setQuery(seed)
             openRef.current = true
+            setMounted(true)
             setOpen(true)
         },
-        [coordinator, setQuery]
+        [coordinator, resetSearch, setQuery]
     )
 
-    const handleOpenChange = useCallback(
+    const handleOpenChange = useCallback((nextOpen: boolean) => {
+        openRef.current = nextOpen
+        setOpen(nextOpen)
+        if (nextOpen) setMounted(true)
+    }, [])
+
+    // Clear the search only once the close animation has finished, so the list doesn't jump while it fades.
+    const handleOpenChangeComplete = useCallback(
         (nextOpen: boolean) => {
-            openRef.current = nextOpen
-            setOpen(nextOpen)
-            if (!nextOpen) resetSearch()
+            if (nextOpen) return
+            setMounted(false)
+            resetSearch()
         },
         [resetSearch]
     )
@@ -87,6 +99,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
                 mode={mode}
                 onModeChange={setMode}
                 onOpenChange={handleOpenChange}
+                onOpenChangeComplete={handleOpenChangeComplete}
                 onQueryChange={setQuery}
                 onSelectItem={handleSelectItem}
                 open={open}

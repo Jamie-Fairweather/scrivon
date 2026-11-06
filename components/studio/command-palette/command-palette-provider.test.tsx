@@ -1,14 +1,17 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteProvider, useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import type { PaletteMode } from '@/components/studio/command-palette/types'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
+const search = vi.hoisted(() => ({ enabled: false }))
+
 vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
     const { useCallback, useState } = await import('react')
     return {
-        usePaletteSearch: () => {
+        usePaletteSearch: (_mode: unknown, enabled: boolean) => {
+            search.enabled = enabled
             const [query, setQuery] = useState('')
             const resetSearch = useCallback(() => setQuery(''), [])
             return {
@@ -91,5 +94,40 @@ describe('CommandPaletteProvider query seeding', () => {
         act(() => palette.openMode('text'))
         expect(screen.getByRole('combobox')).toHaveValue('>save')
         expect(screen.getByPlaceholderText('Find in workspace…')).toBeInTheDocument()
+    })
+})
+
+describe('CommandPaletteProvider closing', () => {
+    beforeEach(() => {
+        palette.openMode = () => {}
+    })
+
+    it('keeps the results while the palette fades out and clears them once it has closed', async () => {
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+        const input = screen.getByRole('combobox')
+        fireEvent.change(input, { target: { value: '>theme' } })
+
+        fireEvent.keyDown(input, { key: 'Escape' })
+        // Still fading out: the list keeps its query instead of jumping to the default results.
+        expect(input).toHaveValue('>theme')
+        expect(search.enabled).toBe(true)
+
+        await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull())
+        expect(search.enabled).toBe(false)
+
+        act(() => palette.openMode('all'))
+        expect(screen.getByRole('combobox')).toHaveValue('')
+    })
+
+    it('starts empty when reopened before the fade-out has finished', () => {
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+        const input = screen.getByRole('combobox')
+        fireEvent.change(input, { target: { value: '>theme' } })
+        fireEvent.keyDown(input, { key: 'Escape' })
+
+        act(() => palette.openMode('files'))
+        expect(screen.getByRole('combobox')).toHaveValue('')
     })
 })
