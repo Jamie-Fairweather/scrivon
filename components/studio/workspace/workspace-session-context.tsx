@@ -233,13 +233,26 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await showError('Unsupported file', 'File name must end with .md or .mmd.')
                 return
             }
+            const failed = `Couldn't rename ${getBaseName(oldPath)}`
             const parent = getParentPath(oldPath)
+            // Renaming onto a taken name would replace that file, so it's refused here and again on disk.
+            // The entry itself is left out of the check, so a change of letter case only still works.
+            const clash = findNameClash(childrenOf(tree, workspaceRoot, parent), newName, oldPath)
+            if (clash) {
+                notifyError(failed, undefined, { description: nameTakenMessage(clash) })
+                return
+            }
             const newPath = joinPath(parent, newName)
-            await renameWorkspacePath(oldPath, newPath)
+            try {
+                await renameWorkspacePath(oldPath, newPath)
+            } catch (err) {
+                notifyError(failed, err)
+                return
+            }
             await refreshTree()
             coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
         },
-        [refreshTree, coordinator]
+        [tree, workspaceRoot, refreshTree, coordinator]
     )
 
     const deleteEntry = useCallback(

@@ -382,3 +382,71 @@ describe('creating files and folders', () => {
         expect(result.current.session.suggestName('C:\\ws', 'docs')).toBe('docs 2')
     })
 })
+
+describe('renaming', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\draft.md': 'DRAFT', 'C:\\ws\\final.md': 'FINAL' })
+        mountDisk(disk)
+    })
+
+    async function openWithDraftTab(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\draft.md')
+        })
+    }
+
+    it('refuses to rename onto a name another file uses, in any letter case', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWithDraftTab(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\draft.md', 'final.md', false)
+        })
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\draft.md', 'FINAL.md', false)
+        })
+
+        expect(rename).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\final.md')).toBe('FINAL')
+        expect(await disk.read('C:\\ws\\draft.md')).toBe('DRAFT')
+        expect(notifyError).toHaveBeenCalledWith("Couldn't rename draft.md", undefined, {
+            description: 'A file named "final.md" already exists here.',
+        })
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\draft.md'])
+    })
+
+    it('refuses a target that appeared on disk after the tree was read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWithDraftTab(result)
+        await disk.write('C:\\ws\\late.md', 'MADE ELSEWHERE')
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\draft.md', 'late.md', false)
+        })
+
+        expect(rename).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\late.md')).toBe('MADE ELSEWHERE')
+        expect(notifyError).toHaveBeenCalledWith("Couldn't rename draft.md", expect.any(PathExistsError))
+    })
+
+    it('still allows a change of letter case only', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWithDraftTab(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\draft.md', 'Draft.md', false)
+        })
+
+        expect(rename).toHaveBeenCalledWith('C:\\ws\\draft.md', 'C:\\ws\\Draft.md')
+        expect(result.current.tabs.tabs.map((t) => t.name)).toEqual(['Draft.md'])
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+})

@@ -91,8 +91,24 @@ export async function createWorkspaceFile(path: string, content: string): Promis
     await writeTextFile(path, content, { createNew: true })
 }
 
+/**
+ * Renames a file or folder. The plugin's rename replaces a file already at the target, so this throws
+ * PathExistsError instead. A change of letter case only (`a.md` -> `A.md`) is one entry on Windows and
+ * macOS, so it is allowed unless the folder holds another entry with exactly the new name (Linux).
+ */
 export async function renameWorkspacePath(oldPath: string, newPath: string): Promise<void> {
     if (!isTauri()) return
+    const oldName = getBaseName(oldPath)
+    const newName = getBaseName(newPath)
+    const parent = getParentPath(newPath)
+    const caseOnly = samePath(getParentPath(oldPath), parent) && oldName.toLowerCase() === newName.toLowerCase()
+    if (caseOnly) {
+        if (oldName === newName) return
+        const entries = await readDir(parent)
+        if (entries.some((entry) => entry.name === newName)) throw new PathExistsError(newPath)
+    } else if (await exists(newPath)) {
+        throw new PathExistsError(newPath)
+    }
     await rename(oldPath, newPath)
 }
 

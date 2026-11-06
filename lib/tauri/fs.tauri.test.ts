@@ -85,6 +85,30 @@ describe('workspace fs (Tauri)', () => {
         expect(copyFileMock).toHaveBeenCalledWith('/ws/source.mmd', '/ws/copy.mmd')
     })
 
+    it('refuses to rename onto a file or folder that already exists', async () => {
+        existsMock.mockResolvedValue(true)
+        await expect(renameWorkspacePath('C:\\ws\\draft.md', 'C:\\ws\\final.md')).rejects.toBeInstanceOf(PathExistsError)
+        expect(existsMock).toHaveBeenCalledWith('C:\\ws\\final.md')
+        expect(renameMock).not.toHaveBeenCalled()
+    })
+
+    it('lets a change of letter case through, even though Windows says the new name exists', async () => {
+        existsMock.mockResolvedValue(true)
+        readDirMock.mockResolvedValue([{ name: 'notes.md', isDirectory: false, isFile: true, isSymlink: false }])
+        await renameWorkspacePath('C:\\ws\\notes.md', 'C:\\ws\\Notes.md')
+        expect(renameMock).toHaveBeenCalledWith('C:\\ws\\notes.md', 'C:\\ws\\Notes.md')
+    })
+
+    it('refuses a change of letter case when another entry has exactly that name (Linux)', async () => {
+        readDirMock.mockResolvedValue([
+            { name: 'notes.md', isDirectory: false, isFile: true, isSymlink: false },
+            { name: 'Notes.md', isDirectory: false, isFile: true, isSymlink: false },
+        ])
+        await expect(renameWorkspacePath('/ws/notes.md', '/ws/Notes.md')).rejects.toBeInstanceOf(PathExistsError)
+        await renameWorkspacePath('/ws/notes.md', '/ws/notes.md')
+        expect(renameMock).not.toHaveBeenCalled()
+    })
+
     it('builds a sorted workspace tree and skips ignored directories', async () => {
         readDirMock.mockImplementation(async (dirPath: string) => {
             if (dirPath === '/ws') {
