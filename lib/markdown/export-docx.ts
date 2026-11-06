@@ -938,7 +938,8 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     const blocks: Block[] = []
     for (let index = 0; index < nodes.length; index += 1) {
         const node = nodes[index]!
-        if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && index === 0))
+        // "First" means nothing has been written yet. Link definitions, footnotes, and raw HTML before it write nothing.
+        if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && blocks.length === 0))
         else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
         else if (node.type === 'blockquote') blocks.push(...(await renderBlockquote(state, node)))

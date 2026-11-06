@@ -354,6 +354,21 @@ describe('renderExportDocx', () => {
         expect(xml).not.toContain('descr="Diagram"')
     })
 
+    it('adds no blank page before the first heading when only link definitions or comments come before it', async () => {
+        const edit = (draft: PdfExportProfile) => {
+            draft.frontMatter.titlePage = true
+            draft.flow.newPageFromHeading = 1
+        }
+        for (const lead of ['[site]: https://example.com', '<!-- markdownlint-disable -->', '[^n]: A note.']) {
+            const { xml } = await render(`---\ntitle: Report\n---\n\n${lead}\n\n# Intro\n\nSee [site] and a note[^n].\n\n# Next`, edit)
+            const intro = blockWith(xml, 'Intro')
+            expect(intro).toContain('Heading1')
+            expect(intro).not.toContain('<w:pageBreakBefore/>')
+            // Later headings still start a new page.
+            expect(blockWith(xml, 'Next')).toContain('<w:pageBreakBefore/>')
+        }
+    })
+
     it('sizes inline code to the text around it, so code in a heading is not shrunk to body size', async () => {
         const { xml } = await render('# The `render()` function\n\n### Uses `useState`\n\nBody `inline` code.')
         // 0.85em, as in the PDF: 36 → 31 in an H1, 27 → 23 in an H3, 22 → 19 in the body.
