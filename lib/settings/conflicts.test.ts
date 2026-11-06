@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { describeDisallowedChord, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
+import { createDefaultKeybinds, KEYBIND_ACTION_IDS } from '@/lib/settings/defaults'
+import { describeDisallowedChord, describeEditorChordClash, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
 
 describe('findKeybindConflicts', () => {
     it('returns empty when defaults have no duplicates', () => {
@@ -67,5 +67,33 @@ describe('describeDisallowedChord', () => {
 
     it('explains that navigation and editing keys are off limits', () => {
         expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
+    })
+})
+
+describe('describeEditorChordClash', () => {
+    it('flags editor and clipboard shortcuts with Ctrl or Cmd', () => {
+        expect(describeEditorChordClash({ key: 'd', ctrl: true }, false)).toBe('Ctrl+D is used by the editor')
+        expect(describeEditorChordClash({ key: 'C', ctrl: true }, false)).toBe('Ctrl+C is used by the editor')
+        expect(describeEditorChordClash({ key: '/', meta: true }, true)).toBe('⌘/ is used by the editor')
+        expect(describeEditorChordClash({ key: 'k', ctrl: true, shift: true }, false)).toBe('Ctrl+Shift+K is used by the editor')
+        expect(describeEditorChordClash({ key: 'F3' }, false)).toBe('F3 is used by the editor')
+    })
+
+    it('leaves other chords free', () => {
+        expect(describeEditorChordClash({ key: 'd', ctrl: true, alt: true }, false)).toBeNull()
+        expect(describeEditorChordClash({ key: 'd', ctrl: true, shift: true }, false)).toBeNull()
+        expect(describeEditorChordClash({ key: 'F3', ctrl: true, meta: true }, false)).toBeNull()
+        expect(describeEditorChordClash({ key: 'b', ctrl: true }, false)).toBeNull()
+    })
+
+    it('never flags a default shortcut', () => {
+        for (const isMac of [false, true]) {
+            const defaults = createDefaultKeybinds(isMac)
+            for (const id of KEYBIND_ACTION_IDS) {
+                for (const chord of defaults[id]) {
+                    expect(describeEditorChordClash(chord, isMac)).toBeNull()
+                }
+            }
+        }
     })
 })

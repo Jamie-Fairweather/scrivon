@@ -102,6 +102,30 @@ describe('matchKeybind', () => {
         })
     })
 
+    describe('inside the code editor', () => {
+        // Monaco's hidden textarea (macOS, Linux) and its find box, and its input div on Windows.
+        const editorTarget = (tagName: string) =>
+            ({ tagName, closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) }) as unknown as EventTarget
+
+        it('lets real shortcuts through on every platform', () => {
+            expect(matchKeybind(keyEvent('s', { ctrl: true }, editorTarget('TEXTAREA')), bindings)).toBe('document.save')
+            expect(matchKeybind(keyEvent('s', { meta: true }, editorTarget('TEXTAREA')), createDefaultKeybinds(true))).toBe('document.save')
+            expect(matchKeybind(keyEvent('b', { ctrl: true }, editorTarget('DIV')), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
+            expect(matchKeybind(keyEvent('F1', {}, editorTarget('TEXTAREA')), bindings)).toBe('palette.open')
+        })
+
+        it('never fires a bare key there', () => {
+            const bareKey = { ...bindings, 'view.toggleExplorer': [{ key: 'e' }] }
+            expect(matchKeybind(keyEvent('e', {}, editorTarget('DIV')), bareKey, { hasWorkspace: true })).toBeNull()
+            expect(matchKeybind(keyEvent('e', {}, editorTarget('TEXTAREA')), bareKey, { hasWorkspace: true })).toBeNull()
+        })
+
+        it('still skips shortcuts in plain inputs outside the editor', () => {
+            const input = { tagName: 'INPUT', closest: () => null } as unknown as EventTarget
+            expect(matchKeybind(keyEvent('b', { ctrl: true }, input), bindings, { hasWorkspace: true })).toBeNull()
+        })
+    })
+
     it('does not treat non-field targets as native text fields', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true }, {} as EventTarget), bindings)).toBe('document.save')
     })

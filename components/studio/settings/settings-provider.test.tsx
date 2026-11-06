@@ -107,6 +107,11 @@ describe('SettingsProvider persistence', () => {
         })
         expect(message).toBe('Already assigned to Toggle explorer')
 
+        act(() => {
+            message = result.current.setKeybindChords('view.toggleEditor', [{ key: 'd', ctrl: true }])
+        })
+        expect(message).toBe('Ctrl+D is used by the editor')
+
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 

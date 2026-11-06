@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
-import { describeDisallowedChord, wouldChordConflict } from '@/lib/settings/conflicts'
+import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import { loadSettings, saveSettings } from '@/lib/settings/storage'
@@ -127,7 +127,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const setKeybindChords = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): string | null => {
             for (const chord of chords) {
-                const disallowed = describeDisallowedChord(chord)
+                const disallowed = describeDisallowedChord(chord) ?? describeEditorChordClash(chord)
                 if (disallowed) return disallowed
 
                 const conflict = wouldChordConflict(settingsRef.current.keybinds, actionId, chord)

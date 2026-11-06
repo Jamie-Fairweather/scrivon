@@ -1,4 +1,5 @@
 import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, isReservedKey } from '@/lib/settings/chord-utils'
+import { formatChord } from '@/lib/settings/format-keybind'
 import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
@@ -29,6 +30,44 @@ export function describeDisallowedChord(chord: KeybindChord, isMac = isMacPlatfo
     if (isReservedKey(chord.key)) return "Tab, Enter, Space, Backspace, Delete and arrow keys can't be used in shortcuts"
     if (!isAllowedChord(chord)) return isMac ? 'Add ⌘, ⌃ or ⌥, or use a function key' : 'Add Ctrl or Alt, or use a function key'
     return null
+}
+
+/**
+ * Editing and clipboard shortcuts that an app shortcut must not take over. App shortcuts run
+ * before the editor sees the key, so binding one of these would quietly break it. Written with
+ * Ctrl; the same chord with Cmd counts too.
+ */
+const EDITOR_CHORDS: KeybindChord[] = [
+    // Clipboard, undo and redo, select all
+    ...['a', 'c', 'v', 'x', 'z', 'y'].map((key) => ({ key, ctrl: true })),
+    { key: 'z', ctrl: true, shift: true },
+    // Find, replace, go to line, find next / previous
+    ...['f', 'h', 'g'].map((key) => ({ key, ctrl: true })),
+    { key: 'F3' },
+    { key: 'F3', shift: true },
+    // Selections and multi-cursor
+    ...['d', 'l', 'u'].map((key) => ({ key, ctrl: true })),
+    { key: 'l', ctrl: true, shift: true },
+    // Comment, indent, outdent, fold, unfold, delete line, chord prefix (Ctrl+K Ctrl+C…)
+    ...['/', '[', ']', 'k'].map((key) => ({ key, ctrl: true })),
+    ...['[', ']', 'k'].map((key) => ({ key, ctrl: true, shift: true })),
+]
+
+function usesEditorChord(chord: KeybindChord): boolean {
+    if (chord.alt || (chord.ctrl && chord.meta)) return false
+    // Ctrl on Windows and Linux, Cmd on macOS.
+    const hasCommand = Boolean(chord.ctrl || chord.meta)
+    return EDITOR_CHORDS.some(
+        (reserved) =>
+            reserved.key.toLowerCase() === chord.key.toLowerCase() &&
+            Boolean(reserved.ctrl) === hasCommand &&
+            Boolean(reserved.shift) === Boolean(chord.shift)
+    )
+}
+
+/** Why a chord would break an editor or clipboard shortcut, or null when it's free to use. */
+export function describeEditorChordClash(chord: KeybindChord, isMac = isMacPlatform()): string | null {
+    return usesEditorChord(chord) ? `${formatChord(chord, isMac)} is used by the editor` : null
 }
 
 export function wouldChordConflict(bindings: KeybindBindings, actionId: KeybindActionId, chord: KeybindChord): KeybindActionId | null {
