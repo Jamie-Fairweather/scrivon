@@ -55,7 +55,7 @@ export function ColorField({ id, value, placeholder = '#000000', allowEmpty = fa
                 className={cn(
                     `inline-flex h-8.5 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-background px-[calc(--spacing(3)-1px)]
                     text-left text-sm text-foreground shadow-xs/5 transition-shadow outline-none focus-visible:border-ring focus-visible:ring-[3px]
-                    focus-visible:ring-ring/24 sm:h-7.5 dark:bg-input/32`
+                    focus-visible:ring-ring/24 disabled:pointer-events-none disabled:opacity-64 sm:h-7.5 dark:bg-input/32`
                 )}
             >
                 <span className="size-4 shrink-0 rounded-sm border border-border" style={swatchStyle(swatch)} />

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -23,6 +24,66 @@ const savedNames = () => screen.getByTestId('saved-names').textContent
 beforeEach(() => {
     // Start each test from default settings (the provider reads and writes localStorage).
     window.localStorage?.clear()
+})
+
+describe('PdfExportSettings groups', () => {
+    const group = (name: string) => within(screen.getByRole('group', { name }))
+
+    it('puts the settings under named groups', () => {
+        renderSection()
+        for (const name of ['Page', 'Text', 'Colours', 'Title page', 'Table of contents', 'Header', 'Footer', 'Content']) {
+            expect(screen.getByRole('group', { name })).toBeInTheDocument()
+        }
+    })
+
+    it('disables the cover image settings until the title page is on', () => {
+        renderSection()
+        const titlePage = group('Title page')
+        const browse = titlePage.getByRole('button', { name: 'Browse' })
+        const bleed = titlePage.getByRole('switch', { name: 'Cover image ignores margins' })
+        expect(browse).toBeDisabled()
+        expect(bleed).toHaveAttribute('data-disabled')
+
+        fireEvent.click(titlePage.getByRole('switch', { name: 'Include a title page' }))
+        expect(browse).toBeEnabled()
+        expect(bleed).not.toHaveAttribute('data-disabled')
+    })
+
+    it('disables TOC depth and Exclude H1 until the table of contents is on', () => {
+        renderSection()
+        const toc = group('Table of contents')
+        expect(screen.getByLabelText('TOC depth')).toHaveAttribute('data-disabled')
+        expect(toc.getByRole('switch', { name: 'Exclude H1 from TOC' })).toHaveAttribute('data-disabled')
+
+        fireEvent.click(toc.getByRole('switch', { name: 'Include a table of contents' }))
+        expect(screen.getByLabelText('TOC depth')).not.toHaveAttribute('data-disabled')
+        expect(toc.getByRole('switch', { name: 'Exclude H1 from TOC' })).not.toHaveAttribute('data-disabled')
+    })
+
+    it('disables the header fields while the header is off', () => {
+        renderSection()
+        const header = group('Header')
+        expect(header.getAllByRole('button', { name: 'Browse' })[0]).toBeDisabled()
+        expect(header.getByRole('textbox', { name: 'Left text' })).toBeDisabled()
+
+        fireEvent.click(header.getByRole('switch', { name: 'Show header' }))
+        expect(header.getAllByRole('button', { name: 'Browse' })[0]).toBeEnabled()
+        expect(header.getByRole('textbox', { name: 'Left text' })).toBeEnabled()
+    })
+
+    it('keeps footer page numbers usable while the footer is off, and enables the rest once they show', async () => {
+        renderSection()
+        const footer = group('Footer')
+        const pageNumbers = footer.getByRole('combobox', { name: 'Page numbers' })
+        expect(pageNumbers).not.toHaveAttribute('data-disabled')
+        expect(footer.getAllByRole('button', { name: 'Browse' })[0]).toBeDisabled()
+
+        // The export draws the footer whenever it has page numbers, so its fields apply then too.
+        const user = userEvent.setup()
+        await user.click(pageNumbers)
+        await user.click(await screen.findByRole('option', { name: 'Number' }))
+        await waitFor(() => expect(footer.getAllByRole('button', { name: 'Browse' })[0]).toBeEnabled())
+    })
 })
 
 describe('PdfExportSettings delete profile', () => {
