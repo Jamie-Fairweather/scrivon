@@ -1730,7 +1730,12 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
             return { kind: 'error', message: xmlSafe(errorMessage(err)) }
         }
     }
-    return { kind: 'code', lines: await highlightFencedCodeTokens(text, node.lang ?? undefined, profile.content.codeTheme) }
+    try {
+        return { kind: 'code', lines: await highlightFencedCodeTokens(text, node.lang ?? undefined, profile.content.codeTheme) }
+    } catch {
+        // Like the PDF, a block that can't be highlighted is still written, in the theme's plain code colour.
+        return { kind: 'code', lines: text.split('\n').map((line) => [{ text: line }]) }
+    }
 }
 
 /** Word renderer for an {@link ExportDocument}. */

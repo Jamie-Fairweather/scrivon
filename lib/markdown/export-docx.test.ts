@@ -380,6 +380,15 @@ describe('renderExportDocx', () => {
         expect(body).toContain('>https://example.com/badge.svg</w:t>')
     })
 
+    it('still exports, with plain code, when highlighting fails', async () => {
+        highlightFencedCodeTokens.mockRejectedValueOnce(new Error('grammar failed'))
+        const { xml } = await render(['Before.', '', fence('js', 'const a = 1\nconst b = 2'), '', fence('py', 'print(1)')].join('\n'))
+        expect(runWith(xml, 'const a = 1')).toContain('<w:color w:val="24292F"/>')
+        expect(xml).toContain('>const b = 2</w:t>')
+        // The other blocks are still highlighted.
+        expect(runWith(xml, 'print(1)')).toContain('<w:color w:val="112233"/>')
+    })
+
     it('sizes inline code to the text around it, so code in a heading is not shrunk to body size', async () => {
         const { xml } = await render('# The `render()` function\n\n### Uses `useState`\n\nBody `inline` code.')
         // 0.85em, as in the PDF: 36 → 31 in an H1, 27 → 23 in an H3, 22 → 19 in the body.
