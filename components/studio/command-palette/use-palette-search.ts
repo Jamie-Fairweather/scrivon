@@ -75,6 +75,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const [textItems, setTextItems] = useState<PaletteGroup | null>(null)
     const [textCapped, setTextCapped] = useState(false)
     const [textUnreadableFiles, setTextUnreadableFiles] = useState(0)
+    const [textTruncatedFiles, setTextTruncatedFiles] = useState(0)
     const [lastResolvedTextQuery, setLastResolvedTextQuery] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
 
@@ -99,6 +100,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         setTextItems(null)
         setTextCapped(false)
         setTextUnreadableFiles(0)
+        setTextTruncatedFiles(0)
     }, [])
 
     const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
@@ -260,6 +262,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 setTextItems(items.length > 0 ? { id: 'text', label: 'Text', items } : null)
                 setTextCapped(result?.capped ?? false)
                 setTextUnreadableFiles(result?.unreadableFiles ?? 0)
+                setTextTruncatedFiles(result?.truncatedFiles ?? 0)
                 setLastResolvedTextQuery(parsedQuery)
             })()
         }, DEBOUNCE_MS)
@@ -303,6 +306,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         isSearchingText,
         textCapped: shouldSearchText && textCapped,
         textUnreadableFiles: shouldSearchText ? textUnreadableFiles : 0,
+        textTruncatedFiles: shouldSearchText ? textTruncatedFiles : 0,
         runItem,
         hasWorkspace: Boolean(workspaceRoot),
     }

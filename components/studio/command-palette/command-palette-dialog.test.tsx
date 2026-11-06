@@ -22,6 +22,7 @@ function renderDialog(overrides: Partial<DialogProps> = {}) {
         groups: [],
         isSearchingText: false,
         textCapped: false,
+        textTruncatedFiles: 0,
         textUnreadableFiles: 0,
         hasWorkspace: true,
         onSelectItem: vi.fn(),
@@ -114,6 +115,11 @@ const dirtyTab: PaletteItem = {
 }
 
 describe('CommandPaletteDialog text results', () => {
+    it('says when some files had more matches than shown', () => {
+        renderDialog({ mode: 'text', query: '-->', textTruncatedFiles: 2 })
+        expect(screen.getByText('Showing up to 10 matches per file')).toBeInTheDocument()
+    })
+
     it('highlights the match each row stands for, not the first look-alike', () => {
         const hit: PaletteItem = {
             kind: 'text',

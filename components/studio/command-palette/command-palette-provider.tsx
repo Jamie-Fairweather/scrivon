@@ -30,10 +30,8 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
     const [mode, setMode] = useState<PaletteMode>('all')
     const openRef = useRef(false)
 
-    const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, textUnreadableFiles, runItem, hasWorkspace } = usePaletteSearch(
-        mode,
-        open
-    )
+    const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, textUnreadableFiles, textTruncatedFiles, runItem, hasWorkspace } =
+        usePaletteSearch(mode, open)
 
     const openPalette = useCallback(
         (nextMode: PaletteMode = 'all') => {
@@ -94,6 +92,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
                 open={open}
                 query={query}
                 textCapped={textCapped}
+                textTruncatedFiles={textTruncatedFiles}
                 textUnreadableFiles={textUnreadableFiles}
             />
         </CommandPaletteContext.Provider>

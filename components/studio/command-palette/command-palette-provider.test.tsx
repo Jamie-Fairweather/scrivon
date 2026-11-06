@@ -19,6 +19,7 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
                 isSearchingText: false,
                 textCapped: false,
                 textUnreadableFiles: 0,
+                textTruncatedFiles: 0,
                 runItem: async () => {},
                 hasWorkspace: true,
             }

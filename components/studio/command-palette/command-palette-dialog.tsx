@@ -3,7 +3,7 @@
 import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon, XIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
-import { MAX_HITS, MIN_QUERY_LENGTH } from '@/components/studio/command-palette/search-content'
+import { MAX_HITS, MAX_HITS_PER_FILE, MIN_QUERY_LENGTH } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -36,6 +36,8 @@ type CommandPaletteDialogProps = {
     groups: PaletteGroup[]
     isSearchingText: boolean
     textCapped: boolean
+    /** Files whose extra matches were left out by the per-file limit. */
+    textTruncatedFiles: number
     textUnreadableFiles: number
     hasWorkspace: boolean
     onSelectItem: (item: PaletteItem) => void | Promise<void>
@@ -194,6 +196,7 @@ export function CommandPaletteDialog({
     groups,
     isSearchingText,
     textCapped,
+    textTruncatedFiles,
     textUnreadableFiles,
     hasWorkspace,
     onSelectItem,
@@ -330,7 +333,11 @@ export function CommandPaletteDialog({
                                     {textUnreadableFiles === 1 ? "1 file couldn't be read" : `${textUnreadableFiles} files couldn't be read`}
                                 </span>
                             ) : null}
-                            {textCapped ? <span className="text-muted-foreground/80">Showing first {MAX_HITS} matches — refine query</span> : null}
+                            {textCapped ? (
+                                <span className="text-muted-foreground/80">Showing first {MAX_HITS} matches — refine query</span>
+                            ) : textTruncatedFiles > 0 ? (
+                                <span className="text-muted-foreground/80">Showing up to {MAX_HITS_PER_FILE} matches per file</span>
+                            ) : null}
                             <Kbd>Esc</Kbd>
                             <span>Close</span>
                         </div>

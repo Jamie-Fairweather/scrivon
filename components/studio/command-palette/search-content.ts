@@ -5,6 +5,8 @@ import type { TextSearchHit } from '@/components/studio/command-palette/types'
 export const MIN_QUERY_LENGTH = 2
 export const DEBOUNCE_MS = 250
 export const MAX_HITS = 100
+/** So one file full of a common word can't push every other file out of the results. */
+export const MAX_HITS_PER_FILE = 10
 export const MAX_FILE_BYTES = 1_048_576
 export const READ_CONCURRENCY = 8
 export const PREVIEW_MAX_CHARS = 100
@@ -71,28 +73,30 @@ async function scanDiskPaths(
     scanPath: (path: string) => Promise<TextSearchHit[]>,
     signal: AbortSignal
 ): Promise<TextSearchHit[]> {
-    const hits: TextSearchHit[] = []
+    // Hits are kept by file position, so results follow the file tree rather than whichever read
+    // finishes first. Paths are claimed in order and every started scan is awaited, so the scanned
+    // files are always the first k paths and the first maxHits hits are the same on every run.
+    const hitsByPath: TextSearchHit[][] = []
+    let found = 0
     let index = 0
 
     // Every path is scanned until the hit limit is reached or the search is cancelled.
     async function worker(): Promise<void> {
-        while (!signal.aborted && hits.length < maxHits) {
+        while (!signal.aborted && found < maxHits) {
             const currentIndex = index++
             if (currentIndex >= paths.length) return
 
             const pathHits = await scanPath(paths[currentIndex]!)
             if (signal.aborted) return
 
-            for (const hit of pathHits) {
-                if (hits.length >= maxHits) return
-                hits.push(hit)
-            }
+            hitsByPath[currentIndex] = pathHits
+            found += pathHits.length
         }
     }
 
     const workers = Array.from({ length: Math.min(concurrency, paths.length) }, () => worker())
     await Promise.all(workers)
-    return hits
+    return hitsByPath.flat().slice(0, maxHits)
 }
 
 export type SearchWorkspaceContentOptions = {
@@ -103,6 +107,7 @@ export type SearchWorkspaceContentOptions = {
     getFileSize?: (path: string) => Promise<number | null>
     signal: AbortSignal
     maxHits?: number
+    maxHitsPerFile?: number
     maxFileBytes?: number
     concurrency?: number
 }
@@ -113,6 +118,8 @@ export type SearchWorkspaceContentResult = {
     capped: boolean
     /** Files that could not be read (deleted, renamed, or locked since the tree was loaded). */
     unreadableFiles: number
+    /** Files with more matches than the per-file limit shows. */
+    truncatedFiles: number
 }
 
 export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions): Promise<SearchWorkspaceContentResult> {
@@ -124,19 +131,28 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         getFileSize,
         signal,
         maxHits = MAX_HITS,
+        maxHitsPerFile = MAX_HITS_PER_FILE,
         maxFileBytes = MAX_FILE_BYTES,
         concurrency = READ_CONCURRENCY,
     } = opts
 
     const hits: TextSearchHit[] = []
     const bufferPaths = new Set(openBuffers.keys())
+    let truncatedFiles = 0
+
+    // Looks one hit past the per-file limit to tell whether the file had more.
+    const searchFile = (content: string, path: string, source: 'buffer' | 'disk'): TextSearchHit[] => {
+        const fileHits = searchInContent(content, query, path, source, maxHitsPerFile + 1)
+        if (fileHits.length <= maxHitsPerFile) return fileHits
+        truncatedFiles++
+        return fileHits.slice(0, maxHitsPerFile)
+    }
 
     for (const [path, content] of openBuffers) {
-        if (signal.aborted) return { hits: [], capped: false, unreadableFiles: 0 }
-        const fileHits = searchInContent(content, query, path, 'buffer', maxHits - hits.length)
-        hits.push(...fileHits)
+        if (signal.aborted) return { hits: [], capped: false, unreadableFiles: 0, truncatedFiles: 0 }
+        hits.push(...searchFile(content, path, 'buffer'))
         if (hits.length >= maxHits) {
-            return { hits: hits.slice(0, maxHits), capped: true, unreadableFiles: 0 }
+            return { hits: hits.slice(0, maxHits), capped: true, unreadableFiles: 0, truncatedFiles }
         }
     }
 
@@ -155,7 +171,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
             if (signal.aborted) return []
             if (content.length > maxFileBytes) return []
 
-            return searchInContent(content, query, path, 'disk', maxHits)
+            return searchFile(content, path, 'disk')
         } catch {
             // One missing or locked file must not fail the whole search; skip it and count it.
             if (!signal.aborted) unreadableFiles++
@@ -166,7 +182,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     const diskHits = await scanDiskPaths(diskPaths, concurrency, maxHits - hits.length, scanDiskPath, signal)
     hits.push(...diskHits)
 
-    return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits, unreadableFiles }
+    return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits, unreadableFiles, truncatedFiles }
 }
 
 export function textHitToPaletteItem(hit: TextSearchHit): import('@/components/studio/command-palette/types').TextPaletteItem {

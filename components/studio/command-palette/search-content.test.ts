@@ -226,9 +226,9 @@ describe('searchWorkspaceContent', () => {
     })
 
     it('matches decomposed text against a composed query and reports the original position', async () => {
-        const line = 'Le café est bon'
+        const line = 'Le cafe\u0301 est bon'
         const result = await searchWorkspaceContent({
-            query: 'café',
+            query: 'caf\u00e9',
             paths: [],
             openBuffers: new Map([['/a.md', line]]),
             readFile: async () => '',
@@ -237,7 +237,7 @@ describe('searchWorkspaceContent', () => {
 
         expect(result.hits).toHaveLength(1)
         expect(result.hits[0]).toMatchObject({ column: 4, length: 5 })
-        expect(line.slice(3, 3 + 5)).toBe('café')
+        expect(line.slice(3, 3 + 5)).toBe('cafe\u0301')
     })
 
     it('keeps columns right after decomposed Korean text', async () => {
@@ -309,6 +309,80 @@ describe('searchWorkspaceContent', () => {
         })
 
         expect(result.hits.map((hit) => hit.previewMatchStart)).toEqual([0, 6])
+    })
+
+    it('lists disk hits in file-tree order, not in the order reads finish', async () => {
+        const paths = ['/a.md', '/b.md', '/c.md', '/d.md']
+        // Later files finish first.
+        const readFile = (path: string) =>
+            new Promise<string>((resolve) => setTimeout(() => resolve('hit'), (paths.length - paths.indexOf(path)) * 5))
+
+        const all = await searchWorkspaceContent({
+            query: 'hit',
+            paths,
+            openBuffers: new Map(),
+            readFile,
+            signal: new AbortController().signal,
+            concurrency: 4,
+        })
+        expect(all.hits.map((hit) => hit.path)).toEqual(paths)
+
+        const firstTwo = await searchWorkspaceContent({
+            query: 'hit',
+            paths,
+            openBuffers: new Map(),
+            readFile,
+            signal: new AbortController().signal,
+            concurrency: 4,
+            maxHits: 2,
+        })
+        expect(firstTwo.hits.map((hit) => hit.path)).toEqual(['/a.md', '/b.md'])
+        expect(firstTwo.capped).toBe(true)
+    })
+
+    it("limits each file's hits so one busy file can't hide the rest", async () => {
+        const busy = Array.from({ length: 50 }, () => 'A --> B').join('\n')
+        const result = await searchWorkspaceContent({
+            query: '-->',
+            paths: ['/busy.mmd', '/other.mmd'],
+            openBuffers: new Map(),
+            readFile: async (path) => (path === '/busy.mmd' ? busy : 'C --> D'),
+            signal: new AbortController().signal,
+            maxHitsPerFile: 10,
+        })
+
+        expect(result.hits.filter((hit) => hit.path === '/busy.mmd')).toHaveLength(10)
+        expect(result.hits.filter((hit) => hit.path === '/other.mmd')).toHaveLength(1)
+        expect(result.truncatedFiles).toBe(1)
+        expect(result.capped).toBe(false)
+    })
+
+    it('limits hits from a busy open tab too', async () => {
+        const result = await searchWorkspaceContent({
+            query: '-->',
+            paths: ['/other.mmd'],
+            openBuffers: new Map([['/open.mmd', Array.from({ length: 200 }, () => 'A --> B').join('\n')]]),
+            readFile: async () => 'C --> D',
+            signal: new AbortController().signal,
+        })
+
+        expect(result.hits.filter((hit) => hit.path === '/open.mmd')).toHaveLength(10)
+        expect(result.hits.some((hit) => hit.path === '/other.mmd')).toBe(true)
+        expect(result.truncatedFiles).toBe(1)
+    })
+
+    it('does not report a file as truncated when it has exactly the per-file limit', async () => {
+        const result = await searchWorkspaceContent({
+            query: 'x',
+            paths: [],
+            openBuffers: new Map([['/a.md', 'x x x']]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+            maxHitsPerFile: 3,
+        })
+
+        expect(result.hits).toHaveLength(3)
+        expect(result.truncatedFiles).toBe(0)
     })
 
     it('finds multiple matches on one line', async () => {
