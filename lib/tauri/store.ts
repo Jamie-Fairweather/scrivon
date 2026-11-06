@@ -35,12 +35,38 @@ const STORE_DAMAGED_NOTICE_ID = 'workspace-store-damaged'
 /** The OS error for a file (or the app's data folder) that isn't there yet, as on a first launch. */
 const FILE_MISSING = /\(os error [23]\)/
 
+const STORE_SAVE_FAILED_NOTICE_ID = 'workspace-store-save-failed'
+
 let storeReady: Promise<LazyStore> | null = null
+let saveFailureShown = false
 
 async function getStore(): Promise<LazyStore | null> {
     if (!isTauri()) return null
-    storeReady ??= openStore()
+    storeReady ??= openStore().catch((err: unknown) => {
+        // Not remembered as broken: the next call tries again.
+        storeReady = null
+        throw err
+    })
     return storeReady
+}
+
+/**
+ * Writes the store to disk. Recent folders and open tabs are a convenience, so a failed write (full disk,
+ * a locked file, an offline network AppData) is reported once and never stops what the user was doing.
+ * The values stay in memory for this session either way.
+ */
+async function saveStore(s: LazyStore): Promise<void> {
+    try {
+        await s.save()
+    } catch (err) {
+        console.warn("Couldn't save workspace.json", err)
+        if (saveFailureShown) return
+        saveFailureShown = true
+        notifyWarning("Couldn't save recent folders", {
+            id: STORE_SAVE_FAILED_NOTICE_ID,
+            description: `${errorMessage(err)} Your recent folders and open tabs may not be remembered next time. Your documents aren't affected.`,
+        })
+    }
 }
 
 async function openStore(): Promise<LazyStore> {
@@ -92,7 +118,7 @@ async function recoverStore(s: LazyStore, readError: unknown): Promise<void> {
         const snapshot = await readStoreBackup()
         if (snapshot) {
             for (const [key, value] of Object.entries(snapshot)) await s.set(key, value)
-            await s.save()
+            await saveStore(s)
             restored = true
         }
     } catch (err) {
@@ -126,7 +152,7 @@ export async function addRecentWorkspace(path: string): Promise<string[]> {
     const current = await getRecentWorkspaces()
     const next = [path, ...current.filter((p) => p !== path)].slice(0, getMaxRecentWorkspaces())
     await s.set(RECENT_KEY, next)
-    await s.save()
+    await saveStore(s)
     return next
 }
 
@@ -136,7 +162,7 @@ export async function removeRecentWorkspace(path: string): Promise<string[]> {
 
     const next = (await getRecentWorkspaces()).filter((p) => p !== path)
     await s.set(RECENT_KEY, next)
-    await s.save()
+    await saveStore(s)
     return next
 }
 
@@ -151,7 +177,7 @@ export async function setLastOpenedFile(workspaceRoot: string, filePath: string)
     const s = await getStore()
     if (!s) return
     await s.set(`${LAST_FILE_PREFIX}${workspaceRoot}`, filePath)
-    await s.save()
+    await saveStore(s)
 }
 
 export async function getWorkspaceTabSession(workspaceRoot: string): Promise<WorkspaceTabSession | null> {
@@ -181,7 +207,7 @@ export async function setWorkspaceTabSession(workspaceRoot: string, session: Wor
     } else {
         await s.delete(`${LAST_FILE_PREFIX}${workspaceRoot}`)
     }
-    await s.save()
+    await saveStore(s)
 }
 
 export async function getRecentFiles(workspaceRoot: string): Promise<string[]> {
@@ -207,6 +233,6 @@ export async function addRecentFile(workspaceRoot: string, filePath: string): Pr
     const current = await getRecentFiles(workspaceRoot)
     const next = [path, ...current.filter((p) => !samePath(p, path))].slice(0, MAX_RECENT_FILES)
     await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
-    await s.save()
+    await saveStore(s)
     return next
 }

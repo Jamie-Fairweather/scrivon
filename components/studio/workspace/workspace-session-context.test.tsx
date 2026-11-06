@@ -657,6 +657,20 @@ describe('file system errors', () => {
         expect(removeRecentWorkspace).toHaveBeenCalledWith('D:\\gone')
     })
 
+    it('says so when a folder could not be removed from the recent list, instead of failing silently', async () => {
+        vi.mocked(getRecentWorkspaces).mockResolvedValueOnce(['D:\\old'])
+        vi.mocked(removeRecentWorkspace).mockRejectedValueOnce('no app data folder')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+
+        await act(async () => {
+            await result.current.session.removeRecent('D:\\old')
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't update recent folders", 'no app data folder')
+        expect(result.current.session.recentWorkspaces).toEqual(['D:\\old'])
+    })
+
     it('opens a folder with a subfolder it cannot read, and says which one shows as empty', async () => {
         const list = disk.list
         vi.mocked(readDir).mockImplementation((async (dir: string) => {

@@ -10,6 +10,7 @@ const fake = vi.hoisted(() => ({
     disk: new Map<string, string>(),
     caches: new Map<string, Map<string, unknown>>(),
     saveError: null as unknown,
+    initError: null as unknown,
 }))
 
 function parseStoreFile(path: string): Record<string, unknown> {
@@ -32,6 +33,7 @@ vi.mock('@tauri-apps/plugin-store', () => ({
             return fake.caches.get(this.path)!
         }
         async init() {
+            if (fake.initError) throw fake.initError
             if (fake.caches.has(this.path)) return
             const cache = new Map<string, unknown>()
             try {
@@ -97,6 +99,7 @@ describe('workspace store', () => {
         fake.disk.clear()
         fake.caches.clear()
         fake.saveError = null
+        fake.initError = null
         vi.mocked(notifyWarning).mockClear()
         vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     })
@@ -149,6 +152,35 @@ describe('workspace store', () => {
             expect(recents).toEqual(['C:\\notes', 'D:\\work'])
             expect(files).toEqual([])
             expect(notifyWarning).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('when workspace.json cannot be written', () => {
+        it('still updates the lists for this session and says so once', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.saveError = 'There is not enough space on the disk. (os error 112)'
+            const store = await launch()
+
+            await expect(store.addRecentWorkspace('E:\\new')).resolves.toEqual(['E:\\new', 'C:\\notes', 'D:\\work'])
+            await expect(store.setWorkspaceTabSession('E:\\new', { tabIds: [], activeTabId: null })).resolves.toBeUndefined()
+            await expect(store.addRecentFile('E:\\new', 'E:\\new\\a.md')).resolves.toEqual(['E:\\new\\a.md'])
+
+            expect(await store.getRecentWorkspaces()).toEqual(['E:\\new', 'C:\\notes', 'D:\\work'])
+            expect(notifyWarning).toHaveBeenCalledTimes(1)
+            expect(notifyWarning).toHaveBeenCalledWith(
+                "Couldn't save recent folders",
+                expect.objectContaining({ description: expect.stringContaining('There is not enough space on the disk.') })
+            )
+        })
+
+        it('tries to open the store again after a failed start instead of failing for the whole session', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.initError = 'no app data folder'
+            const store = await launch()
+
+            await expect(store.getRecentWorkspaces()).rejects.toBe('no app data folder')
+            fake.initError = null
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
         })
     })
 })

@@ -213,8 +213,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [isDesktop, workspaceRoot])
 
     const removeRecent = useCallback(async (path: string) => {
-        const next = await removeRecentWorkspace(path)
-        setRecentWorkspaces(next)
+        try {
+            setRecentWorkspaces(await removeRecentWorkspace(path))
+        } catch (err) {
+            notifyError("Couldn't update recent folders", err)
+        }
     }, [])
 
     /**
@@ -312,7 +315,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     // Nothing has switched yet, so the folder that was open (if any) stays open.
                     // A recent folder that was moved, deleted or is on a missing drive can be dropped from the list.
                     const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
-                    const removeFromRecent = () => void removeRecent(path).catch((e: unknown) => notifyError("Couldn't update recent folders", e))
+                    const removeFromRecent = () => void removeRecent(path)
                     notifyError(`Couldn't open ${name}`, err, isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {})
                     return
                 }
