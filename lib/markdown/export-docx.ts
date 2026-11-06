@@ -733,9 +733,14 @@ function availablePx(state: RenderState): number {
     return state.cellPx === null ? width : Math.min(width, state.cellPx)
 }
 
+/** The quote bar's width, in eighths of a point, and its gap to the text, in points. */
+const QUOTE_BAR = { size: 12, space: 11 } as const
+/** How far left of a quoted paragraph's text Word draws the middle of its bar, in twips: the gap, then half the bar. */
+const QUOTE_BAR_INSET = QUOTE_BAR.space * 20 + (QUOTE_BAR.size * 20) / 8 / 2
+
 /** The quote's accent bar, on every block inside a quote. Word draws it `space` points left of the text, at the quote's edge. */
 function quoteBorder(state: RenderState) {
-    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, size: 12, color: state.accent, space: 11 } } : undefined
+    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, ...QUOTE_BAR, color: state.accent } } : undefined
 }
 
 /** Quote text is grey and italic, as in the PDF. */
@@ -895,7 +900,8 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     const depth = Math.min(Math.max(node.depth, 1), 6)
     const level = state.document.profile.flow.newPageFromHeading
     const bookmark = state.bookmarks.get(headingId(node))
-    const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1] })
+    // A heading in a quote keeps its colour and is italic, as in the PDF.
+    const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1], italics: state.quoteDepth > 0 || undefined })
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
@@ -1010,13 +1016,15 @@ function tableColumns(table: MdTable): number {
 }
 
 function renderTable(state: RenderState, table: MdTable): Table {
-    const width = Math.max(1, state.contentTwip - state.extraLeft)
+    // In a quote, the table's left edge carries the quote bar, so it moves out to where the bar runs beside the text.
+    const indent = state.quoteDepth > 0 ? state.extraLeft - QUOTE_BAR_INSET : state.extraLeft
+    const width = Math.max(1, state.contentTwip - indent)
     const columns = tableColumns(table)
     const widths = columnWidths(table, columns, width)
     return new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: widths,
-        indent: state.extraLeft > 0 ? { size: state.extraLeft, type: WidthType.DXA } : undefined,
+        indent: indent !== 0 ? { size: indent, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
         // A right-to-left header row puts the first column on the right.
@@ -1080,7 +1088,7 @@ function renderTableRow(state: RenderState, row: MdTableRow, widths: number[], a
     return new TableRow({
         tableHeader: header,
         children: widths.map((columnTwip, index) =>
-            renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, columnTwip, align?.[index], header)
+            renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, columnTwip, align?.[index], header, index === 0)
         ),
     })
 }
@@ -1090,7 +1098,8 @@ function renderTableCell(
     cell: MdTableCell,
     columnTwip: number,
     align: 'left' | 'center' | 'right' | null | undefined,
-    header: boolean
+    header: boolean,
+    first: boolean
 ): TableCell {
     const saved = state.cellPx
     state.cellPx = cellTextPx(columnTwip)
@@ -1100,13 +1109,20 @@ function renderTableCell(
             verticalAlign: VerticalAlignTable.TOP,
             margins: TABLE_CELL_MARGIN,
             shading: header ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
-            borders: { top: GRID_BORDER, bottom: GRID_BORDER, left: GRID_BORDER, right: GRID_BORDER },
+            borders: {
+                top: GRID_BORDER,
+                bottom: GRID_BORDER,
+                // In a quote, the first column's edge is the quote bar, so the bar runs on past the table.
+                left: first && state.quoteDepth > 0 ? { style: BorderStyle.SINGLE, size: QUOTE_BAR.size, color: state.accent } : GRID_BORDER,
+                right: GRID_BORDER,
+            },
             children: [
                 new Paragraph({
                     spacing: { after: 0, ...bodyLineSpacing(state) },
                     alignment: align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.END : AlignmentType.START,
                     bidirectional: bidi(plainText(cell)),
-                    children: renderInlines(state, cell.children, header ? { bold: true } : {}),
+                    // Quoted tables have grey italic text too.
+                    children: renderInlines(state, cell.children, { ...quoteMarks(state), bold: header || undefined }),
                 }),
             ],
         })

@@ -580,6 +580,12 @@ describe('renderExportDocx', () => {
                 '> quote-code',
                 '> ```',
                 '>',
+                '> ## quote-heading',
+                '>',
+                '> | quote-head |',
+                '> | --- |',
+                '> | quote-cell |',
+                '>',
                 '> > inner-quote',
             ].join('\n')
         )
@@ -597,6 +603,24 @@ describe('renderExportDocx', () => {
         expect(runWith(xml, 'quote-item')).toContain('<w:color w:val="525252"/>')
         expect(blockWith(xml, 'quote-code')).toContain(bar)
         expect(blockWith(xml, 'quote-code')).toContain('w:left="240"')
+        // A heading keeps its colour but is italic, as quote text is.
+        expect(blockWith(xml, 'quote-heading')).toContain(bar)
+        expect(runWith(xml, 'quote-heading')).toContain('<w:i/>')
+        expect(runWith(xml, 'quote-heading')).toContain('<w:color w:val="262626"/>')
+        // A table's left edge is the bar, moved out to where the bar runs beside the text (240 - 220 - 15 twips).
+        const quoteTable = blockWith(xml, 'quote-cell', '<w:tbl>')
+        expect(quoteTable).toContain('<w:tblInd w:type="dxa" w:w="5"/>')
+        const accentEdge = '<w:left w:val="single" w:color="262626" w:sz="12"/>'
+        expect(blockWith(xml, 'quote-head', '<w:tc>')).toContain(accentEdge)
+        expect(blockWith(xml, 'quote-cell', '<w:tc>')).toContain(accentEdge)
+        // Its text is grey and italic, and the header row stays bold.
+        expect(runWith(xml, 'quote-cell')).toContain('<w:i/>')
+        expect(runWith(xml, 'quote-cell')).toContain('<w:color w:val="525252"/>')
+        expect(runWith(xml, 'quote-head')).toContain('<w:b/>')
+        expect(runWith(xml, 'quote-head')).toContain('<w:i/>')
+        // Outside a quote the table keeps its plain grid.
+        expect(blockWith(xml, 'list-cell', '<w:tc>')).not.toContain(accentEdge)
+        expect(runWith(xml, 'list-cell')).not.toContain('<w:i/>')
         // A nested quote steps in again instead of sitting on its parent's line.
         expect(blockWith(xml, 'inner-quote')).toContain('w:left="480"')
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
