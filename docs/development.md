@@ -171,6 +171,44 @@ The Tauri CLI does not read `.env` itself. This project wraps it so `bun run tau
 
 If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. If neither key variable is set but `src-tauri/.updater/scrivon` exists, that file is used automatically.
 
-### Code signing (optional)
+### Windows code signing
 
-Installers build unsigned by default. To sign releases later, add repository secrets for Tauri signing (Windows) and Apple notarization (macOS) per the [Tauri distribution docs](https://v2.tauri.app/distribute/sign/).
+The installers and `scrivon.exe` are **not** code-signed (Authenticode) yet. The `TAURI_SIGNING_*` secrets above only sign updates for the in-app updater, and Windows ignores that signature. Until releases are signed:
+
+- SmartScreen shows **Windows protected your PC** on first install, and users have to click **More info**, then **Run anyway**.
+- PCs with Smart App Control turned on block Scrivon completely.
+- The MSI's admin prompt says **Publisher: Unknown**.
+
+There is no macOS build, so there is nothing to notarize.
+
+Adding secrets alone does nothing. Signing needs a signing service, a Tauri config change and a CI change:
+
+1. **Pick a signing service.** For example:
+    - [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/): low monthly cost and works on GitHub runners. Check it is open to you first; it isn't available to individual developers in every country.
+    - [SignPath Foundation](https://signpath.org/): free for open-source projects, but signing goes through their own GitHub Action.
+    - A code-signing certificate from a certificate authority (Certum sells a cheap one for open-source developers).
+
+2. **Add the signing settings in a separate file**, `src-tauri/tauri.signing.conf.json`, so local builds without the credentials still work. Don't call it `tauri.windows.conf.json`: Tauri merges that file into every Windows build automatically. For Trusted Signing:
+
+    ```json
+    {
+        "bundle": {
+            "windows": {
+                "signCommand": "trusted-signing-cli -e <endpoint> -a <account> -c <certificate-profile> -d Scrivon %1"
+            }
+        }
+    }
+    ```
+
+    For a certificate instead, set `certificateThumbprint`, `digestAlgorithm` (`sha256`) and `timestampUrl` in the same place, and import the certificate on the runner before the build.
+
+3. **Use it in CI**, in both [`release.yml`](../.github/workflows/release.yml) and [`build-release.yml`](../.github/workflows/build-release.yml):
+    - add a step before **Build and upload installers** that installs the tool (`cargo install trusted-signing-cli --locked`);
+    - add the `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` and `AZURE_TENANT_ID` secrets to that step's `env`;
+    - add `--config src-tauri/tauri.signing.conf.json` to its `args` (the path is relative to the repo root, where `bun run tauri` runs).
+
+    Tauri then signs `scrivon.exe`, the installer plugins, the uninstaller, the setup `.exe` and the `.msi`.
+
+4. **Check a release**: right-click a downloaded installer → **Properties** → **Digital Signatures**, or run `signtool verify /pa <file>`. SmartScreen still needs time to trust a newly signed app, but that trust now carries over from release to release.
+
+See the [Tauri Windows signing guide](https://v2.tauri.app/distribute/sign/windows/) for details.

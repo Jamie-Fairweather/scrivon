@@ -62,6 +62,7 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 ### Use a release
 
 1. Download the latest installer from [Releases](https://github.com/Jamie-Fairweather/scrivon/releases).
+    - The installers aren't code-signed yet, so Windows may show **Windows protected your PC** the first time. Click **More info**, then **Run anyway**. On PCs with Smart App Control turned on, Windows may block the installer completely.
 2. Launch Scrivon and choose **Open Folder**.
 3. Select a directory containing `.md` and/or `.mmd` files.
 4. Edit in the center pane; the preview updates as you type.
