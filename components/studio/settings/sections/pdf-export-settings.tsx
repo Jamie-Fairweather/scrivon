@@ -447,6 +447,11 @@ export function PdfExportSettings() {
                             onChange={(tocExcludeH1) => setSection('frontMatter', { tocExcludeH1 })}
                         />
                     </div>
+                    {active.frontMatter.toc && active.frontMatter.tocDepth === 1 && active.frontMatter.tocExcludeH1 ? (
+                        <SettingsWarning>
+                            With TOC depth H1 and Exclude H1 on, no headings are left, so no table of contents is added.
+                        </SettingsWarning>
+                    ) : null}
                 </DependentFields>
             </SettingsGroup>
 
@@ -534,15 +539,20 @@ function DependentFields({ enabled, children }: { enabled: boolean; children: Re
     )
 }
 
+/** A short note under settings that won't give the result the user probably expects. */
+function SettingsWarning({ children }: { children: ReactNode }) {
+    return <p className="text-xs text-warning-foreground">{children}</p>
+}
+
 /** Warns when the margins and header/footer leave little or no page height for the text. */
 function PageSpaceWarning({ bodyHeightMm }: { bodyHeightMm: number }) {
     if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return null
     return (
-        <p className="text-xs text-warning-foreground">
+        <SettingsWarning>
             {bodyHeightMm <= 0
                 ? 'Margins, header and footer are taller than the page, so there is no room left for the text.'
                 : `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`}
-        </p>
+        </SettingsWarning>
     )
 }
 

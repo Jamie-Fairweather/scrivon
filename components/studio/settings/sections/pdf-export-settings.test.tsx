@@ -135,6 +135,28 @@ describe('PdfExportSettings page space', () => {
     })
 })
 
+describe('PdfExportSettings table of contents', () => {
+    const empty = /no headings are left, so no table of contents is added/
+
+    it('warns when depth H1 and Exclude H1 leave the table of contents empty', async () => {
+        renderWithProfile((profile) => ({ ...profile, frontMatter: { ...profile.frontMatter, toc: true } }))
+        expect(screen.queryByText(empty)).toBeNull()
+
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('combobox', { name: 'TOC depth' }))
+        await user.click(await screen.findByRole('option', { name: 'H1' }))
+        expect(await screen.findByText(empty)).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('switch', { name: 'Exclude H1 from TOC' }))
+        expect(screen.queryByText(empty)).toBeNull()
+    })
+
+    it('says nothing while the table of contents is off', () => {
+        renderWithProfile((profile) => ({ ...profile, frontMatter: { ...profile.frontMatter, toc: false, tocDepth: 1, tocExcludeH1: true } }))
+        expect(screen.queryByText(empty)).toBeNull()
+    })
+})
+
 describe('PdfExportSettings fonts', () => {
     it('shows a font saved by an older build under its own name', () => {
         renderWithProfile((profile) => ({ ...profile, typography: { ...profile.typography, bodyFont: 'Arial, sans-serif' } }))
