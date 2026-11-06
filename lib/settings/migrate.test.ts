@@ -104,9 +104,20 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleEditor']).toEqual([])
+        // Nothing usable was saved, so the default stays rather than leaving the action unassigned.
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
         expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
         expect(merged.keybinds['palette.open']).toEqual([{ key: 'F1' }])
+    })
+
+    it('keeps the default for a shortcut saved as Tab, unless another action now has that chord', () => {
+        const tabOnly = mergeStoredSettings({ keybinds: { 'palette.open': [{ key: 'Tab' }] } }, false)
+        expect(tabOnly.keybinds['palette.open']).toEqual([{ key: 'F1' }])
+        expect(keybindOverrides(tabOnly.keybinds, createDefaultKeybinds(false))).toEqual({})
+
+        const taken = mergeStoredSettings({ keybinds: { 'palette.open': [{ key: 'Tab' }], 'view.fitDiagram': [{ key: 'F1' }] } }, false)
+        expect(taken.keybinds['palette.open']).toEqual([])
+        expect(taken.keybinds['view.fitDiagram']).toEqual([{ key: 'F1' }])
     })
 
     it('lets a shortcut the user chose win over a default that uses the same chord', () => {

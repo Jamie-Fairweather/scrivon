@@ -58,10 +58,11 @@ function normalizeKeybinds(raw: unknown, defaults: KeybindBindings): KeybindBind
         const chords = source[actionId]
         if (!Array.isArray(chords)) continue
         const readable = chords.map(normalizeChord).filter((chord): chord is KeybindChord => chord !== null)
-        // Nothing readable (an unknown format): keep the default rather than leaving the action unassigned.
-        if (chords.length > 0 && readable.length === 0) continue
-        // Drop chords that would break typing or Tab (plain letters, Tab, Enter…); the action is left unassigned.
+        // Drop chords that would break typing or Tab (plain letters, Tab, Enter…), which older versions could save.
         const allowed = readable.filter(isAllowedChord)
+        // Nothing readable (an unknown format) or nothing allowed: keep the default rather than leaving
+        // the action unassigned. Below, it is still dropped if another action has that chord.
+        if (chords.length > 0 && allowed.length === 0) continue
         if (chordListsEqual(allowed, defaults[actionId])) continue
         next[actionId] = allowed
         changed.add(actionId)
