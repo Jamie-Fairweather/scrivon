@@ -12,8 +12,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # The Tauri CLI won't build when an @tauri-apps package and its Rust crate are on different minor
+    # versions, and Dependabot opens the bun and cargo updates as separate PRs that CI can't catch
+    # (it never runs the Tauri CLI). So minor and major Tauri bumps are done by hand, both sides together.
+    ignore:
+      - dependency-name: "@tauri-apps/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
-      # The JS API packages must stay on the same minor as the Rust crates (see the cargo tauri group).
+      # Patch updates only (see ignore above).
       tauri:
         patterns:
           - "@tauri-apps/*"
@@ -37,8 +43,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # Same as the bun entry: minor and major Tauri bumps are done by hand, together with @tauri-apps/*.
+    # webview2-com and windows-core must match the versions wry uses, so they move with Tauri.
+    ignore:
+      - dependency-name: "tauri*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "webview2-com*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "windows-core"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
-      # webview2-com and windows-core must match the versions wry uses, so they move with Tauri.
+      # Patch updates only (see ignore above).
       tauri:
         patterns:
           - "tauri*"
