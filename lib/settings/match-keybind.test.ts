@@ -5,7 +5,7 @@ import { matchKeybind } from '@/lib/settings/match-keybind'
 function keyEvent(
     key: string,
     modifiers: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean } = {},
-    target: EventTarget | null = { tagName: 'BODY' } as EventTarget
+    target: EventTarget | null = { tagName: 'BODY' } as unknown as EventTarget
 ): KeyboardEvent {
     return {
         key,

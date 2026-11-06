@@ -16,6 +16,7 @@
         "test:coverage": "vitest run --coverage",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
+        "typecheck": "tsc --noEmit",
         "format": "prettier --write \"**/*.{ts,tsx,md,mjs,json,css}\"",
         "generate:examples": "node scripts/generate-examples.mjs",
         "generate:licenses": "node scripts/generate-licenses.mjs",
