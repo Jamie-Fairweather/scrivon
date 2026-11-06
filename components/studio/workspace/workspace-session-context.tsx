@@ -171,13 +171,19 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         const root = workspaceRoot
         let disposed = false
         let unlisten: (() => void) | undefined
+        let reloading = false
         const reload = async () => {
+            // Switching windows quickly mustn't start a new read of a big folder each time.
+            if (reloading) return
+            reloading = true
             const read = ++treeRead.current
             try {
                 const next = await listWorkspaceTree(root)
                 if (!disposed && read === treeRead.current) setTree(next)
             } catch {
                 // See above.
+            } finally {
+                reloading = false
             }
         }
         try {
@@ -366,8 +372,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshTree()
                 return
             }
-            await refreshTree()
-            await coordinator.openFile.current(path)
+            // The new file opens straight away; in a big folder, reading the file list again takes a while.
+            await Promise.all([refreshTree(), coordinator.openFile.current(path)])
         },
         [getNameError, refreshTree, coordinator]
     )
@@ -454,8 +460,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshTree()
                 return
             }
-            await refreshTree()
-            await coordinator.openFile.current(destPath)
+            await Promise.all([refreshTree(), coordinator.openFile.current(destPath)])
         },
         [refreshTree, coordinator]
     )

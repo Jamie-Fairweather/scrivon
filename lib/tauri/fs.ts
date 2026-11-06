@@ -27,9 +27,38 @@ export class PathExistsError extends Error {
     }
 }
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'target', 'dist', 'build'])
+/** Tool, dependency, build and cache folders. They can hold many thousands of folders and never the user's documents. */
+const SKIP_DIRS = new Set([
+    '.git',
+    'node_modules',
+    'bower_components',
+    '.next',
+    '.nuxt',
+    '.svelte-kit',
+    '.turbo',
+    '.cache',
+    '.parcel-cache',
+    'target',
+    'dist',
+    'build',
+    'obj',
+    'coverage',
+    '.venv',
+    'venv',
+    '__pycache__',
+    '.pytest_cache',
+    '.mypy_cache',
+    '.tox',
+    '.gradle',
+    '.idea',
+    '.vs',
+    'Pods',
+])
 
-/** Windows system folders at the top of a drive. Most can only be read by Windows itself, and none hold documents. */
+/**
+ * Windows system folders at the top of a drive, plus AppData in a user's home folder. Most can only be
+ * read by Windows itself, AppData holds every app's own files, and none hold documents.
+ */
 const SKIP_SYSTEM_DIRS = new Set([
     'system volume information',
     '$recycle.bin',
@@ -38,10 +67,34 @@ const SKIP_SYSTEM_DIRS = new Set([
     '$winreagent',
     '$sysreset',
     'config.msi',
+    'appdata',
 ])
 
 function isSkippedDirectory(name: string): boolean {
     return SKIP_DIRS.has(name) || SKIP_SYSTEM_DIRS.has(name.toLowerCase())
+}
+
+/** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
+const MAX_PARALLEL_READS = 8
+
+type Limit = <T>(task: () => Promise<T>) => Promise<T>
+
+/** Runs at most `max` tasks at a time; the rest wait their turn in order. */
+function createLimit(max: number): Limit {
+    let running = 0
+    const waiting: Array<() => void> = []
+    return async (task) => {
+        if (running < max) running += 1
+        // A finishing task hands its place straight to the next one, so `running` never goes over `max`.
+        else await new Promise<void>((resolve) => waiting.push(resolve))
+        try {
+            return await task()
+        } finally {
+            const next = waiting.shift()
+            if (next) next()
+            else running -= 1
+        }
+    }
 }
 
 function compareEntries(a: FileNode, b: FileNode): number {
@@ -52,41 +105,35 @@ function compareEntries(a: FileNode, b: FileNode): number {
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
-async function readDirTree(dirPath: string): Promise<FileNode[]> {
-    const entries = await readDir(dirPath)
-    const nodes: FileNode[] = []
-
-    for (const entry of entries) {
-        const fullPath = joinPath(dirPath, entry.name)
-        if (entry.isDirectory) {
-            if (isSkippedDirectory(entry.name)) continue
-            try {
-                const children = await readDirTree(fullPath)
-                nodes.push({ kind: 'directory', name: entry.name, path: fullPath, children })
-            } catch {
-                // One folder that can't be read (no permission, or deleted mid-scan) mustn't stop the rest from opening.
-                nodes.push({ kind: 'directory', name: entry.name, path: fullPath, children: [], unreadable: true })
+async function readDirTree(dirPath: string, limit: Limit): Promise<FileNode[]> {
+    // Only the listing itself takes a place, never the wait for subfolders, so nested folders can't block each other.
+    const entries = await limit(() => readDir(dirPath))
+    const nodes = await Promise.all(
+        entries.map(async (entry): Promise<FileNode | null> => {
+            const fullPath = joinPath(dirPath, entry.name)
+            if (entry.isDirectory) {
+                if (isSkippedDirectory(entry.name)) return null
+                try {
+                    return { kind: 'directory', name: entry.name, path: fullPath, children: await readDirTree(fullPath, limit) }
+                } catch {
+                    // One folder that can't be read (no permission, or deleted mid-scan) mustn't stop the rest from opening.
+                    return { kind: 'directory', name: entry.name, path: fullPath, children: [], unreadable: true }
+                }
             }
-        } else if (entry.isFile) {
-            if (isSaveTempFile(entry.name)) continue
-            nodes.push({
-                kind: 'file',
-                name: entry.name,
-                path: fullPath,
-            })
-        }
-    }
-
-    return nodes.sort(compareEntries)
+            if (entry.isFile && !isSaveTempFile(entry.name)) return { kind: 'file', name: entry.name, path: fullPath }
+            return null
+        })
+    )
+    return nodes.filter((node): node is FileNode => node !== null).sort(compareEntries)
 }
 
 /**
- * Reads the whole folder. Throws when the folder itself can't be read; a subfolder that can't be read
- * is kept, empty and marked `unreadable`.
+ * Reads the whole folder, listing several subfolders at once. Throws when the folder itself can't be
+ * read; a subfolder that can't be read is kept, empty and marked `unreadable`.
  */
 export async function listWorkspaceTree(rootPath: string): Promise<FileNode[]> {
     if (!isTauri()) return []
-    return readDirTree(normalizePath(rootPath))
+    return readDirTree(normalizePath(rootPath), createLimit(MAX_PARALLEL_READS))
 }
 
 function stampOf(info: { size: number; mtime: Date | null }): FileStamp {

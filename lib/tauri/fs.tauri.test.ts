@@ -309,6 +309,59 @@ describe('workspace fs (Tauri)', () => {
         expect(readDirMock).not.toHaveBeenCalledWith('D:\\$RECYCLE.BIN')
     })
 
+    it('lists several folders at once, never more than eight, and builds the same tree', async () => {
+        let running = 0
+        let mostAtOnce = 0
+        const folders = Array.from({ length: 20 }, (_, i) => `f${String(i).padStart(2, '0')}`)
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            running += 1
+            mostAtOnce = Math.max(mostAtOnce, running)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            running -= 1
+            if (dirPath === '/ws') return folders.map((name) => ({ name, isDirectory: true, isFile: false, isSymlink: false }))
+            if (dirPath.endsWith('/deep')) return [{ name: 'leaf.md', isDirectory: false, isFile: true, isSymlink: false }]
+            return [
+                { name: 'deep', isDirectory: true, isFile: false, isSymlink: false },
+                { name: 'a.md', isDirectory: false, isFile: true, isSymlink: false },
+            ]
+        })
+
+        const tree = await listWorkspaceTree('/ws')
+
+        expect(mostAtOnce).toBe(8)
+        expect(readDirMock).toHaveBeenCalledTimes(41)
+        expect(tree.map((node) => node.name)).toEqual(folders)
+        expect(tree[3]).toEqual({
+            kind: 'directory',
+            name: 'f03',
+            path: '/ws/f03',
+            children: [
+                {
+                    kind: 'directory',
+                    name: 'deep',
+                    path: '/ws/f03/deep',
+                    children: [{ kind: 'file', name: 'leaf.md', path: '/ws/f03/deep/leaf.md' }],
+                },
+                { kind: 'file', name: 'a.md', path: '/ws/f03/a.md' },
+            ],
+        })
+    })
+
+    it('skips tool, cache and app data folders that never hold documents', async () => {
+        const skipped = ['.venv', '__pycache__', '.gradle', 'coverage', 'Pods', 'AppData']
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\Users\\me') {
+                return [...skipped, 'Documents'].map((name) => ({ name, isDirectory: true, isFile: false, isSymlink: false }))
+            }
+            return [{ name: 'notes.md', isDirectory: false, isFile: true, isSymlink: false }]
+        })
+
+        const tree = await listWorkspaceTree('C:\\Users\\me')
+
+        expect(tree.map((node) => node.name)).toEqual(['Documents'])
+        expect(readDirMock).toHaveBeenCalledTimes(2)
+    })
+
     it('still fails when the folder itself cannot be read', async () => {
         readDirMock.mockRejectedValue('The system cannot find the path specified. (os error 3)')
         await expect(listWorkspaceTree('E:\\gone')).rejects.toBe('The system cannot find the path specified. (os error 3)')

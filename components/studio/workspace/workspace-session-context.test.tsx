@@ -442,6 +442,31 @@ describe('creating files and folders', () => {
         expect(notifyError).not.toHaveBeenCalled()
     })
 
+    it('opens the new file without waiting for the file list to be read again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        // A big folder: reading the file list again takes as long as the test wants.
+        let finishListing!: () => void
+        const listed = new Promise<void>((resolve) => (finishListing = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            await listed
+            return disk.list(dir)
+        }) as unknown as typeof readDir)
+
+        let creating!: Promise<void>
+        act(() => {
+            creating = result.current.session.createFile('C:\\ws', 'flow.mmd', 'graph LR')
+        })
+        await waitFor(() => expect(result.current.tabs.activeTabId).toBe('C:\\ws\\flow.mmd'))
+        expect(result.current.session.tree.map((node) => node.name)).not.toContain('flow.mmd')
+
+        await act(async () => {
+            finishListing()
+            await creating
+        })
+        expect(result.current.session.tree.map((node) => node.name)).toContain('flow.mmd')
+    })
+
     it('refuses a folder name that is already taken', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)
