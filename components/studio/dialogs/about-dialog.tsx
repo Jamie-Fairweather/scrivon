@@ -2,13 +2,31 @@
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
-import { APP_AFFILIATION, APP_NAME, APP_TAGLINE } from '@/lib/app-branding'
+import { APP_AFFILIATION, APP_COPYRIGHT, APP_NAME, APP_REPO_URL, APP_TAGLINE } from '@/lib/app-branding'
 import { APP_VERSION } from '@/lib/legal/third-party-licenses'
+import { notifyError, notifySuccess } from '@/lib/notify'
 
 type AboutDialogProps = {
     open: boolean
     onOpenChange: (open: boolean) => void
     onOpenLicenses: () => void
+}
+
+const linkClassName = 'text-foreground underline-offset-4 hover:underline'
+
+/** App name, version and platform, for pasting into bug reports. */
+function versionInfo(): string {
+    const platform = typeof navigator === 'undefined' ? '' : navigator.userAgent
+    return [`${APP_NAME} ${APP_VERSION}`, platform].filter(Boolean).join('\n')
+}
+
+async function copyVersionInfo() {
+    try {
+        await navigator.clipboard.writeText(versionInfo())
+        notifySuccess('Version info copied')
+    } catch (error) {
+        notifyError("Couldn't copy version info", error)
+    }
 }
 
 export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogProps) {
@@ -23,21 +41,26 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogP
                     </DialogDescription>
                 </DialogHeader>
                 <DialogPanel className="space-y-3 pt-0">
-                    <p className="text-sm text-muted-foreground">{APP_AFFILIATION}</p>
                     <p className="text-sm text-muted-foreground">
-                        Edit Mermaid diagrams in a folder workspace with live preview. Diagram rendering uses{' '}
-                        <a
-                            href="https://github.com/lukilabs/beautiful-mermaid"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-foreground underline-offset-4 hover:underline"
-                        >
+                        Edit Mermaid diagrams and Markdown documents in a folder workspace with live preview. Save diagrams as SVG or PNG, and
+                        documents as PDF or Word. Diagram rendering uses{' '}
+                        <a href="https://github.com/lukilabs/beautiful-mermaid" target="_blank" rel="noopener noreferrer" className={linkClassName}>
                             beautiful-mermaid
                         </a>
                         .
                     </p>
+                    <p className="text-sm text-muted-foreground">{APP_AFFILIATION}</p>
+                    <p className="text-sm">
+                        <a href={APP_REPO_URL} target="_blank" rel="noopener noreferrer" className={linkClassName}>
+                            Source code on GitHub
+                        </a>
+                    </p>
+                    <p className="text-xs text-muted-foreground/80">{APP_COPYRIGHT}</p>
                 </DialogPanel>
                 <DialogFooter variant="bare">
+                    <Button type="button" variant="ghost" onClick={() => void copyVersionInfo()}>
+                        Copy version info
+                    </Button>
                     <Button
                         type="button"
                         variant="outline"

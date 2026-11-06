@@ -84,7 +84,7 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                                             </ScrollArea>
                                         ) : (
                                             <p className="text-sm text-muted-foreground">
-                                                License: {pkg.license}. Full license text was not bundled with this package metadata.
+                                                Licence: {pkg.license}. Full licence text was not bundled with this package metadata.
                                             </p>
                                         )}
                                     </AccordionPanel>
