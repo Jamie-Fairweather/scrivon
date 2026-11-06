@@ -20,3 +20,8 @@ declare module 'monaco-editor/esm/vs/editor/common/languages/supports/tokenizati
         _match(token: string): { readonly metadata: number }
     }
 }
+
+// Monaco's URI parser, used by lib/monaco/model-keys.test.ts to read model keys the way the editor does.
+declare module 'monaco-editor/esm/vs/base/common/uri.js' {
+    export { Uri as URI } from 'monaco-editor'
+}
