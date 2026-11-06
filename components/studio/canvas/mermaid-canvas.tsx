@@ -99,7 +99,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
-    const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, viewKey)
+    const { svgForDisplay, dimensions, error, isPending, isEmpty } = useMermaidSvg(source, viewKey)
 
     useEffect(() => {
         pruneSvgCache(openTabIds)
@@ -124,7 +124,11 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     useCanvasFitOnRequest(canvasFitRequestId, dimensions, fitToView, lastHandledFitRequestRef)
     useCanvasFitOnFirstView(dimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
-    const emptyMessage = !viewKey ? 'Open a file to preview its diagram.' : 'Add Mermaid syntax to preview a diagram.'
+    const emptyMessage = !viewKey
+        ? 'Open a file to preview its diagram.'
+        : isEmpty
+          ? 'Nothing to draw yet. Add some nodes to see the diagram.'
+          : 'Add Mermaid syntax to preview a diagram.'
     const showDiagram = hasSource && Boolean(svgForDisplay)
     const showEmpty = !error && !showDiagram && !isPending
     const showLoading = !error && !showDiagram && isPending

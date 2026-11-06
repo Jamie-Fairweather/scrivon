@@ -23,6 +23,7 @@ function mockHook(result: Partial<ReturnType<typeof useMermaidSvg>>) {
         error: null,
         isStale: false,
         isPending: false,
+        isEmpty: false,
         ...result,
     })
 }
@@ -86,15 +87,19 @@ describe('MermaidCanvas', () => {
     it('says the diagram is rendering instead of showing a blank canvas (U38)', () => {
         mockHook({ isPending: true })
 
-        render(
-            <MermaidCanvas
-                source="graph TD
-  A --> B"
-            />
-        )
+        render(<MermaidCanvas source={'graph TD\n  A --> B'} />)
 
         expect(screen.getByRole('status')).toHaveTextContent('Rendering diagram…')
         expect(screen.queryByText('Add Mermaid syntax to preview a diagram.')).toBeNull()
+    })
+
+    it('says when the diagram has nothing to draw yet (U39)', () => {
+        mockHook({ isEmpty: true })
+
+        render(<MermaidCanvas source="graph TD" />)
+
+        expect(screen.getByText('Nothing to draw yet. Add some nodes to see the diagram.')).toBeInTheDocument()
+        expect(screen.queryByTitle('Diagram preview')).toBeNull()
     })
 
     it('exposes the diagram as one named image and keeps its frames out of the Tab order (A27)', () => {

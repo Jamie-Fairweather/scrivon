@@ -94,8 +94,13 @@ export function buildExportSvg(source: string, themeId: AppThemeId): string {
     if (!trimmed) {
         throw new Error('Nothing to export.')
     }
+    const svg = renderMermaidDiagramForExport(trimmed, themeId)
+    // Text with nothing to draw yet (just `graph TD`, say) renders a 0×0 picture: don't save an empty file.
+    if (!getSvgDimensions(svg)) {
+        throw new Error('The diagram is empty, so there is nothing to export.')
+    }
     // Standalone .svg/.png files are opened outside the browser, so bake every colour in.
-    return flattenSvgForExport(renderMermaidDiagramForExport(trimmed, themeId))
+    return flattenSvgForExport(svg)
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string): void {

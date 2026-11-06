@@ -4,7 +4,10 @@
  * undo and redo still hit, and only the most recently rendered documents are kept.
  */
 
-type CachedRender = { themeId: string; source: string; svg: string }
+import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
+
+/** `drawable` is false for a render with nothing in it (a 0×0 picture, e.g. just `graph TD`). */
+type CachedRender = { themeId: string; source: string; svg: string; drawable: boolean }
 type CachedFailure = { themeId: string; source: string; message: string }
 
 const RENDERS_PER_DOCUMENT = 3
@@ -31,11 +34,13 @@ export function readCachedSvg(themeId: string, documentKey: string, trimmedSourc
 /**
  * The newest render of a document, whatever its source was, in this theme if there is one. Right
  * after a theme change there isn't, so the old-theme picture stays up until the new one is ready.
+ * Null when that render had nothing to draw, so a typo after an empty diagram doesn't bring back
+ * an older picture.
  */
 export function readLatestSvg(themeId: string, documentKey: string): string | null {
     const list = renders.get(documentKey)
-    if (!list?.length) return null
-    return (list.find((render) => render.themeId === themeId) ?? list[0]).svg
+    const latest = list?.find((render) => render.themeId === themeId) ?? list?.[0]
+    return latest?.drawable ? latest.svg : null
 }
 
 /** Whether the document already rendered, or failed to, in this theme: it is being edited, not shown for the first time. */
@@ -45,7 +50,8 @@ export function hasRenderedInTheme(themeId: string, documentKey: string): boolea
 
 export function storeSvg(themeId: string, documentKey: string, trimmedSource: string, svg: string): void {
     const older = (renders.get(documentKey) ?? []).filter((render) => render.themeId !== themeId || render.source !== trimmedSource)
-    setRecent(renders, documentKey, [{ themeId, source: trimmedSource, svg }, ...older].slice(0, RENDERS_PER_DOCUMENT))
+    const drawable = getSvgDimensions(svg) !== null
+    setRecent(renders, documentKey, [{ themeId, source: trimmedSource, svg, drawable }, ...older].slice(0, RENDERS_PER_DOCUMENT))
 }
 
 export function readRenderError(themeId: string, documentKey: string, trimmedSource: string): string | null {

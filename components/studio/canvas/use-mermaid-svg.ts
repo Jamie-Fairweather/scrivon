@@ -108,17 +108,20 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
     const displayIsCurrent = display?.documentKey === documentKey && display.themeId === themeId && display.trimmedSource === trimmedSource
     const currentSvg =
         canRender && documentKey ? (readCachedSvg(themeId, documentKey, trimmedSource) ?? (displayIsCurrent ? display.svg : null)) : null
+    // Text with nothing to draw yet (just `graph TD`, say) renders a 0×0 picture. Say so, rather than
+    // show a blank canvas or the old diagram.
+    const isEmpty = Boolean(currentSvg && !getSvgDimensions(currentSvg))
     const hasRenderError = Boolean(
         error && documentKey && !currentSvg && error.documentKey === documentKey && error.themeId === themeId && error.trimmedSource === trimmedSource
     )
     // While the current text is still rendering or doesn't parse, keep showing the newest diagram that
     // worked. Right after a theme change that is the old-theme picture, so the canvas never goes blank.
-    const svgForDisplay = currentSvg ?? (canRender && documentKey ? readLatestSvg(themeId, documentKey) : null)
+    const svgForDisplay = isEmpty ? null : (currentSvg ?? (canRender && documentKey ? readLatestSvg(themeId, documentKey) : null))
     const errorMessage = hasRenderError && error ? error.message : null
     /** True when svgForDisplay is an older render, not the current text. */
     const isStale = Boolean(svgForDisplay) && !currentSvg
     const dimensions = svgForDisplay ? getSvgDimensions(svgForDisplay) : null
-    const isPending = canRender && !hasRenderError && !svgForDisplay
+    const isPending = canRender && !hasRenderError && !isEmpty && !svgForDisplay
 
-    return { svgForDisplay, dimensions, error: errorMessage, isStale, isPending }
+    return { svgForDisplay, dimensions, error: errorMessage, isStale, isPending, isEmpty }
 }

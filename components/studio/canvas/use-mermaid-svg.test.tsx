@@ -146,6 +146,24 @@ describe('useMermaidSvg', () => {
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
     })
 
+    it('says a diagram with nothing to draw is empty instead of showing a blank or older picture (U39)', async () => {
+        const { result, rerender } = renderHook(({ source }) => useMermaidSvg(source, 'a.mmd'), { initialProps: { source: V1 } })
+        await waitForRender()
+
+        rerender({ source: 'graph TD' })
+        await waitForRender()
+        expect(result.current).toMatchObject({ svgForDisplay: null, dimensions: null, error: null, isPending: false, isEmpty: true })
+
+        rerender({ source: BROKEN })
+        await waitForRender()
+        expect(result.current).toMatchObject({ svgForDisplay: null, isEmpty: false })
+        expect(result.current.error).toMatch(/\S/)
+
+        rerender({ source: V2 })
+        await waitForRender()
+        expect(result.current).toMatchObject({ svgForDisplay: expectedSvg(V2), isEmpty: false })
+    })
+
     it('shows the error straight away for a document that never rendered', async () => {
         const { result } = renderHook(() => useMermaidSvg(BROKEN, 'b.mmd'))
         await waitForRender()

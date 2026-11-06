@@ -26,6 +26,7 @@ vi.mock('@/lib/mermaid/render', async (importOriginal) => {
 })
 
 import {
+    buildExportSvg,
     diagramFileStem,
     exportBaseName,
     exportPng,
@@ -118,6 +119,19 @@ describe('exportSvg', () => {
         await exportSvg('graph TD\n  A --> B', 'scrivon-light', { tabName: 'CI/CD Pipeline.mmd', tabPath: 'example:ci-cd' })
 
         expect(dialog.pickSavePath).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: 'CI-CD Pipeline.svg' }))
+    })
+})
+
+describe('empty diagrams (U39)', () => {
+    it('refuses to build an SVG for a diagram with nothing to draw', () => {
+        expect(() => buildExportSvg('graph TD', 'scrivon-light')).toThrow('The diagram is empty, so there is nothing to export.')
+    })
+
+    it('says so instead of saving an empty file', async () => {
+        await exportSvg('sequenceDiagram\n  Alice', 'scrivon-light', { tabName: 'flow.mmd' })
+
+        expect(dialog.pickSavePath).not.toHaveBeenCalled()
+        expect(notify.notifyError).toHaveBeenCalledWith('Export failed', new Error('The diagram is empty, so there is nothing to export.'))
     })
 })
 
