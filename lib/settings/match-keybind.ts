@@ -4,6 +4,7 @@ import {
     hasCommandModifier,
     isComposingKeyEvent,
     isFunctionKey,
+    isModifierKey,
     isUnnamedKey,
     physicalKeyFallback,
     typesAltGraphCharacter,
@@ -52,7 +53,8 @@ function shouldSkipForTarget(actionId: KeybindActionId, target: EventTarget | nu
 }
 
 export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: { hasWorkspace?: boolean } = {}): KeybindActionId | null {
-    if (event.repeat) return null
+    // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
+    if (event.repeat || isModifierKey(event.key)) return null
     // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
     if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return null
 

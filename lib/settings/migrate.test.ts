@@ -144,6 +144,21 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
+    it('keeps the default when a stored chord is AltGr or a lock key on its own', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.toggleExplorer': [{ key: 'AltGraph', ctrl: true, alt: true }],
+                    'view.toggleEditor': [{ key: 'CapsLock', ctrl: true }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
     it('keeps the default when a stored chord is an IME or dead key', () => {
         const merged = mergeStoredSettings(
             {

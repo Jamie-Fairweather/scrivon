@@ -140,6 +140,16 @@ describe('matchKeybind', () => {
             expect(matchKeybind(event, withCtrlAlt, { hasWorkspace: true })).toBe('view.toggleExplorer')
         })
 
+        it('never fires on AltGr or a lock key on its own', () => {
+            const withJunk = {
+                ...bindings,
+                'view.toggleExplorer': [{ key: 'AltGraph', ctrl: true, alt: true }],
+                'view.toggleEditor': [{ key: 'CapsLock' }],
+            }
+            expect(matchKeybind(keyEvent('AltGraph', { ctrl: true, alt: true, altGraph: true }), withJunk, { hasWorkspace: true })).toBeNull()
+            expect(matchKeybind(keyEvent('CapsLock'), withJunk, { hasWorkspace: true })).toBeNull()
+        })
+
         it('ignores key presses that are part of IME input', () => {
             expect(matchKeybind(keyEvent('s', { ctrl: true, isComposing: true }), bindings)).toBeNull()
             expect(matchKeybind(keyEvent('s', { ctrl: true, keyCode: 229 }), bindings)).toBeNull()

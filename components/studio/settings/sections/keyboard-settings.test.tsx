@@ -115,6 +115,22 @@ describe('KeyboardSettings recording', () => {
         expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
     })
 
+    it('waits through AltGr and lock keys for the real key', () => {
+        renderKeyboardSettings()
+        const editor = row('Toggle editor')
+
+        fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
+        // Windows sends AltGr as its own key press, with Ctrl and Alt held.
+        press('AltGraph', { ctrlKey: true, altKey: true, code: 'AltRight', altGraph: true })
+        for (const key of ['CapsLock', 'NumLock', 'ScrollLock', 'OS']) press(key)
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(screen.getByText('Press shortcut…')).toBeInTheDocument()
+
+        press('t', { ctrlKey: true, altKey: true, code: 'KeyT' })
+        expect(within(editor).getByText('Ctrl+Alt+T')).toBeInTheDocument()
+    })
+
     it('ignores IME keystrokes and refuses a dead key while recording', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')

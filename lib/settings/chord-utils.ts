@@ -26,9 +26,28 @@ export function chordListsEqual(a: readonly KeybindChord[], b: readonly KeybindC
     return a.length === b.length && a.every((chord, index) => chordsEqual(chord, b[index]))
 }
 
-/** Shift, Ctrl, Alt and Cmd on their own are not a shortcut. */
+/** Modifier and lock keys. AltGr, for one, arrives as its own key press before the key it changes. */
+const MODIFIER_KEYS = new Set([
+    'Shift',
+    'Control',
+    'Alt',
+    'Meta',
+    'AltGraph',
+    'CapsLock',
+    'NumLock',
+    'ScrollLock',
+    'Fn',
+    'FnLock',
+    'Hyper',
+    'Super',
+    'Symbol',
+    'SymbolLock',
+    'OS',
+])
+
+/** Shift, Ctrl, Alt, Cmd, AltGr and the lock keys on their own are not a shortcut. */
 export function isModifierKey(key: string): boolean {
-    return key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta'
+    return MODIFIER_KEYS.has(key)
 }
 
 export function normalizeChord(chord: KeybindChord): KeybindChord {
