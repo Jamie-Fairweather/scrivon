@@ -33,6 +33,26 @@ type CodeComponentProps = ComponentProps<'code'> & {
     node?: Element
 }
 
+/** The fence's language, from react-markdown's `language-*` class, in lower case. */
+function codeLanguage(className: string | undefined): string | undefined {
+    return /language-([^\s]+)/i.exec(className ?? '')?.[1]?.toLowerCase()
+}
+
+/**
+ * A `<pre>`'s code element when it's empty, which only an empty fenced block is. With no text, the code override
+ * can't tell it from inline code.
+ */
+function emptyFencedCode(pre: Element | undefined): Element | null {
+    const code = pre?.children[0]
+    if (code?.type !== 'element' || code.tagName !== 'code') return null
+    return code.children.every((child) => child.type === 'text' && child.value === '') ? code : null
+}
+
+function hastClassName(element: Element): string | undefined {
+    const value = element.properties.className
+    return Array.isArray(value) ? value.join(' ') : typeof value === 'string' ? value : undefined
+}
+
 function extractText(children: ReactNode): string {
     if (typeof children === 'string') return children
     if (Array.isArray(children)) return children.map(extractText).join('')
@@ -124,6 +144,14 @@ const staticMarkdownComponents: Components = {
         const { className, ...rest } = withoutNode(props)
         return <h4 {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
     },
+    h5: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <h5 {...rest} className={cn('mt-3 mb-2 text-sm font-semibold text-foreground', className)} />
+    },
+    h6: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <h6 {...rest} className={cn('mt-3 mb-2 text-xs font-semibold text-muted-foreground', className)} />
+    },
     p: (props) => {
         const { className, ...rest } = withoutNode(props)
         return <p {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
@@ -165,7 +193,20 @@ const staticMarkdownComponents: Components = {
             {children}
         </td>
     ),
-    pre: ({ children }) => <>{children}</>,
+    pre: ({ children, node }) => {
+        // An empty fenced block would otherwise pass for empty inline code and vanish; show it as an empty block, as
+        // export does. (An empty Mermaid block already shows as one.)
+        const emptyCode = emptyFencedCode(node)
+        if (emptyCode) {
+            const lang = codeLanguage(hastClassName(emptyCode))
+            if (lang !== 'mermaid') {
+                // Counted like any block, so later blocks keep their ids when this one gets text.
+                nextFencedCodeBlockOrdinal()
+                return <FencedCodeBlock code="" language={lang} />
+            }
+        }
+        return <>{children}</>
+    },
 }
 
 /**
@@ -201,13 +242,21 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 const { src, alt, ...rest } = withoutNode(props)
                 const remote = typeof src === 'string' && REMOTE_IMAGE_URL.test(src)
                 if (remote && !loadRemoteImages) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onRemoteImageBlocked} />
-                // eslint-disable-next-line @next/next/no-img-element -- a document's own images, in a static export
-                return <img {...rest} src={src} alt={alt} referrerPolicy={remote ? 'no-referrer' : undefined} />
+                // Inline, so a row of badges stays on one line, and never wider than the page.
+                return (
+                    // eslint-disable-next-line @next/next/no-img-element -- a document's own images, in a static export
+                    <img
+                        {...rest}
+                        src={src}
+                        alt={alt}
+                        referrerPolicy={remote ? 'no-referrer' : undefined}
+                        className={cn('inline-block h-auto max-w-full align-middle', rest.className)}
+                    />
+                )
             },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children } = props
-                const match = /language-([^\s]+)/i.exec(codeClassName ?? '')
-                const lang = match?.[1]?.toLowerCase()
+                const lang = codeLanguage(codeClassName)
                 const text = extractText(children)
                 const isBlock = lang === 'mermaid' || text.includes('\n')
 
@@ -240,7 +289,8 @@ export const MarkdownPreview = memo(function MarkdownPreview({
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
-            <article className="w-full max-w-3xl min-w-0">
+            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
+            <article className="w-full max-w-3xl min-w-0 break-words">
                 <ReactMarkdown remarkPlugins={remarkPlugins} components={components} urlTransform={markdownUrlTransform}>
                     {body}
                 </ReactMarkdown>

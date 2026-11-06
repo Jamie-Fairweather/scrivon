@@ -6,6 +6,16 @@ vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
     useMermaidSvg: () => ({ svgForDisplay: null, dimensions: null, error: null, isPending: false }),
 }))
 
+vi.mock('@/components/theme/app-theme-provider', () => ({
+    useAppTheme: () => ({ themeId: 'scrivon-dark', isLight: false }),
+}))
+
+vi.mock('@/lib/markdown/shiki-highlighter', () => ({
+    previewCodeTheme: () => 'github-dark',
+    highlightFencedCodeNow: () => null,
+    highlightFencedCode: () => new Promise<string>(() => {}),
+}))
+
 /** How many times react-markdown has parsed and rendered a document. */
 const markdownParses = vi.hoisted(() => ({ count: 0 }))
 
@@ -70,6 +80,26 @@ describe('MarkdownPreview', () => {
             expect(label).toHaveClass('sr-only')
             expect(container.querySelector('li#user-content-fn-1')).not.toBeNull()
             expect(container.querySelector('a[data-footnote-backref]')).toHaveAttribute('aria-label', 'Back to reference 1')
+        })
+    })
+
+    describe('empty fenced blocks', () => {
+        it.each([
+            ['with a language', '```js\n```'],
+            ['without a language', '```\n```'],
+        ])('shows one %s as an empty code block, as export does', (_, source) => {
+            const { container } = preview(`Before\n\n${source}\n\nAfter`)
+            const code = container.querySelector('[data-mode] pre > code')
+            expect(code).not.toBeNull()
+            expect(code?.textContent).toBe('')
+            expect(container.querySelector('p code')).toBeNull()
+        })
+
+        it('still shows an empty Mermaid block as a diagram block, and inline code inline', () => {
+            const { container } = preview('```mermaid\n```\n\nSay `hi`.')
+            expect(container).toHaveTextContent('Empty Mermaid block')
+            expect(container.querySelector('[data-mode]')).toBeNull()
+            expect(container.querySelector('p code')).toHaveTextContent('hi')
         })
     })
 
