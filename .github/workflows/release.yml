@@ -48,6 +48,13 @@ jobs:
             - name: Setup Bun and dependencies
               uses: ./.github/actions/setup-bun
 
+            # semantic-release 25 runs on Node (its bin has a node shebang) and exits at once on
+            # anything older than 22.14, so don't rely on whichever Node the runner image ships.
+            - name: Setup Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version: 24
+
             # Runs the semantic-release version locked in bun.lock (no install at run time).
             # On a release, the exec plugin's successCmd writes new_release_published and
             # new_release_version to this step's outputs (scripts/write-release-outputs.mjs).
