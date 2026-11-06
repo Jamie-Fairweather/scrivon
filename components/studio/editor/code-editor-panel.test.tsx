@@ -151,8 +151,13 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
-vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ isLight: true, tokens: {} }) }))
-vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme: () => {} }))
+type ThemeState = { isLight: boolean; tokens: Record<string, string> }
+const LIGHT_THEME: ThemeState = { isLight: true, tokens: { name: 'light' } }
+let theme = LIGHT_THEME
+const defineMonacoDiagramTheme = vi.fn()
+
+vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => theme }))
+vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({
         settings: { editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false } },
@@ -160,6 +165,7 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { default: monacoLoader } = await import('@monaco-editor/loader')
 
 function tab(path: string, content: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content, isDirty: false, isSaving: false }
@@ -184,6 +190,8 @@ beforeEach(() => {
     models.clear()
     editors.length = 0
     updateTabContent.mockReset()
+    defineMonacoDiagramTheme.mockClear()
+    theme = LIGHT_THEME
     tabsState = { tabs: [], activeTabId: null }
 })
 
@@ -421,5 +429,41 @@ describe('CodeEditorPanel resize handle from the keyboard', () => {
         fireEvent.keyDown(handle, { key: 'Enter' })
         fireEvent.doubleClick(handle)
         expect(onResetWidth).toHaveBeenCalledTimes(2)
+    })
+})
+
+describe('CodeEditorPanel theme', () => {
+    it('starts in the current theme when the theme changes while Monaco is still loading', async () => {
+        let finishLoading!: (monaco: unknown) => void
+        const loading = new Promise((resolve) => {
+            finishLoading = resolve
+        })
+        const init = vi.spyOn(monacoLoader, 'init').mockReturnValueOnce(Object.assign(loading, { cancel: () => {} }) as never)
+        try {
+            tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+            const view = render(<Panel />)
+            await waitFor(() => expect(init).toHaveBeenCalled())
+
+            const dark: ThemeState = { isLight: false, tokens: { name: 'dark' } }
+            theme = dark
+            view.rerender(<Panel />)
+            await act(async () => finishLoading(fakeMonaco))
+            await waitFor(() => expect(editors).toHaveLength(1))
+
+            expect(defineMonacoDiagramTheme).toHaveBeenLastCalledWith(fakeMonaco, dark.tokens, false)
+        } finally {
+            init.mockRestore()
+        }
+    })
+
+    it('follows theme changes once the editor is showing', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view } = await mountEditor()
+
+        const dark: ThemeState = { isLight: false, tokens: { name: 'dark' } }
+        theme = dark
+        view.rerender(<Panel />)
+
+        expect(defineMonacoDiagramTheme).toHaveBeenLastCalledWith(fakeMonaco, dark.tokens, false)
     })
 })

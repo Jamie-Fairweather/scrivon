@@ -263,13 +263,23 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         })
     }, [settings.editor])
 
-    const onMonacoBeforeMount = useCallback(
-        (monaco: Monaco) => {
-            monacoRef.current = monaco
-            defineMonacoDiagramTheme(monaco, tokens, isLight)
-        },
-        [tokens, isLight]
-    )
+    // @monaco-editor/react keeps the beforeMount and onMount it was first given, so they read the
+    // theme from here. If the theme changes while Monaco is still loading, the editor still
+    // starts in the current one.
+    const themeRef = useRef({ tokens, isLight })
+    useEffect(() => {
+        themeRef.current = { tokens, isLight }
+    }, [tokens, isLight])
+
+    const applyCurrentTheme = useCallback((monaco: Monaco) => {
+        defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
+        monaco.editor.setTheme(MONACO_DIAGRAM_THEME_ID)
+    }, [])
+
+    const onMonacoBeforeMount = useCallback((monaco: Monaco) => {
+        monacoRef.current = monaco
+        defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
+    }, [])
 
     /** Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. */
     const syncEditorWithActiveTab = useCallback(() => {
@@ -315,6 +325,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const onMonacoMount = useCallback(
         (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
             editorRef.current = editor
+            monacoRef.current = monaco
+            applyCurrentTheme(monaco)
             unbindEditorF1Command(editor, monaco)
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
@@ -331,15 +343,13 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 pendingRevealRef.current = null
             }
         },
-        [syncEditorWithActiveTab]
+        [syncEditorWithActiveTab, applyCurrentTheme]
     )
 
     useEffect(() => {
         const monaco = monacoRef.current
-        if (!monaco) return
-        defineMonacoDiagramTheme(monaco, tokens, isLight)
-        monaco.editor.setTheme(MONACO_DIAGRAM_THEME_ID)
-    }, [tokens, isLight])
+        if (monaco) applyCurrentTheme(monaco)
+    }, [tokens, isLight, applyCurrentTheme])
 
     return (
         <div
