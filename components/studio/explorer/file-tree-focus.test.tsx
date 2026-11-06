@@ -98,6 +98,21 @@ describe('FileTree focus', () => {
         expect(screen.getByLabelText('Name')).toHaveFocus()
     })
 
+    it("keeps focus in the delete confirmation opened from a row's '...' menu, then returns it to the row on cancel", async () => {
+        renderTree()
+
+        fireEvent.click(screen.getByLabelText('Actions for b.md'))
+        fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Delete' }))
+        await settle()
+        const confirm = screen.getByRole('alertdialog')
+        expect(confirm).toContainElement(document.activeElement as HTMLElement)
+
+        fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }))
+        await settle()
+        expect(session.deleteEntry).not.toHaveBeenCalled()
+        expect(item('b.md')).toHaveFocus()
+    })
+
     it("puts focus back on the row when its '...' menu is closed with Escape", async () => {
         renderTree()
 
