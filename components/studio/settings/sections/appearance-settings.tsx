@@ -21,9 +21,9 @@ function ThemeGroup({ title, ids }: { title: string; ids: AppThemeId[] }) {
 
     return (
         <div role="group" aria-labelledby={headingId} className="space-y-2">
-            <h3 id={headingId} className="text-sm font-medium text-foreground">
+            <h4 id={headingId} className="text-sm font-medium text-foreground">
                 {title}
-            </h3>
+            </h4>
             <div className="grid gap-1">
                 {ids.map((id) => (
                     <RadioPrimitive.Root

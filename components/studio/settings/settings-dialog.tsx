@@ -1,5 +1,6 @@
 'use client'
 
+import { useId } from 'react'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -16,7 +17,7 @@ import { EditorSettings } from '@/components/studio/settings/sections/editor-set
 import { GeneralSettings } from '@/components/studio/settings/sections/general-settings'
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
-import { SettingsNav } from '@/components/studio/settings/settings-nav'
+import { getSettingsSectionLabel, SettingsNav } from '@/components/studio/settings/settings-nav'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -41,6 +42,8 @@ function SettingsSectionPanel({ section }: { section: SettingsSection }) {
 
 export function SettingsDialog() {
     const { settingsOpen, closeSettings, activeSection, setActiveSection, resetAllSettings } = useAppSettings()
+    const panelId = useId()
+    const titleId = useId()
 
     return (
         <Dialog open={settingsOpen} onOpenChange={(open) => !open && closeSettings()}>
@@ -52,8 +55,19 @@ export function SettingsDialog() {
                 </DialogHeader>
                 {/* data-slot keeps the header and footer spacing a DialogPanel gets. */}
                 <div data-slot="dialog-panel" className="flex min-h-0 flex-1 gap-4 px-6 py-1">
-                    <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} />
-                    <ScrollArea className="min-h-0 min-w-0 flex-1" scrollFade scrollbarGutter>
+                    <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} panelId={panelId} />
+                    {/* Keyed by section, so each one opens at the top. The scrolling element is a named region,
+                        so its tab stop says which section it holds. */}
+                    <ScrollArea
+                        key={activeSection}
+                        className="min-h-0 min-w-0 flex-1"
+                        scrollFade
+                        scrollbarGutter
+                        viewportProps={{ id: panelId, role: 'region', 'aria-labelledby': titleId }}
+                    >
+                        <h3 id={titleId} className="mb-4 text-base font-semibold">
+                            {getSettingsSectionLabel(activeSection)}
+                        </h3>
                         <SettingsSectionPanel section={activeSection} />
                     </ScrollArea>
                 </div>
