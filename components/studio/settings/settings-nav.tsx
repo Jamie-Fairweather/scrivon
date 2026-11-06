@@ -19,7 +19,7 @@ type SettingsNavProps = {
 
 export function SettingsNav({ activeSection, onSectionChange }: SettingsNavProps) {
     return (
-        <nav aria-label="Settings sections" className="flex w-40 shrink-0 flex-col gap-0.5 border-r border-border pr-3">
+        <nav aria-label="Settings sections" className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border pr-3">
             {SECTIONS.map((section) => (
                 <button
                     key={section.id}

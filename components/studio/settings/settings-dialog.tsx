@@ -19,7 +19,7 @@ import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-exp
 import { SettingsNav } from '@/components/studio/settings/settings-nav'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 function SettingsSectionPanel({ section }: { section: SettingsSection }) {
@@ -44,18 +44,19 @@ export function SettingsDialog() {
 
     return (
         <Dialog open={settingsOpen} onOpenChange={(open) => !open && closeSettings()}>
-            <DialogPopup className="max-w-3xl">
+            {/* The popup takes the height (2rem is the viewport's padding) and only the section content
+                scrolls, so the header and footer always fit and no scroll area sits inside another. */}
+            <DialogPopup className="h-[min(48rem,calc(100dvh-2rem))] max-w-3xl" bottomStickOnMobile={false}>
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
                 </DialogHeader>
-                <DialogPanel className="pt-0" scrollFade={false}>
-                    <div className="flex h-[min(40rem,calc(100dvh-8rem))] min-h-0 gap-4">
-                        <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} />
-                        <ScrollArea className="min-h-0 min-w-0 flex-1" scrollFade scrollbarGutter>
-                            <SettingsSectionPanel section={activeSection} />
-                        </ScrollArea>
-                    </div>
-                </DialogPanel>
+                {/* data-slot keeps the header and footer spacing a DialogPanel gets. */}
+                <div data-slot="dialog-panel" className="flex min-h-0 flex-1 gap-4 px-6 py-1">
+                    <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} />
+                    <ScrollArea className="min-h-0 min-w-0 flex-1" scrollFade scrollbarGutter>
+                        <SettingsSectionPanel section={activeSection} />
+                    </ScrollArea>
+                </div>
                 <DialogFooter variant="bare" className="items-center justify-between">
                     <AlertDialog>
                         <AlertDialogTrigger render={<Button type="button" variant="outline" />}>Restore defaults</AlertDialogTrigger>
