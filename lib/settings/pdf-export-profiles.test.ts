@@ -117,6 +117,25 @@ describe('normalizePdfExportSettings', () => {
         })
     })
 
+    it('gives repeated profile ids new ones so each profile can be changed on its own', () => {
+        const normalized = normalizePdfExportSettings({
+            profiles: [
+                { id: 'a', name: 'First' },
+                { id: 'a', name: 'Second' },
+                { id: 'a-1', name: 'Third' },
+            ],
+            activeProfileId: 'a',
+        })
+        const ids = normalized.profiles.map((profile) => profile.id)
+        expect(ids[0]).toBe('a')
+        expect(new Set(ids).size).toBe(3)
+        expect(normalized.activeProfileId).toBe('a')
+
+        const afterDelete = deletePdfExportProfile(normalized, 'a')
+        expect(afterDelete.profiles.map((profile) => profile.name)).toEqual(['Second', 'Third'])
+        expect(afterDelete.activeProfileId).toBe(ids[1])
+    })
+
     it('falls back to defaults when profiles array is empty', () => {
         const normalized = normalizePdfExportSettings({ profiles: [], activeProfileId: 'x' })
         expect(normalized).toEqual(createDefaultPdfExportSettings())
@@ -208,6 +227,12 @@ describe('pdf export profile CRUD', () => {
         expect(uniqueProfileName([], 'Report')).toBe('Report')
         expect(uniqueProfileName([{ name: 'Report' }], 'Report')).toBe('Report 2')
         expect(uniqueProfileName([{ name: 'Report' }, { name: 'report 2' }], 'Report')).toBe('Report 3')
+    })
+
+    it('never deletes the last profiles, even when they share an id', () => {
+        const profile = createDefaultPdfExportProfile({ id: 'a' })
+        const settings = { profiles: [profile, { ...profile, name: 'Twin' }], activeProfileId: 'a' }
+        expect(deletePdfExportProfile(settings, 'a')).toBe(settings)
     })
 
     it('falls back when the active profile id is missing', () => {

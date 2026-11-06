@@ -84,7 +84,8 @@ export function updatePdfExportProfile(
 export function deletePdfExportProfile(settings: PdfExportSettings, profileId: string): PdfExportSettings {
     if (settings.profiles.length <= 1) return settings
     const profiles = settings.profiles.filter((profile) => profile.id !== profileId)
-    if (profiles.length === settings.profiles.length) return settings
+    // Unchanged when nothing matched, or when every profile matched (repeated ids): one must stay.
+    if (profiles.length === settings.profiles.length || profiles.length === 0) return settings
     const activeProfileId = settings.activeProfileId === profileId ? profiles[0]!.id : settings.activeProfileId
     return { profiles, activeProfileId }
 }

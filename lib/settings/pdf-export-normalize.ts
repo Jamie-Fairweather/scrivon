@@ -167,14 +167,22 @@ export function normalizePdfExportSettings(raw: unknown): PdfExportSettings {
     if (!source) return defaults
 
     const profilesRaw = Array.isArray(source.profiles) ? source.profiles : null
-    const profiles =
+    const normalized =
         profilesRaw && profilesRaw.length > 0
             ? profilesRaw.map((profile, index) =>
                   normalizePdfExportProfile(profile, createDefaultPdfExportProfile({ id: `profile-${index}`, name: `Profile ${index + 1}` }))
               )
             : defaults.profiles
 
-    const ids = new Set(profiles.map((profile) => profile.id))
+    // Rename, update and delete find profiles by id, so a repeated id (hand-edited or damaged
+    // storage) would hit several at once. Later copies get a new id; the first keeps it.
+    const ids = new Set<string>()
+    const profiles = normalized.map((profile, index) => {
+        let id = profile.id
+        for (let n = index; ids.has(id); n++) id = `${profile.id}-${n}`
+        ids.add(id)
+        return id === profile.id ? profile : { ...profile, id }
+    })
     const activeProfileId = typeof source.activeProfileId === 'string' && ids.has(source.activeProfileId) ? source.activeProfileId : profiles[0]!.id
 
     return { profiles, activeProfileId }
