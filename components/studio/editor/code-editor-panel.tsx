@@ -33,12 +33,26 @@ const MonacoEditor = dynamic(
     { ssr: false, loading: () => <EditorLoading /> }
 )
 
+/** Used after the app's own monospace font, and instead of it if it can't be read. */
+const FALLBACK_MONO_FONTS = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+
+/**
+ * The app's monospace font (Geist Mono, from next/font as --font-mono), so code looks the same in
+ * the editor and the preview. Monaco sets its font inline and measures it on a canvas, so it needs
+ * the real font names rather than var(--font-mono).
+ */
+function editorFontFamily(): string {
+    if (typeof document === 'undefined') return FALLBACK_MONO_FONTS
+    const appMono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim()
+    return appMono && !appMono.includes('var(') ? `${appMono}, ${FALLBACK_MONO_FONTS}` : FALLBACK_MONO_FONTS
+}
+
 const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
     hideCursorInOverviewRuler: true,
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    fontFamily: FALLBACK_MONO_FONTS,
     wordWrap: 'on',
     automaticLayout: true,
     padding: { top: 12 },
@@ -238,9 +252,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         () => editorAriaLabel(activeName !== undefined ? { name: activeName, readOnly: isReadOnly } : null, isMacPlatform()),
         [activeName, isReadOnly]
     )
+    const [fontFamily] = useState(editorFontFamily)
     const editorOptions = useMemo(
         () => ({
             ...BASE_EDITOR_OPTIONS,
+            fontFamily,
             fontSize: settings.editor.fontSize,
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
@@ -251,7 +267,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             ariaLabel,
             unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
         }),
-        [settings.editor, isReadOnly, ariaLabel, isMermaid]
+        [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
     useEffect(() => {
@@ -329,6 +345,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             editorRef.current = editor
             monacoRef.current = monaco
             applyCurrentTheme(monaco)
+            // Monaco measures character widths once; measure again when the app font has loaded,
+            // or the cursor and selection drift away from the text.
+            document.fonts
+                ?.load(`16px ${fontFamily}`)
+                .then(() => monaco.editor.remeasureFonts())
+                .catch(() => {})
             unbindEditorF1Command(editor, monaco)
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
@@ -337,7 +359,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 pendingRevealRef.current = null
             }
         },
-        [syncEditorWithActiveTab, applyCurrentTheme]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily]
     )
 
     useEffect(() => {

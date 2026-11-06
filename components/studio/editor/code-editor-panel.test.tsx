@@ -117,6 +117,7 @@ const fakeMonaco = {
         setModelLanguage: () => {},
         onDidChangeMarkers: () => ({ dispose: () => {} }),
         registerLinkOpener: vi.fn(() => ({ dispose: () => {} })),
+        remeasureFonts: vi.fn(),
     },
 }
 
@@ -510,5 +511,32 @@ describe('CodeEditorPanel search hits', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
         expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+    })
+})
+
+describe('CodeEditorPanel font', () => {
+    it('uses the app monospace font, like the preview, and measures it again once it has loaded', async () => {
+        const load = vi.fn(async () => [])
+        Object.defineProperty(document, 'fonts', { configurable: true, value: { load } })
+        document.documentElement.style.setProperty('--font-mono', "'Geist Mono', 'Geist Mono Fallback'")
+        try {
+            tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+            const { editor } = await mountEditor()
+
+            expect(editor.options.fontFamily).toBe(
+                `'Geist Mono', 'Geist Mono Fallback', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace`
+            )
+            expect(load).toHaveBeenCalledWith(expect.stringContaining("'Geist Mono'"))
+            await waitFor(() => expect(fakeMonaco.editor.remeasureFonts).toHaveBeenCalled())
+        } finally {
+            document.documentElement.style.removeProperty('--font-mono')
+            Reflect.deleteProperty(document, 'fonts')
+        }
+    })
+
+    it('falls back to the system monospace fonts when the app font is not set', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options.fontFamily).toBe('ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace')
     })
 })
