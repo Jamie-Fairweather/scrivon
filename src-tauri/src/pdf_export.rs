@@ -424,7 +424,18 @@ fn check_output_writable(path: &str) -> Result<(), String> {
 
     let output = Path::new(path);
     let name = display_name(output);
-    match std::fs::OpenOptions::new().write(true).open(output) {
+    let mut probe = std::fs::OpenOptions::new();
+    probe.write(true);
+    // The finished PDF is renamed over the file, which also needs delete access,
+    // and fails if another program has it open without allowing that.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
+        const DELETE: u32 = 0x0001_0000;
+        probe.access_mode(GENERIC_WRITE | DELETE);
+    }
+    match probe.open(output) {
         Ok(_) => Ok(()),
         Err(err) if err.kind() == ErrorKind::NotFound => {
             if output.parent().is_some_and(Path::is_dir) {
@@ -721,6 +732,25 @@ mod tests {
         let message = result.unwrap_err();
         assert!(message.contains("is open in another program"), "{message}");
         assert!(message.contains("open-in-viewer.pdf"), "{message}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reports_a_pdf_whose_viewer_lets_others_write_but_not_replace_it() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let path = temp_file("shared-in-viewer.pdf", b"%PDF-1.7");
+        // Writing in place would work, but renaming the new PDF over it wouldn't.
+        let viewer = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2) // FILE_SHARE_READ | FILE_SHARE_WRITE
+            .open(&path)
+            .unwrap();
+        let result = check_output_writable(&path.to_string_lossy());
+        drop(viewer);
+        let _ = std::fs::remove_file(&path);
+        let message = result.unwrap_err();
+        assert!(message.contains("is open in another program"), "{message}");
     }
 
     fn print_options(format: &str) -> PdfPrintOptions {
