@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { APP_THEME_IDS } from './catalog'
+import { contrastRatio } from './color-mix'
 import { resolveThemeTokens, resolveThemeTokensForId } from './resolve-theme-tokens'
 
 describe('resolveThemeTokens', () => {
@@ -15,6 +17,8 @@ describe('resolveThemeTokens', () => {
             line: expect.any(String),
             textSecondary: expect.any(String),
             textFaint: expect.any(String),
+            mutedText: expect.any(String),
+            lineNumber: expect.any(String),
         })
     })
 
@@ -45,5 +49,28 @@ describe('resolveThemeTokensForId', () => {
 
         expect(tokens.bg).toBeTruthy()
         expect(tokens.fg).toBeTruthy()
+    })
+})
+
+describe('UI text contrast', () => {
+    it.each(APP_THEME_IDS)('%s: secondary text reaches 4.5:1 on the background and surfaces', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+
+        expect(contrastRatio(tokens.mutedText, tokens.bg)).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(tokens.mutedText, tokens.surface)).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it.each(APP_THEME_IDS)('%s: editor line numbers reach 3:1', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+
+        expect(contrastRatio(tokens.lineNumber, tokens.bg)).toBeGreaterThanOrEqual(3)
+        expect(contrastRatio(tokens.lineNumber, tokens.surface)).toBeGreaterThanOrEqual(3)
+    })
+
+    it('keeps the diagram muted colour separate from UI text', () => {
+        const tokens = resolveThemeTokensForId('tokyo-night')
+
+        expect(tokens.muted).toBe('#565f89')
+        expect(tokens.mutedText).not.toBe(tokens.muted)
     })
 })

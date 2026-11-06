@@ -228,7 +228,7 @@ export function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.P
 export function MenuShortcut({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
-            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground/72', className)}
+            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground', className)}
             data-slot="menu-shortcut"
             {...props}
         />

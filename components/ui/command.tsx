@@ -157,7 +157,7 @@ export function CommandSeparator({ className, ...props }: React.ComponentProps<t
 export function CommandShortcut({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
-            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground/72', className)}
+            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground', className)}
             data-slot="command-shortcut"
             {...props}
         />

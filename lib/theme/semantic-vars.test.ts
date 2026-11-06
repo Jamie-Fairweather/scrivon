@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { applySemanticVars, clearSemanticVars, SEMANTIC_VAR_NAMES, tokensToSemanticVars } from './semantic-vars'
-import type { ResolvedThemeTokens } from './resolve-theme-tokens'
+import { APP_THEME_IDS } from './catalog'
+import { contrastRatio } from './color-mix'
+import { resolveThemeTokensForId, type ResolvedThemeTokens } from './resolve-theme-tokens'
 
 const sampleTokens: ResolvedThemeTokens = {
     bg: '#111111',
@@ -12,6 +14,8 @@ const sampleTokens: ResolvedThemeTokens = {
     line: '#444444',
     textSecondary: '#999999',
     textFaint: '#666666',
+    mutedText: '#aaaaaa',
+    lineNumber: '#777777',
 }
 
 function createStyleRoot() {
@@ -37,6 +41,18 @@ describe('tokensToSemanticVars', () => {
         expect(vars['--background']).toBe('#111111')
         expect(vars['--foreground']).toBe('#eeeeee')
         expect(vars['--accent']).toBeTruthy()
+    })
+
+    it('uses the readable UI text colour for --muted-foreground, not the diagram muted colour', () => {
+        const vars = tokensToSemanticVars(sampleTokens)
+
+        expect(vars['--muted-foreground']).toBe('#aaaaaa')
+    })
+
+    it.each(APP_THEME_IDS)('%s: text on highlighted rows reaches 4.5:1', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--accent-foreground'], vars['--accent'])).toBeGreaterThanOrEqual(4.5)
     })
 })
 

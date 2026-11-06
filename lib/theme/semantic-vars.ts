@@ -1,4 +1,4 @@
-import { hexColorMix } from '@/lib/theme/color-mix'
+import { ensureContrast, hexColorMix } from '@/lib/theme/color-mix'
 import type { ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
 
 /** Shadcn semantic CSS variables applied inline on html. */
@@ -64,7 +64,12 @@ export const SEMANTIC_VAR_NAMES = [
     '--code-highlight',
 ] as const satisfies readonly (keyof SemanticThemeVars)[]
 
+/** Minimum contrast for text drawn on a highlighted row (WCAG AA, normal text). */
+const MIN_TEXT_CONTRAST = 4.5
+
 export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticThemeVars {
+    const accent = hexColorMix(tokens.accent, tokens.bg, 24)
+
     return {
         '--background': tokens.bg,
         '--foreground': tokens.fg,
@@ -77,9 +82,9 @@ export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticTheme
         '--secondary': tokens.surface,
         '--secondary-foreground': tokens.fg,
         '--muted': tokens.surface,
-        '--muted-foreground': tokens.muted,
-        '--accent': hexColorMix(tokens.accent, tokens.bg, 24),
-        '--accent-foreground': tokens.fg,
+        '--muted-foreground': tokens.mutedText,
+        '--accent': accent,
+        '--accent-foreground': ensureContrast(tokens.fg, tokens.fg, [accent], MIN_TEXT_CONTRAST),
         '--border': tokens.border,
         '--input': tokens.border,
         '--ring': tokens.accent,
