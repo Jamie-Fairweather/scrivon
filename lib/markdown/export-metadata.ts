@@ -187,6 +187,15 @@ export function fallbackPdfExportTitle(body: string, tabName: string | undefined
     return base || 'Document'
 }
 
+/** An override that is set wins even when empty, so clearing a field drops the front-matter value. */
+function overrideOr(override: string | undefined, matter: string | undefined): string {
+    return override !== undefined ? override.trim() : (matter?.trim() ?? '')
+}
+
+/**
+ * The export's title, subtitle, author and date: overrides (the export dialog's fields), then
+ * front matter. An empty title still falls back to the front matter, the first heading, then the tab.
+ */
 export function resolvePdfExportMetadata(
     source: string,
     tabName: string | undefined,
@@ -197,9 +206,9 @@ export function resolvePdfExportMetadata(
     return {
         metadata: {
             title,
-            subtitle: overrides.subtitle?.trim() || matter.subtitle?.trim() || '',
-            author: overrides.author?.trim() || matter.author?.trim() || '',
-            date: overrides.date?.trim() || matter.date?.trim() || '',
+            subtitle: overrideOr(overrides.subtitle, matter.subtitle),
+            author: overrideOr(overrides.author, matter.author),
+            date: overrideOr(overrides.date, matter.date),
         },
         body,
         lang,

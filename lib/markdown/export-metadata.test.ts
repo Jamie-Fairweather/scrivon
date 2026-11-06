@@ -210,4 +210,11 @@ author: FM Author
             body: '# Heading\n',
         })
     })
+
+    it('drops a front-matter value whose field was cleared, but never the title', () => {
+        const source = '---\ntitle: FM Title\nsubtitle: FM Sub\nauthor: Ada\ndate: 2024-03-05\n---\n# Heading\n'
+        const { metadata } = resolvePdfExportMetadata(source, 'tab.md', { title: '', subtitle: '', author: ' ', date: '' })
+        expect(metadata).toEqual({ title: 'FM Title', subtitle: '', author: '', date: '' })
+        expect(resolvePdfExportMetadata('# Heading', 'tab.md', { title: '  ' }).metadata.title).toBe('Heading')
+    })
 })
