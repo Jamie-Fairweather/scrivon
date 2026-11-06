@@ -1559,6 +1559,33 @@ describe('renderExportDocx', () => {
         expect(notifyWarning).not.toHaveBeenCalled()
     })
 
+    it('draws an SVG logo that runs to the paper edges for the page width, so it stays sharp', async () => {
+        const canvases = stubImageDecoding()
+        const svgLogo = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup('viewBox="0 0 120 40"'))}`
+        const { xml } = await render(
+            '# Alpha',
+            (draft) => {
+                draft.frontMatter.titlePage = true
+                draft.brand.logoIgnoreMargins = true
+            },
+            { logoDataUrl: svgLogo, header: { left: '', right: '' }, footer: { left: '', right: '' } }
+        )
+        // Stretched to the 793px page width, so it is drawn at twice that, not at twice its own 120px.
+        expect(drawingSize(xml, 'Logo')).toEqual({ width: 793, height: 264 })
+        expect(canvases).toContainEqual({ width: 1586, height: 529 })
+        // A logo inside the margins keeps its own size, drawn at 2x.
+        const inside = stubImageDecoding()
+        const small = await render(
+            '# Alpha',
+            (draft) => {
+                draft.frontMatter.titlePage = true
+            },
+            { logoDataUrl: svgLogo, header: { left: '', right: '' }, footer: { left: '', right: '' } }
+        )
+        expect(drawingSize(small.xml, 'Logo')).toEqual({ width: 120, height: 40 })
+        expect(inside).toEqual([{ width: 240, height: 80 }])
+    })
+
     it('says which Settings images were left out when they cannot be redrawn', async () => {
         const svgLogo = dataUrl('image/svg+xml', new TextEncoder().encode(svgMarkup('width="200" height="50"')))
         // No canvas here, so nothing can be redrawn.

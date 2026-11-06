@@ -434,19 +434,24 @@ function svgSize(markup: string): { width: number; height: number } | null {
     return { width: boxWidth, height: boxHeight }
 }
 
-/** Draws an image Word can't take (SVG, WebP…) as a PNG, the way the PDF's `<img>` shows it. Null where that fails. */
-async function redrawAsPng(dataUrl: string): Promise<DecodedImage | null> {
+const SVG_DATA_URL = /^data:image\/svg\+xml[;,]/i
+
+/**
+ * Draws an image Word can't take (SVG, WebP…) as a PNG, the way the PDF's `<img>` shows it. Null where that fails.
+ * `size` stays the image's own size; `shownWidth` is a wider size it will be stretched to, so vector art is drawn for that.
+ */
+async function redrawAsPng(dataUrl: string, shownWidth = 0): Promise<DecodedImage | null> {
     if (typeof document === 'undefined' || typeof globalThis.Image === 'undefined') return null
     const bytes = decodeDataUrl(dataUrl)
     if (!bytes || imageKind(bytes)) return null
     try {
         const img = await loadImage(dataUrl)
-        const svg = /^data:image\/svg\+xml[;,]/i.test(dataUrl)
+        const svg = SVG_DATA_URL.test(dataUrl)
         const natural = img.naturalWidth > 0 && img.naturalHeight > 0 ? { width: img.naturalWidth, height: img.naturalHeight } : null
         const size = (svg ? svgSize(new TextDecoder().decode(bytes)) : null) ?? natural
         if (!size) return null
-        // Vector art is drawn at 2x so it stays sharp; pictures keep their own pixels.
-        const scale = Math.min(svg ? 2 : 1, MAX_REDRAW_SIDE / Math.max(size.width, size.height))
+        // Vector art is drawn at 2x the size it is shown at, so it stays sharp; pictures keep their own pixels.
+        const scale = Math.min(svg ? (2 * Math.max(size.width, shownWidth)) / size.width : 1, MAX_REDRAW_SIDE / Math.max(size.width, size.height))
         const canvas = document.createElement('canvas')
         canvas.width = Math.max(1, Math.round(size.width * scale))
         canvas.height = Math.max(1, Math.round(size.height * scale))
@@ -1566,13 +1571,16 @@ async function cropCover(
 }
 
 async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx: number } | null> {
-    const { profile } = state.document
+    const { profile, assets } = state.document
     if (!state.logo) return null
-    const { bytes, kind, size: intrinsic } = state.logo
     const bleed = profile.brand.logoIgnoreMargins
     const inline = coverIsInline(state)
     // Stay a hair inside the sheet. Rounding millimetres up to pixels makes the image wider than the page, and Word then wraps it.
     const maxWidth = bleed ? Math.max(1, Math.floor(state.pageWidthTwip / 15)) : state.contentPx
+    // A logo that ignores margins is stretched to the page width, so an SVG one is drawn again for that width, not its own small size.
+    const logoUrl = assets.logoDataUrl.trim()
+    const stretched = bleed && SVG_DATA_URL.test(logoUrl) ? await redrawAsPng(logoUrl, maxWidth) : null
+    const { bytes, kind, size: intrinsic } = stretched ?? state.logo
     const maxHeight = mmToPx(LOGO_MAX_HEIGHT_MM)
     let width = maxWidth
     let height = maxHeight
