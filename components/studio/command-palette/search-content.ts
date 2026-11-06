@@ -1,7 +1,7 @@
 import { documentKind, getBaseName } from '@/lib/tauri/fs'
 import { foldLine, foldText, originalSpan } from '@/components/studio/command-palette/fold-text'
 import { relativePath } from '@/components/studio/command-palette/search-files'
-import type { TextSearchHit } from '@/components/studio/command-palette/types'
+import type { PaletteMode, TextSearchHit } from '@/components/studio/command-palette/types'
 
 export const MIN_QUERY_LENGTH = 2
 export const DEBOUNCE_MS = 250
@@ -11,6 +11,21 @@ export const MAX_HITS_PER_FILE = 10
 export const MAX_FILE_BYTES = 1_048_576
 export const READ_CONCURRENCY = 8
 export const PREVIEW_MAX_CHARS = 100
+/** One Chinese, Japanese or Korean character is often a whole word (図, 猫, 표). */
+const CJK_CHARACTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
+
+/**
+ * Whether a query is long enough to search file contents. Find in Workspace searches from the
+ * first character (the hit limits keep that cheap). Elsewhere it takes two characters, counted
+ * as characters rather than UTF-16 units, or a single Chinese, Japanese or Korean one.
+ */
+export function meetsTextQueryMinimum(query: string, mode: PaletteMode): boolean {
+    if (!query) return false
+    if (mode === 'text') return true
+    if (CJK_CHARACTER.test(query)) return true
+    return [...query].length >= MIN_QUERY_LENGTH
+}
+
 /** Upper bound on file text kept between searches, so a huge workspace can't fill memory. */
 export const MAX_CACHED_CHARS = 16_000_000
 

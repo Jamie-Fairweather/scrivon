@@ -129,6 +129,33 @@ describe('usePaletteSearch text search', () => {
     })
 })
 
+describe('usePaletteSearch one-character queries', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/a.md')]
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readTextFile).mockImplementation(async () => '図表の説明')
+    })
+
+    it('searches file contents for a single Japanese character', async () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('図'))
+        await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md']))
+    })
+
+    it('searches file contents for a single character in Find in Workspace', async () => {
+        vi.mocked(readTextFile).mockImplementation(async () => 'x marks the spot')
+        const { result } = renderHook(() => usePaletteSearch('text', true))
+
+        act(() => result.current.setQuery('x'))
+        await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md']))
+    })
+})
+
 describe('usePaletteSearch file cache', () => {
     beforeEach(() => {
         vi.clearAllMocks()

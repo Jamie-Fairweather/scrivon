@@ -13,7 +13,7 @@ import { searchActions } from '@/components/studio/command-palette/search-action
 import {
     createContentCache,
     DEBOUNCE_MS,
-    MIN_QUERY_LENGTH,
+    meetsTextQueryMinimum,
     searchWorkspaceContent,
     textHitToPaletteItem,
     type SearchWorkspaceContentResult,
@@ -87,7 +87,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
 
     const parsedQueryState = useMemo(() => parsePaletteQuery(query), [query])
     const shouldSearchText =
-        enabled && Boolean(workspaceRoot) && !parsedQueryState.actionsOnly && mode !== 'files' && parsedQueryState.query.length >= MIN_QUERY_LENGTH
+        enabled && Boolean(workspaceRoot) && !parsedQueryState.actionsOnly && mode !== 'files' && meetsTextQueryMinimum(parsedQueryState.query, mode)
     // Text results (and their footer notes) only count for the query they were found for, so
     // hits for something the user has typed past are never shown or opened by a quick Enter.
     const textResolved = shouldSearchText && lastResolvedTextQuery === parsedQueryState.query
@@ -224,7 +224,8 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             // Files leaves out what Open Editors and Recent Files already list.
             const shownPaths = tabItems.map((item) => item.path)
 
-            if (!parsedQuery || parsedQuery.length < MIN_QUERY_LENGTH) {
+            // Recent Files gives way once the query is long enough to search file contents.
+            if (!meetsTextQueryMinimum(parsedQuery, mode)) {
                 const openPaths = new Set(tabs.filter((t) => !isExampleTabId(t.id)).map((t) => t.path))
                 const recentItems = searchRecentFiles(liveRecentFiles, workspaceRoot, parsedQuery, openPaths)
                 if (recentItems.length > 0) {

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildPreview, createContentCache, searchWorkspaceContent, textHitToPaletteItem } from '@/components/studio/command-palette/search-content'
+import {
+    buildPreview,
+    createContentCache,
+    meetsTextQueryMinimum,
+    searchWorkspaceContent,
+    textHitToPaletteItem,
+} from '@/components/studio/command-palette/search-content'
 
 describe('buildPreview', () => {
     it('trims long lines with ellipsis', () => {
@@ -580,6 +586,25 @@ describe('searchWorkspaceContent file cache', () => {
         })
 
         expect(cache.get('/a.md', 14)).toBe('the oauth flow')
+    })
+})
+
+describe('meetsTextQueryMinimum', () => {
+    it('searches a single Chinese, Japanese or Korean character', () => {
+        expect(meetsTextQueryMinimum('図', 'all')).toBe(true)
+        expect(meetsTextQueryMinimum('ね', 'all')).toBe(true)
+        expect(meetsTextQueryMinimum('표', 'all')).toBe(true)
+    })
+
+    it('searches from the first character in Find in Workspace', () => {
+        expect(meetsTextQueryMinimum('x', 'text')).toBe(true)
+        expect(meetsTextQueryMinimum('', 'text')).toBe(false)
+    })
+
+    it('needs two characters elsewhere, counting an emoji as one', () => {
+        expect(meetsTextQueryMinimum('x', 'all')).toBe(false)
+        expect(meetsTextQueryMinimum('\u{1F600}', 'all')).toBe(false)
+        expect(meetsTextQueryMinimum('ab', 'all')).toBe(true)
     })
 })
 

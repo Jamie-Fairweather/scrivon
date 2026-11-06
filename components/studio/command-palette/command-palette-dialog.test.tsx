@@ -71,10 +71,15 @@ describe('CommandPaletteDialog modes', () => {
         expect(props.onModeChange).not.toHaveBeenCalled()
     })
 
-    it('explains that file contents need two characters in Find in Workspace', () => {
-        renderDialog({ mode: 'text', query: 'a' })
+    it('asks for a query when Find in Workspace opens empty', () => {
+        renderDialog({ mode: 'text', query: '' })
         // Base UI briefly appends an invisible marker to the empty text, so match without anchoring the end.
-        expect(screen.getByText(/^Type at least 2 characters to search file contents\./)).toBeInTheDocument()
+        expect(screen.getByText(/^Type to search file contents\./)).toBeInTheDocument()
+    })
+
+    it('does not ask for more characters after one character in Find in Workspace', () => {
+        renderDialog({ mode: 'text', query: '図' })
+        expect(screen.getByText(/^No text matches\./)).toBeInTheDocument()
     })
 
     it('says commands are what found nothing in > mode', () => {

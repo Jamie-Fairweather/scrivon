@@ -3,7 +3,7 @@
 import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon, XIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
-import { MAX_HITS, MAX_HITS_PER_FILE, MIN_QUERY_LENGTH } from '@/components/studio/command-palette/search-content'
+import { MAX_HITS, MAX_HITS_PER_FILE, meetsTextQueryMinimum } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -196,7 +196,7 @@ function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string
     if (isSearchingText) return 'Searching file contents…'
     if (mode === 'files') return 'No file names match. Remove the Files filter to search file contents too.'
     if (mode === 'text') {
-        if (parsed.query.length < MIN_QUERY_LENGTH) return `Type at least ${MIN_QUERY_LENGTH} characters to search file contents.`
+        if (!meetsTextQueryMinimum(parsed.query, mode)) return 'Type to search file contents.'
         return 'No text matches. Remove the Text filter to search file names too.'
     }
     // Matching commands already show here, so '>' wouldn't find more.
