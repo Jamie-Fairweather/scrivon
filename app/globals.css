@@ -284,10 +284,13 @@
    backgrounds, so focus, highlighted rows and switch state would all vanish.
    System colours are kept in forced colors mode. Unlayered so it beats `outline-none`. */
 @media (forced-colors: active) {
-    [data-slot='switch'] {
+    /* menu-switch is the switch drawn inside a switch-style menu item (Options > Autosave). */
+    [data-slot='switch'],
+    [data-slot='menu-switch'] {
         outline: 1px solid CanvasText;
     }
-    [data-slot='switch-thumb'] {
+    [data-slot='switch-thumb'],
+    [data-slot='menu-switch-thumb'] {
         background-color: CanvasText;
     }
     :focus-visible {
@@ -300,11 +303,14 @@
     [aria-current='true'],
     [aria-current='page'],
     [aria-pressed='true'],
-    [data-slot='switch'][data-checked] {
+    [role='tab'][aria-selected='true'],
+    [data-slot='switch'][data-checked],
+    [data-slot='menu-switch'][data-checked] {
         background-color: Highlight;
         color: HighlightText;
     }
-    [data-slot='switch'][data-checked] [data-slot='switch-thumb'] {
+    [data-slot='switch'][data-checked] [data-slot='switch-thumb'],
+    [data-slot='menu-switch'][data-checked] [data-slot='menu-switch-thumb'] {
         background-color: HighlightText;
     }
 }
