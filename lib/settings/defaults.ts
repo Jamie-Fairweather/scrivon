@@ -1,6 +1,6 @@
 import { DEFAULT_APP_THEME } from '@/lib/theme/catalog'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
-import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import type { AppSettings, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
 export const DEFAULT_EDITOR_WIDTH = 400
 export const DEFAULT_AUTOSAVE_DELAY_MS = 400
@@ -10,7 +10,10 @@ function chord(key: string, modifiers: Partial<Omit<KeybindChord, 'key'>> = {}):
     return { key, ...modifiers }
 }
 
-/** Platform-specific default chords (Win/Linux use ctrl; macOS uses meta). */
+/**
+ * Platform-specific default chords (Win/Linux use ctrl; macOS uses meta). Typed as KeybindBindings,
+ * so every action needs an entry here, as it does in the keybind registry.
+ */
 export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
     const mod = isMac ? { meta: true } : { ctrl: true }
 
@@ -62,16 +65,3 @@ export function createDefaultSettings(isMac = false): AppSettings {
         keybinds: createDefaultKeybinds(isMac),
     }
 }
-
-export const KEYBIND_ACTION_IDS: KeybindActionId[] = [
-    'document.save',
-    'settings.open',
-    'palette.open',
-    'palette.openText',
-    'palette.openFiles',
-    'view.toggleExplorer',
-    'view.toggleEditor',
-    'view.previewOnly',
-    'view.fitDiagram',
-    'workspace.saveAll',
-]

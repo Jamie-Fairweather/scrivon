@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { formatChord, formatChordKey, formatKeybindForAction } from '@/lib/settings/format-keybind'
+import { formatChord, formatKeybindForAction } from '@/lib/settings/format-keybind'
 
 describe('formatChord', () => {
     it('formats Windows-style chords', () => {
@@ -40,11 +40,5 @@ describe('formatKeybindForAction', () => {
             { key: 's', meta: true },
         ]
         expect(formatKeybindForAction('document.save', bindings, false)).toBe('Ctrl+S Meta+S')
-    })
-})
-
-describe('formatChordKey', () => {
-    it('delegates to chordKey', () => {
-        expect(formatChordKey({ key: 'b', ctrl: true })).toBe('ctrl+b')
     })
 })

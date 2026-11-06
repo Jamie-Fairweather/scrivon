@@ -6,7 +6,7 @@ import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/def
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
-import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
+import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindChord } from '@/lib/settings/types'
 
@@ -37,7 +37,7 @@ type AppSettingsContextValue = {
 const AppSettingsContext = createContext<AppSettingsContextValue | null>(null)
 
 function actionLabel(actionId: KeybindActionId): string {
-    return KEYBIND_ACTIONS.find((action) => action.id === actionId)?.label ?? actionId
+    return getKeybindActionMeta(actionId)?.label ?? actionId
 }
 
 const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {

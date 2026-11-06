@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultKeybinds, KEYBIND_ACTION_IDS } from '@/lib/settings/defaults'
+import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
 
 describe('findKeybindConflicts', () => {
@@ -94,8 +94,8 @@ describe('describeEditorChordClash', () => {
     it('never flags a default shortcut', () => {
         for (const isMac of [false, true]) {
             const defaults = createDefaultKeybinds(isMac)
-            for (const id of KEYBIND_ACTION_IDS) {
-                for (const chord of defaults[id]) {
+            for (const chords of Object.values(defaults)) {
+                for (const chord of chords) {
                     expect(describeEditorChordClash(chord, isMac)).toBeNull()
                 }
             }

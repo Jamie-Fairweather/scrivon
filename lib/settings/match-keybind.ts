@@ -1,4 +1,4 @@
-import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { getKeybindActionMeta, type KeybindActionMeta } from '@/lib/settings/keybind-registry'
 import {
     chordsEqual,
     hasCommandModifier,
@@ -43,8 +43,7 @@ function eventToChords(event: KeyboardEvent): KeybindChord[] {
     return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
 }
 
-function shouldSkipForTarget(actionId: KeybindActionId, target: EventTarget | null, pressed: KeybindChord): boolean {
-    const meta = getKeybindActionMeta(actionId)
+function shouldSkipForTarget(meta: KeybindActionMeta, target: EventTarget | null, pressed: KeybindChord): boolean {
     if (meta.allowInNativeTextField) return false
     // In the editor, real shortcuts (Ctrl/Alt/Cmd or an F-key) work on every platform; a bare key
     // never fires there, so it can't stop that character being typed.
@@ -64,9 +63,11 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
     for (const [actionId, chords] of Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]) {
         if (chords.length === 0) continue
 
+        // An action this build doesn't know is skipped, so it can't break every other shortcut.
         const meta = getKeybindActionMeta(actionId)
+        if (!meta) continue
         if (meta.when === 'workspace' && !options.hasWorkspace) continue
-        if (shouldSkipForTarget(actionId, event.target, pressed[0])) continue
+        if (shouldSkipForTarget(meta, event.target, pressed[0])) continue
 
         for (const chord of chords) {
             if (pressed.some((candidate) => chordsEqual(candidate, chord))) {

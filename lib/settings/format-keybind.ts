@@ -1,4 +1,3 @@
-import { chordKey } from '@/lib/settings/chord-utils'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
@@ -56,8 +55,4 @@ export function formatKeybindForAction(actionId: KeybindActionId, bindings: Keyb
     const chords = bindings[actionId]
     if (!chords || chords.length === 0) return undefined
     return chords.map((chord) => formatChord(chord, isMac)).join(' ')
-}
-
-export function formatChordKey(chord: KeybindChord): string {
-    return chordKey(chord)
 }
