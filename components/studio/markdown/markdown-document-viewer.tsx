@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
@@ -51,6 +51,15 @@ function isSamePath(a: string, b: string): boolean {
     return normalise(a) === normalise(b)
 }
 
+/** The Expand button of a block, found again if the element that had focus was replaced. */
+function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElement | null {
+    if (!root) return null
+    for (const block of root.querySelectorAll<HTMLElement>('[data-mermaid-block-id]')) {
+        if (block.dataset.mermaidBlockId === blockId) return block.querySelector<HTMLElement>('button')
+    }
+    return null
+}
+
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
     const previewSource = useFrameSyncedValue(source, tabId)
     const { expanded, setExpanded } = useMarkdownExpand()
@@ -67,6 +76,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     /** A `#fragment` to scroll to once the linked document has opened. */
     const pendingAnchorRef = useRef<{ tabId: string; id: string } | null>(null)
     const linkHandlerRef = useRef<(href: string) => void>(() => {})
+    const overlayRef = useRef<HTMLDivElement>(null)
+    /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
+    const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
 
     useEffect(() => {
         clearFencedCodeBlockContainers()
@@ -90,6 +102,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             if (!tabId) return
             const viewport = scrollViewport(scrollAreaRef.current)
             if (viewport) scrollTopByTabRef.current.set(tabId, viewport.scrollTop)
+            const focused = document.activeElement
+            const inPreview = focused instanceof HTMLElement && Boolean(scrollAreaRef.current?.contains(focused))
+            returnFocusRef.current = { blockId, element: inPreview ? focused : null }
             setExpanded({
                 blockId,
                 source: blockSource,
@@ -100,6 +115,15 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     )
 
     const onCloseExpanded = useCallback(() => setExpanded(null), [setExpanded])
+
+    const onOverlayKeyDown = useCallback(
+        (event: KeyboardEvent<HTMLDivElement>) => {
+            if (event.key !== 'Escape' || event.defaultPrevented) return
+            event.preventDefault()
+            onCloseExpanded()
+        },
+        [onCloseExpanded]
+    )
 
     useEffect(() => {
         const scrollToAnchor = (id: string) => {
@@ -154,6 +178,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     useEffect(() => {
         if (!expandedKey) return
 
+        overlayRef.current?.querySelector<HTMLElement>('button')?.focus()
         requestCanvasFit()
         const outerId = requestAnimationFrame(() => {
             requestCanvasFit()
@@ -171,6 +196,15 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         const tabChanged = previous.tabId !== tabId
         const closedExpanded = !tabChanged && previous.expandedKey !== null
         if (!tabChanged && !closedExpanded) return
+
+        const returnFocus = returnFocusRef.current
+        returnFocusRef.current = null
+        // Only when focus went down with the overlay; never pull it out of the editor or elsewhere.
+        const focusLost = !document.activeElement || document.activeElement === document.body
+        if (closedExpanded && returnFocus && focusLost) {
+            const element = returnFocus.element?.isConnected ? returnFocus.element : findExpandButton(scrollAreaRef.current, returnFocus.blockId)
+            element?.focus({ preventScroll: true })
+        }
 
         if (tabChanged) {
             const pendingAnchor = pendingAnchorRef.current
@@ -204,13 +238,20 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
 
     return (
         <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background', className)}>
-            <div ref={scrollAreaRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div ref={scrollAreaRef} className="flex min-h-0 min-w-0 flex-1 flex-col" inert={expanded ? true : undefined}>
                 <ScrollArea className="size-full min-h-0" scrollbarGutter>
                     <MarkdownPreview source={previewSource} tabId={tabId} onExpandBlock={onExpandBlock} onLinkClick={onLinkClick} />
                 </ScrollArea>
             </div>
             {expanded ? (
-                <div className="absolute inset-0 z-10 flex min-h-0 flex-col bg-background">
+                <div
+                    ref={overlayRef}
+                    role="region"
+                    aria-label="Expanded diagram"
+                    tabIndex={-1}
+                    onKeyDown={onOverlayKeyDown}
+                    className="absolute inset-0 z-10 flex min-h-0 flex-col bg-background outline-none"
+                >
                     <div className="absolute top-2 right-2 z-20">
                         <Button
                             type="button"
@@ -219,7 +260,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                             className="h-8 gap-1.5 shadow-sm"
                             onClick={onCloseExpanded}
                             aria-label="Back to document preview"
-                            title="Back to preview"
+                            title="Back to preview (Esc)"
                         >
                             <X className="size-4" />
                             Back

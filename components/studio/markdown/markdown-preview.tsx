@@ -141,11 +141,13 @@ export function MarkdownPreview({ source, tabId, onExpandBlock, onLinkClick, cla
                 const isBlock = lang === 'mermaid' || text.includes('\n')
 
                 if (lang === 'mermaid' && isBlock) {
-                    const blockId = mermaidBlockId(tabId, nextMermaidBlockOrdinal())
+                    const ordinal = nextMermaidBlockOrdinal()
+                    const blockId = mermaidBlockId(tabId, ordinal)
                     return (
                         <EmbeddedMermaidBlock
                             key={blockId}
                             blockId={blockId}
+                            ordinal={ordinal}
                             source={text.replace(/\n$/, '')}
                             tabId={tabId}
                             onExpand={onExpandBlock}

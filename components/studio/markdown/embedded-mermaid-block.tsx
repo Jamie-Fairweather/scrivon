@@ -14,9 +14,17 @@ const DIAGRAM_PADDING_X = 32
 type EmbeddedMermaidBlockProps = {
     source: string
     blockId: string
+    /** Position among the document's diagrams, from 0. Gives each Expand button its own name. */
+    ordinal: number
     tabId: string | null
     onExpand: (blockId: string, source: string) => void
     className?: string
+}
+
+/** "Expand diagram 2", plus the diagram's accTitle when it has one, so screen readers can tell the buttons apart. */
+export function expandDiagramLabel(ordinal: number, source: string): string {
+    const title = /^\s*accTitle\s*:\s*(.+?)\s*$/m.exec(source)?.[1]
+    return title ? `Expand diagram ${ordinal + 1}: ${title}` : `Expand diagram ${ordinal + 1}`
 }
 
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
@@ -29,7 +37,14 @@ const DiagramError = memo(function DiagramError({ message }: { message: string }
     )
 })
 
-export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source, blockId, tabId, onExpand, className }: EmbeddedMermaidBlockProps) {
+export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
+    source,
+    blockId,
+    ordinal,
+    tabId,
+    onExpand,
+    className,
+}: EmbeddedMermaidBlockProps) {
     const documentKey = tabId ? `${tabId}:block:${blockId}` : null
     const trimmed = source.trim()
     const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, documentKey)
@@ -83,7 +98,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
     const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0)
 
     return (
-        <div className={cn('relative my-4 w-full min-w-0', className)}>
+        <div className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
             <div className="absolute top-2 right-2 z-10">
                 <Button
                     type="button"
@@ -92,7 +107,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                     className="h-7 gap-1 shadow-sm"
                     disabled={!trimmed}
                     onClick={() => onExpand(blockId, source)}
-                    aria-label="Expand diagram"
+                    aria-label={expandDiagramLabel(ordinal, source)}
                     title="Expand diagram"
                 >
                     <Maximize2 className="size-3.5" />

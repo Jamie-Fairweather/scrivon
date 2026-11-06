@@ -93,6 +93,59 @@ describe('MarkdownDocumentViewer', () => {
         expect(scroller.scrollTop).toBe(300)
     })
 
+    describe('expanded diagram', () => {
+        const twoDiagrams = [
+            '# Diagrams',
+            '',
+            '[a link](#diagrams)',
+            '',
+            '```mermaid',
+            'flowchart TD',
+            '  A --> B',
+            '```',
+            '',
+            '```mermaid',
+            'flowchart LR',
+            '  accTitle: Login flow',
+            '  C --> D',
+            '```',
+        ].join('\n')
+
+        it('gives every Expand button its own name', () => {
+            render(viewer(DOC_A, twoDiagrams))
+            expect(screen.getByRole('button', { name: 'Expand diagram 1' })).toBeInTheDocument()
+            expect(screen.getByRole('button', { name: 'Expand diagram 2: Login flow' })).toBeInTheDocument()
+        })
+
+        it('moves focus in, hides the preview behind it, and closes on Escape with focus restored', () => {
+            const { container } = render(viewer(DOC_A, twoDiagrams))
+            const expand = screen.getByRole('button', { name: 'Expand diagram 2: Login flow' })
+            expand.focus()
+            fireEvent.click(expand)
+
+            const back = screen.getByRole('button', { name: 'Back to document preview' })
+            expect(screen.getByRole('region', { name: 'Expanded diagram' })).toBeInTheDocument()
+            expect(back).toHaveFocus()
+            expect(viewport(container).closest('[inert]')).not.toBeNull()
+
+            fireEvent.keyDown(back, { key: 'Escape' })
+            expect(screen.queryByRole('region', { name: 'Expanded diagram' })).toBeNull()
+            expect(container.querySelector('[inert]')).toBeNull()
+            expect(screen.getByRole('button', { name: 'Expand diagram 2: Login flow' })).toHaveFocus()
+        })
+
+        it('returns focus to the Expand button after Back', () => {
+            render(viewer(DOC_A, twoDiagrams))
+            const expand = screen.getByRole('button', { name: 'Expand diagram 1' })
+            expand.focus()
+            fireEvent.click(expand)
+            const back = screen.getByRole('button', { name: 'Back to document preview' })
+            back.focus()
+            fireEvent.click(back)
+            expect(expand).toHaveFocus()
+        })
+    })
+
     describe('links', () => {
         const source = [
             '# Install steps',
