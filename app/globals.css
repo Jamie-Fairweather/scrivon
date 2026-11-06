@@ -13,7 +13,8 @@
     color: #0f0f0f;
     background-color: #f6f6f6;
 
-    font-synthesis: none;
+    /* Never fake bold, but let fonts without an italic face (Geist Mono, CJK/Arabic fallbacks) slant. */
+    font-synthesis: style;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -64,7 +65,7 @@
 
 @theme inline {
     --animate-skeleton: skeleton 2s -1s infinite linear;
-    --font-heading: var(--font-heading);
+    --font-heading: var(--font-sans);
     --animate-caret-blink: 1s ease-out infinite caret-blink;
     --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
     --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
