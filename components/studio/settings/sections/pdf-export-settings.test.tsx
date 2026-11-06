@@ -135,6 +135,13 @@ describe('PdfExportSettings page space', () => {
     })
 })
 
+describe('PdfExportSettings fonts', () => {
+    it('shows a font saved by an older build under its own name', () => {
+        renderWithProfile((profile) => ({ ...profile, typography: { ...profile.typography, bodyFont: 'Arial, sans-serif' } }))
+        expect(screen.getByRole('combobox', { name: 'Body font' })).toHaveTextContent('Arial')
+    })
+})
+
 describe('PdfExportSettings labels', () => {
     const group = (name: string) => within(screen.getByRole('group', { name }))
 

@@ -14,7 +14,15 @@ import {
     updatePdfExportProfile,
 } from '@/lib/settings/pdf-export-profiles'
 import { PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
-import { ensureFontOption, loadPdfExportFontOptions, PDF_EXPORT_FONT_OPTIONS, type PdfExportFontOption } from '@/lib/settings/pdf-export-fonts'
+import {
+    ensureFontOption,
+    fontOptionsForSlot,
+    loadPdfExportFontOptions,
+    matchFontOption,
+    PDF_EXPORT_FONT_OPTIONS,
+    type PdfExportFontOption,
+    type PdfExportFontSlot,
+} from '@/lib/settings/pdf-export-fonts'
 import type {
     PdfExportChrome,
     PdfExportChromeSide,
@@ -97,20 +105,22 @@ type ProfileSection = Exclude<keyof PdfExportProfile, 'id' | 'name'>
 
 function FontSelect({
     id,
+    slot,
     value,
     options,
     onChange,
 }: {
     id: string
+    slot: PdfExportFontSlot
     value: string
     options: PdfExportFontOption[]
     onChange: (value: string) => void
 }) {
-    const items = useMemo(() => ensureFontOption(options, value), [options, value])
+    const items = useMemo(() => ensureFontOption(fontOptionsForSlot(options, slot), value), [options, slot, value])
     return (
         <OptionSelect
             id={id}
-            value={value}
+            value={matchFontOption(items, value)?.value ?? value}
             options={items}
             onChange={onChange}
             renderOption={(option) => <span style={{ fontFamily: option.value }}>{option.label}</span>}
@@ -307,6 +317,7 @@ export function PdfExportSettings() {
                     <FieldLabel htmlFor="pdf-heading-font">Heading font</FieldLabel>
                     <FontSelect
                         id="pdf-heading-font"
+                        slot="heading"
                         value={active.typography.headingFont}
                         options={fontOptions}
                         onChange={(headingFont) => setSection('typography', { headingFont })}
@@ -316,6 +327,7 @@ export function PdfExportSettings() {
                     <FieldLabel htmlFor="pdf-body-font">Body font</FieldLabel>
                     <FontSelect
                         id="pdf-body-font"
+                        slot="body"
                         value={active.typography.bodyFont}
                         options={fontOptions}
                         onChange={(bodyFont) => setSection('typography', { bodyFont })}
@@ -325,6 +337,7 @@ export function PdfExportSettings() {
                     <FieldLabel htmlFor="pdf-mono-font">Monospace font</FieldLabel>
                     <FontSelect
                         id="pdf-mono-font"
+                        slot="mono"
                         value={active.typography.monoFont}
                         options={fontOptions}
                         onChange={(monoFont) => setSection('typography', { monoFont })}

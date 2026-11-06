@@ -1,5 +1,6 @@
 import { isAppThemeId } from '@/lib/theme/catalog'
 import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
+import { repairFontStack } from '@/lib/settings/pdf-export-fonts'
 import type {
     PdfExportChrome,
     PdfExportChromeSide,
@@ -128,9 +129,9 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             marginsMm: normalizeMargins(page?.marginsMm, fallback.page.marginsMm),
         },
         typography: {
-            headingFont: normalizeString(typography?.headingFont, fallback.typography.headingFont),
-            bodyFont: normalizeString(typography?.bodyFont, fallback.typography.bodyFont),
-            monoFont: normalizeString(typography?.monoFont, fallback.typography.monoFont),
+            headingFont: repairFontStack(normalizeString(typography?.headingFont, fallback.typography.headingFont)),
+            bodyFont: repairFontStack(normalizeString(typography?.bodyFont, fallback.typography.bodyFont)),
+            monoFont: repairFontStack(normalizeString(typography?.monoFont, fallback.typography.monoFont)),
             bodySizePt: normalizeNumber(typography?.bodySizePt, fallback.typography.bodySizePt, PDF_EXPORT_LIMITS.bodySizePt),
             lineHeight: normalizeNumber(typography?.lineHeight, fallback.typography.lineHeight, PDF_EXPORT_LIMITS.lineHeight),
             justify: normalizeBoolean(typography?.justify, fallback.typography.justify),

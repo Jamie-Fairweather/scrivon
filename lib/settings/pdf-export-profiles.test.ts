@@ -106,6 +106,17 @@ describe('normalizePdfExportSettings', () => {
         expect(normalizePdfExportProfile({ flow: { newPageFromHeading: 9 } }).flow.newPageFromHeading).toBe(0)
     })
 
+    it('quotes saved font names that are not valid CSS', () => {
+        const profile = normalizePdfExportProfile({
+            typography: { headingFont: 'Calibri, sans-serif', bodyFont: 'A&B Sans, sans-serif', monoFont: '0xProto, sans-serif' },
+        })
+        expect(profile.typography).toMatchObject({
+            headingFont: 'Calibri, sans-serif',
+            bodyFont: '"A&B Sans", sans-serif',
+            monoFont: '"0xProto", sans-serif',
+        })
+    })
+
     it('falls back to defaults when profiles array is empty', () => {
         const normalized = normalizePdfExportSettings({ profiles: [], activeProfileId: 'x' })
         expect(normalized).toEqual(createDefaultPdfExportSettings())
