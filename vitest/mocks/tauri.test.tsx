@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { render, screen } from '@testing-library/react'
-import { LazyStore } from '@tauri-apps/plugin-store'
+import { getStore } from '@tauri-apps/plugin-store'
 import { describe, expect, it, vi } from 'vitest'
 import { WorkspaceSessionProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-session-context'
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -69,7 +69,7 @@ describe('shared Tauri mocks', () => {
         expect(await screen.findByText('0 recent')).toBeInTheDocument()
     })
 
-    it('let the real store module run against the LazyStore mock', async () => {
+    it('let the real store module run against the store mock', async () => {
         const store = await vi.importActual<typeof import('@/lib/tauri/store')>('@/lib/tauri/store')
         vi.mocked(isTauri).mockReturnValue(true)
         try {
@@ -77,7 +77,7 @@ describe('shared Tauri mocks', () => {
             expect(await store.addRecentWorkspace('C:\\Notes', 10)).toEqual(['C:\\Notes'])
             expect(await store.getWorkspaceTabSession('C:\\Notes')).toBeNull()
             await store.setLastOpenedFile('C:\\Notes', 'C:\\Notes\\a.md')
-            expect(LazyStore).toHaveBeenCalledWith('workspace.json')
+            expect(getStore).toHaveBeenCalledWith('workspace.json')
         } finally {
             vi.mocked(isTauri).mockReturnValue(false)
         }

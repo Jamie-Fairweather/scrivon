@@ -2,15 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { notifyWarning } from '@/lib/notify'
 
 /**
- * A stand-in for tauri-plugin-store that behaves like the real one: `disk` holds each file's text,
- * init() loads it and quietly starts empty when it can't, reload() reports why, and save() writes the
- * whole store back.
+ * A stand-in for tauri-plugin-store that behaves like the real one: `disk` holds each file's text. The app
+ * shell opens each store once at startup, loading its file and quietly starting empty when it can't, and the
+ * webview can only get those (there is no `load` here, so the module must never try to open one itself).
+ * reload() reports why a file couldn't be read, and save() writes the whole store back.
  */
 const fake = vi.hoisted(() => ({
     disk: new Map<string, string>(),
+    /** The stores the app shell holds in memory. They outlive a reload of the window. */
     caches: new Map<string, Map<string, unknown>>(),
+    /** Store files the app shell couldn't open at startup. */
+    notOpened: new Set<string>(),
     saveError: null as unknown,
-    initError: null as unknown,
+    openError: null as unknown,
 }))
 
 function parseStoreFile(path: string): Record<string, unknown> {
@@ -26,22 +30,11 @@ function parseStoreFile(path: string): Record<string, unknown> {
     return parsed as Record<string, unknown>
 }
 
-vi.mock('@tauri-apps/plugin-store', () => ({
-    LazyStore: class {
+vi.mock('@tauri-apps/plugin-store', () => {
+    class FakeStore {
         constructor(private readonly path: string) {}
         private get cache(): Map<string, unknown> {
             return fake.caches.get(this.path)!
-        }
-        async init() {
-            if (fake.initError) throw fake.initError
-            if (fake.caches.has(this.path)) return
-            const cache = new Map<string, unknown>()
-            try {
-                for (const [key, value] of Object.entries(parseStoreFile(this.path))) cache.set(key, value)
-            } catch {
-                // The real plugin ignores this too.
-            }
-            fake.caches.set(this.path, cache)
         }
         async reload() {
             for (const [key, value] of Object.entries(parseStoreFile(this.path))) this.cache.set(key, value)
@@ -68,8 +61,24 @@ vi.mock('@tauri-apps/plugin-store', () => ({
             if (fake.saveError) throw fake.saveError
             fake.disk.set(this.path, JSON.stringify(Object.fromEntries(this.cache)))
         }
-    },
-}))
+    }
+    return {
+        getStore: async (path: string) => {
+            if (fake.openError) throw fake.openError
+            if (fake.notOpened.has(path)) return null
+            if (!fake.caches.has(path)) {
+                const cache = new Map<string, unknown>()
+                try {
+                    for (const [key, value] of Object.entries(parseStoreFile(path))) cache.set(key, value)
+                } catch {
+                    // The real plugin ignores this too.
+                }
+                fake.caches.set(path, cache)
+            }
+            return new FakeStore(path)
+        },
+    }
+})
 
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: vi.fn(() => true) }))
 vi.mock('@/lib/notify', async (importOriginal) => ({
@@ -98,8 +107,9 @@ describe('workspace store', () => {
     beforeEach(() => {
         fake.disk.clear()
         fake.caches.clear()
+        fake.notOpened.clear()
         fake.saveError = null
-        fake.initError = null
+        fake.openError = null
         vi.mocked(notifyWarning).mockClear()
         vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     })
@@ -302,12 +312,32 @@ describe('workspace store', () => {
 
         it('tries to open the store again after a failed start instead of failing for the whole session', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))
-            fake.initError = 'no app data folder'
+            fake.openError = 'no app data folder'
             const store = await launch()
 
             await expect(store.getRecentWorkspaces()).rejects.toBe('no app data folder')
-            fake.initError = null
+            fake.openError = null
             expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+        })
+
+        it('reports a store the app did not open at startup, and tries again next time', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.notOpened.add('workspace.json')
+            const store = await launch()
+
+            await expect(store.getRecentWorkspaces()).rejects.toThrow("Scrivon couldn't open workspace.json.")
+            fake.notOpened.clear()
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+        })
+
+        it('still reads workspace.json when its copy was not opened', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.notOpened.add('workspace.backup.json')
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            await vi.waitFor(() => expect(console.warn).toHaveBeenCalledWith("Couldn't update the copy of workspace.json", expect.any(Error)))
+            expect(notifyWarning).not.toHaveBeenCalled()
         })
     })
 })

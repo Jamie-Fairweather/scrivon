@@ -1,4 +1,4 @@
-import { LazyStore } from '@tauri-apps/plugin-store'
+import { getStore, type Store } from '@tauri-apps/plugin-store'
 import { isWindowsPath, normalizePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import type { TextFileFormat } from '@/lib/workspace/text-encoding'
@@ -31,19 +31,20 @@ export type UnsavedBackup = {
 }
 
 /** Both files hold the same copies in memory; only the one written next differs on disk. */
-type Slots = { stores: [LazyStore, LazyStore]; generation: number; next: 0 | 1 }
+type Slots = { stores: [Store, Store]; generation: number; next: 0 | 1 }
 
 let slots: Slots | null = null
 // One operation at a time, so a delete never lands before the write it follows.
 let queue: Promise<unknown> = Promise.resolve()
 
 /** Opens one of the two files. Its generation is null when it is there but can't be read (damaged). */
-async function openSlot(path: string): Promise<{ store: LazyStore; generation: number | null }> {
-    // Saved by hand right after each change, so a crash just after it can't lose it.
-    const store = new LazyStore(path, { defaults: {}, autoSave: false })
-    await store.init()
+async function openSlot(path: string): Promise<{ store: Store; generation: number | null }> {
+    // Opened by the app at startup (src-tauri/src/lib.rs), saved by hand right after each change, so a
+    // crash just after it can't lose it. The webview can't open a store itself.
+    const store = await getStore(path)
+    if (!store) throw new Error(`Scrivon couldn't open ${path}.`)
     try {
-        // init() quietly starts empty when the file can't be read; reading it again says so.
+        // Opening quietly starts empty when the file can't be read; reading it again says so.
         await store.reload({ ignoreDefaults: true })
     } catch (err) {
         const missing = FILE_MISSING.test(err instanceof Error ? err.message : String(err))
@@ -76,7 +77,7 @@ function run<T>(operation: (s: Slots) => Promise<T>, fallback: T): Promise<T> {
 }
 
 /** Makes a change in memory and, if anything changed, writes it to the file whose turn it is. */
-async function change(s: Slots, apply: (store: LazyStore) => Promise<boolean>): Promise<void> {
+async function change(s: Slots, apply: (store: Store) => Promise<boolean>): Promise<void> {
     const changed = (await Promise.all(s.stores.map(apply))).some(Boolean)
     if (!changed) return
     const target = s.stores[s.next]

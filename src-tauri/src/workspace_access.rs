@@ -8,12 +8,13 @@
 //! restored session).
 //!
 //! Those folders are kept in `workspace-access.json` in the app data folder.
-//! The webview can write JSON files there through the store plugin, but the
-//! store only ever writes a JSON object, and this list is a bare JSON array. So
-//! a script can break the list (the user then picks the folders again) but
-//! never add a folder to it. The store's recent folders, which the webview can
-//! write, are only copied in when the list doesn't exist yet (the first run
-//! with this check), never because it can't be read.
+//! The webview can't create store files: it only reaches the few the app opens
+//! at startup (`open_stores` in lib.rs), so it can't write this one. Even a
+//! file forged some other way can't add a folder: the store only ever writes a
+//! JSON object, and this list is a bare JSON array, so such a file is cleared
+//! and the user picks the folders again. The store's recent folders, which the
+//! webview can write, are only copied in when the list doesn't exist yet (the
+//! first run with this check), never because it can't be read.
 
 use std::collections::HashSet;
 use std::io::ErrorKind;

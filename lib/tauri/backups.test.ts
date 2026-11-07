@@ -9,24 +9,20 @@ const fake = vi.hoisted(() => ({
     disk: new Map<string, Record<string, unknown> | 'damaged'>(),
     /** The files written, in order. */
     saves: [] as string[],
-    options: undefined as unknown,
     /** When set, writing a store to disk waits for it. */
     saveGate: null as Promise<void> | null,
+    /** Store files the app shell couldn't open at startup. */
+    notOpened: new Set<string>(),
 }))
 
-vi.mock('@tauri-apps/plugin-store', () => ({
-    LazyStore: class {
+// Only getStore: the app shell opens the store files at startup, and the webview may not open one itself.
+vi.mock('@tauri-apps/plugin-store', () => {
+    class FakeStore {
         private cache = new Map<string, unknown>()
 
-        constructor(
-            private readonly path: string,
-            options?: unknown
-        ) {
-            fake.options = options
-        }
-        /** Like the plugin: a file it can't read or parse is quietly ignored. */
-        async init() {
-            const onDisk = fake.disk.get(this.path)
+        /** Like the app shell at startup: a file it can't read or parse is quietly ignored. */
+        constructor(private readonly path: string) {
+            const onDisk = fake.disk.get(path)
             if (onDisk && onDisk !== 'damaged') this.cache = new Map(Object.entries(structuredClone(onDisk)))
         }
         async reload() {
@@ -55,8 +51,9 @@ vi.mock('@tauri-apps/plugin-store', () => ({
             fake.saves.push(this.path)
             fake.disk.set(this.path, structuredClone(Object.fromEntries(this.cache)))
         }
-    },
-}))
+    }
+    return { getStore: async (path: string) => (fake.notOpened.has(path) ? null : new FakeStore(path)) }
+})
 
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: vi.fn(() => true) }))
 
@@ -86,6 +83,7 @@ describe('unsaved-change backups', () => {
         fake.disk.clear()
         fake.saves = []
         fake.saveGate = null
+        fake.notOpened.clear()
     })
 
     it('keeps one copy per file, the newest, and saves it to disk straight away', async () => {
@@ -95,7 +93,6 @@ describe('unsaved-change backups', () => {
 
         expect(await listUnsavedBackups()).toEqual([expect.objectContaining({ path: 'c:\\WS\\A.md', content: 'second' })])
         expect(fake.saves).toHaveLength(2)
-        expect(fake.options).toEqual(expect.objectContaining({ autoSave: false }))
     })
 
     it('writes the two files in turn, so one always holds the copies from the change before', async () => {
@@ -180,6 +177,18 @@ describe('unsaved-change backups', () => {
         fake.saveGate = new Promise<void>(() => {})
         void saveUnsavedBackup(backup('C:\\ws\\b.md'))
         await expect(settleUnsavedBackups(10)).resolves.toBeUndefined()
+    })
+
+    it('reports a file the app did not open at startup, and tries again next time', async () => {
+        fake.notOpened.add(SECOND)
+        const { saveUnsavedBackup, listUnsavedBackups } = await launch()
+
+        await expect(saveUnsavedBackup(backup('C:\\ws\\a.md'))).rejects.toThrow("Scrivon couldn't open unsaved-changes.2.json.")
+        expect(fake.saves).toEqual([])
+
+        fake.notOpened.clear()
+        await saveUnsavedBackup(backup('C:\\ws\\a.md', { content: 'kept' }))
+        expect((await listUnsavedBackups()).map((b) => b.content)).toEqual(['kept'])
     })
 
     it('does nothing outside the desktop app', async () => {

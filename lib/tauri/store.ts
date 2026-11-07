@@ -1,4 +1,4 @@
-import { LazyStore } from '@tauri-apps/plugin-store'
+import { getStore as getAppStore, type Store } from '@tauri-apps/plugin-store'
 import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
 import { normalizePath, samePath } from '@/lib/tauri/fs'
@@ -38,10 +38,10 @@ const FILE_MISSING = /\(os error [23]\)/
 
 const STORE_SAVE_FAILED_NOTICE_ID = 'workspace-store-save-failed'
 
-let storeReady: Promise<LazyStore> | null = null
+let storeReady: Promise<Store> | null = null
 let saveFailureShown = false
 
-async function getStore(): Promise<LazyStore | null> {
+async function getStore(): Promise<Store | null> {
     if (!isTauri()) return null
     storeReady ??= openStore().catch((err: unknown) => {
         // Not remembered as broken: the next call tries again.
@@ -56,7 +56,7 @@ async function getStore(): Promise<LazyStore | null> {
  * a locked file, an offline network AppData) is reported once and never stops what the user was doing.
  * The values stay in memory for this session either way.
  */
-async function saveStore(s: LazyStore): Promise<void> {
+async function saveStore(s: Store): Promise<void> {
     try {
         await s.save()
     } catch (err) {
@@ -70,10 +70,19 @@ async function saveStore(s: LazyStore): Promise<void> {
     }
 }
 
-async function openStore(): Promise<LazyStore> {
-    const s = new LazyStore(STORE_PATH)
-    await s.init()
-    // init() ignores a file it can't read or parse and starts empty; reading the file again says why.
+/**
+ * One of the store files the app opens at startup (src-tauri/src/lib.rs). The webview can't open a store
+ * itself, so a script in the window can't write a store file anywhere on disk.
+ */
+async function openAppStore(path: string): Promise<Store> {
+    const s = await getAppStore(path)
+    if (!s) throw new Error(`Scrivon couldn't open ${path}.`)
+    return s
+}
+
+async function openStore(): Promise<Store> {
+    const s = await openAppStore(STORE_PATH)
+    // Opening ignores a file it can't read or parse and starts empty; reading the file again says why.
     let readError: unknown = null
     try {
         await s.reload()
@@ -85,14 +94,12 @@ async function openStore(): Promise<LazyStore> {
     return s
 }
 
-async function openBackupStore(): Promise<LazyStore> {
+async function openBackupStore(): Promise<Store> {
     // Written by hand, once per launch.
-    const backup = new LazyStore(BACKUP_STORE_PATH, { defaults: {}, autoSave: false })
-    await backup.init()
-    return backup
+    return openAppStore(BACKUP_STORE_PATH)
 }
 
-async function keepStoreBackup(s: LazyStore): Promise<void> {
+async function keepStoreBackup(s: Store): Promise<void> {
     try {
         const snapshot = Object.fromEntries(await s.entries())
         const backup = await openBackupStore()
@@ -110,7 +117,7 @@ async function readStoreBackup(): Promise<Record<string, unknown> | null> {
 }
 
 /** workspace.json is there but couldn't be read: it is filled from the copy, before anything can save over it. */
-async function recoverStore(s: LazyStore, readError: unknown): Promise<void> {
+async function recoverStore(s: Store, readError: unknown): Promise<void> {
     console.warn("Couldn't read workspace.json", readError)
     // Still held from earlier in this run (the window was reloaded): that is newer than the copy.
     if ((await s.length()) > 0) return
@@ -165,7 +172,7 @@ export async function getRecentWorkspaces(): Promise<string[]> {
  * Forgets what was kept for a folder that left the recent folders: its open tabs, last file and recent
  * files, which name the user's files. Keys written with other separators or letter case go too.
  */
-async function forgetWorkspace(s: LazyStore, root: string): Promise<void> {
+async function forgetWorkspace(s: Store, root: string): Promise<void> {
     const prefixes = [OPEN_TABS_PREFIX, OPEN_FOLDERS_PREFIX, LAST_FILE_PREFIX, RECENT_FILES_PREFIX]
     for (const key of await s.keys()) {
         const prefix = prefixes.find((p) => key.startsWith(p))

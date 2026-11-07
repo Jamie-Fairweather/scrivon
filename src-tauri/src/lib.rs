@@ -6,6 +6,7 @@ mod system_fonts;
 mod updater;
 mod workspace_access;
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use tauri::Manager;
@@ -13,6 +14,36 @@ use tauri_plugin_fs::FsExt;
 
 use updater::PendingUpdate;
 use workspace_access::WorkspaceAccess;
+
+/// The store files the frontend uses (lib/tauri/store.ts and lib/tauri/backups.ts),
+/// and whether each one saves itself 100 ms after a change (the plugin's default).
+/// The others are saved by hand right after each change.
+const STORES: [(&str, bool); 4] = [
+    ("workspace.json", true),
+    ("workspace.backup.json", false),
+    ("unsaved-changes.json", false),
+    ("unsaved-changes.2.json", false),
+];
+
+/// Opens the app's store files before the webview can reach them. The webview
+/// can only use these (`getStore`), never open a store itself: the plugin's
+/// `load` takes any path, and an absolute one would let a script in the window
+/// write a JSON file anywhere on disk, such as the Startup folder (S02). A
+/// damaged file is ignored here and the store starts empty; the frontend's
+/// `reload()` then says why and brings back its copy.
+fn open_stores(app: &tauri::AppHandle) {
+    for (name, auto_save) in STORES {
+        let builder = tauri_plugin_store::StoreBuilder::new(app, name);
+        let builder = if auto_save {
+            builder
+        } else {
+            builder.defaults(HashMap::new()).disable_auto_save()
+        };
+        if let Err(err) = builder.build() {
+            eprintln!("Could not open {name}: {err}");
+        }
+    }
+}
 
 /// Grants the frontend recursive access to a workspace folder, but only one the
 /// user chose (see `workspace_access`). Checking the folder touches the disk
@@ -70,6 +101,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
+            open_stores(app.handle());
             let data_dir = app.path().app_data_dir().ok();
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             // The main window was created before this runs.
@@ -89,6 +121,32 @@ pub fn run() {
     if let Err(err) = result {
         crash_report::startup_failed(&err.to_string());
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    fn permissions() -> Vec<String> {
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        capability["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str().map(str::to_owned))
+            .collect()
+    }
+
+    #[test]
+    fn the_webview_cannot_open_a_store_file_at_a_path_of_its_choosing() {
+        let permissions = permissions();
+        // store:default includes allow-load, which takes any path (S02).
+        assert!(!permissions.iter().any(|p| p == "store:default"));
+        assert!(!permissions.iter().any(|p| p == "store:allow-load"));
+        // It still reaches the stores the app opened at startup.
+        for granted in ["store:allow-get-store", "store:allow-set", "store:allow-reload"] {
+            assert!(permissions.iter().any(|p| p == granted), "{granted}");
+        }
     }
 }
 
