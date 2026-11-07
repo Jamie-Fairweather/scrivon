@@ -131,7 +131,6 @@ export function StudioMenuBar() {
                                                         disabled={!isDesktop || opening}
                                                         onClick={() => void openWorkspace(path)}
                                                         title={current ? `${displayPath(path)} (current folder)` : displayPath(path)}
-                                                        aria-current={current || undefined}
                                                         aria-busy={opening || undefined}
                                                     >
                                                         {/* A column like a radio menu's: a tick on the open folder, a spinner on one being opened. */}
@@ -145,6 +144,9 @@ export function StudioMenuBar() {
                                                         <span dir="auto" className="truncate">
                                                             {getBaseName(path)}
                                                         </span>
+                                                        {/* Said, not aria-current: Windows Contrast themes fill aria-current rows like the
+                                                            keyboard's row (app/globals.css), so two rows would look picked. */}
+                                                        {current && <span className="sr-only"> (current folder)</span>}
                                                         {location && (
                                                             <span
                                                                 className="ms-auto truncate ps-4 text-xs text-muted-foreground

@@ -139,7 +139,11 @@ describe('StudioMenuBar', () => {
         await user.click(await screen.findByRole('menuitem', { name: 'Open Recent' }))
         const item = async (name: string) => screen.findByRole('menuitem', { name })
 
-        expect(await item('diagrams')).toHaveAttribute('aria-current', 'true')
+        // Ticked and named as the current folder, without aria-current: Contrast themes would fill that row
+        // like the keyboard's, so two rows would look picked.
+        const current = await item('diagrams (current folder)')
+        expect(current.querySelector('svg')).not.toBeNull()
+        expect(current).not.toHaveAttribute('aria-current')
         expect(await item('notes')).not.toHaveAttribute('aria-current')
         expect(await item('big')).toHaveAttribute('aria-disabled', 'true')
         expect(await item('big')).toHaveAttribute('aria-busy', 'true')
