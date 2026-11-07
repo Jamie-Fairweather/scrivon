@@ -105,14 +105,42 @@ describe('shiki highlighter', () => {
             expect(highlighter.loadLanguage).not.toHaveBeenCalled()
         })
 
-        it('shows a grammar that fails to load as plain text, without trying to load it again', async () => {
+        it('shows a grammar that fails to load as plain text, trying it only once more, on a fresh highlighter', async () => {
             const { highlightFencedCode, highlightFencedCodeNow } = await load()
+            createHighlighter.mockImplementation(async () => fakeHighlighter())
 
-            await expect(highlightFencedCode('a', 'cobol', 'github-dark')).resolves.toBe('<pre data-lang="text">a</pre>')
-            expect(highlightFencedCodeNow('ab', 'cobol', 'github-dark')).toBe('<pre data-lang="text">ab</pre>')
-            await highlightFencedCode('abc', 'cobol', 'github-dark')
+            for (const code of ['a', 'ab', 'abc']) {
+                await expect(highlightFencedCode(code, 'cobol', 'github-dark')).resolves.toBe(`<pre data-lang="text">${code}</pre>`)
+            }
+            expect(highlightFencedCodeNow('abcd', 'cobol', 'github-dark')).toBe('<pre data-lang="text">abcd</pre>')
 
-            const highlighter = await createHighlighter.mock.results[0]!.value
+            const highlighters: ReturnType<typeof fakeHighlighter>[] = await Promise.all(createHighlighter.mock.results.map((result) => result.value))
+            expect(highlighters.map((highlighter) => highlighter.loadLanguage.mock.calls.length)).toEqual([1, 1, 0])
+        })
+
+        it('starts a fresh highlighter when a grammar load leaves it broken, so the language still gets colours (N20)', async () => {
+            const { highlightFencedCode } = await load()
+            // What Shiki did after a fence named `constructor`: every later load failed with this.
+            const broken = fakeHighlighter()
+            broken.loadLanguage.mockRejectedValue(new TypeError("Cannot read properties of undefined (reading 'split')"))
+            createHighlighter.mockResolvedValueOnce(broken).mockImplementation(async () => fakeHighlighter())
+
+            await expect(highlightFencedCode('x = 1', 'python', 'github-dark')).resolves.toBe('<pre data-lang="text">x = 1</pre>')
+            await expect(highlightFencedCode('x = 1', 'python', 'github-dark')).resolves.toBe('<pre data-lang="python">x = 1</pre>')
+            expect(createHighlighter).toHaveBeenCalledTimes(2)
+        })
+
+        it('keeps the highlighter when Shiki itself turns a grammar down (N20)', async () => {
+            const { highlightFencedCode } = await load()
+            const { ShikiError } = await import('shiki')
+            const highlighter = fakeHighlighter()
+            highlighter.loadLanguage.mockRejectedValueOnce(new ShikiError('Missing languages `css`, required by `vue`'))
+            createHighlighter.mockResolvedValue(highlighter)
+
+            for (const code of ['a', 'ab']) {
+                await expect(highlightFencedCode(code, 'vue', 'github-dark')).resolves.toBe(`<pre data-lang="text">${code}</pre>`)
+            }
+            expect(createHighlighter).toHaveBeenCalledTimes(1)
             expect(highlighter.loadLanguage).toHaveBeenCalledTimes(1)
         })
 

@@ -2,6 +2,7 @@ import {
     bundledLanguages,
     createHighlighter,
     isSpecialLang,
+    ShikiError,
     type BundledLanguage,
     type BundledTheme,
     type Highlighter,
@@ -84,6 +85,8 @@ let highlighterPromise: Promise<Highlighter> | null = null
 let readyHighlighter: Highlighter | null = null
 /** Languages Shiki doesn't have. They show as plain text, without trying to load them again on every keystroke. */
 const unavailableLanguages = new Set<string>()
+/** Languages whose grammar failed in a way that may have broken the highlighter, so it was started again. */
+const retriedLanguages = new Set<string>()
 
 function getHighlighter(): Promise<Highlighter> {
     if (!highlighterPromise) {
@@ -124,10 +127,27 @@ async function ensureLanguage(highlighter: Highlighter, lang: string): Promise<s
     try {
         await highlighter.loadLanguage(lang as BundledLanguage)
         return lang
-    } catch {
+    } catch (err) {
+        // Shiki's own errors leave it working. Any other may have broken its list of grammars, after which every
+        // later load fails, so the next block gets a fresh highlighter. A grammar that fails on that one too is
+        // left plain, so it can't break one highlighter after another.
+        if (!(err instanceof ShikiError)) {
+            discardHighlighter(highlighter)
+            if (!retriedLanguages.has(lang)) {
+                retriedLanguages.add(lang)
+                return 'text'
+            }
+        }
         unavailableLanguages.add(lang)
         return 'text'
     }
+}
+
+/** Forgets the highlighter, unless a fresh one has already taken its place. */
+function discardHighlighter(highlighter: Highlighter): void {
+    if (readyHighlighter !== highlighter) return
+    readyHighlighter = null
+    highlighterPromise = null
 }
 
 /** Loads a palette's code theme the first time a block needs it; GitHub's two are loaded at start. */
