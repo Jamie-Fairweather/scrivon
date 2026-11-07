@@ -952,6 +952,48 @@ describe('renderExportDocx', () => {
         expect(body).toContain('>Bell</w:t>')
     })
 
+    it('keeps the links and marks of HTML tags in a line of text, as the PDF does (review)', async () => {
+        const { parts } = await render(
+            [
+                'Made by <a href="https://example.com/ada">Ada *Lovelace*</a> with <b>bold</b>, <i>slanted</i> and <del>gone</del>.',
+                '',
+                'Press <kbd>Ctrl</kbd>, <a href="javascript:alert(1)">unsafe</a>, <a href="https://example.com/out">[inner](https://example.com/in)</a>.',
+                '',
+                'Unclosed <b>to the end',
+                '',
+                'Hidden <script>steal()</script> script.',
+                '',
+                '# Title <em>here</em>',
+                '',
+                '| a |',
+                '| --- |',
+                '| <i>cell</i> |',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const rels = parts['word/_rels/document.xml.rels']!
+        // The link holds the words between its tags, Markdown marks and all.
+        const links = body.match(/<w:hyperlink [\s\S]*?<\/w:hyperlink>/g) ?? []
+        expect(links.some((link) => link.includes('>Ada </w:t>') && link.includes('>Lovelace</w:t>'))).toBe(true)
+        expect(runWith(body, 'Lovelace')).toContain('<w:i/>')
+        expect(rels).toContain('Target="https://example.com/ada"')
+        expect(runWith(body, 'bold')).toContain('<w:b/>')
+        expect(runWith(body, 'slanted')).toContain('<w:i/>')
+        expect(runWith(body, 'gone')).toContain('<w:strike/>')
+        expect(runWith(body, 'Ctrl')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, 'to the end')).toContain('<w:b/>')
+        expect(runWith(body, 'here')).toContain('<w:i/>')
+        expect(runWith(body, 'cell')).toContain('<w:i/>')
+        // A link the PDF drops is plain words, and a Markdown link inside an HTML one keeps its own address.
+        expect(body).toContain('>unsafe</w:t>')
+        expect(rels).not.toContain('javascript')
+        expect(rels).toContain('Target="https://example.com/in"')
+        expect(rels).not.toContain('https://example.com/out')
+        // What the PDF drops, a script's text with it, stays out.
+        expect(body).not.toContain('steal')
+        expect(body).not.toContain('&lt;')
+    })
+
     it('aligns Markdown inside a <div align> left open across blocks, and HTML in list items and footnotes (review)', async () => {
         const { parts } = await render(
             [

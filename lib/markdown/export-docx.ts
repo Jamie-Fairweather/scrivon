@@ -49,7 +49,6 @@ import {
 import type { Root as HastRoot, RootContent as HastContent } from 'hast'
 import type {
     Blockquote,
-    Break,
     Code,
     Definition,
     FootnoteDefinition,
@@ -57,12 +56,12 @@ import type {
     Html,
     Image,
     ImageReference,
-    InlineCode,
     Link,
     LinkReference,
     List,
     ListItem,
     Paragraph as MdParagraph,
+    Parent,
     PhrasingContent,
     Root,
     RootContent,
@@ -314,8 +313,11 @@ const HTML_STRIKE_TAGS = new Set(['del', 's', 'strike'])
 const HTML_CODE_TAGS = new Set(['code', 'kbd', 'samp', 'tt'])
 
 type HtmlMarks = { bold?: boolean; italics?: boolean; strike?: boolean; code?: boolean; href?: string }
-/** A piece of a line of raw HTML: some text, a picture, a line break or an anchor, with the marks of the tags around it. */
-type HtmlLeaf = { node: Text | InlineCode | Image | Break | Html; marks: HtmlMarks }
+/**
+ * A piece of a line of raw HTML: some text, a picture, a line break or an anchor, with the marks of the tags around
+ * it. `slot` marks Markdown the tags of a line of text wrap (see {@link inlineHtml}), which is kept as it is.
+ */
+type HtmlLeaf = { node: PhrasingContent; marks: HtmlMarks; slot?: boolean }
 /**
  * A line of raw HTML: a block such as `<p>`, `<summary>` or a table row, and the alignment it asks for. `rule` marks
  * an `<hr>`, and `blank` a line of only line breaks, such as a `<br>` spacer (see {@link visibleHtmlLines}).
@@ -347,12 +349,24 @@ function isTableCell(node: HastContent): boolean {
     return node.type === 'element' && (node.tagName === 'td' || node.tagName === 'th')
 }
 
+/** Whether Markdown is or holds a link. */
+function holdsLink(node: PhrasingContent): boolean {
+    return node.type === 'link' || node.type === 'linkReference' || ('children' in node && node.children.some(holdsLink))
+}
+
+/**
+ * Where the Markdown child at an index stands in the HTML of a line of text (see {@link inlineHtml}), split out with
+ * that index. Private-use characters, which never mean anything to the HTML parser.
+ */
+const SLOT = /(\d+)/
+const SLOT_CHARS = /[]/g
+
 /**
  * The lines of text cleaned HTML shows, as the PDF does, and the marks of the tags around each piece. Every block
  * tag starts a line, and a table row's cells are split by bars as {@link tableAsText} does. Whitespace collapses as
- * in a browser, except in `<pre>`.
+ * in a browser, except in `<pre>`. With `slots`, the {@link SLOT}s in the HTML are those Markdown children.
  */
-function htmlLines(root: HastRoot): HtmlLine[] {
+function htmlLines(root: HastRoot, slots?: PhrasingContent[]): HtmlLine[] {
     const lines: HtmlLine[] = []
     let line: HtmlLine = { leaves: [] }
     const endLine = (align: string | undefined) => {
@@ -364,15 +378,28 @@ function htmlLines(root: HastRoot): HtmlLine[] {
         line.leaves.push({ node: marks.code ? { type: 'inlineCode', value: safe } : { type: 'text', value: safe }, marks })
     }
     const lineBreak = (marks: HtmlMarks) => line.leaves.push({ node: { type: 'break' }, marks })
+    const markdown = (node: PhrasingContent, marks: HtmlMarks) => {
+        // In <code> or <kbd>, text is code. A Markdown link keeps its own address, as one link can't hold another.
+        const shown: PhrasingContent = marks.code && node.type === 'text' ? { type: 'inlineCode', value: node.value } : node
+        line.leaves.push({ node: shown, marks: marks.href !== undefined && holdsLink(node) ? { ...marks, href: undefined } : marks, slot: true })
+    }
     const walk = (nodes: HastContent[], marks: HtmlMarks, align: string | undefined, pre: boolean) => {
         nodes.forEach((node, index) => {
-            if (node.type === 'text' && pre) {
-                node.value.split('\n').forEach((part, at) => {
-                    if (at > 0) lineBreak(marks)
-                    if (part) text(part, { ...marks, code: true })
+            if (node.type === 'text') {
+                const parts = slots ? node.value.split(SLOT) : [node.value]
+                parts.forEach((part, at) => {
+                    const slot = at % 2 === 1 ? slots?.[Number(part)] : undefined
+                    if (slot) {
+                        markdown(slot, marks)
+                    } else if (pre) {
+                        part.split('\n').forEach((piece, start) => {
+                            if (start > 0) lineBreak(marks)
+                            if (piece) text(piece, { ...marks, code: true })
+                        })
+                    } else if (part) {
+                        text(part.replace(/[ \t\n\f\r]+/g, ' '), marks)
+                    }
                 })
-            } else if (node.type === 'text') {
-                text(node.value.replace(/[ \t\n\f\r]+/g, ' '), marks)
             } else if (node.type === 'element') {
                 const tag = node.tagName
                 const { align: own, alt, href, id, name, src } = node.properties
@@ -430,8 +457,8 @@ function visibleHtmlLines(lines: HtmlLine[]): HtmlLine[] {
     return lines.flatMap((line) => {
         const breaks = line.leaves.filter(({ node }) => node.type === 'break')
         const kept = trimHtmlLine(line.leaves)
-        const shown = kept.some(
-            ({ node }) => node.type === 'image' || node.type === 'html' || (node.type !== 'break' && !onlyCollapsibleSpace(node.value))
+        const shown = kept.some(({ node }) =>
+            node.type === 'text' || node.type === 'inlineCode' ? !onlyCollapsibleSpace(node.value) : node.type !== 'break'
         )
         if (shown || line.rule) return [{ ...line, leaves: kept }]
         return breaks.length > 0 ? [{ ...line, blank: true, leaves: [...kept, ...breaks.slice(1)] }] : []
@@ -469,11 +496,14 @@ function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
         const marks = leaves[start]!.marks
         let end = start
         const nodes: PhrasingContent[] = []
+        // Pieces of HTML text run together. Markdown text (a slot) keeps its own node, as it would without the tags.
+        let joins = false
         for (; end < leaves.length && key(leaves[end]!.marks) === key(marks); end += 1) {
-            const node = leaves[end]!.node
+            const { node, slot } = leaves[end]!
             const previous = nodes[nodes.length - 1]
-            if (node.type === 'text' && previous?.type === 'text') previous.value += node.value
+            if (joins && !slot && node.type === 'text' && previous?.type === 'text') previous.value += node.value
             else nodes.push(node)
+            joins = !slot && node.type === 'text'
         }
         let wrapped = nodes
         if (marks.strike) wrapped = [{ type: 'delete', children: wrapped }]
@@ -528,41 +558,58 @@ function openDivs(tree: Root): WeakMap<Html, string> {
 
 /**
  * Swaps raw HTML in `tree` for the Markdown it shows, as the preview and PDF show it: a block becomes a paragraph
- * per line (keeping a `<p align>`'s alignment, or that of a div left open around it: see {@link openDivs}), and a
- * tag in a line its picture or line break. Only tags, comments
- * and what the PDF drops (scripts, styles) are left out. The rest of the Word export then needs no HTML of its own,
- * so the page estimate, pictures, language guess and text direction all count it.
+ * per line (keeping a `<p align>`'s alignment, or that of a div left open around it: see {@link openDivs}), and the
+ * tags in a line of text wrap its words as they ask (see {@link inlineHtml}). Only tags, comments and what the PDF
+ * drops (scripts, styles) are left out. The rest of the Word export then needs no HTML of its own, so the page
+ * estimate, pictures, language guess and text direction all count it.
  */
 function expandHtml(tree: Root): void {
     const cleaned = new Map<string, HastRoot>()
-    const prefixes = openDivs(tree)
-    visit(tree, 'html', (node: Html, index, parent) => {
-        if (!parent || index === undefined) return
-        const value = (prefixes.get(node) ?? '') + node.value
+    const clean = (value: string) => {
         let hast = cleaned.get(value)
         if (!hast) {
             hast = htmlCleaner.runSync({ type: 'root', children: [{ type: 'html', value }] }) as HastRoot
             cleaned.set(value, hast)
         }
-        const lines = htmlLines(hast)
-        // A tag in a line of text holds no words of its own: at most a picture or a line break, kept as they are.
-        const replacement: RootContent[] = HTML_BLOCK_PARENTS.has(parent.type)
-            ? visibleHtmlLines(lines).flatMap((line): RootContent[] => {
-                  const paragraph: MdParagraph = {
-                      type: 'paragraph',
-                      data: line.align ? { hProperties: { align: line.align } } : undefined,
-                      children: htmlPhrasing(line.leaves),
-                  }
-                  if (line.blank) HTML_BLANK_LINES.add(paragraph)
-                  if (!line.rule) return [paragraph]
-                  // An <hr> is a rule, as `---` is. An anchor on it goes in a paragraph before, which hands it to the rule.
-                  return [...(line.leaves.length > 0 ? [paragraph] : []), { type: 'thematicBreak' }]
-              })
-            : lines.flatMap((line) => htmlPhrasing(line.leaves))
+        return hast
+    }
+    const prefixes = openDivs(tree)
+    const textParents = new Set<Parent>()
+    visit(tree, 'html', (node: Html, index, parent) => {
+        if (!parent || index === undefined) return
+        if (!HTML_BLOCK_PARENTS.has(parent.type)) {
+            textParents.add(parent)
+            return
+        }
+        const replacement = visibleHtmlLines(htmlLines(clean((prefixes.get(node) ?? '') + node.value))).flatMap((line): RootContent[] => {
+            const paragraph: MdParagraph = {
+                type: 'paragraph',
+                data: line.align ? { hProperties: { align: line.align } } : undefined,
+                children: htmlPhrasing(line.leaves),
+            }
+            if (line.blank) HTML_BLANK_LINES.add(paragraph)
+            if (!line.rule) return [paragraph]
+            // An <hr> is a rule, as `---` is. An anchor on it goes in a paragraph before, which hands it to the rule.
+            return [...(line.leaves.length > 0 ? [paragraph] : []), { type: 'thematicBreak' }]
+        })
         // The visit goes on after the replacement, so the empty html nodes standing for its anchors stay as they are.
         ;(parent.children as RootContent[]).splice(index, 1, ...replacement)
         return index + replacement.length
     })
+    for (const parent of textParents) {
+        const children = parent.children as PhrasingContent[]
+        children.splice(0, children.length, ...inlineHtml(children, clean))
+    }
+}
+
+/**
+ * A line of text with raw HTML tags in it, as the Markdown it shows. Markdown makes each tag its own node, so
+ * `Made by <a href="…">Ada</a>` is a tag, a word and a closing tag. They are read together, as the PDF reads them,
+ * each Markdown child standing in the HTML as a {@link SLOT}: so the link, `<b>` or `<kbd>` wraps the words between.
+ */
+function inlineHtml(children: PhrasingContent[], clean: (value: string) => HastRoot): PhrasingContent[] {
+    const value = children.map((child, index) => (child.type === 'html' ? child.value.replace(SLOT_CHARS, '') : `${index}`)).join('')
+    return htmlLines(clean(value), children).flatMap((line) => htmlPhrasing(line.leaves))
 }
 
 function escapeXml(text: string): string {
