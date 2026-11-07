@@ -114,9 +114,14 @@ impl ExportImageAccess {
 
     /// Records `path` when `in_scope` allows it, that is, the open dialog has
     /// just added it to the fs scope. Returns whether it was recorded.
+    ///
+    /// Only an image that is there: the fs scope matches a file that isn't
+    /// there yet by its path as written, so a link to another folder inside an
+    /// opened one could name a picture that turns up there later. The scope
+    /// looks an existing file up on disk, so it judges where it really is.
     pub(super) fn remember(&self, path: &str, in_scope: impl Fn(&Path) -> bool) -> bool {
         let path = path.trim();
-        if !is_image_path(path) || !in_scope(Path::new(path)) {
+        if !is_image_path(path) || !Path::new(path).is_file() || !in_scope(Path::new(path)) {
             return false;
         }
         self.remember_all(&[path]);
@@ -325,6 +330,23 @@ mod tests {
     }
 
     #[test]
+    fn never_records_an_image_that_is_not_there_yet() {
+        let temp = TempDir::new("missing");
+        let opened = temp.0.join("opened");
+        std::fs::create_dir_all(&opened).unwrap();
+        // Matched as written, the fs scope takes this for a file in the opened
+        // folder, although a link on its way could lead anywhere.
+        let in_opened = |path: &Path| path.starts_with(&opened);
+        let later = opened.join("x.png").to_string_lossy().into_owned();
+        let access = ExportImageAccess::load(Some(&temp.data()));
+
+        assert!(!access.remember(&later, in_opened));
+        assert_eq!(access.approve(&later, in_opened), Err(NOT_CHOSEN.into()));
+        assert!(access.images.lock().unwrap().is_empty());
+        assert!(!temp.data().join(ACCESS_FILE).exists());
+    }
+
+    #[test]
     fn never_records_or_reads_an_image_whose_path_climbs_out_of_a_chosen_folder() {
         let temp = TempDir::new("climb");
         let opened = temp.0.join("opened");
@@ -451,14 +473,14 @@ mod tests {
 
     #[test]
     fn keeps_the_newest_images_when_the_list_is_full() {
+        let temp = TempDir::new("full");
         let access = ExportImageAccess::default();
-        let dir = std::env::temp_dir();
         for i in 0..MAX_ENTRIES + 5 {
-            let path = dir.join(format!("missing-image-{i}.png"));
-            assert!(access.remember(&path.to_string_lossy(), |_| true));
+            let image = temp.image(&format!("image-{i}.png"));
+            assert!(access.remember(&image, |_| true));
         }
         let images = access.images.lock().unwrap();
         assert_eq!(images.len(), MAX_ENTRIES);
-        assert!(images[0].ends_with(&format!("missing-image-{}.png", MAX_ENTRIES + 4)));
+        assert!(images[0].ends_with(&format!("image-{}.png", MAX_ENTRIES + 4)));
     }
 }
