@@ -37,7 +37,7 @@ import {
 import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
-import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
+import { childrenOf, collectUnreadableFolders, entryNameError, keepUnchangedNodes, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
 import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -86,6 +86,8 @@ const RECOVERED_CHANGES_NOTICE_ID = 'recovered-changes'
 const OPENING_NOTICE_ID = 'opening-folder'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
+/** The least time between two reads of the folder when the window gets focus. */
+const FOCUS_RELOAD_GAP_MS = 5_000
 
 /** The copies of unsaved text kept from earlier; none when they can't be read (they are only a safety net). */
 async function listBackupsSafely(): Promise<UnsavedBackup[]> {
@@ -224,7 +226,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         const read = ++treeRead.current
         try {
             const next = await listWorkspaceTree(workspaceRoot)
-            if (read === treeRead.current) setTree(next)
+            // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
+            if (read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
         } catch (err) {
             notifyError("Couldn't refresh the file list", err)
         }
@@ -238,24 +241,41 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         let disposed = false
         let unlisten: (() => void) | undefined
         let reloading = false
+        let lastReloadEnd = 0
+        let planned: ReturnType<typeof setTimeout> | undefined
         const reload = async () => {
-            // Switching windows quickly mustn't start a new read of a big folder each time.
             if (reloading) return
             reloading = true
             const read = ++treeRead.current
             try {
                 const next = await listWorkspaceTree(root)
-                if (!disposed && read === treeRead.current) setTree(next)
+                // Nothing changed, nothing redraws: the tree shown now is kept as it is.
+                if (!disposed && read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
             } catch {
                 // See above.
             } finally {
                 reloading = false
+                lastReloadEnd = Date.now()
             }
+        }
+        // Alt-tabbing back and forth, or each native dialog closing, mustn't read a big folder again every time: at
+        // most once every few seconds. A focus inside that gap is read once the gap is over, so a change still shows.
+        const onFocus = () => {
+            if (planned !== undefined) return
+            const wait = lastReloadEnd + FOCUS_RELOAD_GAP_MS - Date.now()
+            if (wait <= 0) {
+                void reload()
+                return
+            }
+            planned = setTimeout(() => {
+                planned = undefined
+                if (!disposed) void reload()
+            }, wait)
         }
         try {
             void getCurrentWindow()
                 .onFocusChanged(({ payload: focused }) => {
-                    if (focused) void reload()
+                    if (focused) onFocus()
                 })
                 .then((fn) => {
                     // The effect may have been cleaned up while the listener was still being added.
@@ -268,6 +288,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
         return () => {
             disposed = true
+            clearTimeout(planned)
             unlisten?.()
         }
     }, [isDesktop, workspaceRoot])

@@ -994,6 +994,29 @@ describe('changes made outside Scrivon', () => {
         })
         await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
     })
+
+    it('reads the folder again at most every few seconds on focus, and redraws nothing when nothing changed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        const shown = result.current.session.tree
+        const readsAfterOpen = vi.mocked(readDir).mock.calls.length
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1))
+        expect(result.current.session.tree).toBe(shown)
+
+        // Back again straight away (alt-tab, or a dialog closing): not read again yet.
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1)
+    })
 })
 
 describe('unsaved text kept from a crash', () => {

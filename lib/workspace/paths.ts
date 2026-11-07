@@ -127,6 +127,30 @@ export function collectUnreadableFolders(nodes: FileNode[]): FileNode[] {
     return found
 }
 
+function keepUnchangedNode(old: FileNode, node: FileNode): FileNode {
+    if (old.kind === 'file' || node.kind === 'file') return old.kind === node.kind && old.name === node.name ? old : node
+    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside) return node
+    const children = keepUnchangedNodes(old.children, node.children)
+    return children === old.children ? old : { ...node, children }
+}
+
+/**
+ * A tree read again (`next`), using the nodes of the one shown now (`prev`) wherever nothing changed, and
+ * `prev` itself when nothing changed at all. So reading the folder again after a window focus redraws
+ * nothing when no file was added, removed or renamed, and only the changed folders otherwise.
+ */
+export function keepUnchangedNodes(prev: FileNode[], next: FileNode[]): FileNode[] {
+    const before = new Map(prev.map((node) => [node.path, node]))
+    let same = prev.length === next.length
+    const merged = next.map((node, i) => {
+        const old = before.get(node.path)
+        const kept = old ? keepUnchangedNode(old, node) : node
+        if (kept !== prev[i]) same = false
+        return kept
+    })
+    return same ? prev : merged
+}
+
 export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
     for (const node of nodes) {
         if (samePath(node.path, path)) return node

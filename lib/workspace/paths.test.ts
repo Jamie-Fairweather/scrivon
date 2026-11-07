@@ -8,6 +8,7 @@ import {
     findNameClash,
     findNodeByPath,
     folderLabels,
+    keepUnchangedNodes,
     nameTakenMessage,
     shortenPath,
     uniqueFileName,
@@ -157,6 +158,41 @@ describe('collectUnreadableFolders', () => {
         const tree = [{ kind: 'directory' as const, name: 'docs', path: '/ws/docs', children: [locked] }, ...sampleTree]
         expect(collectUnreadableFolders(tree)).toEqual([locked])
         expect(collectUnreadableFolders(sampleTree)).toEqual([])
+    })
+})
+
+describe('keepUnchangedNodes', () => {
+    const copy = (nodes: FileNode[]): FileNode[] => structuredClone(nodes)
+
+    it('keeps the tree shown now when a new read found no change', () => {
+        expect(keepUnchangedNodes(sampleTree, copy(sampleTree))).toBe(sampleTree)
+    })
+
+    it('keeps unchanged folders and files, and uses the new ones only where something changed', () => {
+        const next = copy(sampleTree)
+        const docs = next[0] as Extract<FileNode, { kind: 'directory' }>
+        docs.children.push({ kind: 'file', name: 'zz.md', path: '/ws/docs/zz.md' })
+
+        const merged = keepUnchangedNodes(sampleTree, next)
+
+        expect(merged).not.toBe(sampleTree)
+        expect(merged).toEqual(next)
+        // root.mmd didn't change; docs did, but its two old files are still the same objects.
+        expect(merged[1]).toBe(sampleTree[1])
+        const mergedDocs = merged[0] as Extract<FileNode, { kind: 'directory' }>
+        const oldDocs = sampleTree[0] as Extract<FileNode, { kind: 'directory' }>
+        expect(mergedDocs).not.toBe(oldDocs)
+        expect(mergedDocs.children[0]).toBe(oldDocs.children[0])
+    })
+
+    it('notices a removed entry, a renamed one and a folder that became unreadable', () => {
+        expect(keepUnchangedNodes(sampleTree, copy(sampleTree).slice(0, 1))).toEqual(sampleTree.slice(0, 1))
+        const renamed = copy(sampleTree)
+        renamed[1] = { kind: 'file', name: 'Root.mmd', path: '/ws/root.mmd' }
+        expect(keepUnchangedNodes(sampleTree, renamed)[1]).toBe(renamed[1])
+        const locked = copy(sampleTree)
+        locked[0] = { kind: 'directory', name: 'docs', path: '/ws/docs', children: [], unreadable: true }
+        expect(keepUnchangedNodes(sampleTree, locked)[0]).toEqual(locked[0])
     })
 })
 
