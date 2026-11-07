@@ -134,7 +134,11 @@ describe('MarkdownPreview', () => {
         // The order MarkdownDocumentViewer finds the blocks in again; the footnote's diagram comes last.
         const sources = extractMermaidBlockSources(source)
         expect(sources).toEqual(['flowchart TD', 'flowchart LR', 'pie'])
-        expect(onExpandBlock.mock.calls).toEqual(sources.map((blockSource, ordinal) => [`doc.md:${ordinal}:mermaid`, ordinal, blockSource]))
+        expect(onExpandBlock.mock.calls).toEqual(sources.map((blockSource, ordinal) => [expect.any(String), ordinal, blockSource]))
+        // Each block has its own id, which doesn't come from its position.
+        const ids = onExpandBlock.mock.calls.map(([blockId]) => blockId as string)
+        expect(new Set(ids).size).toBe(3)
+        expect(ids.every((id) => id.startsWith('doc.md:'))).toBe(true)
     })
 
     it('leaves YAML front matter out, as export does', () => {

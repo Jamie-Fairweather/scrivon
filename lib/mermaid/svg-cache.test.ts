@@ -7,6 +7,7 @@ import {
     readCachedSvg,
     readLatestSvg,
     readRenderError,
+    readSvgForSource,
     startRender,
     storeRenderError,
     storeSvg,
@@ -30,6 +31,14 @@ describe('svg cache', () => {
         expect(readCachedSvg(THEME, 'a.mmd', 'graph LR')).toBeNull()
         expect(readCachedSvg(DARK, 'a.mmd', 'graph TD')).toBeNull()
         expect(readCachedSvg(THEME, 'b.mmd', 'graph TD')).toBeNull()
+    })
+
+    it('finds the same text drawn in another document, in the same theme only (B28)', () => {
+        storeSvg(THEME, 'doc.md:block:doc.md:b1:mermaid', 'graph TD', '<svg viewBox="0 0 10 10">moved</svg>')
+
+        expect(readSvgForSource(THEME, 'graph TD')).toBe('<svg viewBox="0 0 10 10">moved</svg>')
+        expect(readSvgForSource(DARK, 'graph TD')).toBeNull()
+        expect(readSvgForSource(THEME, 'graph LR')).toBeNull()
     })
 
     it('falls back to the newest render of a document, not the oldest', () => {

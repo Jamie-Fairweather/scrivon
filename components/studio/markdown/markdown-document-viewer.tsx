@@ -5,7 +5,7 @@ import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
-import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
+import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
@@ -158,10 +158,10 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         }
         if (located.ordinal === expanded.ordinal && located.source === expanded.source) return
 
-        const blockId = located.ordinal === expanded.ordinal ? expanded.blockId : mermaidBlockId(tabId, located.ordinal)
-        if (blockId !== expanded.blockId && returnFocusRef.current) returnFocusRef.current = { blockId, element: null }
-        setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source, blockId })
-    }, [expanded, liveMermaidSources, setExpanded, tabId])
+        // The block id (and the canvas key made from it) stays: the preview's ids move with their blocks, so the
+        // Expand button to return focus to, and the expanded view's pan and zoom, still belong to this block.
+        setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source })
+    }, [expanded, liveMermaidSources, setExpanded])
 
     const onOverlayKeyDown = useCallback(
         (event: KeyboardEvent<HTMLDivElement>) => {

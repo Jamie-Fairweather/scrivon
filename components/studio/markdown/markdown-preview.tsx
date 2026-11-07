@@ -9,7 +9,13 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
-import { fencedCodeBlockOrdinal, mermaidBlockOrdinal, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
+import {
+    fencedCodeBlockOrdinal,
+    mermaidBlockKey,
+    mermaidBlockOrdinal,
+    rehypeFencedBlockOrdinals,
+    rehypeMermaidBlockIds,
+} from '@/components/studio/markdown/markdown-block-ordinals'
 import { isWebImageUrl, markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
@@ -52,7 +58,6 @@ function remarkHeadingIds() {
 }
 
 const remarkPlugins = [remarkGfm, remarkHeadingIds]
-const rehypePlugins = [rehypeFencedBlockOrdinals]
 
 /** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
 function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
@@ -138,8 +143,9 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
     )
 }
 
-export function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
-    return `${tabId ?? 'none'}:${fallbackIndex}:mermaid`
+/** A diagram's block id: its tab, and the lasting id rehypeMermaidBlockIds gave it, which moves with the block. */
+function mermaidBlockId(tabId: string | null, key: string): string {
+    return `${tabId ?? 'none'}:${key}:mermaid`
 }
 
 function fencedCodeBlockId(tabId: string | null, fallbackIndex: number, lang?: string): string {
@@ -257,7 +263,9 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 const ordinal = mermaidBlockOrdinal(node)
 
                 if (ordinal !== null) {
-                    const blockId = mermaidBlockId(tabId, ordinal)
+                    // Keyed by an id that stays with the block, not its position, so a block never shows the picture
+                    // of the one that was in its place before a block above it was added or removed.
+                    const blockId = mermaidBlockId(tabId, mermaidBlockKey(node) ?? `at-${ordinal}`)
                     return (
                         <EmbeddedMermaidBlock
                             key={blockId}
@@ -283,6 +291,8 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
+    // Per document, so each block's id is matched against the blocks this document showed last time.
+    const rehypePlugins = useMemo(() => [rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')], [tabId])
 
     // Kept as one element so that loading web images (a context change) redraws only the images, without parsing
     // the document again.
@@ -292,7 +302,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 {body}
             </ReactMarkdown>
         ),
-        [body, components]
+        [body, components, rehypePlugins]
     )
 
     const remoteImages = useMemo(() => ({ load: loadRemoteImages, onBlocked: onRemoteImageBlocked }), [loadRemoteImages, onRemoteImageBlocked])

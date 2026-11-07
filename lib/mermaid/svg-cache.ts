@@ -66,6 +66,19 @@ export function readCachedSvg(themeId: string, documentKey: string, trimmedSourc
 }
 
 /**
+ * This exact text's render in this theme, from whichever document has one. The same text always draws the same
+ * picture, so a Markdown block that moved (and so has a new block id) shows its diagram at once instead of
+ * waiting for layout again.
+ */
+export function readSvgForSource(themeId: string, trimmedSource: string): string | null {
+    for (const list of renders.values()) {
+        const render = list.find((entry) => entry.themeId === themeId && entry.source === trimmedSource)
+        if (render) return render.svg
+    }
+    return null
+}
+
+/**
  * What to show while this text is still rendering or doesn't parse. First the same text in
  * another theme (right after a theme change), so the current diagram stays up. Otherwise the
  * render in this theme the user saw or asked for last, or failing that the newest in any theme.
