@@ -388,6 +388,23 @@ describe('CodeEditorPanel models', () => {
         expect(updateTabContent).toHaveBeenLastCalledWith(v2, 'notes v2!')
     })
 
+    it('does not undo keystrokes the tab has not shown yet', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        act(() => {
+            editor.type('1')
+            editor.type('2')
+        })
+        // A render that has only caught up with the first keystroke.
+        setTabs(view, { tabs: [tab(a, 'A1')], activeTabId: a })
+        expect(editor.getValue()).toBe('A12')
+        setTabs(view, { tabs: [tab(a, 'A12')], activeTabId: a })
+        expect(editor.getValue()).toBe('A12')
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'A12')
+    })
+
     it('puts text reloaded from disk into the editor at once, so a key pressed before the screen draws edits it', async () => {
         const a = '/w/a.md'
         const b = '/w/b.md'
@@ -407,23 +424,6 @@ describe('CodeEditorPanel models', () => {
         // A tab that isn't on screen catches up when it is shown.
         act(() => coordinatorHandlers.replaceEditorText!(b, 'B from disk'))
         expect(editor.getValue()).toBe('their text!')
-    })
-
-    it('does not undo keystrokes the tab has not shown yet', async () => {
-        const a = '/w/a.md'
-        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
-        const { view, editor } = await mountEditor()
-
-        act(() => {
-            editor.type('1')
-            editor.type('2')
-        })
-        // A render that has only caught up with the first keystroke.
-        setTabs(view, { tabs: [tab(a, 'A1')], activeTabId: a })
-        expect(editor.getValue()).toBe('A12')
-        setTabs(view, { tabs: [tab(a, 'A12')], activeTabId: a })
-        expect(editor.getValue()).toBe('A12')
-        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'A12')
     })
 })
 
