@@ -15,6 +15,23 @@ describe('compareFileNodes', () => {
     it('sorts same-kind nodes by name', () => {
         expect(compareFileNodes(node('b.mmd', 'file'), node('a.mmd', 'file'))).toBeGreaterThan(0)
     })
+
+    it('sorts numbers in names by their value, like File Explorer', () => {
+        const names = ['chapter10.md', 'chapter2.md', 'Chapter1.md']
+        expect(
+            names
+                .map((name) => node(name, 'file'))
+                .sort(compareFileNodes)
+                .map((n) => n.name)
+        ).toEqual(['Chapter1.md', 'chapter2.md', 'chapter10.md'])
+    })
+
+    it('keeps one order for names that differ only in letter case', () => {
+        expect(compareFileNodes(node('A.md', 'file'), node('a.md', 'file'))).not.toBe(0)
+        expect(Math.sign(compareFileNodes(node('A.md', 'file'), node('a.md', 'file')))).toBe(
+            -Math.sign(compareFileNodes(node('a.md', 'file'), node('A.md', 'file')))
+        )
+    })
 })
 
 describe('joinPath', () => {

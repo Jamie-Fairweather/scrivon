@@ -120,12 +120,16 @@ function createLimit(max: number): Limit {
     }
 }
 
+/** Sorts names as File Explorer does: numbers by value (chapter2 before chapter10), letter case ignored. */
+const nameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+
 function compareEntries(a: FileNode, b: FileNode): number {
     if (a.kind !== b.kind) {
         if (a.kind === 'directory') return -1
         return 1
     }
-    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    // Names that differ only in letter case (possible on Linux) still keep one order.
+    return nameCollator.compare(a.name, b.name) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 }
 
 /**
