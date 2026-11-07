@@ -46,32 +46,42 @@ import {
     type ISectionOptions,
     type ParagraphChild,
 } from 'docx'
+import type { Root as HastRoot, RootContent as HastContent } from 'hast'
 import type {
     Blockquote,
+    Break,
     Code,
     Definition,
     FootnoteDefinition,
     Heading,
+    Html,
     Image,
     ImageReference,
+    InlineCode,
     Link,
     LinkReference,
     List,
     ListItem,
     Paragraph as MdParagraph,
     PhrasingContent,
+    Root,
     RootContent,
     Table as MdTable,
     TableCell as MdTableCell,
     TableRow as MdTableRow,
     Text,
 } from 'mdast'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
+import remarkRehype from 'remark-rehype'
+import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
+import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
@@ -287,6 +297,177 @@ function xmlSafeCopy<T>(value: T): T {
 function xmlSafeDocument(document: ExportDocument): ExportDocument {
     const { assets, ...text } = document
     return { ...xmlSafeCopy(text), assets }
+}
+
+/** Raw HTML read and cleaned as the PDF does it (see renderExportPdf): safe tags kept, comments, scripts and styles dropped. */
+const htmlCleaner = unified().use(remarkRehype, { allowDangerousHtml: true }).use(rehypeRaw).use(rehypeSanitize, exportSanitizeSchema).freeze()
+
+/** Tags that are blocks on the page, so each starts a line of its own in the Word file. */
+const HTML_BLOCK_TAGS = new Set([
+    ...['blockquote', 'caption', 'dd', 'details', 'div', 'dl', 'dt', 'figcaption', 'figure', 'hr', 'li', 'ol', 'p', 'pre', 'section'],
+    ...['summary', 'table', 'tbody', 'tfoot', 'thead', 'tr', 'ul', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+])
+const HTML_BOLD_TAGS = new Set(['b', 'strong', 'summary', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+const HTML_ITALIC_TAGS = new Set(['i', 'em', 'cite', 'dfn', 'var'])
+const HTML_STRIKE_TAGS = new Set(['del', 's', 'strike'])
+const HTML_CODE_TAGS = new Set(['code', 'kbd', 'samp', 'tt'])
+
+type HtmlMarks = { bold?: boolean; italics?: boolean; strike?: boolean; code?: boolean; href?: string }
+/** A piece of a line of raw HTML: some text, a picture or a line break, with the marks of the tags around it. */
+type HtmlLeaf = { node: Text | InlineCode | Image | Break; marks: HtmlMarks }
+/** A line of raw HTML: a block such as `<p>`, `<summary>` or a table row, and the alignment it asks for. */
+type HtmlLine = { align?: string; leaves: HtmlLeaf[] }
+
+function isTableCell(node: HastContent): boolean {
+    return node.type === 'element' && (node.tagName === 'td' || node.tagName === 'th')
+}
+
+/**
+ * The lines of text cleaned HTML shows, as the PDF does, and the marks of the tags around each piece. Every block
+ * tag starts a line, and a table row's cells are split by bars as {@link tableAsText} does. Whitespace collapses as
+ * in a browser, except in `<pre>`.
+ */
+function htmlLines(root: HastRoot): HtmlLine[] {
+    const lines: HtmlLine[] = []
+    let line: HtmlLine = { leaves: [] }
+    const endLine = (align: string | undefined) => {
+        if (line.leaves.length > 0) lines.push(line)
+        line = { align, leaves: [] }
+    }
+    const text = (value: string, marks: HtmlMarks) => {
+        const safe = xmlSafe(value)
+        line.leaves.push({ node: marks.code ? { type: 'inlineCode', value: safe } : { type: 'text', value: safe }, marks })
+    }
+    const lineBreak = (marks: HtmlMarks) => line.leaves.push({ node: { type: 'break' }, marks })
+    const walk = (nodes: HastContent[], marks: HtmlMarks, align: string | undefined, pre: boolean) => {
+        nodes.forEach((node, index) => {
+            if (node.type === 'text' && pre) {
+                node.value.split('\n').forEach((part, at) => {
+                    if (at > 0) lineBreak(marks)
+                    if (part) text(part, { ...marks, code: true })
+                })
+            } else if (node.type === 'text') {
+                text(node.value.replace(/[ \t\n\f\r]+/g, ' '), marks)
+            } else if (node.type === 'element' && node.tagName === 'br') {
+                lineBreak(marks)
+            } else if (node.type === 'element' && node.tagName === 'img') {
+                const { alt, src } = node.properties
+                const description = typeof alt === 'string' ? xmlSafe(alt) : ''
+                if (typeof src === 'string') line.leaves.push({ node: { type: 'image', url: xmlSafe(src), alt: description }, marks })
+                else if (description) text(description, marks)
+            } else if (node.type === 'element') {
+                const tag = node.tagName
+                const { align: own, href } = node.properties
+                const blockAlign = typeof own === 'string' ? own.toLowerCase() : align
+                const block = HTML_BLOCK_TAGS.has(tag)
+                if (block) endLine(blockAlign)
+                if (isTableCell(node) && nodes.slice(0, index).some(isTableCell)) text(' | ', {})
+                const inner: HtmlMarks = {
+                    bold: marks.bold || HTML_BOLD_TAGS.has(tag) || undefined,
+                    italics: marks.italics || HTML_ITALIC_TAGS.has(tag) || undefined,
+                    strike: marks.strike || HTML_STRIKE_TAGS.has(tag) || undefined,
+                    code: marks.code || HTML_CODE_TAGS.has(tag) || undefined,
+                    href: tag === 'a' && typeof href === 'string' ? xmlSafe(href) : marks.href,
+                }
+                walk(node.children, inner, blockAlign, pre || tag === 'pre')
+                if (block) endLine(align)
+            }
+        })
+    }
+    walk(root.children, {}, undefined, false)
+    endLine(undefined)
+    return lines
+}
+
+/** The lines of an HTML block that show something, spaces collapsed across tags. A line of only spaces or breaks is left out. */
+function visibleHtmlLines(lines: HtmlLine[]): HtmlLine[] {
+    return lines.flatMap(({ align, leaves }) => {
+        const kept = trimHtmlLine(leaves)
+        const visible = kept.some(({ node }) => node.type === 'image' || (node.type !== 'break' && node.value.trim() !== ''))
+        return visible ? [{ align, leaves: kept }] : []
+    })
+}
+
+/** A line with its spaces collapsed across tags, as a browser shows it: none at its ends, never two in a row, and no line break at its end. */
+function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
+    let afterSpace = true
+    for (const { node } of leaves) {
+        if (node.type === 'text') {
+            if (afterSpace) node.value = node.value.replace(/^ /, '')
+            if (node.value) afterSpace = node.value.endsWith(' ')
+        } else {
+            afterSpace = node.type === 'break'
+        }
+    }
+    const kept = leaves.filter(({ node }) => node.type !== 'text' || node.value !== '')
+    while (kept.length > 0) {
+        const last = kept[kept.length - 1]!.node
+        if (last.type === 'break') kept.pop()
+        else if (last.type === 'text' && last.value.endsWith(' ')) {
+            last.value = last.value.slice(0, -1)
+            if (!last.value) kept.pop()
+        } else break
+    }
+    return kept
+}
+
+/** The Markdown a line's pieces stand for: runs of the same marks inside one bold, italic, struck-through or link node. */
+function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
+    const phrasing: PhrasingContent[] = []
+    const key = ({ bold, italics, strike, href }: HtmlMarks) => JSON.stringify([bold, italics, strike, href])
+    for (let start = 0; start < leaves.length; ) {
+        const marks = leaves[start]!.marks
+        let end = start
+        const nodes: PhrasingContent[] = []
+        for (; end < leaves.length && key(leaves[end]!.marks) === key(marks); end += 1) {
+            const node = leaves[end]!.node
+            const previous = nodes[nodes.length - 1]
+            if (node.type === 'text' && previous?.type === 'text') previous.value += node.value
+            else nodes.push(node)
+        }
+        let wrapped = nodes
+        if (marks.strike) wrapped = [{ type: 'delete', children: wrapped }]
+        if (marks.italics) wrapped = [{ type: 'emphasis', children: wrapped }]
+        if (marks.bold) wrapped = [{ type: 'strong', children: wrapped }]
+        if (marks.href !== undefined) wrapped = [{ type: 'link', url: marks.href, children: wrapped }]
+        phrasing.push(...wrapped)
+        start = end
+    }
+    return phrasing
+}
+
+/** Where raw HTML is a block of its own. Anywhere else it is a tag inside a line of text. */
+const HTML_BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition'])
+
+/**
+ * Swaps raw HTML in `tree` for the Markdown it shows, as the preview and PDF show it: a block becomes a paragraph
+ * per line (keeping a `<p align>`'s alignment), and a tag in a line its picture or line break. Only tags, comments
+ * and what the PDF drops (scripts, styles) are left out. The rest of the Word export then needs no HTML of its own,
+ * so the page estimate, pictures, language guess and text direction all count it.
+ */
+function expandHtml(tree: Root): void {
+    const cleaned = new Map<string, HastRoot>()
+    visit(tree, 'html', (node: Html, index, parent) => {
+        if (!parent || index === undefined) return
+        let hast = cleaned.get(node.value)
+        if (!hast) {
+            hast = htmlCleaner.runSync({ type: 'root', children: [{ type: 'html', value: node.value }] }) as HastRoot
+            cleaned.set(node.value, hast)
+        }
+        const lines = htmlLines(hast)
+        // A tag in a line of text holds no words of its own: at most a picture or a line break, kept as they are.
+        const replacement: RootContent[] = HTML_BLOCK_PARENTS.has(parent.type)
+            ? visibleHtmlLines(lines).map(
+                  (line): MdParagraph => ({
+                      type: 'paragraph',
+                      data: line.align ? { hProperties: { align: line.align } } : undefined,
+                      children: htmlPhrasing(line.leaves),
+                  })
+              )
+            : lines.flatMap((line) => htmlPhrasing(line.leaves))
+        ;(parent.children as RootContent[]).splice(index, 1, ...replacement)
+        return index + replacement.length
+    })
 }
 
 function escapeXml(text: string): string {
@@ -657,7 +838,7 @@ function errorMessage(err: unknown): string {
 
 type TextNode = { type?: string; value?: string; children?: unknown[] }
 
-/** The words of a node. Raw HTML is left out, as it is everywhere in the Word file. */
+/** The words of a node. Raw HTML is already the Markdown it shows (expandHtml), so any left has no words. */
 function plainText(node: TextNode): string {
     if (node.type === 'html') return ''
     if (typeof node.value === 'string') return node.value
@@ -943,11 +1124,8 @@ function renderInlines(
         } else if (node.type === 'footnoteReference') {
             // Word has no footnotes inside footnotes.
             if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
-        } else if (node.type === 'html') {
-            // Raw HTML is left out, as in the PDF; the words between tags are their own text nodes and stay.
-            // Only a line break tag is kept, since tables use it to break lines in a cell. Comments stay hidden.
-            if (/^<br\s*\/?>$/i.test(node.value.trim())) children.push(new TextRun({ break: 1 }))
         }
+        // Raw HTML was swapped for the Markdown it shows before rendering (expandHtml).
     }
     return children
 }
@@ -1061,12 +1239,20 @@ function paragraphOptions(state: RenderState) {
     }
 }
 
+/** The alignment a paragraph from raw HTML asks for, such as `<p align="center">`, as Word's. Undefined when it asks for none. */
+function htmlAlignment(node: MdParagraph, rtl: boolean) {
+    const align = node.data?.hProperties?.align
+    if (align === 'justify') return AlignmentType.JUSTIFIED
+    return align === 'left' || align === 'center' || align === 'right' ? cellAlignment(align, rtl) : undefined
+}
+
 function renderParagraph(state: RenderState, node: MdParagraph): Paragraph {
     const justify = state.document.profile.typography.justify && state.quoteDepth === 0
+    const rtl = bidi(plainText(node))
     return new Paragraph({
         ...paragraphOptions(state),
-        alignment: justify ? AlignmentType.JUSTIFIED : undefined,
-        bidirectional: bidi(plainText(node)),
+        alignment: htmlAlignment(node, rtl === true) ?? (justify ? AlignmentType.JUSTIFIED : undefined),
+        bidirectional: rtl,
         children: renderInlines(state, node.children, quoteMarks(state)),
     })
 }
@@ -1402,7 +1588,7 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     const blocks: Block[] = []
     for (let index = 0; index < nodes.length; index += 1) {
         const node = nodes[index]!
-        // "First" means nothing has been written yet. Link definitions, footnotes, and raw HTML before it write nothing.
+        // "First" means nothing has been written yet. Link definitions, footnotes, and HTML comments before it write nothing.
         if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && blocks.length === 0))
         else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
@@ -1421,7 +1607,7 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
             const id = footnoteId(state, node.identifier)
             state.footnotes[id] = { children: await renderFootnote(state, node) }
         }
-        // Raw HTML blocks, comments included, are left out, as in the PDF. Link definitions have nothing to show.
+        // Raw HTML is paragraphs by now (expandHtml). Link definitions have nothing to show.
     }
     return blocks
 }
@@ -2234,6 +2420,7 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
 /** Word renderer for an {@link ExportDocument}. */
 export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
     const document = xmlSafeDocument(source)
+    expandHtml(document.tree)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {
         codes.push(node)

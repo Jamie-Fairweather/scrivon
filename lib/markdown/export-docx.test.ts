@@ -410,9 +410,10 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('descr="Diagram"')
         expect(xml).toContain('The note')
         expect(xml).toContain('Beta')
-        // Raw HTML is left out, as in the PDF, but the words between inline tags stay.
+        // Raw HTML shows its words, as in the PDF, but never its tags.
         expect(xml).not.toContain('&lt;div&gt;')
         expect(xml).not.toContain('&lt;span&gt;')
+        expect(xml).toContain('>block</w:t>')
         expect(xml).toContain('>raw</w:t>')
         expect(runWith(body, 'Paragraph with ')).toContain('w:ascii="Segoe UI"')
         // The default mono stack starts with Mac-only fonts. Windows has neither, so Word gets Consolas.
@@ -837,7 +838,7 @@ describe('renderExportDocx', () => {
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
     })
 
-    it('leaves raw HTML and comments out of the Word file, as the PDF does', async () => {
+    it('leaves HTML tags, comments and scripts out of the Word file but keeps the words, as the PDF does', async () => {
         const { xml } = await render(
             [
                 '<!-- TODO: internal pricing notes -->',
@@ -853,15 +854,89 @@ describe('renderExportDocx', () => {
                 'Hidden body.',
                 '',
                 '</details>',
+                '',
+                '<script>',
+                'stealCookies()',
+                '</script>',
+                '',
+                '<style>p { color: red }</style>',
             ].join('\n')
         )
         expect(xml).not.toContain('pricing')
         expect(xml).not.toContain('secret')
+        expect(xml).not.toContain('stealCookies')
+        expect(xml).not.toContain('color: red')
         expect(xml).not.toContain('&lt;')
         // The words around and between tags stay, and <br> still breaks the line in the cell.
         expect(xml).toContain('>Ctrl</w:t>')
         expect(xml).toContain('>Hidden body.</w:t>')
         expect(blockWith(xml, 'split')).toContain('<w:br/>')
+        // A summary is shown, and in bold, as the PDF prints a <details> open.
+        expect(runWith(xml, 'More')).toContain('<w:b/>')
+    })
+
+    it('writes the words, pictures and links of raw HTML blocks, aligned as they ask, as the preview and PDF show them (N38, B29)', async () => {
+        const { parts } = await render(
+            [
+                '<p align="center">Made by <b>Ada</b> &amp; friends</p>',
+                '',
+                '<div align="center">',
+                '  <h1>Scrivon</h1>',
+                `  <img src="${dataUrl('image/png', sizedPng(64, 32))}" alt="Logo">`,
+                '  <a href="https://example.com/ci"><img src="https://example.com/badge.svg" alt="build passing"></a>',
+                '  <p align="right">Right side</p>',
+                '</div>',
+                '',
+                '<table>',
+                '  <tr><th>Key</th><th>Value</th></tr>',
+                '  <tr><td>one</td><td>two   words</td></tr>',
+                '</table>',
+                '',
+                '<pre>line one',
+                '  line two</pre>',
+                '',
+                'Inline <img src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" alt="Icon"> picture.',
+                '',
+                '<div></div>',
+                '',
+                '<p>&#7;Bell</p>',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        expect(body).not.toContain('&lt;')
+        // Words keep their bold, spaces collapse as in a browser, and the alignment carries over.
+        expect(blockWith(body, 'Made by ')).toContain('<w:jc w:val="center"/>')
+        expect(runWith(body, 'Ada')).toContain('<w:b/>')
+        expect(body).toContain('> &amp; friends</w:t>')
+        expect(blockWith(body, 'Scrivon')).toContain('<w:jc w:val="center"/>')
+        expect(runWith(body, 'Scrivon')).toContain('<w:b/>')
+        expect(blockWith(body, 'Right side')).toContain('<w:jc w:val="end"/>')
+        // A data: picture is embedded at its own size; a web one is its alt text, still linked.
+        expect(drawingSize(body, 'Logo')).toEqual({ width: 64, height: 32 })
+        expect(blockWith(body, 'build passing', '<w:hyperlink ')).toBeTruthy()
+        expect(parts['word/_rels/document.xml.rels']).toContain('Target="https://example.com/ci"')
+        // A table row is one line, its cells split by bars, as in a footnote table.
+        expect(runWith(body, 'Key')).toContain('<w:b/>')
+        expect(body).toContain('>one | two words</w:t>')
+        // <pre> keeps its spaces and lines, in the code font.
+        expect(runWith(body, '  line two')).toContain('w:ascii="Consolas"')
+        expect(blockWith(body, '  line two')).toContain('<w:br/>')
+        // A picture Word can't take is its alt text, and an empty block writes nothing, not a blank line.
+        expect(body).toContain('>Icon</w:t>')
+        expect(body.match(/<w:p>/g)).toHaveLength(9)
+        // A character reference XML forbids is dropped, so Word can still open the file.
+        expect(body).toContain('>Bell</w:t>')
+    })
+
+    it('counts raw HTML blocks in the contents page numbers', async () => {
+        const blocks = Array.from({ length: 40 }, (_, index) => [`<p align="center">Line ${index}</p>`, '']).flat()
+        const { xml } = await render(['# Start', '', ...blocks, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        // About 33 lines fit on a page, so End is pushed to the next one.
+        expect(tocPage(xml, 'Start')).toBe(2)
+        expect(tocPage(xml, 'End')).toBe(3)
     })
 
     it('leaves raw HTML and comments in headings off the Contents page too', async () => {
@@ -1796,7 +1871,17 @@ describe('renderExportDocx', () => {
         const svgUtf8 = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
         const svgBase64Utf8 = `data:image/svg+xml;charset=utf-8;base64,${Buffer.from(svgMarkup('width="30" height="10"')).toString('base64')}`
         const { xml, names } = await render(
-            ['# Alpha', '', `![chart](${svgIcon})`, '', `![utf8](${svgUtf8})`, '', `![utf8-base64](${svgBase64Utf8})`].join('\n'),
+            [
+                '# Alpha',
+                '',
+                `![chart](${svgIcon})`,
+                '',
+                `![utf8](${svgUtf8})`,
+                '',
+                `![utf8-base64](${svgBase64Utf8})`,
+                '',
+                `<p align="center"><img src="${svgIcon}" alt="html icon"></p>`,
+            ].join('\n'),
             (draft) => {
                 draft.frontMatter.titlePage = true
                 draft.header.enabled = true
@@ -1813,6 +1898,8 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'chart')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'utf8')).toEqual({ width: 40, height: 20 })
         expect(drawingSize(xml, 'utf8-base64')).toEqual({ width: 30, height: 10 })
+        // A raw HTML <img> is redrawn the same way.
+        expect(drawingSize(xml, 'html icon')).toEqual({ width: 32, height: 16 })
         expect(mediaFiles(names).length).toBeGreaterThanOrEqual(3)
         expect(notifyWarning).not.toHaveBeenCalled()
     })
