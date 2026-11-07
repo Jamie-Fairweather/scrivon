@@ -746,6 +746,34 @@ describe('file system errors', () => {
         expect(notifyError).not.toHaveBeenCalled()
     })
 
+    it('shows a linked folder that leads outside the opened one, and says why it is empty', async () => {
+        const list = disk.list
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'C:\\ws') return [...(await list(dir)), { name: 'shared', isDirectory: false, isFile: false, isSymlink: true }]
+            return list(dir)
+        }) as unknown as typeof readDir)
+        const diskStat = disk.stat
+        vi.mocked(stat).mockImplementation((async (path: string) => {
+            if (path === 'C:\\ws\\shared') throw 'forbidden path: C:\\ws\\shared'
+            return diskStat(path)
+        }) as unknown as typeof stat)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await openWorkspace(result)
+
+        expect(result.current.session.tree.find((node) => node.name === 'shared')).toEqual({
+            kind: 'directory',
+            name: 'shared',
+            path: 'C:\\ws\\shared',
+            children: [],
+            unreadable: true,
+            linksOutside: true,
+        })
+        expect(notifyWarning).toHaveBeenCalledWith("Couldn't open the linked folder shared", {
+            description: "It shows as empty. It links to a folder outside the one you opened, which Scrivon can't open yet.",
+        })
+    })
+
     it('still opens a created file when the file list fails to reload', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)

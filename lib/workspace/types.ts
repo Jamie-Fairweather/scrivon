@@ -8,6 +8,8 @@ export type FileNode =
           children: FileNode[]
           /** The folder couldn't be listed (no permission, or gone while reading), so `children` is empty. */
           unreadable?: true
+          /** It is a link to a folder outside the opened one, which Scrivon can't open yet (also `unreadable`). */
+          linksOutside?: true
       }
     | {
           kind: 'file'

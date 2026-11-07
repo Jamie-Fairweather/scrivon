@@ -97,13 +97,19 @@ async function listBackupsSafely(): Promise<UnsavedBackup[]> {
     }
 }
 
-/** Tells the user which folders show up empty because they couldn't be read (the rest of the folder still opens). */
+/**
+ * Tells the user which folders show up empty because they couldn't be read (the rest of the folder still
+ * opens), and why: no permission, or a link to a folder outside the opened one, which Scrivon can't open yet.
+ */
 function warnAboutUnreadableFolders(tree: FileNode[]) {
     const folders = collectUnreadableFolders(tree)
     if (folders.length === 0) return
+    const links = folders.filter((f) => f.kind === 'directory' && f.linksOutside).length
     if (folders.length === 1) {
-        notifyWarning(`Couldn't read the folder ${folders[0]!.name}`, {
-            description: 'It shows as empty. Scrivon may not have permission to open it.',
+        notifyWarning(links ? `Couldn't open the linked folder ${folders[0]!.name}` : `Couldn't read the folder ${folders[0]!.name}`, {
+            description: links
+                ? "It shows as empty. It links to a folder outside the one you opened, which Scrivon can't open yet."
+                : 'It shows as empty. Scrivon may not have permission to open it.',
         })
         return
     }
@@ -112,9 +118,13 @@ function warnAboutUnreadableFolders(tree: FileNode[]) {
         .map((f) => f.name)
         .join(', ')
     const more = folders.length > 3 ? ` and ${folders.length - 3} more` : ''
-    notifyWarning(`Couldn't read ${folders.length} folders`, {
-        description: `${names}${more} show as empty. Scrivon may not have permission to open them.`,
-    })
+    const why =
+        links === folders.length
+            ? "They link to folders outside the one you opened, which Scrivon can't open yet."
+            : links > 0
+              ? "Scrivon may not have permission to open them, or they link to folders outside the one you opened, which it can't open yet."
+              : 'Scrivon may not have permission to open them.'
+    notifyWarning(`Couldn't read ${folders.length} folders`, { description: `${names}${more} show as empty. ${why}` })
 }
 
 export function useWorkspaceSession(): WorkspaceSessionContextValue {

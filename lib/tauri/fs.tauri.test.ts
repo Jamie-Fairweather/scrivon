@@ -498,6 +498,32 @@ describe('workspace fs (Tauri)', () => {
         expect(statMock).not.toHaveBeenCalledWith('C:\\ws\\shared\\back-to-ws')
     })
 
+    it('keeps links that lead outside the opened folder, marked, instead of dropping them', async () => {
+        const link = (name: string) => ({ name, isDirectory: false, isFile: false, isSymlink: true })
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\Users\\me\\Documents') return [link('shared notes'), link('plan.md'), link('My Videos'), link('node_modules')]
+            throw new Error(`unexpected read of ${dirPath}`)
+        })
+        // How the app refuses a path whose real target is outside the folders it was given.
+        statMock.mockImplementation(async (path: string) => {
+            throw `forbidden path: ${path}`
+        })
+
+        const tree = await listWorkspaceTree('C:\\Users\\me\\Documents')
+
+        expect(tree).toEqual([
+            {
+                kind: 'directory',
+                name: 'shared notes',
+                path: 'C:\\Users\\me\\Documents\\shared notes',
+                children: [],
+                unreadable: true,
+                linksOutside: true,
+            },
+            { kind: 'file', name: 'plan.md', path: 'C:\\Users\\me\\Documents\\plan.md' },
+        ])
+    })
+
     it('still fails when the folder itself cannot be read', async () => {
         readDirMock.mockRejectedValue('The system cannot find the path specified. (os error 3)')
         await expect(listWorkspaceTree('E:\\gone')).rejects.toBe('The system cannot find the path specified. (os error 3)')

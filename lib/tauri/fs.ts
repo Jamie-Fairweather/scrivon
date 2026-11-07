@@ -13,6 +13,7 @@ import {
     type DirEntry,
 } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
+import { isSupportedDocument } from '@/lib/workspace/file-types'
 import { decodeText, DEFAULT_TEXT_FORMAT, encodeText, type DecodedText, type TextFileFormat } from '@/lib/workspace/text-encoding'
 import type { FileNode, FileStamp } from '@/lib/workspace/types'
 
@@ -109,6 +110,11 @@ export function isHiddenFolder(name: string, siblingNames: readonly string[]): b
     return isItsProjectFile ? siblingNames.some((sibling) => isItsProjectFile(sibling.toLowerCase())) : false
 }
 
+/** The text of an error from the app (plugin errors arrive as plain strings). */
+function errorText(err: unknown): string {
+    return err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+}
+
 /** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
 const MAX_PARALLEL_READS = 8
 
@@ -145,17 +151,46 @@ function compareEntries(a: FileNode, b: FileNode): number {
 }
 
 /**
+ * Links Windows itself puts in user folders for old programs ('My Music' in Documents, 'All Users' in
+ * C:\Users). Nobody can list them, and they only lead to folders that have their own place.
+ */
+const WINDOWS_COMPAT_LINKS = new Set([
+    'my music',
+    'my pictures',
+    'my videos',
+    'my documents',
+    'all users',
+    'default user',
+    'application data',
+    'local settings',
+    'documents and settings',
+])
+
+/**
+ * The app may only open what is inside the opened folder, and it checks where a link really leads. So a
+ * link to a folder elsewhere (a shared notes folder on another drive) is refused with this error.
+ */
+const OUTSIDE_OPENED_FOLDER = /forbidden path/i
+
+/**
  * A symlink or junction, as the file or folder it points to. Links inside a linked folder aren't followed,
  * so a link back up the tree can't lead round in a circle. Broken links are left out, and so are linked
  * folders that can't be listed: Windows puts such links in every user folder ('My Music' in Documents).
+ * A link that leads outside the opened folder can't be followed yet; it is kept, empty and marked.
  */
 async function readLink(entry: DirEntry, fullPath: string, siblingNames: string[], limit: Limit, insideLink: boolean): Promise<FileNode | null> {
     if (insideLink) return null
     let target: Awaited<ReturnType<typeof stat>>
     try {
         target = await stat(fullPath)
-    } catch {
-        return null
+    } catch (err) {
+        const name = entry.name
+        if (!OUTSIDE_OPENED_FOLDER.test(errorText(err)) || WINDOWS_COMPAT_LINKS.has(name.toLowerCase()) || isHiddenFolder(name, siblingNames)) {
+            return null
+        }
+        // Without its target, only the name tells a linked document from a linked folder.
+        if (isSupportedDocument(name)) return { kind: 'file', name, path: fullPath }
+        return { kind: 'directory', name, path: fullPath, children: [], unreadable: true, linksOutside: true }
     }
     if (target.isFile) return { kind: 'file', name: entry.name, path: fullPath }
     if (!target.isDirectory || isHiddenFolder(entry.name, siblingNames)) return null
@@ -317,8 +352,7 @@ async function inspectFile(path: string): Promise<FileOnDisk | null> {
 const CANNOT_REPLACE = /\(os error (?:1|5|13|32|33)\)/
 
 function cannotReplace(err: unknown): boolean {
-    const message = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
-    return CANNOT_REPLACE.test(message)
+    return CANNOT_REPLACE.test(errorText(err))
 }
 
 export type WriteWorkspaceFileOptions = {
