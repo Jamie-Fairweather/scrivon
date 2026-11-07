@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { familyName, splitFontStack } from '@/lib/settings/font-stack'
 import { isTauri } from '@/lib/tauri/platform'
 
 export type PdfExportFontOption = {
@@ -61,34 +62,6 @@ const GENERIC_FAMILIES = new Set([
 
 const QUOTED_FAMILY = /^(["'])((?:\\[\s\S]|(?!\1)[^\\])*)\1$/
 const CSS_IDENTIFIER = /^(?:--|-?[_a-zA-Z\u0080-￿])[-_a-zA-Z0-9\u0080-￿]*$/
-
-/** Splits a CSS font-family list on the commas outside quoted names. */
-function splitFontStack(stack: string): string[] {
-    const parts: string[] = []
-    let current = ''
-    let quote: string | null = null
-    for (let index = 0; index < stack.length; index++) {
-        const char = stack[index]!
-        current += char
-        if (quote) {
-            if (char === '\\' && index + 1 < stack.length) current += stack[++index]
-            else if (char === quote) quote = null
-        } else if (char === '"' || char === "'") {
-            quote = char
-        } else if (char === ',') {
-            parts.push(current.slice(0, -1).trim())
-            current = ''
-        }
-    }
-    parts.push(current.trim())
-    return parts.filter(Boolean)
-}
-
-/** One family from a stack as plain text: quotes and escapes removed, spaces collapsed. */
-function familyName(part: string): string {
-    const quoted = QUOTED_FAMILY.exec(part)
-    return (quoted ? quoted[2]!.replace(/\\([\s\S])/g, '$1') : part.replace(/\s+/g, ' ')).trim()
-}
 
 /** One family, unquoted and lower-cased, so different spellings of the same name compare equal. */
 function familyKey(part: string): string {
