@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applySemanticVars, clearSemanticVars, SEMANTIC_VAR_NAMES, tokensToSemanticVars } from './semantic-vars'
+import { applySemanticVars, tokensToSemanticVars } from './semantic-vars'
 import { APP_THEME_IDS } from './catalog'
 import { contrastRatio } from './color-mix'
 import { resolveThemeTokensForId, type ResolvedThemeTokens } from './resolve-theme-tokens'
@@ -13,7 +13,6 @@ const sampleTokens: ResolvedThemeTokens = {
     surface: '#222222',
     line: '#444444',
     textSecondary: '#999999',
-    textFaint: '#666666',
     interactive: '#2a2a2a',
     mutedText: '#aaaaaa',
     lineNumber: '#777777',
@@ -28,9 +27,6 @@ function createStyleRoot() {
         style: {
             setProperty(name: string, value: string) {
                 properties.set(name, value)
-            },
-            removeProperty(name: string) {
-                properties.delete(name)
             },
         },
         properties,
@@ -117,24 +113,5 @@ describe('applySemanticVars', () => {
 
         expect(root.properties.get('--background')).toBe('#111111')
         expect(root.properties.get('--foreground')).toBe('#eeeeee')
-    })
-})
-
-describe('SEMANTIC_VAR_NAMES', () => {
-    it('lists exactly the variables tokensToSemanticVars produces', () => {
-        expect([...SEMANTIC_VAR_NAMES].sort()).toEqual(Object.keys(tokensToSemanticVars(sampleTokens)).sort())
-    })
-})
-
-describe('clearSemanticVars', () => {
-    it('removes semantic variables from the root element', () => {
-        const root = createStyleRoot()
-
-        applySemanticVars(root as unknown as HTMLElement, sampleTokens)
-        clearSemanticVars(root as unknown as HTMLElement)
-
-        for (const name of SEMANTIC_VAR_NAMES) {
-            expect(root.properties.has(name)).toBe(false)
-        }
     })
 })

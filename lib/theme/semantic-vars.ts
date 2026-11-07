@@ -33,37 +33,6 @@ export type SemanticThemeVars = {
     '--code-highlight': string
 }
 
-export const SEMANTIC_VAR_NAMES = [
-    '--background',
-    '--foreground',
-    '--card',
-    '--card-foreground',
-    '--popover',
-    '--popover-foreground',
-    '--primary',
-    '--primary-foreground',
-    '--secondary',
-    '--secondary-foreground',
-    '--muted',
-    '--muted-foreground',
-    '--accent',
-    '--accent-foreground',
-    '--border',
-    '--input',
-    '--ring',
-    '--sidebar',
-    '--sidebar-foreground',
-    '--sidebar-primary',
-    '--sidebar-primary-foreground',
-    '--sidebar-accent',
-    '--sidebar-accent-foreground',
-    '--sidebar-border',
-    '--sidebar-ring',
-    '--code',
-    '--code-foreground',
-    '--code-highlight',
-] as const satisfies readonly (keyof SemanticThemeVars)[]
-
 /** Minimum contrast for text drawn on a hover, selected or highlighted fill (WCAG AA, normal text). */
 const MIN_TEXT_CONTRAST = 4.5
 
@@ -107,11 +76,5 @@ export function applySemanticVars(root: HTMLElement, tokens: ResolvedThemeTokens
     const vars = tokensToSemanticVars(tokens)
     for (const [name, value] of Object.entries(vars)) {
         root.style.setProperty(name, value)
-    }
-}
-
-export function clearSemanticVars(root: HTMLElement) {
-    for (const name of SEMANTIC_VAR_NAMES) {
-        root.style.removeProperty(name)
     }
 }
