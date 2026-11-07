@@ -6,10 +6,12 @@ import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
+import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { Button } from '@/components/ui/button'
+import { Card, CardPanel } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
@@ -72,6 +74,19 @@ function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElemen
         if (block.dataset.mermaidBlockId === blockId) return block.querySelector<HTMLElement>('button')
     }
     return null
+}
+
+/** What the preview shows while the document has nothing to show yet, like the diagram canvas's empty state. */
+function PreviewEmpty() {
+    return (
+        <div className="flex min-h-full items-center justify-center p-4">
+            <Card className="w-full max-w-md">
+                <CardPanel className="p-4">
+                    <p className="text-center text-sm text-muted-foreground">Start writing Markdown to see a preview.</p>
+                </CardPanel>
+            </Card>
+        </div>
+    )
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
@@ -251,6 +266,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
 
+    /** Nothing but spaces, or only front matter, which the preview leaves out. */
+    const previewIsEmpty = useMemo(() => markdownPreviewBody(previewSource).trim() === '', [previewSource])
+
     useEffect(() => {
         if (!expandedKey) return
 
@@ -332,14 +350,18 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     </div>
                 ) : null}
                 <ScrollArea className="min-h-0 w-full flex-1" scrollbarGutter>
-                    <MarkdownPreview
-                        source={previewSource}
-                        tabId={tabId}
-                        onExpandBlock={onExpandBlock}
-                        onLinkClick={onLinkClick}
-                        loadRemoteImages={loadRemoteImages}
-                        onRemoteImageBlocked={onRemoteImageBlocked}
-                    />
+                    {previewIsEmpty ? (
+                        <PreviewEmpty />
+                    ) : (
+                        <MarkdownPreview
+                            source={previewSource}
+                            tabId={tabId}
+                            onExpandBlock={onExpandBlock}
+                            onLinkClick={onLinkClick}
+                            loadRemoteImages={loadRemoteImages}
+                            onRemoteImageBlocked={onRemoteImageBlocked}
+                        />
+                    )}
                 </ScrollArea>
             </div>
             {expanded ? (

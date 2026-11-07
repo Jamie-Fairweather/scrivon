@@ -123,6 +123,34 @@ describe('MarkdownDocumentViewer', () => {
         expect(container.querySelector('h1')).toHaveTextContent('Beta')
     })
 
+    describe('empty document (U81)', () => {
+        const EMPTY_MESSAGE = 'Start writing Markdown to see a preview.'
+
+        it('says how to get a preview instead of showing a blank page', () => {
+            for (const source of ['', '  \n\t\r\n  ', '---\ntitle: Draft\n---\n\n']) {
+                const { container, unmount } = render(viewer(DOC_A, source))
+                expect({ source, shown: screen.queryByText(EMPTY_MESSAGE) !== null }).toEqual({ source, shown: true })
+                expect(container.querySelector('article')).toBeNull()
+                unmount()
+            }
+        })
+
+        it('shows the document in its place once it has content, and the message again when it is cleared', async () => {
+            const { container, rerender } = render(viewer(DOC_A, ''))
+            expect(screen.getByText(EMPTY_MESSAGE)).toBeInTheDocument()
+
+            rerender(viewer(DOC_A, '# Hello'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toHaveTextContent('Hello')
+            expect(screen.queryByText(EMPTY_MESSAGE)).toBeNull()
+
+            rerender(viewer(DOC_A, ' \n'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toBeNull()
+            expect(screen.getByText(EMPTY_MESSAGE)).toBeInTheDocument()
+        })
+    })
+
     it('parses the document once per edit, not again for the text it is about to replace', async () => {
         const { container, rerender } = render(viewer(DOC_A, '# One'))
         await nextFrame()
