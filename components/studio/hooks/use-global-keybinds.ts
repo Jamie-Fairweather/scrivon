@@ -28,6 +28,11 @@ function openModal(): 'none' | 'palette' | 'other' {
     return open.every((element) => element.matches(COMMAND_PALETTE_SELECTOR)) ? 'palette' : 'other'
 }
 
+/** True when the key was pressed inside the open command palette, which keeps focus in its search box. */
+function isInOpenPalette(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest(`${COMMAND_PALETTE_SELECTOR}[data-open]`) !== null
+}
+
 export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHandlers, options: { enabled?: boolean; hasWorkspace?: boolean } = {}) {
     const { enabled = true, hasWorkspace = false } = options
     const handlersRef = useRef(handlers)
@@ -44,7 +49,7 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
             const modal = openModal()
             if (modal === 'other') return
 
-            const actionId = matchKeybind(event, bindings, { hasWorkspace })
+            const actionId = matchKeybind(event, bindings, { hasWorkspace, inPalette: isInOpenPalette(event.target) })
             if (!actionId) return
             if (modal === 'palette' && !getKeybindActionMeta(actionId)?.allowInPalette) return
 

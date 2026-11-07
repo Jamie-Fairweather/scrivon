@@ -201,6 +201,25 @@ describe('matchKeybind', () => {
         })
     })
 
+    describe('in the command palette search box', () => {
+        const input = { tagName: 'INPUT', closest: () => null } as unknown as EventTarget
+
+        it('lets the shortcuts that switch the palette through', () => {
+            expect(matchKeybind(keyEvent('f', { ctrl: true, shift: true }, input), bindings, { inPalette: true })).toBe('palette.openText')
+            expect(matchKeybind(keyEvent('n', { ctrl: true, shift: true }, input), bindings, { inPalette: true })).toBe('palette.openFiles')
+        })
+
+        it('still skips the other shortcuts, and every shortcut when not in the palette', () => {
+            expect(matchKeybind(keyEvent('s', { ctrl: true }, input), bindings, { inPalette: true })).toBeNull()
+            expect(matchKeybind(keyEvent('f', { ctrl: true, shift: true }, input), bindings)).toBeNull()
+        })
+
+        it('never fires a bare key there', () => {
+            const bareKey = { ...bindings, 'palette.openFiles': [{ key: 'n' }] }
+            expect(matchKeybind(keyEvent('n', {}, input), bareKey, { inPalette: true })).toBeNull()
+        })
+    })
+
     it('does not treat non-field targets as native text fields', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true }, {} as EventTarget), bindings)).toBe('document.save')
     })
