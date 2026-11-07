@@ -25,7 +25,7 @@ import {
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
 import { deleteUnsavedBackup, listUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
-import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
+import { addRecentWorkspace, clampRecentWorkspaceLimit, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile } from '@/lib/workspace/file-types'
@@ -33,6 +33,7 @@ import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, u
 import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 
 type WorkspaceSessionContextValue = {
     isDesktop: boolean
@@ -117,6 +118,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     const [tree, setTree] = useState<FileNode[]>([])
     const [recentWorkspaces, setRecentWorkspaces] = useState<string[] | null>(null)
     const hydrated = recentWorkspaces !== null
+    const { settings } = useAppSettings()
+    const maxRecentFolders = clampRecentWorkspaceLimit(settings.workspace.maxRecentFolders)
+    // A lower limit shows straight away. The saved list is cut to it on the next folder open, so typing
+    // '15' into the setting, which passes through '1', can't wipe the list.
+    const visibleRecentWorkspaces = useMemo(() => (recentWorkspaces ?? []).slice(0, maxRecentFolders), [recentWorkspaces, maxRecentFolders])
 
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
 
@@ -330,7 +336,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 coordinator.clearTabs.current()
                 warnAboutUnreadableFolders(nextTree)
                 void leaving?.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
-                void addRecentWorkspace(path)
+                void addRecentWorkspace(path, maxRecentFolders)
                     .then((recents) => {
                         if (isCurrent()) setRecentWorkspaces(recents)
                     })
@@ -349,7 +355,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 }
             }
         },
-        [isDesktop, recentWorkspaces, removeRecent, restoreTabSession, coordinator]
+        [isDesktop, recentWorkspaces, maxRecentFolders, removeRecent, restoreTabSession, coordinator]
     )
 
     useEffect(() => {
@@ -539,7 +545,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceName,
             openingWorkspace,
             tree,
-            recentWorkspaces: recentWorkspaces ?? [],
+            recentWorkspaces: visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,
@@ -561,7 +567,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceName,
             openingWorkspace,
             tree,
-            recentWorkspaces,
+            visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,

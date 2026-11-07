@@ -1,7 +1,6 @@
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
-import { loadSettings } from '@/lib/settings/storage'
 import { normalizePath, samePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 
@@ -12,11 +11,10 @@ const LAST_FILE_PREFIX = 'last-file:'
 const OPEN_TABS_PREFIX = 'open-tabs:'
 const MAX_RECENT_FILES = 20
 
-function getMaxRecentWorkspaces(): number {
-    const raw = loadSettings().workspace.maxRecentFolders
-    const parsed = typeof raw === 'number' ? raw : Number(raw)
-    if (!Number.isFinite(parsed)) return DEFAULT_MAX_RECENT_FOLDERS
-    return Math.min(50, Math.max(1, Math.floor(parsed)))
+/** The recent folders limit from settings, kept to 1-50 like the settings screen allows. */
+export function clampRecentWorkspaceLimit(limit: number): number {
+    if (!Number.isFinite(limit)) return DEFAULT_MAX_RECENT_FOLDERS
+    return Math.min(50, Math.max(1, Math.floor(limit)))
 }
 
 export type WorkspaceTabSession = {
@@ -160,13 +158,14 @@ export async function getRecentWorkspaces(): Promise<string[]> {
     return toPathList(await s.get<unknown>(RECENT_KEY))
 }
 
-export async function addRecentWorkspace(path: string): Promise<string[]> {
+/** Puts a folder first in the recent folders, keeping at most `limit` (the live setting). */
+export async function addRecentWorkspace(path: string, limit: number): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
 
     const current = await getRecentWorkspaces()
     const added = normalizePath(path)
-    const next = [added, ...current.filter((p) => !samePath(p, added))].slice(0, getMaxRecentWorkspaces())
+    const next = [added, ...current.filter((p) => !samePath(p, added))].slice(0, clampRecentWorkspaceLimit(limit))
     await s.set(RECENT_KEY, next)
     await saveStore(s)
     return next

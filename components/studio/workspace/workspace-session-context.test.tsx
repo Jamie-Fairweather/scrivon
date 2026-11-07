@@ -13,7 +13,7 @@ import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './d
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 
-const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 } }))
+const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 }, workspace: { maxRecentFolders: 10 } }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: settingsState, setAutosaveEnabled: vi.fn() }),
@@ -22,6 +22,7 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 vi.mock('@/lib/tauri/store', () => ({
     getRecentWorkspaces: vi.fn(async () => []),
     addRecentWorkspace: vi.fn(async (path: string) => [path]),
+    clampRecentWorkspaceLimit: (limit: number) => limit,
     removeRecentWorkspace: vi.fn(async () => []),
     getWorkspaceTabSession: vi.fn(async () => null),
     setWorkspaceTabSession: vi.fn(async () => undefined),
@@ -1316,5 +1317,39 @@ describe('saves around rename and delete', () => {
         expect(await disk.read('C:\\ws\\renamed.md')).toBe('edited')
         expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
         expect(result.current.tabs.tabs[0]).toMatchObject({ id: 'C:\\ws\\renamed.md', isDirty: false, isSaving: false })
+    })
+})
+
+describe('recent folders', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        settingsState.workspace = { maxRecentFolders: 10 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        mountDisk(createWindowsDisk({ 'C:\\ws\\notes.md': 'mine' }))
+    })
+
+    afterEach(() => {
+        settingsState.workspace = { maxRecentFolders: 10 }
+    })
+
+    it('shows no more folders than the limit as soon as it is lowered, and keeps the rest until a folder is opened', async () => {
+        const saved = ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d', 'C:\\e']
+        vi.mocked(getRecentWorkspaces).mockResolvedValueOnce(saved)
+        const { result, rerender } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.recentWorkspaces).toEqual(saved))
+
+        // Typing '15' into the setting passes through '1'; that mustn't cut the saved list.
+        settingsState.workspace = { maxRecentFolders: 1 }
+        rerender()
+        expect(result.current.session.recentWorkspaces).toEqual(['C:\\a'])
+        settingsState.workspace = { maxRecentFolders: 3 }
+        rerender()
+        expect(result.current.session.recentWorkspaces).toEqual(['C:\\a', 'C:\\b', 'C:\\c'])
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        expect(addRecentWorkspace).toHaveBeenCalledWith('C:\\ws', 3)
     })
 })

@@ -170,7 +170,7 @@ describe('workspace store', () => {
             fake.disk.set('workspace.json', JSON.stringify({ 'recent-workspaces': [null, 'C:\\notes', 7, 'D:\\work'] }))
             const store = await launch()
 
-            expect(await store.addRecentWorkspace('c:/notes')).toEqual(['c:\\notes', 'D:\\work'])
+            expect(await store.addRecentWorkspace('c:/notes', 10)).toEqual(['c:\\notes', 'D:\\work'])
             expect(await store.removeRecentWorkspace('d:\\WORK')).toEqual(['c:\\notes'])
             expect(onDisk('workspace.json')?.['recent-workspaces']).toEqual(['c:\\notes'])
         })
@@ -186,13 +186,32 @@ describe('workspace store', () => {
         })
     })
 
+    describe('the recent folders limit', () => {
+        it('keeps as many folders as the limit it is given', async () => {
+            fake.disk.set('workspace.json', JSON.stringify({ 'recent-workspaces': ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d'] }))
+            const store = await launch()
+
+            expect(await store.addRecentWorkspace('C:\\new', 3)).toEqual(['C:\\new', 'C:\\a', 'C:\\b'])
+            expect(onDisk('workspace.json')?.['recent-workspaces']).toEqual(['C:\\new', 'C:\\a', 'C:\\b'])
+        })
+
+        it('keeps the limit to what the settings screen allows', async () => {
+            const { clampRecentWorkspaceLimit } = await launch()
+
+            expect(clampRecentWorkspaceLimit(0)).toBe(1)
+            expect(clampRecentWorkspaceLimit(3.7)).toBe(3)
+            expect(clampRecentWorkspaceLimit(500)).toBe(50)
+            expect(clampRecentWorkspaceLimit(Number.NaN)).toBe(10)
+        })
+    })
+
     describe('when workspace.json cannot be written', () => {
         it('still updates the lists for this session and says so once', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))
             fake.saveError = 'There is not enough space on the disk. (os error 112)'
             const store = await launch()
 
-            await expect(store.addRecentWorkspace('E:\\new')).resolves.toEqual(['E:\\new', 'C:\\notes', 'D:\\work'])
+            await expect(store.addRecentWorkspace('E:\\new', 10)).resolves.toEqual(['E:\\new', 'C:\\notes', 'D:\\work'])
             await expect(store.setWorkspaceTabSession('E:\\new', { tabIds: [], activeTabId: null })).resolves.toBeUndefined()
             await expect(store.addRecentFile('E:\\new', 'E:\\new\\a.md')).resolves.toEqual(['E:\\new\\a.md'])
 
