@@ -1,6 +1,6 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -43,12 +43,14 @@ function SettingsSectionPanel({ section }: { section: SettingsSection }) {
 }
 
 /** Shown in place of a section that failed to draw (most likely because of a bad saved setting). */
-function SectionCrashNotice() {
+function SectionCrashNotice({ section }: { section: SettingsSection }) {
     return (
         <div role="alert" className="text-sm">
             <p className="font-medium">Couldn&apos;t show this section</p>
             <p className="mt-1 text-muted-foreground">
-                Something went wrong while drawing it. The other sections still work, and Restore defaults can put its settings back.
+                {section === 'pdf-export'
+                    ? "Something went wrong while drawing it. The other sections still work. Restore defaults keeps your export profiles, so it won't fix this one."
+                    : 'Something went wrong while drawing it. The other sections still work, and Restore defaults can put its settings back.'}
             </p>
         </div>
     )
@@ -84,6 +86,8 @@ function SettingsDialogContent() {
     const { settingsOpen, closeSettings, activeSection, setActiveSection, resetAllSettings } = useAppSettings()
     const panelId = useId()
     const titleId = useId()
+    // Bumped by Restore defaults, so a section that failed to draw tries again with the restored settings.
+    const [resetCount, setResetCount] = useState(0)
 
     return (
         <Dialog open={settingsOpen} onOpenChange={(open) => !open && closeSettings()}>
@@ -109,7 +113,7 @@ function SettingsDialogContent() {
                             {getSettingsSectionLabel(activeSection)}
                         </h3>
                         {/* Inside the keyed scroll area, so picking another section tries afresh. */}
-                        <DialogErrorBoundary open={settingsOpen} fallback={<SectionCrashNotice />}>
+                        <DialogErrorBoundary key={resetCount} open={settingsOpen} fallback={<SectionCrashNotice section={activeSection} />}>
                             <SettingsSectionPanel section={activeSection} />
                         </DialogErrorBoundary>
                     </ScrollArea>
@@ -128,7 +132,13 @@ function SettingsDialogContent() {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogClose render={<Button type="button" variant="outline" />}>Cancel</AlertDialogClose>
-                                <AlertDialogClose render={<Button type="button" variant="destructive" />} onClick={() => resetAllSettings()}>
+                                <AlertDialogClose
+                                    render={<Button type="button" variant="destructive" />}
+                                    onClick={() => {
+                                        resetAllSettings()
+                                        setResetCount((count) => count + 1)
+                                    }}
+                                >
                                     Restore defaults
                                 </AlertDialogClose>
                             </AlertDialogFooter>
