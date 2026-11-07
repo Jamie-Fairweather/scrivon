@@ -34,6 +34,8 @@ type ColorPickerContextValue = HslColor & {
     setLightness: (lightness: number) => void
     setAlpha: (alpha: number) => void
     setColor: (color: HslColor) => void
+    /** Marks the end of a change (pointer or key released, an eyedropper pick); `onChangeEnd` then gets the colour if it changed. */
+    endChange: () => void
 }
 
 const ColorPickerContext = createContext<ColorPickerContextValue | undefined>(undefined)
@@ -175,18 +177,29 @@ function colorToHex(color: HslColor): string {
 export type ColorPickerProps = Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> & {
     value?: string
     defaultValue?: string
-    /** Receives the normalised hex (`#rrggbb` or `#rrggbbaa`) whenever the colour changes. */
+    /** Receives the normalised hex (`#rrggbb` or `#rrggbbaa`) whenever the colour changes, including every move of a drag. */
     onChange?: (hex: string) => void
+    /**
+     * Receives the hex once a change ends: the pointer is released, a key that moved a slider or
+     * the square is released (or focus leaves it), or the eyedropper picks a colour. Only called
+     * when the colour really changed. Use it to save, so a drag or a held key saves once.
+     */
+    onChangeEnd?: (hex: string) => void
 }
 
-export function ColorPicker({ value, defaultValue = '#000000', onChange, className, children, ...props }: ColorPickerProps) {
+export function ColorPicker({ value, defaultValue = '#000000', onChange, onChangeEnd, className, children, ...props }: ColorPickerProps) {
     const [color, setColor] = useState(() => hexToHsl(value ?? defaultValue))
     const lastEmittedRef = useRef(colorToHex(color))
+    // Whether the user changed the colour since the last change end (or the last outside value).
+    // A press that changes nothing (a click on a thumb, End at the end) then reports no end, which
+    // matters because the colour shown is the HSL round trip of the value and may differ from it.
+    const changedRef = useRef(false)
 
     const syncFromValue = useEffectEvent((next: string) => {
         const parsed = hexToHsl(next)
         // Remember the round-tripped hex so the emit effect below stays quiet for an external update.
         lastEmittedRef.current = colorToHex(parsed)
+        changedRef.current = false
         setColor(parsed)
     })
 
@@ -200,6 +213,7 @@ export function ColorPicker({ value, defaultValue = '#000000', onChange, classNa
     const emitChange = useEffectEvent((nextHex: string) => {
         if (nextHex === lastEmittedRef.current) return
         lastEmittedRef.current = nextHex
+        changedRef.current = true
         onChange?.(nextHex)
     })
 
@@ -207,16 +221,29 @@ export function ColorPicker({ value, defaultValue = '#000000', onChange, classNa
         emitChange(colorToHex(color))
     }, [color])
 
+    // Counted rather than called straight away, so the end is reported after the render that
+    // applies the last change (an eyedropper pick sets the colour and ends the change in one go).
+    const [changeEnds, setChangeEnds] = useState(0)
+    const endChange = useCallback(() => setChangeEnds((count) => count + 1), [])
+    const emitChangeEnd = useEffectEvent(() => onChangeEnd?.(colorToHex(color)))
+
+    useEffect(() => {
+        if (changeEnds === 0 || !changedRef.current) return
+        changedRef.current = false
+        emitChangeEnd()
+    }, [changeEnds])
+
     const context = useMemo<ColorPickerContextValue>(
         () => ({
             ...color,
             setColor,
+            endChange,
             setHue: (hue) => setColor((current) => ({ ...current, hue })),
             setSaturation: (saturation) => setColor((current) => ({ ...current, saturation })),
             setLightness: (lightness) => setColor((current) => ({ ...current, lightness })),
             setAlpha: (alpha) => setColor((current) => ({ ...current, alpha })),
         }),
-        [color]
+        [color, endChange]
     )
 
     return (
@@ -230,10 +257,15 @@ export function ColorPicker({ value, defaultValue = '#000000', onChange, classNa
 
 export type ColorPickerSelectionProps = HTMLAttributes<HTMLDivElement>
 
+/** Keys that move the point in the colour square. */
+const SELECTION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'])
+/** Keys that move a Base UI slider thumb. */
+const SLIDER_KEYS = new Set([...SELECTION_KEYS, 'PageUp', 'PageDown'])
+
 export const ColorPickerSelection = memo(function ColorPickerSelection({ className, ...props }: ColorPickerSelectionProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const [isDragging, setIsDragging] = useState(false)
-    const { hue, saturation, lightness, setSaturation, setLightness } = useColorPicker()
+    const { hue, saturation, lightness, setSaturation, setLightness, endChange } = useColorPicker()
     // The last point the user picked. Along the black bottom row (and at white) HSL drops the
     // HSV saturation, so rebuilding the thumb from the colour alone would jump it to the left edge.
     const [picked, setPicked] = useState<(SelectionPoint & { saturation: number; lightness: number }) | null>(null)
@@ -256,7 +288,10 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
         [setSaturation, setLightness]
     )
 
-    /** Arrow keys nudge the point (Shift for bigger steps), Home/End jump to the left/right edge. */
+    /**
+     * Arrow keys nudge the point (Shift for bigger steps), Home/End jump to the left/right edge.
+     * The change ends when the key is released, so holding a key down saves once.
+     */
     const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
         const step = event.shiftKey ? 0.1 : 0.01
         let { x, y } = position
@@ -275,17 +310,24 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
         setPicked({ ...point, ...next })
     }
 
+    const onKeyUp = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (SELECTION_KEYS.has(event.key)) endChange()
+    }
+
     useEffect(() => {
         if (!isDragging) return
         const onMove = (event: PointerEvent) => updateFromPointer(event.clientX, event.clientY)
-        const onUp = () => setIsDragging(false)
+        const onUp = () => {
+            setIsDragging(false)
+            endChange()
+        }
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
         return () => {
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
         }
-    }, [isDragging, updateFromPointer])
+    }, [isDragging, updateFromPointer, endChange])
 
     return (
         <div
@@ -304,6 +346,9 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
             )}
             style={{ background: backgroundGradient }}
             onKeyDown={onKeyDown}
+            onKeyUp={onKeyUp}
+            // A key still held when focus leaves never sends its key up here.
+            onBlur={endChange}
             onPointerDown={(event) => {
                 event.preventDefault()
                 setIsDragging(true)
@@ -341,6 +386,7 @@ function ColorSliderTrack({
     unit: string
     'aria-label': string
 }) {
+    const { endChange } = useColorPicker()
     return (
         <SliderPrimitive.Root
             aria-label={ariaLabel}
@@ -351,6 +397,15 @@ function ColorSliderTrack({
             thumbAlignment="edge"
             value={[value]}
             onValueChange={([next]) => onValueChange(next)}
+            // Base UI commits when a drag is released and on every key down, auto-repeat included,
+            // so a key change ends when the key is released instead (or focus leaves mid-press).
+            onValueCommitted={(_next, details) => {
+                if (details.reason !== 'keyboard') endChange()
+            }}
+            onKeyUp={(event) => {
+                if (SLIDER_KEYS.has(event.key)) endChange()
+            }}
+            onBlur={endChange}
         >
             <SliderPrimitive.Control className="flex h-4 w-full touch-none items-center select-none">
                 <SliderPrimitive.Track className="relative h-3 w-full grow rounded-full" data-slot="slider-track" style={style}>
@@ -423,7 +478,7 @@ export type ColorPickerEyeDropperProps = ComponentProps<typeof Button>
 type EyeDropperWindow = { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }
 
 export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDropperProps) {
-    const { alpha, setColor } = useColorPicker()
+    const { alpha, setColor, endChange } = useColorPicker()
     const [supported] = useState(() => isEyeDropperSupported())
 
     if (!supported) return null
@@ -440,6 +495,7 @@ export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDro
                     const result = await new (window as unknown as EyeDropperWindow).EyeDropper().open()
                     // Screen colours are opaque; keep whatever alpha the user had dialled in.
                     setColor({ ...hexToHsl(result.sRGBHex), alpha })
+                    endChange()
                 } catch {
                     // Cancelled or unavailable.
                 }

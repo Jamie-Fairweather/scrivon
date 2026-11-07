@@ -175,11 +175,13 @@ export function normalizePdfExportSettings(raw: unknown): PdfExportSettings {
             : defaults.profiles
 
     // Rename, update and delete find profiles by id, so a repeated id (hand-edited or damaged
-    // storage) would hit several at once. Later copies get a new id; the first keeps it.
+    // storage) would hit several at once. Later copies get a new id; the first keeps it. A new id
+    // is never one another profile saved, so activeProfileId still finds the profile it meant.
+    const stored = new Set(normalized.map((profile) => profile.id))
     const ids = new Set<string>()
     const profiles = normalized.map((profile, index) => {
         let id = profile.id
-        for (let n = index; ids.has(id); n++) id = `${profile.id}-${n}`
+        for (let n = index; ids.has(id) || (id !== profile.id && stored.has(id)); n++) id = `${profile.id}-${n}`
         ids.add(id)
         return id === profile.id ? profile : { ...profile, id }
     })

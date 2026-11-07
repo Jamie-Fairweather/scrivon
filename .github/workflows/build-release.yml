@@ -21,6 +21,19 @@ jobs:
         name: Build Windows installers
         runs-on: windows-latest
         steps:
+            # The tag is typed by hand and reaches every later step, which hold the signing key.
+            # Anything but a release tag stops the run here.
+            - name: Check the tag
+              shell: bash
+              run: |
+                  pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'
+                  if [[ ! "${TAG}" =~ $pattern ]]; then
+                    echo "::error::The tag must be a release tag like v1.2.3 or v1.2.3-rc.1."
+                    exit 1
+                  fi
+              env:
+                  TAG: ${{ inputs.tag }}
+
             - name: Checkout
               uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
               with:
@@ -104,8 +117,9 @@ jobs:
                   else
                     gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false -f make_latest=legacy --silent
                   fi
-                  echo "Published ${{ inputs.tag }}"
+                  echo "Published ${TAG}"
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RELEASE_ID: ${{ steps.gh_release.outputs.id }}
                   PRERELEASE: ${{ steps.gh_release.outputs.prerelease }}
+                  TAG: ${{ inputs.tag }}
