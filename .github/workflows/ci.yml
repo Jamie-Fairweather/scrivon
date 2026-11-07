@@ -36,6 +36,10 @@ jobs:
             - name: Type check
               run: bun run typecheck
 
+            # The Tauri CLI refuses to build when these differ, and nothing else here runs it.
+            - name: Check Tauri npm and crate versions match
+              run: node scripts/check-tauri-versions.mjs
+
             # The build's postbuild step (generate-licenses.mjs) runs `cargo metadata` to list the Rust
             # crates for the licences dialog, which downloads every crate in the Windows build.
             - name: Install Rust stable
