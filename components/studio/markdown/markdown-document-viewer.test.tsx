@@ -524,6 +524,42 @@ describe('MarkdownDocumentViewer', () => {
             expect(notifyInfo).toHaveBeenCalledWith("Couldn't find that section", { description: '#nowhere' })
         })
 
+        describe('back to top (N27)', () => {
+            it('scrolls to the top for #top when nothing has that id, as a browser does', () => {
+                const { container } = render(viewer(DOC_A, '# Intro\n\nText.\n\n[Back to top](#top) [Up](#TOP)'))
+                for (const name of ['Back to top', 'Up']) {
+                    viewport(container).scrollTop = 500
+                    fireEvent.click(screen.getByRole('link', { name }))
+                    expect(viewport(container).scrollTop).toBe(0)
+                }
+                expect(scrollIntoView).not.toHaveBeenCalled()
+                expect(notifyInfo).not.toHaveBeenCalled()
+            })
+
+            it('goes to the document’s own section called Top when it has one', () => {
+                const { container } = render(viewer(DOC_A, '# Intro\n\n## Top\n\n[Back to top](#top)'))
+                viewport(container).scrollTop = 500
+                fireEvent.click(screen.getByRole('link', { name: 'Back to top' }))
+                expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-top')])
+                expect(viewport(container).scrollTop).toBe(500)
+            })
+
+            it('opens a linked document at its top for other.md#top, not where it was last read', () => {
+                workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+                const { container, rerender } = render(viewer(DOC_OTHER, '# Other'))
+                viewport(container).scrollTop = 300
+                fireEvent.scroll(viewport(container))
+
+                rerender(viewer(DOC_A, '[other](docs/other.md#top)'))
+                fireEvent.click(screen.getByRole('link', { name: 'other' }))
+                expect(workspace.openFile).toHaveBeenCalledWith(DOC_OTHER)
+
+                rerender(viewer(DOC_OTHER, '# Other'))
+                expect(viewport(container).scrollTop).toBe(0)
+                expect(notifyInfo).not.toHaveBeenCalled()
+            })
+        })
+
         it('opens linked documents in a tab and then scrolls to their #fragment', () => {
             const { container, rerender } = render(viewer(DOC_A, source))
             fireEvent.click(screen.getByRole('link', { name: 'setup' }))

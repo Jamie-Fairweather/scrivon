@@ -74,6 +74,14 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
     return exactMatch ?? caseMatch ?? keyMatch
 }
 
+/**
+ * Whether a `#fragment` that nothing in the document has means its top, as in a browser: `#top` in any letter case,
+ * as in a README's `[Back to top](#top)`.
+ */
+function isTopOfDocument(id: string): boolean {
+    return id.toLowerCase() === 'top'
+}
+
 /** How long a linked section is held at the top of the preview while the diagrams above it are drawn. */
 const ANCHOR_SETTLE_MS = 1500
 /** What the user does to scroll the preview themselves, which ends that hold. */
@@ -241,7 +249,12 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     useEffect(() => {
         const scrollToAnchor = (id: string) => {
             const target = findAnchorTarget(scrollAreaRef.current, id)
-            if (target) target.scrollIntoView({ block: 'start' })
+            if (target) {
+                target.scrollIntoView({ block: 'start' })
+                return
+            }
+            const viewport = isTopOfDocument(id) ? scrollViewport(scrollAreaRef.current) : null
+            if (viewport) viewport.scrollTop = 0
             else notifyInfo("Couldn't find that section", { description: `#${id}` })
         }
 
@@ -350,6 +363,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                 // Held there while the diagrams above it are drawn, which would push it down or out of view.
                 return holdAnchorInView(root, opened.id)
             }
+            // A link such as `other.md#top`, with nothing in it called that, opens it at the top.
+            if (opened && tabId && isTopOfDocument(opened.id)) scrollTopByTab.delete(tabId)
         }
 
         const scrollTop = (tabId ? scrollTopByTab.get(tabId) : undefined) ?? 0
