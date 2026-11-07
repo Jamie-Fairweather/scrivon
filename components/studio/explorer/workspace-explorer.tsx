@@ -10,6 +10,7 @@ import { useWorkspaceSession } from '@/components/studio/workspace/workspace-pro
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { toggleButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
 const STORAGE_EXPLORER_PANEL = 'mermaid-studio-explorer-panel'
@@ -50,8 +51,9 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
                 <div className="flex items-center justify-center gap-0.5 px-0.5">
                     <IconTooltip label="Files">
                         <Button
-                            variant={panel === 'files' ? 'secondary' : 'ghost'}
+                            variant="ghost"
                             size="icon-sm"
+                            className={toggleButtonClassName}
                             aria-label="Files"
                             aria-pressed={panel === 'files'}
                             onClick={() => setExplorerPanel('files')}
@@ -61,8 +63,9 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
                     </IconTooltip>
                     <IconTooltip label="Examples">
                         <Button
-                            variant={panel === 'examples' ? 'secondary' : 'ghost'}
+                            variant="ghost"
                             size="icon-sm"
+                            className={toggleButtonClassName}
                             aria-label="Examples"
                             aria-pressed={panel === 'examples'}
                             onClick={() => setExplorerPanel('examples')}
