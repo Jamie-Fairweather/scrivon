@@ -468,6 +468,29 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         syncEditorWithActiveTab()
     }, [activeTabId, activeContent, syncEditorWithActiveTab])
 
+    // Text a tab gets from disk (a reload) goes into the editor at once, not when the screen next draws: a
+    // key pressed in between would otherwise edit the old text, and saving that would replace the file's
+    // new version without asking. Only the tab on screen can be typed in; another one catches up when shown.
+    const replaceEditorText = useCallback((tabId: string, text: string) => {
+        const model = editorRef.current?.getModel()
+        const monaco = monacoRef.current
+        if (!model || !monaco || activeTabIdRef.current !== tabId) return
+        // Whatever the editor sent before is based on the old text.
+        unseenEditsRef.current = { tabId: null, texts: [] }
+        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(text)) return
+        suppressChangeRef.current = true
+        try {
+            model.setValue(text)
+        } finally {
+            suppressChangeRef.current = false
+        }
+        applyIndentation(model, tabSizeRef.current)
+    }, [])
+
+    useEffect(() => {
+        registerCoordinatorRefs(coordinator, { replaceEditorText })
+    }, [coordinator, replaceEditorText])
+
     // Free the buffers of tabs that are no longer open.
     useEffect(() => {
         const monaco = monacoRef.current

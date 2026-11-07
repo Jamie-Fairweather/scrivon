@@ -1873,3 +1873,41 @@ describe('changes to several tabs at once', () => {
         expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/a.mmd'], activeTabId: '/ws/a.mmd' })
     })
 })
+
+describe('reloading a file another app changed', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
+
+    afterEach(() => {
+        vi.mocked(readFile).mockReset()
+        vi.mocked(readFile).mockResolvedValue(new Uint8Array())
+        vi.mocked(stat).mockReset()
+        vi.mocked(stat).mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null } as never)
+    })
+
+    it('puts the new text in the editor as the tab takes it, before the screen draws again', async () => {
+        const initial = { tabs: [tab('/ws/a.md', 'a.md', { content: 'mine', disk: { stamp: { mtimeMs: 1, size: 4 } } })], activeTabId: '/ws/a.md' }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const stateOut: { current?: DocumentTabsState } = {}
+        const inTabWhenReplaced: string[] = []
+        coordinator.replaceEditorText.current = vi.fn((id: string) => {
+            inTabWhenReplaced.push(stateOut.current!.tabsRef.current.find((t) => t.id === id)!.content)
+        })
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws', stateOut }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+        vi.mocked(stat).mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 6, mtime: new Date(2), nlink: null } as never)
+        vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode('theirs'))
+
+        await act(async () => {
+            await coordinator.reloadChangedTabs.current()
+        })
+
+        expect(coordinator.replaceEditorText.current).toHaveBeenCalledExactlyOnceWith('/ws/a.md', 'theirs')
+        expect(inTabWhenReplaced).toEqual(['theirs'])
+        expect(result.current.tabs[0]).toMatchObject({ content: 'theirs', isDirty: false, disk: { stamp: { mtimeMs: 2, size: 6 } } })
+    })
+})

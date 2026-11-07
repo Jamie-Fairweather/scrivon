@@ -70,6 +70,11 @@ export type WorkspaceCoordinatorRefs = {
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
     revealInEditor: MutableRefObject<(path: string, line: number, column: number, length?: number) => void>
+    /**
+     * Puts text a tab got from outside the editor (reloaded from disk) into the editor straight away, when
+     * that tab is on screen, so a key pressed before the screen draws again edits the new text.
+     */
+    replaceEditorText: MutableRefObject<(tabId: string, text: string) => void>
     getEditorSelectedText: MutableRefObject<() => string | null>
 }
 
@@ -100,6 +105,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         persistWorkspaceTabSession: { current: async () => {} },
         openFile: { current: async () => {} },
         revealInEditor: { current: () => {} },
+        replaceEditorText: { current: () => {} },
         getEditorSelectedText: { current: () => null },
     }
 }

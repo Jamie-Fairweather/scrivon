@@ -271,8 +271,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                           saveError: undefined,
                       }
                     : t
-            // The ref changes straight away, so a save or restore that runs before React re-renders sees the new text.
+            // The ref and the editor change straight away, so a save, a restore or a key pressed before React
+            // re-renders sees the new text (and the disk version it goes with).
             tabsRef.current = tabsRef.current.map(reloaded)
+            coordinator.replaceEditorText.current(id, fresh.content)
             setTabs((prev) => prev.map(reloaded))
             dismissNotification(readOnlyNoticeId(id))
             // The other app may have saved it in a way Scrivon opens read-only (not UTF-8, say).
@@ -394,7 +396,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 tabsRef.current = [...restored, ...opened.map(withRecovered)]
                 // Merged into the latest state, so a keystroke queued in the same update isn't lost.
                 setTabs((prev) => [...notOpen(prev), ...prev.map(withRecovered)])
-                for (const t of recovered) if (!left.includes(t)) dismissNotification(readOnlyNoticeId(openTab(opened, t.path)!.id))
+                for (const t of recovered) {
+                    if (left.includes(t)) continue
+                    const id = openTab(opened, t.path)!.id
+                    coordinator.replaceEditorText.current(id, t.content)
+                    dismissNotification(readOnlyNoticeId(id))
+                }
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
                 for (const tab of restored) explainReadOnlyFile(tab)
                 return left
