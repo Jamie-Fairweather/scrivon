@@ -1715,6 +1715,33 @@ describe('renderExportDocx', () => {
         expect(body).not.toMatch(/<w:hyperlink [^>]*r:id=/)
     })
 
+    it('keeps a picture in a #heading link just outside the link, which Word would point at nothing (N37)', async () => {
+        // readDocx fails on a picture whose click points at a relationship that doesn't exist.
+        const { parts } = await render(
+            [
+                '# Top',
+                '',
+                `[Back ![up](${PNG_URL}) to the top](#top) and [![ext](${PNG_URL})](https://example.com).`,
+                '',
+                'A note[^n].',
+                '',
+                `[^n]: [![note](${PNG_URL})](#top)`,
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const notes = parts['word/footnotes.xml']!
+        // The pictures are still there, and the words on both sides still go to the heading.
+        expect(body).toContain('descr="up"')
+        expect(notes).toContain('descr="note"')
+        expect(blockWith(body, 'Back ', '<w:hyperlink ')).toContain('w:anchor="_Ref1"')
+        expect(blockWith(body, ' to the top', '<w:hyperlink ')).toContain('w:anchor="_Ref1"')
+        expect(blockWith(body, ' to the top', '<w:hyperlink ')).not.toContain('<w:drawing>')
+        // A picture in a web link keeps its own click, which has its relationship.
+        expect(body.match(/<a:hlinkClick /g)).toHaveLength(2)
+        expect(body).toMatch(/descr="ext"><a:hlinkClick /)
+        expect(notes).not.toContain('hlinkClick')
+    })
+
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
         const { xml } = await render('Body text[^1] here.\n\n| a |\n| --- |\n| cell |\n\n[^1]: The note.', (draft) => {
             draft.header.enabled = true

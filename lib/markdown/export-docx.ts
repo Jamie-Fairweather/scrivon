@@ -979,9 +979,32 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     if (href.startsWith('#')) {
         const fragment = href.slice(1)
         const anchor = (fragment && anchorFor(state, resolveHeadingAnchor(fragment, state.bookmarks))) || TOP_OF_DOCUMENT
-        return [new InternalHyperlink({ anchor, children: inner })]
+        return internalLink(anchor, inner)
     }
     return [new ExternalHyperlink({ link: href, children: inner })]
+}
+
+/**
+ * A link within the document. docx links a picture inside one to a relationship it never writes, which makes Word
+ * call the file unreadable, so each picture sits just outside the link, between the linked words around it.
+ */
+function internalLink(anchor: string, inner: ReturnType<typeof renderInlines>): ReturnType<typeof renderInlines> {
+    const written: ReturnType<typeof renderInlines> = []
+    let linked: ReturnType<typeof renderInlines> = []
+    const closeLink = () => {
+        if (linked.length > 0) written.push(new InternalHyperlink({ anchor, children: linked }))
+        linked = []
+    }
+    for (const child of inner) {
+        if (child instanceof ImageRun) {
+            closeLink()
+            written.push(child)
+        } else {
+            linked.push(child)
+        }
+    }
+    closeLink()
+    return written
 }
 
 /**
