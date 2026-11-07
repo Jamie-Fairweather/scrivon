@@ -465,8 +465,9 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   h6 { margin: 1rem 0 0.5rem; font-size: 0.9em; font-weight: 600; }
   p { margin: 0 0 0.75rem; }
   ${profile.typography.justify ? '.pdf-body > p { text-align: justify; }' : ''}
-  ul, ol { margin: 0 0 0.75rem; padding-inline-start: 1.25rem; }
-  li { margin: 0.25rem 0; word-break: break-word; }
+  /* Each item steps in from its own start side, so a right-to-left item in a left-to-right list keeps its bullet on the page. */
+  ul, ol { margin: 0 0 0.75rem; padding-inline-start: 0; }
+  li { margin: 0.25rem 0; margin-inline-start: 1.25rem; word-break: break-word; }
   blockquote {
     margin: 0 0 0.75rem;
     padding-inline-start: 1rem;

@@ -176,7 +176,11 @@ describe('buildPdfExportCss', () => {
 
     it('indents lists, quotes and TOC levels from the start side, so Arabic and Hebrew indent on the right', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
-        expect(css).toContain('ul, ol { margin: 0 0 0.75rem; padding-inline-start: 1.25rem; }')
+        // The list has no direction of its own, so the indent goes on each item, which has one.
+        expect(css).toContain('ul, ol { margin: 0 0 0.75rem; padding-inline-start: 0; }')
+        expect(css).toContain('li { margin: 0.25rem 0; margin-inline-start: 1.25rem; word-break: break-word; }')
+        // The Contents rows keep no indent of their own.
+        expect(css).toMatch(/\.pdf-toc-list li \{\s*margin: 0;/)
         expect(css).toMatch(/blockquote \{[^}]*padding-inline-start: 1rem;[^}]*border-inline-start: 2px solid #[0-9a-f]+;/i)
         expect(css).not.toMatch(/blockquote \{[^}]*(padding|border)-left/)
         expect(css).toContain('.pdf-toc-l2 a { padding-inline-start: 1rem; }')

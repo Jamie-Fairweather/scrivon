@@ -125,7 +125,7 @@ const HEADING_SPACING = [
     { before: 200, after: 80 },
     { before: 160, after: 80 },
 ] as const
-/** PDF list padding (`padding-inline-start: 1.25rem`) is about this. The marker hangs inside it, not in the page margin. */
+/** PDF list items step in `margin-inline-start: 1.25rem`, about this. The marker hangs inside it, not in the page margin. */
 const LIST_STEP = 360
 /** PDF quotes are `padding-inline-start: 1rem` beside the bar. Each nested quote steps in this far. */
 const QUOTE_STEP = 240
