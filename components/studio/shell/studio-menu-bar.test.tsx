@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
@@ -17,6 +18,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: vi.fn(),
 }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
+vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
 vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOriginal) => ({
@@ -30,7 +32,9 @@ function mockContexts({
     openingWorkspace = null as string | null,
     recentWorkspaces = [] as string[],
     keybinds = createDefaultKeybinds(false) as KeybindBindings,
+    canFitToView = true,
 } = {}) {
+    vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
         isDesktop,
         workspaceRoot,
@@ -155,5 +159,19 @@ describe('StudioMenuBar', () => {
 
         expect(within(view).getByRole('menuitemcheckbox', { name: 'Explorer Ctrl+Alt+B' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Fit Diagram to Screen' })).toBeInTheDocument()
+    })
+})
+
+describe('StudioMenuBar View menu', () => {
+    beforeEach(() => vi.clearAllMocks())
+
+    it('turns off Fit Diagram to Screen when there is no diagram to fit', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', canFitToView: false })
+        render(<StudioMenuBar />)
+
+        await userEvent.setup().click(screen.getByRole('menuitem', { name: 'View' }))
+
+        const fit = within(await screen.findByRole('menu')).getByRole('menuitem', { name: /^Fit Diagram to Screen/ })
+        expect(fit).toHaveAttribute('aria-disabled', 'true')
     })
 })

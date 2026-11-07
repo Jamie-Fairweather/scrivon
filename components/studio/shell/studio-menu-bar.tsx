@@ -6,6 +6,7 @@ import { Check, Loader2 } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
 import { folderLabels } from '@/lib/workspace/paths'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
@@ -78,6 +79,8 @@ export function StudioMenuBar() {
     const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
     const { settings, openSettings } = useAppSettings()
     const { requestCanvasFit } = useCanvasFit()
+    // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
+    const { canFitToView } = useCanvasControls()
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
     const menubarRef = useRef<HTMLDivElement>(null)
@@ -189,7 +192,7 @@ export function StudioMenuBar() {
                                 <MenuHint shortcut={shortcut('view.previewOnly')} />
                             </MenuItem>
                             <MenuSeparator />
-                            <MenuItem onClick={requestCanvasFit}>
+                            <MenuItem disabled={!canFitToView} onClick={requestCanvasFit}>
                                 Fit Diagram to Screen
                                 <MenuHint shortcut={shortcut('view.fitDiagram')} />
                             </MenuItem>

@@ -11,10 +11,14 @@ export type CommandRegistryContext = {
     workspaceRoot: string | null
     recentWorkspaces: string[]
     activeTabId: string | null
+    /** How many tabs are open, examples included. */
+    tabCount: number
     hasDirtyTabs: boolean
     autosaveEnabled: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
+    canFitDiagram: boolean
     keybinds: KeybindBindings
     pickAndOpenWorkspace: () => Promise<void>
     openWorkspace: (path: string) => Promise<void>
@@ -147,8 +151,8 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             searchText: 'fit diagram canvas screen',
             label: 'Fit Diagram to Screen',
             shortcut: shortcut('view.fitDiagram', ctx.keybinds),
-            disabled: !hasWorkspace,
-            disabledReason: 'No folder open',
+            disabled: !hasWorkspace || !ctx.canFitDiagram,
+            disabledReason: hasWorkspace ? 'No diagram to fit' : 'No folder open',
             run: () => ctx.requestCanvasFit(),
         },
         {
@@ -167,8 +171,8 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: 'action:close-other-tabs',
             searchText: 'close other tabs',
             label: 'Close Other Tabs',
-            disabled: !hasActiveTab,
-            disabledReason: 'No tab open',
+            disabled: !hasActiveTab || ctx.tabCount < 2,
+            disabledReason: hasActiveTab ? 'Only one tab open' : 'No tab open',
             run: () => {
                 if (ctx.activeTabId) void ctx.closeOtherTabs(ctx.activeTabId)
             },

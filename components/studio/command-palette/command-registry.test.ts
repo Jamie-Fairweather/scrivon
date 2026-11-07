@@ -14,10 +14,12 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         workspaceRoot: '/ws',
         recentWorkspaces: [],
         activeTabId: '/ws/a.md',
+        tabCount: 2,
         hasDirtyTabs: false,
         autosaveEnabled: true,
         explorerOpen: true,
         editorOpen: true,
+        canFitDiagram: true,
         keybinds: createDefaultSettings(false).keybinds,
         pickAndOpenWorkspace: vi.fn(async () => {}),
         openWorkspace: vi.fn(async () => {}),
@@ -106,6 +108,29 @@ describe('buildCommandRegistry Refresh Explorer', () => {
     it('says why it is off when no folder is open', () => {
         const [refresh] = byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:refresh-explorer')
         expect(refresh).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
+    })
+})
+
+describe('buildCommandRegistry commands that would do nothing', () => {
+    it('turns off Close Other Tabs with only one tab open, and says why', () => {
+        expect(byValue(context({ tabCount: 1 }), 'action:close-other-tabs')[0]).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
+        expect(byValue(context({ tabCount: 0, activeTabId: null }), 'action:close-other-tabs')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No tab open',
+        })
+        expect(byValue(context({ tabCount: 2 }), 'action:close-other-tabs')[0]?.disabled).toBe(false)
+    })
+
+    it('turns off Fit Diagram to Screen when no diagram is drawn, and says why', () => {
+        expect(byValue(context({ canFitDiagram: false }), 'action:fit-diagram')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No diagram to fit',
+        })
+        expect(byValue(context({ workspaceRoot: null, canFitDiagram: false }), 'action:fit-diagram')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No folder open',
+        })
+        expect(byValue(context({ canFitDiagram: true }), 'action:fit-diagram')[0]?.disabled).toBe(false)
     })
 })
 

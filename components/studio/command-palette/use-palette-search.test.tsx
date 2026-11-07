@@ -39,6 +39,7 @@ const state = vi.hoisted(() => ({
     save: { autosaveEnabled: true, setAutosaveEnabled: () => {}, flushSave: async () => true, flushAllSaves: async () => true },
     layout: { layout: { explorerOpen: true, editorOpen: true }, setExplorerOpen: () => {}, setEditorOpen: () => {}, setPreviewOnly: () => {} },
     canvas: { requestCanvasFit: () => {} },
+    canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
     settings: { settings: null as unknown, openSettings: () => {} },
 }))
@@ -49,6 +50,10 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
     useCanvasFit: () => state.canvas,
+}))
+
+vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
+    useCanvasControls: () => state.canvasControls,
 }))
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
@@ -550,5 +555,39 @@ describe('usePaletteSearch Refresh Explorer', () => {
         act(() => void refresh.run())
 
         expect(state.session.refreshTree).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('usePaletteSearch Fit Diagram and Close Other Tabs', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.tabs.tabs = [{ id: '/ws/a.mmd', path: '/ws/a.mmd', name: 'a.mmd', content: '', isDirty: false }]
+        state.tabs.activeTabId = '/ws/a.mmd'
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    function command(result: { current: ReturnType<typeof usePaletteSearch> }, value: string) {
+        const item = result.current.groups.flatMap((group) => group.items).find((i) => i.value === value)
+        if (item?.kind !== 'action') throw new Error(`${value} missing`)
+        return item
+    }
+
+    it('follows whether a diagram is drawn and how many tabs are open', () => {
+        state.canvasControls.canFitToView = false
+        const { result, rerender } = renderHook(() => usePaletteSearch('all', true))
+        act(() => result.current.setQuery('>'))
+
+        expect(command(result, 'action:fit-diagram').disabled).toBe(true)
+        expect(command(result, 'action:close-other-tabs').disabled).toBe(true)
+
+        state.canvasControls.canFitToView = true
+        state.tabs.tabs = [...state.tabs.tabs, { id: '/ws/b.md', path: '/ws/b.md', name: 'b.md', content: '', isDirty: false }]
+        rerender()
+
+        expect(command(result, 'action:fit-diagram').disabled).toBe(false)
+        expect(command(result, 'action:close-other-tabs').disabled).toBe(false)
     })
 })

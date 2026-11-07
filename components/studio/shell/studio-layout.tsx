@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, type FocusEvent } from 'react'
-import { CanvasControlsProvider } from '@/components/studio/canvas/canvas-controls-provider'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
 import { MarkdownExpandProvider } from '@/components/studio/markdown/markdown-expand-context'
@@ -65,39 +64,37 @@ export function StudioLayout() {
     const viewerKind = activeTab ? documentKind(activeTab.name) : null
 
     return (
-        <CanvasControlsProvider>
-            <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden" onFocus={onFocus}>
-                <div className="flex min-h-0 flex-1">
-                    {/* Shown whenever it is switched on, at any window width, so the toggles always match the screen. */}
-                    {layout.explorerOpen && <WorkspaceExplorer />}
+        <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden" onFocus={onFocus}>
+            <div className="flex min-h-0 flex-1">
+                {/* Shown whenever it is switched on, at any window width, so the toggles always match the screen. */}
+                {layout.explorerOpen && <WorkspaceExplorer />}
 
-                    <MarkdownExpandProvider tabId={activeTabId}>
-                        {/* data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
-                            <EditorTabBar />
+                <MarkdownExpandProvider tabId={activeTabId}>
+                    {/* data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
+                        <EditorTabBar />
 
-                            {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
-                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
-                                {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
-                                {editorLayout.hydrated && (
-                                    <CodeEditorPanel
-                                        open={layout.editorOpen}
-                                        width={editorLayout.width}
-                                        onWidthChange={editorLayout.onWidthChange}
-                                        onResetWidth={editorLayout.resetEditorWidth}
-                                    />
-                                )}
+                        {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
+                        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
+                            {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
+                            {editorLayout.hydrated && (
+                                <CodeEditorPanel
+                                    open={layout.editorOpen}
+                                    width={editorLayout.width}
+                                    onWidthChange={editorLayout.onWidthChange}
+                                    onResetWidth={editorLayout.resetEditorWidth}
+                                />
+                            )}
 
-                                {viewerKind === 'markdown' ? (
-                                    <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
-                                ) : (
-                                    <MermaidCanvas source={activeTab?.content ?? ''} />
-                                )}
-                            </div>
+                            {viewerKind === 'markdown' ? (
+                                <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
+                            ) : (
+                                <MermaidCanvas source={activeTab?.content ?? ''} />
+                            )}
                         </div>
-                    </MarkdownExpandProvider>
-                </div>
+                    </div>
+                </MarkdownExpandProvider>
             </div>
-        </CanvasControlsProvider>
+        </div>
     )
 }

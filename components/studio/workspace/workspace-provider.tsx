@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { CanvasControlsProvider } from '@/components/studio/canvas/canvas-controls-provider'
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
 import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { CanvasFitProvider } from '@/components/studio/workspace/canvas-fit-context'
@@ -54,9 +55,12 @@ function WorkspaceInner({
                 <StudioLayoutProvider>
                     <CanvasFitProvider coordinator={coordinator}>
                         <CoordinatorContext.Provider value={coordinator}>
-                            <CommandPaletteProvider coordinator={coordinator}>
-                                <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
-                            </CommandPaletteProvider>
+                            {/* Above the palette and the menu bar, so they can tell when there is a diagram to fit. */}
+                            <CanvasControlsProvider>
+                                <CommandPaletteProvider coordinator={coordinator}>
+                                    <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+                                </CommandPaletteProvider>
+                            </CanvasControlsProvider>
                         </CoordinatorContext.Provider>
                     </CanvasFitProvider>
                 </StudioLayoutProvider>

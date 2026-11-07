@@ -22,6 +22,7 @@ import {
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import {
     useCanvasFit,
@@ -81,6 +82,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
+    const { canFitToView } = useCanvasControls()
     const { themeId, isLight, setThemeId } = useAppTheme()
     const { settings, openSettings } = useAppSettings()
 
@@ -152,10 +154,12 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 workspaceRoot,
                 recentWorkspaces,
                 activeTabId,
+                tabCount: tabs.length,
                 hasDirtyTabs,
                 autosaveEnabled,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                canFitDiagram: canFitToView,
                 keybinds: settings.keybinds,
                 pickAndOpenWorkspace,
                 openWorkspace,
@@ -181,10 +185,12 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             workspaceRoot,
             recentWorkspaces,
             activeTabId,
+            tabs.length,
             hasDirtyTabs,
             autosaveEnabled,
             layout.explorerOpen,
             layout.editorOpen,
+            canFitToView,
             settings.keybinds,
             pickAndOpenWorkspace,
             openWorkspace,
