@@ -337,13 +337,15 @@ export async function getWorkspaceFileSize(path: string): Promise<number | null>
 }
 
 const SAVE_TEMP_FILE = /^\.scrivon-save-[a-z0-9]+\.tmp$/
+/** `<name>~RF<hex>.TMP`, where Windows keeps the old file for a moment while ReplaceFileW puts the new one in place. */
+const REPLACED_FILE = /~RF[0-9a-f]+\.TMP$/i
 
 /**
- * The temporary file a save writes before it replaces the real one (src-tauri/src/atomic_write.rs names it).
- * Left behind only if the app dies mid-save.
+ * The temporary file a save writes before it replaces the real one (src-tauri/src/atomic_write.rs names it),
+ * or the one Windows moves the old file to while it does. Left behind only if the app dies mid-save.
  */
 function isSaveTempFile(name: string): boolean {
-    return SAVE_TEMP_FILE.test(name)
+    return SAVE_TEMP_FILE.test(name) || REPLACED_FILE.test(name)
 }
 
 /**
@@ -600,6 +602,42 @@ export function classifyWatchEvent(root: string, event: WatchEvent): WorkspaceCh
 /** How long changes are gathered before they are reported together (a git checkout touches many files at once). */
 const WATCH_BATCH_MS = 300
 
+/** What one path came to over the changes gathered so far; `either` is for a change that could be an add or a removal. */
+type NetChange = 'added' | 'removed' | 'changed' | 'either'
+
+/**
+ * Adds one event's change to `net`, in order. A file removed and then added again was replaced, which is how
+ * Windows reports a save (the old file is renamed away and the new one renamed in): it counts as changed, so
+ * a save doesn't look like the file list changed. A file added and then removed again counts as nothing.
+ * Paths are compared exactly, so renaming a file to another letter case is still a removal and an addition.
+ */
+function addToNetChange(net: Map<string, NetChange>, change: WorkspaceChange) {
+    const removed = new Set(change.removed)
+    for (const path of change.added) {
+        const before = net.get(path)
+        if (removed.has(path) || before === 'either') net.set(path, 'either')
+        else net.set(path, before === 'removed' || before === 'changed' ? 'changed' : 'added')
+    }
+    for (const path of change.removed) {
+        if (net.get(path) === 'either') continue
+        if (net.get(path) === 'added') net.delete(path)
+        else net.set(path, 'removed')
+    }
+    for (const path of change.changed) {
+        if (!net.has(path)) net.set(path, 'changed')
+    }
+}
+
+function fromNetChange(net: Map<string, NetChange>): WorkspaceChange {
+    const change: WorkspaceChange = { added: [], removed: [], changed: [] }
+    for (const [path, state] of net) {
+        if (state === 'added' || state === 'either') change.added.push(path)
+        if (state === 'removed' || state === 'either') change.removed.push(path)
+        if (state === 'changed') change.changed.push(path)
+    }
+    return change
+}
+
 /**
  * Tells `onChange` about files and folders that change inside `root`, everything in it included, leaving
  * out what classifyWatchEvent drops. Resolves to a function that stops watching; rejects where the folder
@@ -608,13 +646,13 @@ const WATCH_BATCH_MS = 300
 export async function watchWorkspace(root: string, onChange: (change: WorkspaceChange) => void): Promise<() => void> {
     if (!isTauri()) return () => {}
     const base = normalizePath(root)
-    let gathered: WorkspaceChange | null = null
+    let gathered = new Map<string, NetChange>()
     let timer: ReturnType<typeof setTimeout> | undefined
     const report = () => {
         timer = undefined
-        const change = gathered
-        gathered = null
-        if (change) onChange(change)
+        const change = fromNetChange(gathered)
+        gathered = new Map()
+        if (change.added.length + change.removed.length + change.changed.length > 0) onChange(change)
     }
     // Not plugin-fs `watch`: with its delay the plugin first goes through the whole folder, .git and
     // node_modules too, to note every file's ID, which takes a long while in a big folder or a whole drive
@@ -624,20 +662,14 @@ export async function watchWorkspace(root: string, onChange: (change: WorkspaceC
         (event) => {
             const change = classifyWatchEvent(base, event)
             if (!change) return
-            if (gathered) {
-                gathered.added.push(...change.added)
-                gathered.removed.push(...change.removed)
-                gathered.changed.push(...change.changed)
-            } else {
-                gathered = change
-            }
+            addToNetChange(gathered, change)
             timer ??= setTimeout(report, WATCH_BATCH_MS)
         },
         { recursive: true }
     )
     return () => {
         clearTimeout(timer)
-        gathered = null
+        gathered = new Map()
         stop()
     }
 }

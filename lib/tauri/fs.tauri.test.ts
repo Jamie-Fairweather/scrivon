@@ -748,6 +748,9 @@ describe('watching the opened folder', () => {
         const root = 'C:\\ws'
         expect(classifyWatchEvent(root, event({ access: { kind: 'open', mode: 'read' } }, 'C:\\ws\\a.md'))).toBeNull()
         expect(classifyWatchEvent(root, event({ create: { kind: 'any' } }, 'C:\\ws\\.scrivon-save-ab12cd34.tmp'))).toBeNull()
+        // Where Windows keeps the old file for a moment while a save replaces it.
+        expect(classifyWatchEvent(root, event({ create: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))).toBeNull()
+        expect(classifyWatchEvent(root, event({ remove: { kind: 'any' } }, 'C:\\ws\\~RF1a2b.TMP'))).toBeNull()
         expect(classifyWatchEvent(root, event({ modify: { kind: 'any' } }, 'C:\\ws\\.git\\index', 'C:\\ws\\node_modules\\x\\y.js'))).toBeNull()
         // A save renames its temporary file over the real one: only the real one is left.
         expect(
@@ -784,6 +787,64 @@ describe('watching the opened folder', () => {
             vi.advanceTimersByTime(300)
             expect(onChange).toHaveBeenCalledTimes(1)
             expect(unwatch).toHaveBeenCalled()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('reports a save on Windows as a change to the file, not as one file gone and another added', async () => {
+        vi.useFakeTimers()
+        try {
+            watchMock.mockResolvedValue(vi.fn())
+            const onChange = vi.fn()
+            await watchWorkspace('C:\\ws', onChange)
+            const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+            const rename = (mode: 'from' | 'to', path: string) => report(event({ modify: { kind: 'rename', mode } }, path))
+
+            // What Windows reports, one half of each rename at a time, when ReplaceFileW puts a save in place.
+            report(event({ create: { kind: 'any' } }, 'C:\\ws\\.scrivon-save-x1.tmp'))
+            report(event({ create: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))
+            report(event({ remove: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))
+            rename('from', 'C:\\ws\\a.md')
+            rename('to', 'C:\\ws\\a.md~RF506e5bd.TMP')
+            rename('from', 'C:\\ws\\.scrivon-save-x1.tmp')
+            rename('to', 'C:\\ws\\a.md')
+            report(event({ modify: { kind: 'any' } }, 'C:\\ws\\a.md'))
+            report(event({ remove: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))
+            vi.advanceTimersByTime(300)
+
+            expect(onChange).toHaveBeenCalledExactlyOnceWith({ added: [], removed: [], changed: ['C:\\ws\\a.md'] })
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('keeps a rename to another letter case, and leaves out a file that came and went', async () => {
+        vi.useFakeTimers()
+        try {
+            watchMock.mockResolvedValue(vi.fn())
+            const onChange = vi.fn()
+            await watchWorkspace('C:\\ws', onChange)
+            const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+
+            report(event({ modify: { kind: 'rename', mode: 'from' } }, 'C:\\ws\\Notes.md'))
+            report(event({ modify: { kind: 'rename', mode: 'to' } }, 'C:\\ws\\notes.md'))
+            report(event({ create: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            report(event({ remove: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledExactlyOnceWith({ added: ['C:\\ws\\notes.md'], removed: ['C:\\ws\\Notes.md'], changed: [] })
+
+            // Nothing left to report: no call at all.
+            report(event({ create: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            report(event({ remove: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledTimes(1)
+
+            // An event that could be either an add or a removal stays both.
+            report(event('any', 'C:\\ws\\b.md'))
+            report(event({ modify: { kind: 'rename', mode: 'to' } }, 'C:\\ws\\b.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenLastCalledWith({ added: ['C:\\ws\\b.md'], removed: ['C:\\ws\\b.md'], changed: [] })
         } finally {
             vi.useRealTimers()
         }

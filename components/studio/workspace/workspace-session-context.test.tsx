@@ -1418,6 +1418,31 @@ describe('changes made outside Scrivon', () => {
             expect(readDir).toHaveBeenCalledTimes(readsBefore)
         })
 
+        it('takes a save on Windows, reported as the file renamed away and back, as a change, not a new file list', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            const readsBefore = vi.mocked(readDir).mock.calls.length
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+
+            const rename = (mode: 'from' | 'to', path: string) => report!({ type: { modify: { kind: 'rename', mode } }, paths: [path], attrs: null })
+            await act(async () => {
+                report!({ type: { create: { kind: 'any' } }, paths: ['C:\\ws\\notes.md~RF1f2e.TMP'], attrs: null })
+                rename('from', 'C:\\ws\\notes.md')
+                rename('to', 'C:\\ws\\notes.md~RF1f2e.TMP')
+                rename('from', 'C:\\ws\\.scrivon-save-x1.tmp')
+                rename('to', 'C:\\ws\\notes.md')
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+                report!({ type: { remove: { kind: 'any' } }, paths: ['C:\\ws\\notes.md~RF1f2e.TMP'], attrs: null })
+            })
+
+            await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
+            expect(readDir).toHaveBeenCalledTimes(readsBefore)
+            expect(result.current.session.tree.map((n) => n.name)).toEqual(['notes.md'])
+        })
+
         it('still reads the folder on focus where it cannot be watched', async () => {
             vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
