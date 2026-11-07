@@ -45,7 +45,8 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
     revealItemInDir: vi.fn(async () => undefined),
 }))
 
-vi.mock('@/lib/notify', () => ({
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyInfo: vi.fn(() => 'id'),
     notifyError: vi.fn(() => 'id'),
 }))
@@ -146,6 +147,44 @@ describe('MarkdownDocumentViewer', () => {
             await nextFrame()
             expect(container.querySelector('h1')).toBeNull()
             expect(screen.getByText(EMPTY_MESSAGE)).toBeInTheDocument()
+        })
+    })
+
+    describe('a document the preview can’t show (N72)', () => {
+        // Thousands of nested quotes overflow the parser's stack, inside the preview's render.
+        const TOO_DEEP = `${'>'.repeat(5000)} x`
+
+        beforeEach(() => {
+            // React and the boundary both log the caught error.
+            vi.spyOn(console, 'error').mockImplementation(() => {})
+        })
+
+        afterEach(() => vi.restoreAllMocks())
+
+        it('says so in the preview alone, and shows the document again once it is edited', async () => {
+            const { container, rerender } = render(viewer(DOC_A, '# Fine'))
+            const scroller = viewport(container)
+
+            rerender(viewer(DOC_A, TOO_DEEP))
+            await nextFrame()
+            expect(screen.getByText("Couldn't show the preview")).toBeInTheDocument()
+            expect(screen.getByText('Edit the document to try again.')).toBeInTheDocument()
+            expect(viewport(container)).toBe(scroller)
+
+            rerender(viewer(DOC_A, '# Fixed'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toHaveTextContent('Fixed')
+            expect(screen.queryByText("Couldn't show the preview")).toBeNull()
+        })
+
+        it('shows another tab’s document as usual', async () => {
+            workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+            const { container, rerender } = render(viewer(DOC_A, TOO_DEEP))
+            expect(screen.getByText("Couldn't show the preview")).toBeInTheDocument()
+
+            rerender(viewer(DOC_OTHER, '# Other'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toHaveTextContent('Other')
         })
     })
 

@@ -10,6 +10,8 @@ let activeTabId: string | null = null
 let layout: Layout = { explorerOpen: true, editorOpen: true }
 /** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
 const mounts = { editor: 0, canvas: 0 }
+/** A document the (mocked) Markdown preview crashes on. */
+const BROKEN = '> > > (too deep)'
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
@@ -35,7 +37,12 @@ vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
         return <div>Diagram preview</div>
     },
 }))
-vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({ MarkdownDocumentViewer: () => <div>Markdown preview</div> }))
+vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({
+    MarkdownDocumentViewer: ({ source }: { source: string }) => {
+        if (source === BROKEN) throw new Error('Maximum call stack size exceeded')
+        return <div>Markdown preview</div>
+    },
+}))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
@@ -136,6 +143,44 @@ describe('StudioLayout tab switches', () => {
         expect(screen.getByText('Markdown preview')).toBeInTheDocument()
         expect(mounts.canvas).toBe(1)
         expect(mounts.editor).toBe(1)
+    })
+})
+
+describe('StudioLayout when the preview breaks (N72)', () => {
+    beforeEach(() => {
+        // React and the boundary both log the caught error.
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => vi.restoreAllMocks())
+
+    it('shows a notice in the preview’s place and keeps the editor and tabs, then tries again after an edit', () => {
+        tabs = [{ ...tab('/w/a.md'), content: BROKEN }, tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const view = render(<StudioLayout />)
+
+        expect(screen.getByText("Couldn't show this document")).toBeInTheDocument()
+        expect(screen.getByText('Maximum call stack size exceeded')).toBeInTheDocument()
+        expect(screen.getByRole('textbox', { name: 'Editor' })).toBeInTheDocument()
+        expect(screen.getByRole('tab', { name: 'b.md' })).toBeInTheDocument()
+        expect(mounts.editor).toBe(1)
+
+        tabs = [{ ...tab('/w/a.md'), content: '# Fixed' }, tab('/w/b.md')]
+        view.rerender(<StudioLayout />)
+        expect(screen.getByText('Markdown preview')).toBeInTheDocument()
+        expect(screen.queryByText("Couldn't show this document")).toBeNull()
+        expect(mounts.editor).toBe(1)
+    })
+
+    it('shows another tab as usual', () => {
+        tabs = [{ ...tab('/w/a.md'), content: BROKEN }, tab('/w/x.mmd')]
+        activeTabId = '/w/a.md'
+        const view = render(<StudioLayout />)
+        expect(screen.getByText("Couldn't show this document")).toBeInTheDocument()
+
+        activeTabId = '/w/x.mmd'
+        view.rerender(<StudioLayout />)
+        expect(screen.getByText('Diagram preview')).toBeInTheDocument()
     })
 })
 

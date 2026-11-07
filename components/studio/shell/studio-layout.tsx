@@ -9,6 +9,7 @@ import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
+import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { documentKind } from '@/lib/workspace/file-types'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 
@@ -53,6 +54,17 @@ function useKeepFocusInStudio(tabIds: string, explorerOpen: boolean, editorOpen:
     return { rootRef, onFocus }
 }
 
+function viewerCrashNotice(error: Error) {
+    return (
+        <PaneCrashNotice
+            className="min-h-0 min-w-0 flex-1 bg-background"
+            title="Couldn't show this document"
+            error={error}
+            hint="Edit it or switch tabs to try again."
+        />
+    )
+}
+
 export function StudioLayout() {
     const { tabs, activeTab, activeTabId } = useDocumentTabs()
     const { layout } = useStudioLayout()
@@ -86,11 +98,14 @@ export function StudioLayout() {
                                 />
                             )}
 
-                            {viewerKind === 'markdown' ? (
-                                <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
-                            ) : (
-                                <MermaidCanvas source={activeTab?.content ?? ''} />
-                            )}
+                            {/* A view that breaks takes only itself down; the editor and tabs stay usable. */}
+                            <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
+                                {viewerKind === 'markdown' ? (
+                                    <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
+                                ) : (
+                                    <MermaidCanvas source={activeTab?.content ?? ''} />
+                                )}
+                            </PaneErrorBoundary>
                         </div>
                     </div>
                 </MarkdownExpandProvider>

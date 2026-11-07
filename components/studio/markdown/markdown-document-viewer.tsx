@@ -10,6 +10,7 @@ import { markdownPreviewBody } from '@/components/studio/markdown/markdown-previ
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
+import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -93,6 +94,10 @@ function PreviewEmpty() {
             </Card>
         </div>
     )
+}
+
+function previewCrashNotice(error: Error) {
+    return <PaneCrashNotice title="Couldn't show the preview" error={error} hint="Edit the document to try again." />
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
@@ -359,14 +364,17 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     {previewIsEmpty ? (
                         <PreviewEmpty />
                     ) : (
-                        <MarkdownPreview
-                            source={previewSource}
-                            tabId={tabId}
-                            onExpandBlock={onExpandBlock}
-                            onLinkClick={onLinkClick}
-                            loadRemoteImages={loadRemoteImages}
-                            onRemoteImageBlocked={onRemoteImageBlocked}
-                        />
+                        // A document the parser can't take (thousands of nested quotes) breaks only the preview.
+                        <PaneErrorBoundary resetKeys={[tabId, previewSource]} fallback={previewCrashNotice}>
+                            <MarkdownPreview
+                                source={previewSource}
+                                tabId={tabId}
+                                onExpandBlock={onExpandBlock}
+                                onLinkClick={onLinkClick}
+                                loadRemoteImages={loadRemoteImages}
+                                onRemoteImageBlocked={onRemoteImageBlocked}
+                            />
+                        </PaneErrorBoundary>
                     )}
                 </ScrollArea>
             </div>
