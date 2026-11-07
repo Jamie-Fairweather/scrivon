@@ -17,17 +17,32 @@ function stored(): AppSettings {
     return JSON.parse(raw ?? 'null') as AppSettings
 }
 
+/** How many times the settings were written to storage since the provider mounted. */
+let settingsWrites = 0
+
 function renderSettings() {
-    return renderHook(() => useAppSettings(), { wrapper: SettingsProvider })
+    const rendered = renderHook(() => useAppSettings(), { wrapper: SettingsProvider })
+    // Loading writes the settings back once in the current format.
+    settingsWrites = 0
+    return rendered
+}
+
+/** Settings are written a moment after the last change. */
+function waitForSave() {
+    act(() => {
+        vi.advanceTimersByTime(300)
+    })
 }
 
 describe('SettingsProvider persistence', () => {
     beforeEach(() => {
+        vi.useFakeTimers()
         const store = new Map<string, string>()
         // Like a real browser, coerce values to strings (so undefined becomes "undefined").
         vi.stubGlobal('localStorage', {
             getItem: (key: string) => store.get(key) ?? null,
             setItem: (key: string, value: unknown) => {
+                if (key === SETTINGS_STORAGE_KEY) settingsWrites += 1
                 store.set(key, String(value))
             },
             removeItem: (key: string) => {
@@ -37,7 +52,9 @@ describe('SettingsProvider persistence', () => {
     })
 
     afterEach(() => {
+        vi.useRealTimers()
         vi.unstubAllGlobals()
+        vi.restoreAllMocks()
     })
 
     it('saves both of two updates made back to back', () => {
@@ -47,6 +64,7 @@ describe('SettingsProvider persistence', () => {
             result.current.setLayoutExplorerOpen(false)
             result.current.setLayoutEditorOpen(false)
         })
+        waitForSave()
 
         expect(stored().layout).toMatchObject({ explorerOpen: false, editorOpen: false })
         expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
@@ -64,6 +82,7 @@ describe('SettingsProvider persistence', () => {
         act(() => {
             result.current.setEditorWidth(640)
         })
+        waitForSave()
 
         expect(stored().editor.fontSize).toBe(20)
         expect(stored().layout.editorWidth).toBe(640)
@@ -78,6 +97,7 @@ describe('SettingsProvider persistence', () => {
         act(() => {
             result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, tabSize: 4 } }))
         })
+        waitForSave()
 
         expect(stored().editor.tabSize).toBe(4)
     })
@@ -186,11 +206,13 @@ describe('SettingsProvider persistence', () => {
         act(() => {
             result.current.setEditorWidth(500)
         })
+        waitForSave()
         expect(stored().keybinds).toEqual({ 'view.toggleExplorer': [{ key: 's', ctrl: true }] })
 
         act(() => {
             result.current.resetKeybind('view.toggleExplorer')
         })
+        waitForSave()
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
         expect(stored().keybinds).toEqual({})
         unmount()
@@ -275,6 +297,93 @@ describe('SettingsProvider persistence', () => {
 
         expect(invoke).toHaveBeenCalledTimes(1)
         expect(invoke).toHaveBeenCalledWith('adopt_export_images', { paths: ['C:/brand/cover.png', 'C:/brand/logo.png'] })
+    })
+
+    it('writes a burst of changes once, shortly after the last one', () => {
+        const { result } = renderSettings()
+
+        for (const width of [500, 510, 520, 530]) {
+            act(() => {
+                result.current.setEditorWidth(width)
+            })
+            act(() => {
+                vi.advanceTimersByTime(100)
+            })
+        }
+        expect(settingsWrites).toBe(0)
+        expect(result.current.settings.layout.editorWidth).toBe(530)
+
+        waitForSave()
+        expect(settingsWrites).toBe(1)
+        expect(stored().layout.editorWidth).toBe(530)
+        waitForSave()
+        expect(settingsWrites).toBe(1)
+    })
+
+    it.each([
+        ['the page is hidden', () => window.dispatchEvent(new Event('pagehide'))],
+        ['the page is about to unload', () => window.dispatchEvent(new Event('beforeunload'))],
+        [
+            'the app is hidden',
+            () => {
+                vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+                document.dispatchEvent(new Event('visibilitychange'))
+            },
+        ],
+    ])('writes a waiting change at once when %s', (_, leave) => {
+        const { result } = renderSettings()
+        act(() => {
+            result.current.setEditorWidth(640)
+        })
+        expect(settingsWrites).toBe(0)
+
+        leave()
+
+        expect(settingsWrites).toBe(1)
+        expect(stored().layout.editorWidth).toBe(640)
+    })
+
+    it('writes a waiting change when the provider unmounts', () => {
+        const { result, unmount } = renderSettings()
+        act(() => {
+            result.current.setEditorWidth(640)
+        })
+
+        unmount()
+
+        expect(settingsWrites).toBe(1)
+        expect(stored().layout.editorWidth).toBe(640)
+    })
+
+    it('writes at once when Settings closes', () => {
+        const { result } = renderSettings()
+        act(() => {
+            result.current.openSettings('editor')
+        })
+        act(() => {
+            result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, tabSize: 4 } }))
+        })
+
+        act(() => {
+            result.current.closeSettings()
+        })
+
+        expect(settingsWrites).toBe(1)
+        expect(stored().editor.tabSize).toBe(4)
+    })
+
+    it('writes at once when all settings are restored to their defaults', () => {
+        const { result } = renderSettings()
+        act(() => {
+            result.current.setEditorWidth(640)
+        })
+
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(settingsWrites).toBe(1)
+        expect(stored().layout.editorWidth).toBe(createDefaultSettings(false).layout.editorWidth)
     })
 
     it('reloads the latest settings after a restart', () => {
