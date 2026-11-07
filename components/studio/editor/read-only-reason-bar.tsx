@@ -1,6 +1,7 @@
 'use client'
 
 import { Lock } from 'lucide-react'
+import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { readOnlyReason } from '@/components/studio/workspace/document-tabs-context'
 import { useDocumentTabActions, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
@@ -25,7 +26,17 @@ export function ReadOnlyReasonBar() {
                 <span className="font-medium">Read-only.</span> {reason.text}
             </p>
             {reason.editLabel ? (
-                <Button type="button" size="xs" variant="outline" onClick={() => makeTabEditable(activeTab.id)}>
+                <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    onClick={() => {
+                        makeTabEditable(activeTab.id)
+                        // The bar (and this button) goes away once the tab can be edited, so the keyboard
+                        // moves to the editor instead of falling to the page.
+                        focusEditorFor(activeTab.path)
+                    }}
+                >
                     {reason.editLabel}
                 </Button>
             ) : null}

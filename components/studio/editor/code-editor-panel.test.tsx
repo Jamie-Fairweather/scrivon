@@ -428,8 +428,16 @@ describe('CodeEditorPanel read-only reason', () => {
         expect(bar).toHaveTextContent("It isn't saved as UTF-8")
         expect(view.container.querySelector('[data-slot="code-editor"]')?.firstElementChild).toBe(bar)
 
+        const editor = editors[0]!
+        expect(editor.focused).toBe(false)
         fireEvent.click(view.getByRole('button', { name: 'Edit as UTF-8' }))
         expect(makeTabEditable).toHaveBeenCalledWith(a)
+
+        // The tab can now be edited, so the bar and the button that had the keyboard are gone; the
+        // keyboard goes to the editor rather than dropping to the page.
+        setTabs(view, { tabs: [tab(a, 'café')], activeTabId: a })
+        expect(view.queryByRole('status')).not.toBeInTheDocument()
+        await waitFor(() => expect(editor.focused).toBe(true))
     })
 
     it('shows no bar for a file that can be edited', async () => {
