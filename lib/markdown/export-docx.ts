@@ -2200,9 +2200,16 @@ function imageTwip(state: RenderState, image: DecodedImage, width: number): numb
     return pxToTwip(bodyImageSize(state, image, measuredPx(state, width)).height)
 }
 
+/**
+ * Height of a paragraph: its text wrapped in `width` twips, a line at a time, since a line break (`<br>` in a table
+ * cell or a raw HTML block, or a Markdown hard break) starts a new one.
+ */
 function paragraphTwip(state: RenderState, node: MdParagraph, width: number): number {
     let image = 0
-    const parts: string[] = []
+    const lines = ['']
+    const add = (text: string) => {
+        lines[lines.length - 1] += text
+    }
     const walk = (nodes: PhrasingContent[]) => {
         for (const child of nodes) {
             if (child.type === 'image' || child.type === 'imageReference') {
@@ -2210,14 +2217,16 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
                 const url = imageUrl(state, child)
                 const decoded = url === undefined ? null : decodeImage(state.images, url)
                 if (decoded) image = Math.max(image, imageTwip(state, decoded, width))
-                else parts.push(imageText(state, child))
-            } else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
+                else add(imageText(state, child))
+            } else if (child.type === 'text' || child.type === 'inlineCode') add(child.value)
+            else if (child.type === 'break') lines.push('')
             else if ('children' in child) walk(child.children)
         }
     }
     walk(node.children)
-    const text = parts.join('')
-    const textHeight = text.trim() ? textBlockTwip(state, text, state.bodyHalfPoints, width, 0, 120) : 120
+    const lineTwip = lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight)
+    const wrapped = lines.reduce((count, text) => count + lineCount(text, state.bodyHalfPoints, width), 0)
+    const textHeight = lines.length > 1 || lines[0]!.trim() ? wrapped * lineTwip + 120 : 120
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
 }
 

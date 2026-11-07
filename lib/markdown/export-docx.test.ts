@@ -961,6 +961,21 @@ describe('renderExportDocx', () => {
         // About 33 lines fit on a page, so End is pushed to the next one.
         expect(tocPage(xml, 'Start')).toBe(2)
         expect(tocPage(xml, 'End')).toBe(3)
+        // Each line of a <pre>, or of a <p> split by <br>, is counted, as each line of a code block is.
+        const lines = Array.from({ length: 80 }, (_, index) => `line ${index}`)
+        const end = async (block: string) =>
+            tocPage(
+                (
+                    await render(['# Start', '', block, '', '# End'].join('\n'), (draft) => {
+                        draft.frontMatter.toc = true
+                        draft.frontMatter.tocExcludeH1 = false
+                    })
+                ).xml,
+                'End'
+            )
+        expect(await end(fence('text', lines.join('\n')))).toBe(4)
+        expect(await end(`<pre>${lines.join('\n')}</pre>`)).toBe(4)
+        expect(await end(`<p>${lines.join('<br>')}</p>`)).toBe(4)
     })
 
     it('leaves raw HTML and comments in headings off the Contents page too', async () => {
@@ -1084,6 +1099,7 @@ describe('renderExportDocx', () => {
                 '| Tall | Other |',
                 '| --- | --- |',
                 `| ${'Many words in one cell. '.repeat(400)} | x |`,
+                `| ${Array.from({ length: 60 }, (_, index) => `item ${index}`).join('<br>')} | y |`,
                 '| after |  |',
             ].join('\n')
         )
@@ -1108,9 +1124,10 @@ describe('renderExportDocx', () => {
         const big = tableRows('Big')
         expect(big).toHaveLength(16)
         expect(big.map((row) => row.includes('<w:keepNext/>'))).toEqual([true, ...Array<boolean>(15).fill(false)])
-        // A row too tall to keep whole may still split, so Word never cuts it off.
+        // A row too tall to keep whole may still split, so Word never cuts it off: long text, or many short lines
+        // split by <br>, each a line of its own.
         const tall = tableRows('Tall')
-        expect(tall.map((row) => row.includes('<w:cantSplit/>'))).toEqual([true, false, true])
+        expect(tall.map((row) => row.includes('<w:cantSplit/>'))).toEqual([true, false, false, true])
     })
 
     it('gives every table row the header column count, as the PDF does', async () => {
