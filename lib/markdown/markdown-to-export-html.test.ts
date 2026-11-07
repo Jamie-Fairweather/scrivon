@@ -532,6 +532,45 @@ SHIKI_FAIL
         expect(html).toContain('<title>Pricing</title>')
     })
 
+    it('prints safe raw HTML as the preview shows it, and drops comments, scripts and handlers (B29)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '# Title',
+                '',
+                'a<br>b, <kbd>Ctrl</kbd>, H<sub>2</sub>O <!-- secret note -->',
+                '',
+                '| Notes |',
+                '| --- |',
+                '| first<br>second |',
+                '',
+                '<details>',
+                '<summary>More</summary>',
+                '',
+                'Hidden until opened.',
+                '',
+                '</details>',
+                '',
+                '<script>alert(1)</script>',
+                '',
+                '<img src="pic.png" onerror="alert(2)" alt="pic"> <a href="javascript:alert(3)">bad</a>',
+            ].join('\n')
+        )
+        expect(html).toContain('a<br>b')
+        expect(html).toContain('first<br>second')
+        expect(html).toContain('<kbd>Ctrl</kbd>')
+        expect(html).toContain('<sub>2</sub>')
+        expect(html).not.toContain('secret note')
+        expect(html).not.toContain('<script')
+        expect(html).not.toContain('alert(')
+        expect(html).toContain('<img src="pic.png" alt="pic">')
+        expect(html).toContain('<a>bad</a>')
+        // A page can't be clicked open, so details print open.
+        expect(html).toMatch(/<details open>\s*<summary>More<\/summary>\s*<p>Hidden until opened\.<\/p>/)
+        // Ids stay as written, so the PDF's own links and Contents page still reach them.
+        expect(html).toContain('<h1 id="title">')
+    })
+
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })

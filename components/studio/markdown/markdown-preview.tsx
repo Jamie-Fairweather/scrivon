@@ -7,6 +7,7 @@ import type { Root } from 'mdast'
 import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { PluggableList } from 'unified'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
 import {
@@ -19,6 +20,7 @@ import {
 import { isWebImageUrl, markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
+import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
@@ -50,7 +52,10 @@ function extractText(children: ReactNode): string {
     return String(children ?? '')
 }
 
-/** Gives headings the same ids PDF and Word export use, so `#section` links have something to jump to. */
+/**
+ * Gives headings the same ids PDF and Word export use, so `#section` links have something to jump to. In the
+ * preview the sanitizer then adds GitHub's `user-content-` prefix (see previewSanitizeSchema).
+ */
 function remarkHeadingIds() {
     return (tree: Root) => {
         collectPdfExportOutline(tree)
@@ -200,6 +205,21 @@ const staticMarkdownComponents: Components = {
         return <blockquote {...rest} className={cn('mb-3 border-l-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
     },
     hr: () => <hr className="my-6 border-border" />,
+    // Raw HTML the sanitizer lets through (see previewSanitizeSchema).
+    kbd: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return (
+            <kbd {...rest} className={cn('rounded border border-border bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground', className)} />
+        )
+    },
+    details: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <details {...rest} className={cn('mb-3 rounded-md border border-border px-3 py-2 text-sm text-foreground/90', className)} />
+    },
+    summary: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <summary {...rest} className={cn('cursor-pointer font-medium text-foreground', className)} />
+    },
     table: ({ children }) => (
         <div className="mb-4 overflow-x-auto rounded-lg border border-border">
             <table className="w-full border-collapse text-sm">{children}</table>
@@ -291,14 +311,24 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
-    // Per document, so each block's id is matched against the blocks this document showed last time.
-    const rehypePlugins = useMemo(() => [rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')], [tabId])
+    // Safe raw HTML first, then the numbering, so the sanitizer can't strip the blocks' data properties. Per
+    // document, so each block's id is matched against the blocks this document showed last time.
+    const rehypePlugins = useMemo(
+        (): PluggableList => [...previewHtmlPlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')],
+        [tabId]
+    )
 
     // Kept as one element so that loading web images (a context change) redraws only the images, without parsing
     // the document again.
     const markdown = useMemo(
         () => (
-            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components} urlTransform={markdownUrlTransform}>
+            <ReactMarkdown
+                remarkPlugins={remarkPlugins}
+                remarkRehypeOptions={previewRemarkRehypeOptions}
+                rehypePlugins={rehypePlugins}
+                components={components}
+                urlTransform={markdownUrlTransform}
+            >
                 {body}
             </ReactMarkdown>
         ),

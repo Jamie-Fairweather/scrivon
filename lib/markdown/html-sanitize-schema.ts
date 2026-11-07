@@ -1,0 +1,58 @@
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize'
+import type { PluggableList } from 'unified'
+
+/** Windows drive letters, so `C:\docs\a.md` isn't read as an unknown `c:` scheme (markdownUrlTransform keeps them too). */
+const DRIVE_LETTERS = [...'abcdefghijklmnopqrstuvwxyz'].flatMap((letter) => [letter, letter.toUpperCase()])
+
+/**
+ * Attributes any element may keep: GitHub's list, less `accessKey` and `tabIndex`, so a document can't take over the
+ * app's keyboard shortcuts or move itself to the front of the Tab order.
+ */
+const ANY_ELEMENT_ATTRIBUTES = (defaultSchema.attributes?.['*'] ?? []).filter((attribute) => attribute !== 'accessKey' && attribute !== 'tabIndex')
+
+/**
+ * The raw HTML a Markdown document may use, in the preview and the PDF: GitHub's own list (rehype-sanitize's
+ * defaultSchema, which has details, summary, kbd, sub, sup, br, ins and img) plus mark, with images keeping their
+ * size and alignment and paragraphs and blocks their alignment. Scripts, frames, styles and event handlers never
+ * get through, and their contents are dropped rather than shown as text. Comments are dropped too. Links and images
+ * may only point at web, email, relative or Windows-path addresses (images may also be data: URLs).
+ */
+const baseSchema: SanitizeSchema = {
+    ...defaultSchema,
+    tagNames: [...(defaultSchema.tagNames ?? []), 'mark'],
+    attributes: {
+        ...defaultSchema.attributes,
+        '*': ANY_ELEMENT_ATTRIBUTES,
+        img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height', 'align'],
+        p: ['align'],
+        div: [...(defaultSchema.attributes?.div ?? []), 'align'],
+    },
+    protocols: {
+        ...defaultSchema.protocols,
+        href: ['http', 'https', 'mailto', ...DRIVE_LETTERS],
+        src: ['http', 'https', 'data', ...DRIVE_LETTERS],
+    },
+    strip: ['script', 'style', 'iframe', 'noscript', 'template', 'object', 'embed'],
+}
+
+/**
+ * For the preview, which shares the page with the app. Every id and name in the document gets GitHub's
+ * `user-content-` prefix, so the document can't take over an id the app uses (a dialog's label would point at it)
+ * or replace one of `document`'s own methods with an element (`<img name="createElement">`). Links still find
+ * their targets: the preview matches `#fragment` against ids with the prefix taken off.
+ */
+export const previewSanitizeSchema: SanitizeSchema = baseSchema
+
+/** For the PDF, a document of its own: ids stay as written, so `#heading` links and the Contents page reach them. */
+export const exportSanitizeSchema: SanitizeSchema = { ...baseSchema, clobber: [] }
+
+/**
+ * Raw HTML in the preview: parsed into real elements, then cleaned. Footnote ids are left unprefixed here
+ * (remark-rehype's clobberPrefix: '') because the sanitizer adds the prefix to every id, footnotes included.
+ * The same chain numbers diagram blocks for MarkdownDocumentViewer, so both count raw-HTML code blocks alike.
+ */
+export const previewHtmlPlugins: PluggableList = [rehypeRaw, [rehypeSanitize, previewSanitizeSchema]]
+
+/** remark-rehype options for the preview; see {@link previewHtmlPlugins}. */
+export const previewRemarkRehypeOptions = { allowDangerousHtml: true, clobberPrefix: '' } as const

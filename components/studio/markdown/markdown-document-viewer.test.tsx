@@ -350,11 +350,12 @@ describe('MarkdownDocumentViewer', () => {
             '[^1]: A note.',
         ].join('\n')
 
-        it('keeps heading and footnote ids and never uses target=_blank', () => {
+        it('keeps heading and footnote ids, with GitHub’s prefix, and never uses target=_blank', () => {
             const { container } = render(viewer(DOC_A, source))
-            expect(container.querySelector('h1')).toHaveAttribute('id', 'install-steps')
+            expect(container.querySelector('h1')).toHaveAttribute('id', 'user-content-install-steps')
             expect(container.querySelector('#user-content-fn-1')).not.toBeNull()
-            expect(container.querySelector('#footnote-label')).toHaveClass('sr-only')
+            expect(container.querySelector('#user-content-footnote-label')).toHaveClass('sr-only')
+            expect(container.querySelector('a[data-footnote-ref]')).toHaveAttribute('aria-describedby', 'user-content-footnote-label')
             expect(container.querySelector('a[target]')).toBeNull()
         })
 
@@ -434,7 +435,7 @@ describe('MarkdownDocumentViewer', () => {
             workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
             rerender(viewer(DOC_OTHER, '# Intro\n\n## Part'))
             expect(scrollIntoView).toHaveBeenCalledTimes(1)
-            expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#part'))
+            expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
         })
 
         it('reuses the open tab for a linked document written with other separators', () => {

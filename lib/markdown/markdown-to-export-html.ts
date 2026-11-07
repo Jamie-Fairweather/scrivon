@@ -1,6 +1,8 @@
 import type { Element, Root as HastRoot, Text as HastText } from 'hast'
 import { toHtml } from 'hast-util-to-html'
 import type { Code, Parent, Root, Text } from 'mdast'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
@@ -17,6 +19,7 @@ import {
 } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
+import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
@@ -41,6 +44,13 @@ function normalizeShikiPre(html: string): string {
 }
 
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+/** A page can't be clicked open, so every <details> prints open: what it holds would otherwise be missing from the PDF. */
+function openDetails(hast: HastRoot): void {
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName === 'details') node.properties.open = true
+    })
+}
 
 /** Hidden mark inside each TOC-listed heading so the PDF stamper can read which page it landed on. */
 function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
@@ -361,7 +371,13 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
     const { profile, assets, metadata, lang, tree, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
-    const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
+    // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
+    const hast = unified()
+        .use(remarkRehype, { allowDangerousHtml: true })
+        .use(rehypeRaw)
+        .use(rehypeSanitize, exportSanitizeSchema)
+        .runSync(tree) as HastRoot
+    openDetails(hast)
     markTables(hast, profile)
     if (stamped) addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })

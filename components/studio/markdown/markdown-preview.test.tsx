@@ -78,10 +78,88 @@ describe('MarkdownPreview', () => {
 
         it('keeps footnote ids and the hidden footnotes heading', () => {
             const { container } = preview('Text[^1]\n\n[^1]: The note.')
-            const label = container.querySelector('h2#footnote-label')
+            const label = container.querySelector('h2#user-content-footnote-label')
             expect(label).toHaveClass('sr-only')
             expect(container.querySelector('li#user-content-fn-1')).not.toBeNull()
             expect(container.querySelector('a[data-footnote-backref]')).toHaveAttribute('aria-label', 'Back to reference 1')
+        })
+    })
+
+    describe('raw HTML (B29)', () => {
+        it('hides comments instead of showing them as text', () => {
+            const { container } = preview('## Comments (HTML, hidden in output)\n\n<!-- a hidden note -->\n\nVisible <!-- inline note --> text')
+            expect(container).not.toHaveTextContent('hidden note')
+            expect(container).not.toHaveTextContent('inline note')
+            expect(container).not.toHaveTextContent('<!--')
+            expect(container).toHaveTextContent('Visible text')
+        })
+
+        it('draws safe tags as elements: a line break in a table cell, kbd, sub, sup, details', () => {
+            const { container } = preview(
+                [
+                    '| Key | Notes |',
+                    '| --- | --- |',
+                    '| <kbd>Ctrl</kbd>+<kbd>S</kbd> | first<br>second |',
+                    '',
+                    'H<sub>2</sub>O and x<sup>2</sup> and <mark>marked</mark>',
+                    '',
+                    '<details>',
+                    '<summary>More</summary>',
+                    '',
+                    'Inside the details.',
+                    '',
+                    '</details>',
+                ].join('\n')
+            )
+            const cell = container.querySelectorAll('td')[1]!
+            expect(cell.querySelector('br')).not.toBeNull()
+            expect(cell).not.toHaveTextContent('<br>')
+            expect(container.querySelectorAll('kbd')).toHaveLength(2)
+            expect(container.querySelector('sub')).toHaveTextContent('2')
+            expect(container.querySelector('sup')).toHaveTextContent('2')
+            expect(container.querySelector('mark')).toHaveTextContent('marked')
+            expect(container.querySelector('details summary')).toHaveTextContent('More')
+            expect(container.querySelector('details p')).toHaveTextContent('Inside the details.')
+        })
+
+        it('removes scripts, styles, frames and event handlers', () => {
+            const { container } = preview(
+                [
+                    '<script>alert(1)</script>',
+                    '',
+                    '<style>body { display: none }</style>',
+                    '',
+                    '<iframe src="https://example.com"></iframe>',
+                    '',
+                    'Text <img src="pic.png" onerror="alert(2)" alt="pic"> <a href="javascript:alert(3)" onclick="alert(4)">link</a>',
+                ].join('\n')
+            )
+            expect(container.querySelector('script, style, iframe')).toBeNull()
+            expect(container).not.toHaveTextContent('alert')
+            expect(container).not.toHaveTextContent('display: none')
+            const img = container.querySelector('img')!
+            expect(img).toHaveAttribute('alt', 'pic')
+            expect(img).not.toHaveAttribute('onerror')
+            const link = screen.getByText('link').closest('a')!
+            expect(link).not.toHaveAttribute('onclick')
+            expect(link.getAttribute('href') ?? '').not.toMatch(/javascript/i)
+        })
+
+        it('keeps the document from taking over the app’s ids, document methods, shortcuts and Tab order', () => {
+            const { container } = preview('<img name="createElement" id="export-title" src="pic.png" alt="x" accesskey="s" tabindex="1">')
+            const img = container.querySelector('img')!
+            expect(img).toHaveAttribute('name', 'user-content-createElement')
+            expect(img).toHaveAttribute('id', 'user-content-export-title')
+            expect(img).not.toHaveAttribute('accesskey')
+            expect(img).not.toHaveAttribute('tabindex')
+            expect(typeof document.createElement).toBe('function')
+        })
+
+        it('numbers a diagram written as raw HTML the same way the viewer finds it', () => {
+            const source = '<pre><code class="language-mermaid">graph LR\n  A --> B</code></pre>\n\n```mermaid\nflowchart TD\n```'
+            preview(source)
+            expect(screen.getAllByRole('button', { name: /^Expand diagram/ })).toHaveLength(2)
+            expect(extractMermaidBlockSources(source)).toEqual(['graph LR\n  A --> B', 'flowchart TD'])
         })
     })
 

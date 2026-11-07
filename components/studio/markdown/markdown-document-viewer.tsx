@@ -35,22 +35,34 @@ function scrollViewport(root: HTMLElement | null): HTMLElement | null {
     return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
 }
 
+/** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
+const DOCUMENT_ID_PREFIX = 'user-content-'
+
+/** An element's id as the document wrote it, without the preview's prefix. */
+function documentId(element: HTMLElement): string {
+    return element.id.startsWith(DOCUMENT_ID_PREFIX) ? element.id.slice(DOCUMENT_ID_PREFIX.length) : element.id
+}
+
 /**
- * The heading or footnote a `#fragment` points at: an exact id match first, then one that differs only in case,
- * then one that matches once both are reduced to export's id rules (GitHub-style links such as `#foo--bar`).
+ * The heading or footnote a `#fragment` points at: an exact id match first (with or without the preview's
+ * `user-content-` prefix), then one that differs only in case, then one that matches once both are reduced to
+ * export's id rules (GitHub-style links such as `#foo--bar`).
  */
 function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | null {
     if (!root) return null
     const lower = id.toLowerCase()
     const key = anchorKey(id)
+    let exactMatch: HTMLElement | null = null
     let caseMatch: HTMLElement | null = null
     let keyMatch: HTMLElement | null = null
     for (const element of root.querySelectorAll<HTMLElement>('[id]')) {
         if (element.id === id) return element
-        if (!caseMatch && element.id.toLowerCase() === lower) caseMatch = element
-        if (!keyMatch && key && anchorKey(element.id) === key) keyMatch = element
+        const written = documentId(element)
+        if (!exactMatch && written === id) exactMatch = element
+        if (!caseMatch && written.toLowerCase() === lower) caseMatch = element
+        if (!keyMatch && key && anchorKey(written) === key) keyMatch = element
     }
-    return caseMatch ?? keyMatch
+    return exactMatch ?? caseMatch ?? keyMatch
 }
 
 /** The Expand button of a block, found again if the element that had focus was replaced. */
