@@ -108,7 +108,8 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
     const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0 || isEmpty || diagramReady)
 
     return (
-        <div className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
+        // Diagrams and their errors read left to right, even in a right-to-left list item or quote.
+        <div dir="ltr" className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
             {/* English, unless the button's name has the diagram's own accTitle in it. */}
             <div className="absolute top-2 right-2 z-10" lang={accessibility.title ? undefined : APP_LANG}>
                 <Button

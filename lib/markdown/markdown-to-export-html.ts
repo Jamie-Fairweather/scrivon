@@ -141,13 +141,17 @@ const CONTAINER_DIRECTION_TAGS = new Set(['li', 'blockquote'])
 /**
  * Gives each text block dir="auto", so an Arabic or Hebrew paragraph prints right to left with its full stop and
  * bullet on the correct side. A quote or list item that starts right to left gets dir="rtl" instead, so its bar
- * or bullet moves to the right too. A dir the document's HTML set wins. Code is left alone, and so are the
- * paragraphs standing in for code blocks and diagrams, which are swapped for their HTML by exact match. The title
- * page, Contents page and header and footer are built separately, so the stamper still finds their marks.
+ * or bullet moves to the right too. A dir the document's HTML set wins. Code reads left to right: a raw <pre>
+ * gets dir="ltr", and code blocks and diagrams get theirs where they are built, so the paragraphs standing in for
+ * them, which are swapped for their HTML by exact match, are left alone. The title page, Contents page and header
+ * and footer are built separately, so the stamper still finds their marks.
  */
 function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>): void {
     visit(hast, 'element', (node: Element) => {
-        if (node.tagName === 'pre') return SKIP
+        if (node.tagName === 'pre') {
+            node.properties.dir ??= 'ltr'
+            return SKIP
+        }
         if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
         const only = node.children.length === 1 ? node.children[0] : undefined
         if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
@@ -252,6 +256,11 @@ function markTables(hast: HastRoot, profile: PdfExportProfile): void {
     })
 }
 
+/**
+ * A fenced block's HTML. Code, diagrams and their errors read left to right whatever the text
+ * around them does, so each gets dir="ltr": in a right-to-left list item or quote they would
+ * otherwise take its direction, and `foo();` would print as `;()foo`.
+ */
 async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<string> {
     const text = node.value.replace(/\n$/, '')
     const lang = node.lang?.toLowerCase()
@@ -261,21 +270,21 @@ async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<s
         try {
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
             // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
-            if (!getSvgDimensions(svg)) return `<pre class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
+            if (!getSvgDimensions(svg)) return `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
             // One named picture, as in Word, so a screen reader doesn't read every node label in turn.
             const label = escapeHtml(diagramAltText(text).description)
-            return `<div class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
+            return `<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
-            return `<pre class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
+            return `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
         }
     }
 
     try {
         const highlighted = normalizeShikiPre(await highlightFencedCode(text, lang, profile.content.codeTheme))
-        return `<div class="${blockClass}">${highlighted}</div>`
+        return `<div dir="ltr" class="${blockClass}">${highlighted}</div>`
     } catch {
-        return `<div class="${blockClass}"><pre><code>${escapeHtml(text)}</code></pre></div>`
+        return `<div dir="ltr" class="${blockClass}"><pre><code>${escapeHtml(text)}</code></pre></div>`
     }
 }
 

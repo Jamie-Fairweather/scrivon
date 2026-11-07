@@ -147,11 +147,11 @@ SHIKI_FAIL
 
         const { html } = await markdownToExportHtml(`# A\n\n${code(25)}\n\n${code(26)}\n\n${table(14)}\n\n${table(15)}`, { assets: EMPTY_ASSETS })
         // 25 lines and 15 rows (header row included) still fit on half a page.
-        expect(html.match(/<div class="code-block pdf-avoid-break">/g)).toHaveLength(1)
-        expect(html.match(/<div class="code-block">/g)).toHaveLength(1)
+        expect(html.match(/<div dir="ltr" class="code-block pdf-avoid-break">/g)).toHaveLength(1)
+        expect(html.match(/<div dir="ltr" class="code-block">/g)).toHaveLength(1)
         expect(html.match(/<table class="pdf-avoid-break">/g)).toHaveLength(1)
         expect(html.match(/<table>/g)).toHaveLength(1)
-        expect(html.indexOf('<div class="code-block pdf-avoid-break">')).toBeLessThan(html.indexOf('<div class="code-block">'))
+        expect(html.indexOf('<div dir="ltr" class="code-block pdf-avoid-break">')).toBeLessThan(html.indexOf('<div dir="ltr" class="code-block">'))
         expect(html.indexOf('<table class="pdf-avoid-break">')).toBeLessThan(html.indexOf('<table>'))
     })
 
@@ -205,9 +205,9 @@ SHIKI_FAIL
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
-        expect(html).toMatch(/<div class="mermaid-export pdf-avoid-break" role="img" aria-label="[^"]*"><svg/)
-        expect(html).toContain('<li dir="auto"><div class="code-block pdf-avoid-break">')
-        expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
+        expect(html).toMatch(/<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="[^"]*"><svg/)
+        expect(html).toContain('<li dir="auto"><div dir="ltr" class="code-block pdf-avoid-break">')
+        expect(html).not.toMatch(/<p>\s*<div dir="ltr" class="(mermaid-export|code-block)/)
         expect(html).not.toContain('<p></p>')
         expect(html).not.toContain('__SCRIVON_')
     })
@@ -482,7 +482,7 @@ SHIKI_FAIL
         for (const source of [code, `\n  \n${code}`, `---\ntitle: Snippet\n---\n${code}`]) {
             const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
             expect(html).toContain(
-                '<div class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
+                '<div dir="ltr" class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
             )
             expect(html).not.toContain('<p>const a = 1')
             expect(html).toContain('<p dir="auto">After</p>')
@@ -659,8 +659,8 @@ SHIKI_FAIL
         // The heading's hidden page mark has its own direction, so dir="auto" reads the Arabic, not the mark.
         expect(html).toMatch(/<h2 id="مقدمة" dir="auto"><span class="pdf-heading-mark" dir="ltr">/)
         // The code block still replaces its whole paragraph, and the Contents rows get no direction.
-        expect(html).not.toMatch(/<p[^>]*>\s*<div class="code-block/)
-        expect(html).toContain('<div class="code-block')
+        expect(html).not.toMatch(/<p[^>]*>\s*<div dir="ltr" class="code-block/)
+        expect(html).toContain('<div dir="ltr" class="code-block')
         expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
     })
 
@@ -693,7 +693,48 @@ SHIKI_FAIL
         expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">مرحبا<\/p>/)
         expect(html).toMatch(/<li dir="auto">\s*<p dir="auto">second item<\/p>/)
         // A code block's letters don't count, so the Hebrew after it decides.
-        expect(html).toMatch(/<li dir="rtl">\s*<div class="code-block/)
+        expect(html).toMatch(/<li dir="rtl">\s*<div dir="ltr" class="code-block/)
+    })
+
+    it('keeps code, diagrams and their errors left to right inside a right-to-left list item or quote (N31)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const fenced = (indent: string, lang: string, line: string) => [`${indent}\`\`\`${lang}`, `${indent}${line}`, `${indent}\`\`\``]
+        const { html } = await markdownToExportHtml(
+            [
+                // Tight and loose list items, and a quote, each starting right to left.
+                '1. הרץ את הפקודה:',
+                ...fenced('   ', 'bash', 'echo "hi";'),
+                '',
+                '- שלום',
+                '',
+                ...fenced('  ', 'mermaid', 'graph TD; A-->B;'),
+                '',
+                '- مرحبا',
+                ...fenced('  ', 'mermaid', 'graph TD EMPTY'),
+                '',
+                '> שלום',
+                '>',
+                ...fenced('> ', 'js', 'foo();'),
+                '',
+                '- ציטוט',
+                '',
+                '  <pre>ls -la;</pre>',
+                '',
+                '- עוד',
+                '',
+                '  <pre dir="rtl">שורה</pre>',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        expect(html).toMatch(/<li dir="rtl">הרץ את הפקודה:\s*<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>echo "hi";/)
+        expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">שלום<\/p>\s*<div dir="ltr" class="mermaid-export/)
+        expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">مرحبا<\/p>\s*<pre dir="ltr" class="export-error/)
+        expect(html).toMatch(
+            /<blockquote dir="rtl">\s*<p dir="auto">שלום<\/p>\s*<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>foo\(\);/
+        )
+        // A raw <pre> reads left to right too, unless the document says otherwise.
+        expect(html).toContain('<pre dir="ltr">ls -la;</pre>')
+        expect(html).toContain('<pre dir="rtl">שורה</pre>')
     })
 
     it('prints bold next to Japanese punctuation as bold (B76)', async () => {
@@ -814,8 +855,8 @@ SHIKI_FAIL
     it('says a diagram with nothing to draw yet is empty, as Word does, instead of printing an empty box (U39)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(['Before.', '', '```mermaid', 'graph TD EMPTY', '```', '', 'After.'].join('\n'))
-        expect(html).toContain('<pre class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
-        expect(html).not.toContain('<div class="mermaid-export')
+        expect(html).toContain('<pre dir="ltr" class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
+        expect(html).not.toContain('<div dir="ltr" class="mermaid-export')
         expect(html).not.toContain('<svg')
     })
 
@@ -828,8 +869,8 @@ SHIKI_FAIL
             diagram(['flowchart TD', '  accTitle: Say "hi" & <wave>', '  A --> B']),
         ].join('\n\n')
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
-        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Login flow"><svg')
-        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Flowchart: Start, End"><svg')
+        expect(html).toContain('<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="Login flow"><svg')
+        expect(html).toContain('<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="Flowchart: Start, End"><svg')
         // The label can't end the attribute or start markup.
         expect(html).toContain('aria-label="Say &quot;hi&quot; &amp;"><svg')
     })

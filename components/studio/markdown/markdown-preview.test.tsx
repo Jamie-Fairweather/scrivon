@@ -173,6 +173,35 @@ describe('MarkdownPreview', () => {
         expect(container.querySelector('ol')).not.toHaveClass('ps-5')
     })
 
+    it('keeps code and diagrams left to right inside a right-to-left list item, as the PDF does (N31)', () => {
+        const { container } = preview(
+            [
+                '1. הרץ את הפקודה:',
+                '   ```bash',
+                '   echo "hi";',
+                '   ```',
+                '',
+                '- שלום',
+                '',
+                '  ```mermaid',
+                '  graph TD; A-->B;',
+                '  ```',
+                '',
+                '- עוד',
+                '',
+                '  <pre>ls -la;</pre>',
+            ].join('\n')
+        )
+        const [command, diagram, raw] = Array.from(container.querySelectorAll('li'))
+        expect(command).toHaveAttribute('dir', 'rtl')
+        expect(command!.querySelector('div.overflow-x-auto')).toHaveAttribute('dir', 'ltr')
+        expect(diagram).toHaveAttribute('dir', 'rtl')
+        expect(diagram!.querySelector('[data-mermaid-block-id]')).toHaveAttribute('dir', 'ltr')
+        expect(raw!.querySelector('pre')).toHaveAttribute('dir', 'ltr')
+        // A direction the document's own HTML gives still wins.
+        expect(preview('<pre dir="rtl">שורה</pre>').container.querySelector('pre')).toHaveAttribute('dir', 'rtl')
+    })
+
     it('tags the document with its language, as the PDF is, so kanji take Japanese glyph shapes (B104)', () => {
         const { container, rerender } = preview('# 会議の議事録\n\n今日は新しい機能について話し合いました。')
         expect(container.querySelector('article')).toHaveAttribute('lang', 'ja')
