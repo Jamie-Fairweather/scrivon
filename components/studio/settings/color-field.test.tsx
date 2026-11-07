@@ -34,6 +34,13 @@ function square(): HTMLElement {
     return node
 }
 
+/** The range input inside a Base UI slider thumb, which takes its key presses. */
+function sliderInput(name: string): HTMLInputElement {
+    const input = screen.getByRole('group', { name }).querySelector('input')
+    if (!input) throw new Error(`missing ${name} slider input`)
+    return input
+}
+
 describe('ColorField', () => {
     afterEach(() => {
         delete (window as { EyeDropper?: unknown }).EyeDropper
@@ -58,19 +65,85 @@ describe('ColorField', () => {
         expect(trigger).toHaveAccessibleDescription(shown)
     })
 
-    it('saves each key step on the square and the hue slider', () => {
+    it('saves a key step on the square and the hue slider when the key is released', () => {
         const { onChange, trigger } = renderField()
         open(trigger)
 
         fireEvent.keyDown(square(), { key: 'ArrowLeft' })
+        expect(onChange).not.toHaveBeenCalled()
+        fireEvent.keyUp(square(), { key: 'ArrowLeft' })
         expect(onChange).toHaveBeenCalledTimes(1)
         expect(onChange).toHaveBeenLastCalledWith('#ff0303')
 
-        const hue = screen.getByRole('group', { name: 'Hue' }).querySelector('input')
-        if (!hue) throw new Error('missing hue slider input')
+        const hue = sliderInput('Hue')
         fireEvent.keyDown(hue, { key: 'ArrowRight' })
+        expect(onChange).toHaveBeenCalledTimes(1)
+        fireEvent.keyUp(hue, { key: 'ArrowRight' })
         expect(onChange).toHaveBeenCalledTimes(2)
         expect(onChange.mock.lastCall?.[0]).not.toBe('#ff0303')
+    })
+
+    it('saves once when an arrow key is held down on the square or a slider', () => {
+        const { onChange, trigger } = renderField()
+        const input = open(trigger)
+
+        fireEvent.keyDown(square(), { key: 'ArrowDown' })
+        for (let i = 0; i < 5; i++) fireEvent.keyDown(square(), { key: 'ArrowDown', repeat: true })
+        expect(onChange).not.toHaveBeenCalled()
+        fireEvent.keyUp(square(), { key: 'ArrowDown' })
+        expect(onChange).toHaveBeenCalledTimes(1)
+        expect(onChange).toHaveBeenLastCalledWith(input.value)
+
+        const hue = sliderInput('Hue')
+        fireEvent.keyDown(hue, { key: 'ArrowRight' })
+        for (let i = 0; i < 5; i++) fireEvent.keyDown(hue, { key: 'ArrowRight', repeat: true })
+        expect(onChange).toHaveBeenCalledTimes(1)
+        fireEvent.keyUp(hue, { key: 'ArrowRight' })
+        expect(onChange).toHaveBeenCalledTimes(2)
+        expect(onChange).toHaveBeenLastCalledWith(input.value)
+        expect(hue).toHaveAttribute('aria-valuenow', '6')
+    })
+
+    it('saves a held key change when focus leaves before the key is released', () => {
+        const { onChange, trigger } = renderField()
+        const input = open(trigger)
+
+        const hue = sliderInput('Hue')
+        fireEvent.keyDown(hue, { key: 'ArrowRight' })
+        fireEvent.keyDown(hue, { key: 'ArrowRight', repeat: true })
+        fireEvent.blur(hue)
+
+        expect(onChange).toHaveBeenCalledTimes(1)
+        expect(onChange).toHaveBeenLastCalledWith(input.value)
+    })
+
+    it('saves nothing when a key or press does not change the colour', () => {
+        const { onChange, trigger } = renderField({ initial: '#2563eb' })
+        const input = open(trigger)
+
+        // The picker holds this colour as HSL, which turns back into #2564eb, so a press that
+        // changes nothing must not report a change.
+        const alpha = sliderInput('Alpha')
+        fireEvent.keyDown(alpha, { key: 'End' })
+        fireEvent.keyUp(alpha, { key: 'End' })
+        fireEvent.blur(alpha)
+
+        expect(onChange).not.toHaveBeenCalled()
+        expect(input.value).toBe('#2563eb')
+    })
+
+    it('leaves an empty optional colour empty when a key changes nothing', async () => {
+        const { onChange, trigger } = renderField({ initial: '', allowEmpty: true })
+        open(trigger)
+
+        const alpha = sliderInput('Alpha')
+        fireEvent.keyDown(alpha, { key: 'End' })
+        fireEvent.keyUp(alpha, { key: 'End' })
+        expect(onChange).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(alpha, { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+        expect(onChange).not.toHaveBeenCalled()
     })
 
     it('saves typed hex text on Enter or when it is left, not on every keystroke', () => {

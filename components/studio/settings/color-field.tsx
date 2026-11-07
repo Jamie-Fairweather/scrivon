@@ -39,8 +39,8 @@ function swatchStyle(hex: string | null) {
  * Hex colour input with a popover picker. Stores `#rrggbb`, or `#rrggbbaa` when
  * translucent. With `allowEmpty`, a cleared field stores `''` (the caller's default).
  * While the popover is open, the picker and the hex text follow a drag or typing. The colour is
- * saved when a drag or key step ends, when the text is left or Enter is pressed, and when the
- * popover closes, so a drag saves once rather than on every pointer move.
+ * saved when a drag ends or a key is released, when the text is left or Enter is pressed, and when
+ * the popover closes, so a drag or a held key saves once rather than on every move.
  */
 export function ColorField({ id, value, placeholder = '#000000', allowEmpty = false, onChange }: ColorFieldProps) {
     const [draft, setDraft] = useState(value)
