@@ -9,7 +9,10 @@
 //!
 //! Those folders are kept in `workspace-access.json` in the app data folder.
 //! The webview can't create store files: it only reaches the few the app opens
-//! at startup (`open_stores` in lib.rs), so it can't write this one. Even a
+//! at startup (`open_stores` in lib.rs), so it can't write this one. The fs
+//! plugin isn't given the app data folder either (capabilities/default.json has
+//! `fs:deny-default`, not `fs:default`), so it can only write here if the user
+//! opens or drops a folder that contains the app data folder. Even a
 //! file forged some other way can't add a folder: the store only ever writes a
 //! JSON object, and this list is a bare JSON array, so such a file is cleared
 //! and the user picks the folders again. The store's recent folders, which the

@@ -16,7 +16,7 @@
         "core:webview:allow-set-webview-background-color",
         "opener:default",
         "dialog:default",
-        "fs:default",
+        "fs:deny-default",
         "fs:allow-read-dir",
         "fs:allow-read-file",
         "fs:allow-write-file",

@@ -55,9 +55,13 @@ describe('file system grants', () => {
         expect(fsCommands).toEqual(needed)
     })
 
-    it('finds the app’s file calls, and keeps the plugin’s defaults', () => {
+    it('finds the app’s file calls, and keeps the plugin’s deny list but not its app-folder access', () => {
         // Guards the check above against finding nothing (a moved file, say) and so asking for nothing.
         expect(importedFsFunctions().has('readFile')).toBe(true)
-        expect(permissions()).toContain('fs:default')
+        // Since tauri-plugin-fs 2.5.2, fs:default gives every fs command the app's own folders. With the write and
+        // remove grants above, a script in the page could then rewrite workspace-access.json and open any folder
+        // (see workspace_access.rs). fs:deny-default keeps only its block on the WebView2 profile.
+        expect(permissions()).toContain('fs:deny-default')
+        expect(permissions()).not.toContain('fs:default')
     })
 })

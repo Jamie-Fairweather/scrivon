@@ -332,6 +332,16 @@ mod config_tests {
     }
 
     #[test]
+    fn the_webview_cannot_write_into_the_app_data_folder() {
+        let permissions = permissions();
+        // fs:default gives every fs command, writes and removes included, the
+        // app's own folders, so the page could rewrite workspace-access.json.
+        assert!(!permissions.iter().any(|p| p == "fs:default"));
+        // Its block on the WebView2 profile folder stays.
+        assert!(permissions.iter().any(|p| p == "fs:deny-default"));
+    }
+
+    #[test]
     fn the_main_window_is_left_for_setup_to_build() {
         // Built by build_main_window after the old profile is copied in. Tauri
         // would otherwise build it first, and setup would then fail to start.
