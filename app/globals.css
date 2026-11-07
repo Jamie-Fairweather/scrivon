@@ -286,8 +286,9 @@
 }
 
 /* Windows "Animation effects" off: toasts don't shake, slide or bounce, popups and dialogs don't
-   zoom, and accordions don't grow. Fades and loading spinners (animate-spin) stay. Not a blanket
-   rule, which would stop the spinners too. Unlayered so it beats the utilities. */
+   zoom or glide to a new spot, and accordions don't grow or turn their chevrons. Fades and loading
+   spinners (animate-spin) stay. Not a blanket rule, which would stop the spinners too. Unlayered
+   so it beats the utilities. */
 @media (prefers-reduced-motion: reduce) {
     .animate-toast-error-odd,
     .animate-toast-error-even,
@@ -299,9 +300,12 @@
     [data-slot$='-popup'] {
         transition-property: opacity;
     }
+    /* A positioner only places its popup (it slides when the anchor scrolls or the popup flips side). */
+    [data-slot$='-positioner'],
     [data-slot='accordion-panel'],
     [data-slot='accordion-indicator'],
-    [data-slot='collapsible-panel'] {
+    [data-slot='collapsible-panel'],
+    [data-slot='collapsible-indicator'] {
         transition: none;
     }
 }

@@ -52,8 +52,12 @@ describe('app/globals.css', () => {
             expect(rules.get("[data-slot$='-popup']")).toContain('transition-property: opacity')
         })
 
-        it('opens accordions and collapsible panels at once', () => {
-            for (const slot of ['accordion-panel', 'collapsible-panel']) {
+        it('keeps an open popup in place when its anchor moves or it flips side', () => {
+            expect(rules.get("[data-slot$='-positioner']")).toContain('transition: none')
+        })
+
+        it('opens accordions and collapsible panels, and turns their chevrons, at once', () => {
+            for (const slot of ['accordion-panel', 'accordion-indicator', 'collapsible-panel', 'collapsible-indicator']) {
                 expect(rules.get(`[data-slot='${slot}']`), slot).toContain('transition: none')
             }
         })
