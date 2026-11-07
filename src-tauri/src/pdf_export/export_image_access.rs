@@ -16,7 +16,7 @@
 
 use std::collections::HashSet;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -133,6 +133,10 @@ impl ExportImageAccess {
         in_scope: impl Fn(&Path) -> bool,
     ) -> Result<(), String> {
         let path = path.trim();
+        // Also turns away a `..` path recorded before `is_image_path` refused them.
+        if !is_image_path(path) {
+            return Err(NOT_CHOSEN.into());
+        }
         if self.is_listed(path) {
             return Ok(());
         }
@@ -175,10 +179,17 @@ pub(super) fn access(app: &tauri::AppHandle) -> &'static ExportImageAccess {
     })
 }
 
-/// An absolute path with an export image's extension. Anything else is never
-/// recorded.
+/// An absolute path with an export image's extension and no `..` in it.
+/// Anything else is never recorded or read. The fs scope matches a file that
+/// isn't there yet by its path as written, so a `..` could climb out of an
+/// opened folder and name a picture that turns up later anywhere on disk.
 fn is_image_path(path: &str) -> bool {
-    Path::new(path).is_absolute() && super::mime_from_path(path).is_some()
+    let image = Path::new(path);
+    image.is_absolute()
+        && !image
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+        && super::mime_from_path(path).is_some()
 }
 
 fn canonical_string(path: &Path) -> Option<String> {
@@ -311,6 +322,37 @@ mod tests {
         let restarted = ExportImageAccess::load(Some(&temp.data()));
         restarted.approve(&logo, never_in_scope).unwrap();
         assert!(restarted.approve(&other, never_in_scope).is_err());
+    }
+
+    #[test]
+    fn never_records_or_reads_an_image_whose_path_climbs_out_of_a_chosen_folder() {
+        let temp = TempDir::new("climb");
+        let opened = temp.0.join("opened");
+        std::fs::create_dir_all(&opened).unwrap();
+        // Matched as written, the fs scope takes this for a file in the opened folder.
+        let in_opened = |path: &Path| path.starts_with(&opened);
+        let climbing = opened.join("..").join("later.png");
+        let climbing = climbing.to_string_lossy().into_owned();
+        let access = ExportImageAccess::load(Some(&temp.data()));
+
+        assert!(!access.remember(&climbing, in_opened));
+        assert!(access.adopt(std::slice::from_ref(&climbing)));
+        assert!(access.images.lock().unwrap().is_empty());
+        // A picture that turns up there later still can't be read.
+        temp.image("later.png");
+        assert_eq!(access.approve(&climbing, in_opened), Err(NOT_CHOSEN.into()));
+
+        // Nor one recorded before such paths were refused.
+        write_access_file(
+            &temp.data().join(ACCESS_FILE),
+            std::slice::from_ref(&climbing),
+        )
+        .unwrap();
+        let restarted = ExportImageAccess::load(Some(&temp.data()));
+        assert_eq!(
+            restarted.approve(&climbing, never_in_scope),
+            Err(NOT_CHOSEN.into())
+        );
     }
 
     #[test]
