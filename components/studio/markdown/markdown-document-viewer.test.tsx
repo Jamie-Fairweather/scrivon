@@ -536,6 +536,85 @@ describe('MarkdownDocumentViewer', () => {
             expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
         })
 
+        describe('while the diagrams above the linked section are drawn (N22)', () => {
+            /** The resize observers in use, and what each one watches. */
+            const observers = new Set<{ callback: ResizeObserverCallback; targets: Element[] }>()
+            const original = globalThis.ResizeObserver
+
+            beforeEach(() => {
+                globalThis.ResizeObserver = class {
+                    private readonly entry: { callback: ResizeObserverCallback; targets: Element[] }
+                    constructor(callback: ResizeObserverCallback) {
+                        this.entry = { callback, targets: [] }
+                        observers.add(this.entry)
+                    }
+                    observe(target: Element) {
+                        this.entry.targets.push(target)
+                    }
+                    unobserve() {}
+                    disconnect() {
+                        observers.delete(this.entry)
+                    }
+                } as unknown as typeof ResizeObserver
+            })
+
+            afterEach(() => {
+                globalThis.ResizeObserver = original
+                observers.clear()
+            })
+
+            /** What a diagram growing from its placeholder into a picture does to the preview's content. */
+            function growContent(container: HTMLElement) {
+                const content = viewport(container).firstElementChild!
+                for (const { callback, targets } of [...observers]) {
+                    if (targets.includes(content)) act(() => callback([], {} as ResizeObserver))
+                }
+            }
+
+            function openLinkedPart() {
+                const view = render(viewer(DOC_A, source))
+                fireEvent.click(screen.getByRole('link', { name: 'setup' }))
+                workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+                view.rerender(viewer(DOC_OTHER, '```mermaid\nflowchart TD\n```\n\n## Part'))
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+                return view
+            }
+
+            it('scrolls to the section again each time the content above it grows', () => {
+                const { container } = openLinkedPart()
+                growContent(container)
+                growContent(container)
+                expect(scrollIntoView).toHaveBeenCalledTimes(3)
+                expect(new Set(scrollIntoView.mock.contexts)).toEqual(new Set([container.querySelector('h2#user-content-part')]))
+            })
+
+            it('stops once the user scrolls the preview themselves', () => {
+                const { container } = openLinkedPart()
+                fireEvent.wheel(viewport(container))
+                growContent(container)
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            })
+
+            it('stops after a moment', () => {
+                vi.useFakeTimers()
+                try {
+                    const { container } = openLinkedPart()
+                    act(() => vi.advanceTimersByTime(1500))
+                    growContent(container)
+                    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+                } finally {
+                    vi.useRealTimers()
+                }
+            })
+
+            it('stops when another tab is shown', () => {
+                const { container, rerender } = openLinkedPart()
+                rerender(viewer(DOC_A, source))
+                growContent(container)
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            })
+        })
+
         it('reuses the open tab for a linked document written with other separators', () => {
             workspace.tabs = [fileTab(DOC_A), fileTab('C:\\notes\\docs\\other.md')]
             render(viewer(DOC_A, source))

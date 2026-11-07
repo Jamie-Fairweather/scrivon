@@ -74,6 +74,34 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
     return exactMatch ?? caseMatch ?? keyMatch
 }
 
+/** How long a linked section is held at the top of the preview while the diagrams above it are drawn. */
+const ANCHOR_SETTLE_MS = 1500
+/** What the user does to scroll the preview themselves, which ends that hold. */
+const USER_SCROLL_EVENTS = ['wheel', 'pointerdown', 'keydown', 'touchstart'] as const
+
+/**
+ * Scrolls a document that has just opened to its `#fragment`, then again each time its content changes size for a
+ * moment after, as the diagrams above the section grow from placeholders into pictures. The user scrolling ends
+ * it early. Returns the function that ends it.
+ */
+function holdAnchorInView(root: HTMLElement, id: string): () => void {
+    const scrollToAnchor = () => findAnchorTarget(root, id)?.scrollIntoView({ block: 'start' })
+    scrollToAnchor()
+    const content = scrollViewport(root)?.firstElementChild
+    if (!content || typeof ResizeObserver === 'undefined') return () => {}
+
+    const observer = new ResizeObserver(scrollToAnchor)
+    const timer = setTimeout(stop, ANCHOR_SETTLE_MS)
+    function stop() {
+        observer.disconnect()
+        clearTimeout(timer)
+        for (const type of USER_SCROLL_EVENTS) root.removeEventListener(type, stop)
+    }
+    for (const type of USER_SCROLL_EVENTS) root.addEventListener(type, stop, { passive: true })
+    observer.observe(content)
+    return stop
+}
+
 /** The Expand button of a block, found again if the element that had focus was replaced. */
 function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElement | null {
     if (!root) return null
@@ -315,10 +343,10 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         if (tabChanged) {
             const pendingAnchor = pendingAnchorRef.current
             pendingAnchorRef.current = null
-            const anchorTarget = pendingAnchor?.tabId === tabId ? findAnchorTarget(scrollAreaRef.current, pendingAnchor.id) : null
-            if (anchorTarget) {
-                anchorTarget.scrollIntoView({ block: 'start' })
-                return
+            const root = scrollAreaRef.current
+            if (root && pendingAnchor?.tabId === tabId && findAnchorTarget(root, pendingAnchor.id)) {
+                // Held there while the diagrams above it are drawn, which would push it down or out of view.
+                return holdAnchorInView(root, pendingAnchor.id)
             }
         }
 
