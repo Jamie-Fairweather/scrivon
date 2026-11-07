@@ -111,6 +111,17 @@ pub fn run() {
     crash_report::install(&context.config().identifier);
 
     let result = tauri::Builder::default()
+        // Keep this the first plugin: a second launch must quit before anything
+        // else starts, and before setup opens the store files. Two copies would
+        // overwrite each other's recent folders, tabs and kept unsaved edits.
+        // A second launch focuses the window that is already open instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(PendingUpdate(Mutex::new(None)))
         .manage(CloseWatchdog::default())
         .plugin(tauri_plugin_process::init())
