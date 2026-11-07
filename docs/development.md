@@ -15,7 +15,7 @@ bun run tauri dev
 
 The web UI also runs with `bun run dev`, but folder workspaces require the desktop app (`bun run tauri dev`).
 
-Only one copy of Scrivon runs at a time, and a second launch just brings the open window to the front. A dev build counts too: it has the same identifier and uses the same settings, recent folders and kept unsaved edits as the installed app, so quit the installed app before `bun run tauri dev`, or the dev build will only focus it and quit.
+Only one copy of Scrivon runs at a time, and a second launch just brings the open window to the front. A dev build counts too: it has the same identifier, so quit the installed app before `bun run tauri dev`, or the dev build will only focus it and quit. The same identifier also means the dev build shares the installed app's recent folders, open tabs and kept unsaved edits (the `workspace.json` and `unsaved-changes.json` store files in the app's data folder). Settings (theme, shortcuts, export profiles, autosave) are not shared: they live in the page's localStorage, which is kept per origin, and the dev build loads the page from `http://localhost:3000` rather than the installed app's `http://tauri.localhost`. So a dev build starts with its own settings, and changes made there don't carry over.
 
 `bun run build` (the production web build) also needs Rust installed: afterwards it runs `cargo metadata` to list the Rust crates in the licences dialog.
 
@@ -32,7 +32,22 @@ Releases are automated with [semantic-release](https://semantic-release.gitbook.
 
 Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow first runs the same checks as a pull request ([`ci.yml`](../.github/workflows/ci.yml)) and stops if any fail. Then it bumps versions, updates the changelog, and creates a git tag and a **draft** GitHub Release. The Windows job builds the installers, uploads them and `latest.json` to the draft, and publishes it as its last step. Until then the release is hidden, so the download link and the updater never see a release without installers.
 
-If the Windows build fails, the release stays a draft. Fix the cause, then re-run the failed job or run **Actions → Build release artifacts (manual)** with the tag. Either one publishes the draft when it finishes.
+CI and both release workflows use one pinned Rust version (the `toolchain:` inputs in [`.github/workflows`](../.github/workflows)), so the released app is built by the compiler CI checked it with. To move to a newer Rust, change all of them in one pull request and fix what the new Clippy reports.
+
+If the Windows build fails, the release stays a draft. What to do depends on the cause:
+
+- **Outside the code**, such as a missing or wrong secret, a runner or network problem, or a GitHub outage: fix it, then re-run the failed job or run **Actions → Build release artifacts (manual)** with the tag. Either one publishes the draft when it finishes.
+- **In the tagged code or its build inputs**, such as release-only Rust code, the NSIS hooks or images, `tauri.conf.json`, or the version files the release commit rewrote: don't re-run. Both ways build the code at the tag, so they fail the same way. Merge a `fix:` commit to the same branch (`main` or `rc`) instead, which releases the next patch or rc version with its installers. Once that one is published, delete the stuck draft under **Releases**, and its tag if you like. Delete the tag only after the next release exists, or semantic-release uses that version number again. On `main`, `CHANGELOG.md` still lists the skipped version.
+
+The **semantic-release** job can also fail after its log says `Created tag vX.Y.Z`. Re-running it doesn't help: it finds the tag and makes no new release. Look for vX.Y.Z under **Releases** first:
+
+- **It's there as a draft**: a later step failed, such as commenting on pull requests. The Windows job still runs then. If it didn't, run **Actions → Build release artifacts (manual)** with the tag.
+- **It isn't there**: making the draft failed, and the manual build stops without one. Make the draft from the tag first, with the notes from the release commit's message, then run the manual build with the tag. For an rc version, add `--prerelease`:
+
+    ```bash
+    git fetch --tags
+    gh release create vX.Y.Z --verify-tag --draft --title vX.Y.Z --notes "$(git log -1 --format=%b vX.Y.Z)"
+    ```
 
 Stable and pre-releases ship one installer, `Scrivon_<version>_x64-setup.exe` (NSIS), plus its `.sig` and `latest.json` for the updater. It installs for the current user, with no admin prompt. There is no `.msi` any more: it installed a second, per-machine copy next to the setup `.exe` one, and no one downloaded it (GitHub counted 0 downloads of the `.msi` across every release up to 1.4.2, against 46 of the setup `.exe`, in November 2026). If an MSI copy is there anyway, the setup `.exe` finds it by name and publisher and runs its uninstaller before installing, also when the updater runs it (Tauri's NSIS template does this). `bundle.targets` in [`tauri.conf.json`](../src-tauri/tauri.conf.json) and the `--bundles nsis` in both release workflows keep it that way; the WiX settings stay pinned in case an MSI is ever needed again.
 
@@ -113,7 +128,7 @@ Stable releases only. The desktop app checks [latest stable `latest.json`](https
 
 ### Updating Tauri
 
-Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.github/dependabot.yml)). The Tauri CLI won't build when an `@tauri-apps/*` package and its Rust crate are on different minor versions, and CI never runs the Tauri CLI, so a minor or major bump is done by hand in one PR: the `@tauri-apps/*` packages in `package.json`, the `tauri*` crates in `src-tauri/Cargo.toml`, and `webview2-com` and `windows-core` to the versions the new `wry` uses. CI checks the npm and crate versions match (`node scripts/check-tauri-versions.mjs`), but check that `bun run tauri build` still works before merging: CI doesn't build the installer.
+Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.github/dependabot.yml)). The Tauri CLI won't build when an `@tauri-apps/*` package and its Rust crate are on different minor versions, and pull request checks never run the Tauri CLI, so a minor or major bump is done by hand in one PR: the `@tauri-apps/*` packages in `package.json`, the `tauri*` crates in `src-tauri/Cargo.toml`, and `webview2-com` and `windows-core` to the versions the new `wry` uses. CI checks the npm and crate versions match (`node scripts/check-tauri-versions.mjs`), but check that `bun run tauri build` still works before merging: CI only builds the installer (the **Build Windows installer** job) once a change is on `dev`, and again before each release, not for a pull request.
 
 ### Installer identity
 

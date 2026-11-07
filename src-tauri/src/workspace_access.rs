@@ -130,12 +130,93 @@ impl WorkspaceAccess {
         self.remember(path);
         Ok(())
     }
+
+    /// Stops `path` opening without the folder dialog (the user removed it
+    /// from Recent), and takes it out of the saved list in each spelling it was
+    /// recorded under, so its name no longer stays in the app data either.
+    ///
+    /// When `path` leads to another folder (a `subst` drive or a link), its
+    /// canonical form names that folder. Only the canonical spelling `remember`
+    /// recorded goes, not that folder's own entry: removing the link from
+    /// Recent mustn't stop the folder itself opening from Recent.
+    pub fn forget(&self, path: &str) {
+        let canonical = canonical_or_parent(Path::new(path));
+        let forgotten = |folder: &str| {
+            same_folder(folder, path)
+                || canonical.as_deref().is_some_and(|canonical| {
+                    is_canonical_spelling(folder) && same_folder(folder, canonical)
+                })
+        };
+
+        // Read and write under the lock, as `remember` does.
+        let mut folders = self.folders.lock().unwrap();
+        let saved = self
+            .file
+            .as_deref()
+            .and_then(|file| read_access_file(file).ok());
+        let kept: Vec<String> =
+            merge_newest_first(&[saved.as_deref().unwrap_or_default(), folders.as_slice()])
+                .into_iter()
+                .filter(|folder| !forgotten(folder))
+                .collect();
+        let unchanged = saved.as_ref() == Some(&kept);
+        *folders = kept;
+        if unchanged {
+            return;
+        }
+        if let Some(file) = &self.file {
+            save_access_file(file, &folders);
+        }
+    }
 }
 
 fn canonical_string(path: &Path) -> Option<String> {
     std::fs::canonicalize(path)
         .ok()
         .map(|canonical| canonical.to_string_lossy().into_owned())
+}
+
+/// The canonical form of `path`. For a folder that is gone (moved, or on a
+/// drive that isn't there), that of the nearest folder above it that is still
+/// there, with the rest of the path added back.
+fn canonical_or_parent(path: &Path) -> Option<String> {
+    let mut rest = Vec::new();
+    let mut folder = path;
+    loop {
+        if let Ok(mut canonical) = std::fs::canonicalize(folder) {
+            canonical.extend(rest.iter().rev());
+            return Some(canonical.to_string_lossy().into_owned());
+        }
+        rest.push(folder.file_name()?);
+        folder = folder.parent()?;
+    }
+}
+
+/// True when `folder` is spelled as `std::fs::canonicalize` gives it, which on
+/// Windows starts with `\\?\`. Elsewhere it looks like any other path, so
+/// every folder counts.
+fn is_canonical_spelling(folder: &str) -> bool {
+    !cfg!(windows) || folder.starts_with(r"\\?\")
+}
+
+/// True when `a` and `b` name the same folder. On Windows letter case, either
+/// slash, a trailing slash and the `\\?\` prefix of a canonical path don't
+/// count.
+fn same_folder(a: &str, b: &str) -> bool {
+    if cfg!(windows) {
+        let key = |path: &str| {
+            let path = path.replace('/', "\\");
+            let local = if let Some(share) = path.strip_prefix(r"\\?\UNC\") {
+                format!(r"\\{share}")
+            } else {
+                path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
+            };
+            local.trim_end_matches('\\').to_lowercase()
+        };
+        key(a) == key(b)
+    } else {
+        a.trim_end_matches('/') == b.trim_end_matches('/')
+    }
 }
 
 /// The lists' folders in order, each once, at most `MAX_ENTRIES`.
@@ -374,6 +455,91 @@ mod tests {
             .filter(|name| name.ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn a_folder_removed_from_recent_needs_the_folder_dialog_again() {
+        let temp = TempDir::new("forget");
+        let data = temp.0.join("data");
+        let private = temp.folder("private");
+        let other = temp.folder("other");
+        let access = WorkspaceAccess::load(Some(&data));
+        for folder in [&private, &other] {
+            access
+                .approve(folder, |path| path == Path::new(folder))
+                .unwrap();
+        }
+
+        access.forget(&private);
+
+        let err = access.approve(&private, never_in_scope).unwrap_err();
+        assert!(err.contains("Open Folder"), "{err}");
+        // Neither spelling stays in the app data.
+        let canonical = canonical_string(Path::new(&private)).unwrap();
+        let saved = read_access_file(&data.join(ACCESS_FILE)).unwrap();
+        assert!(
+            !saved.iter().any(|f| *f == private || *f == canonical),
+            "{saved:?}"
+        );
+        let restarted = WorkspaceAccess::load(Some(&data));
+        assert!(restarted.approve(&private, never_in_scope).is_err());
+        restarted.approve(&other, never_in_scope).unwrap();
+    }
+
+    #[test]
+    fn forgets_a_folder_that_is_gone_in_every_spelling() {
+        let temp = TempDir::new("forget-gone");
+        let data = temp.0.join("data");
+        let moved = temp.folder("moved");
+        let access = WorkspaceAccess::load(Some(&data));
+        access
+            .approve(&moved, |path| path == Path::new(&moved))
+            .unwrap();
+        // Moved away, and then removed from Recent as the list spells it.
+        std::fs::remove_dir(&moved).unwrap();
+        let spelled = if cfg!(windows) {
+            format!("{}/", moved.to_uppercase().replace('\\', "/"))
+        } else {
+            moved.clone()
+        };
+
+        access.forget(&spelled);
+
+        assert_eq!(
+            read_access_file(&data.join(ACCESS_FILE)).unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    /// Two spellings of one folder: a link to it (a junction here, as a
+    /// `subst` drive would be) and its own path.
+    #[cfg(windows)]
+    #[test]
+    fn removing_a_link_to_a_folder_from_recent_keeps_the_folder_itself() {
+        let temp = TempDir::new("forget-link");
+        let data = temp.0.join("data");
+        // Its own path as the folder dialog gives it: no `\\?\`, no short names.
+        let real = canonical_string(Path::new(&temp.folder("real"))).unwrap();
+        let real = real.trim_start_matches(r"\\?\").to_string();
+        let link = temp.0.join("link").to_string_lossy().into_owned();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J", &link, &real])
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let access = WorkspaceAccess::load(Some(&data));
+        for folder in [&real, &link] {
+            access
+                .approve(folder, |path| path == Path::new(folder))
+                .unwrap();
+        }
+
+        access.forget(&link);
+
+        let err = access.approve(&link, never_in_scope).unwrap_err();
+        assert!(err.contains("Open Folder"), "{err}");
+        let restarted = WorkspaceAccess::load(Some(&data));
+        restarted.approve(&real, never_in_scope).unwrap();
     }
 
     #[test]

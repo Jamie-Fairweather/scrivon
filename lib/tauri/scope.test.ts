@@ -13,7 +13,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     invoke: invokeMock,
 }))
 
-import { allowWorkspacePath } from './scope'
+import { allowWorkspacePath, forgetWorkspacePath } from './scope'
 
 describe('allowWorkspacePath', () => {
     beforeEach(() => {
@@ -30,5 +30,23 @@ describe('allowWorkspacePath', () => {
         isTauriMock.mockReturnValue(true)
         await allowWorkspacePath('/home/project')
         expect(invokeMock).toHaveBeenCalledWith('allow_workspace', { path: '/home/project' })
+    })
+})
+
+describe('forgetWorkspacePath', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('no-ops outside Tauri', async () => {
+        isTauriMock.mockReturnValue(false)
+        await forgetWorkspacePath('/home/project')
+        expect(invokeMock).not.toHaveBeenCalled()
+    })
+
+    it('invokes forget_workspace in Tauri', async () => {
+        isTauriMock.mockReturnValue(true)
+        await forgetWorkspacePath('/home/project')
+        expect(invokeMock).toHaveBeenCalledWith('forget_workspace', { path: '/home/project' })
     })
 })

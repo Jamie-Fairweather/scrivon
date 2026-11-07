@@ -1,6 +1,8 @@
 # Manual re-run for releases that were published before the Windows build job existed,
 # when the Windows build failed and left the release as a draft (this publishes it),
-# or when you need to rebuild installers without a new version bump.
+# or when you need to rebuild installers without a new version bump. It builds the tag's
+# own code (only the build tooling comes from this commit), so after a failed build it only
+# helps when the cause was outside the code, such as a secret or the runner.
 name: Build release artifacts (manual)
 
 on:
@@ -56,10 +58,11 @@ jobs:
             - name: Setup Bun and dependencies
               uses: ./.release-tools/.github/actions/setup-bun
 
-            - name: Install Rust stable
+            # The version CI checks the Windows code with (ci.yml): bump them together.
+            - name: Install Rust 1.97.1
               uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
               with:
-                  toolchain: stable
+                  toolchain: 1.97.1
 
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

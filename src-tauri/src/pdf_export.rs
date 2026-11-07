@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use base64::Engine;
@@ -476,9 +476,15 @@ async fn export_html_to_pdf_impl(
     Err("Direct PDF save is only available on Windows.".into())
 }
 
-/// Only writes to a `.pdf` file the user chose in the save dialog, which adds
-/// the chosen file to the fs scope. Otherwise any script in the webview could
-/// write (and rewrite) a file anywhere on disk.
+/// Only writes to a `.pdf` file the fs scope allows: the one the user chose in
+/// the save dialog (which adds it to the scope), or one inside a folder they
+/// opened. Otherwise any script in the webview could write a file anywhere on
+/// disk. The scope matches a file that isn't there yet by its path as written,
+/// so a `..` in it could point anywhere (as in `atomic_write`): that is
+/// refused, and the scope is asked about where the file really goes, with its
+/// folder looked up on disk (which also follows any link among its folders).
+/// Without a `..` the path as given leads to that same place, so the export
+/// still writes to it as given.
 fn check_output_path(path: &str, in_scope: impl Fn(&Path) -> bool) -> Result<(), String> {
     let output = Path::new(path);
     let is_pdf = output
@@ -487,12 +493,25 @@ fn check_output_path(path: &str, in_scope: impl Fn(&Path) -> bool) -> Result<(),
     if !is_pdf {
         return Err("The PDF file name must end in .pdf.".into());
     }
-    if !output.is_absolute() || !in_scope(output) {
-        return Err(
-            "Scrivon can only save the PDF to a place you choose in the Save dialog.".into(),
-        );
+    let refused =
+        || String::from("Scrivon can only save the PDF to a place you choose in the Save dialog.");
+    let climbs = output
+        .components()
+        .any(|part| matches!(part, Component::ParentDir));
+    if !output.is_absolute() || climbs {
+        return Err(refused());
     }
-    Ok(())
+    let (Some(folder), Some(name)) = (output.parent(), output.file_name()) else {
+        return Err(refused());
+    };
+    match std::fs::canonicalize(folder) {
+        Ok(folder) if in_scope(&folder.join(name)) => Ok(()),
+        Ok(_) => Err(refused()),
+        // The folder is gone: `check_output_writable` says so, but only for a
+        // place the window may use, so it can't probe the disk.
+        Err(_) if in_scope(output) => Ok(()),
+        Err(_) => Err(refused()),
+    }
 }
 
 #[tauri::command]
@@ -786,6 +805,64 @@ mod tests {
             .unwrap_err()
             .contains(".pdf"));
         assert!(check_output_path("relative.pdf", |_| true).is_err());
+    }
+
+    /// Allows what is inside `folder`, matched as the fs scope matches a file
+    /// that isn't there yet: by its path as written, part by part, and by the
+    /// folder's real location.
+    fn inside(folder: &std::path::Path) -> impl Fn(&std::path::Path) -> bool {
+        let written = folder.to_path_buf();
+        let real = std::fs::canonicalize(folder).unwrap();
+        move |path| path.starts_with(&written) || path.starts_with(&real)
+    }
+
+    #[test]
+    fn refuses_a_pdf_whose_path_climbs_out_of_the_opened_folder() {
+        let dir = temp_folder();
+        let opened = dir.join("opened");
+        std::fs::create_dir(&opened).unwrap();
+        // Written this way it still starts with the opened folder.
+        let escaping = opened.join("..").join("outside.pdf");
+        assert!(inside(&opened)(&escaping));
+
+        let refused = check_output_path(&escaping.to_string_lossy(), inside(&opened));
+        let kept = check_output_path(
+            &opened.join("inside.pdf").to_string_lossy(),
+            inside(&opened),
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(refused.unwrap_err().contains("Save dialog"));
+        assert!(kept.is_ok());
+    }
+
+    #[test]
+    fn asks_the_scope_about_where_the_pdf_really_goes() {
+        let dir = temp_folder();
+        let asked = std::cell::RefCell::new(Vec::new());
+
+        let checked = check_output_path(&dir.join("Report.pdf").to_string_lossy(), |path| {
+            asked.borrow_mut().push(path.to_path_buf());
+            true
+        });
+
+        let real = std::fs::canonicalize(&dir).unwrap().join("Report.pdf");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(checked.is_ok());
+        assert_eq!(*asked.borrow(), [real]);
+    }
+
+    #[test]
+    fn leaves_a_missing_folder_to_be_reported_only_where_the_window_may_save() {
+        let missing = std::env::temp_dir()
+            .join(format!("scrivon-gone-{}", uuid::Uuid::new_v4()))
+            .join("Report.pdf");
+        let missing = missing.to_string_lossy().into_owned();
+
+        assert!(check_output_path(&missing, |_| true).is_ok());
+        assert!(check_output_path(&missing, |_| false)
+            .unwrap_err()
+            .contains("Save dialog"));
     }
 
     #[test]
