@@ -340,10 +340,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
                 // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.
                 const opened = tabsRef.current
-                const restored = nextTabs.filter((t) => !opened.some((o) => samePath(o.path, t.path)))
-                const merged = [...restored, ...opened]
-                tabsRef.current = merged
-                setTabs(merged)
+                const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !current.some((o) => samePath(o.path, t.path)))
+                const restored = notOpen(opened)
+                tabsRef.current = [...restored, ...opened]
+                // Merged into the latest state, so a keystroke queued in the same update isn't lost.
+                setTabs((prev) => [...notOpen(prev), ...prev])
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
                 for (const tab of restored) explainReadOnlyFile(tab)
             },
@@ -487,7 +488,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             const tab = tabsRef.current.find((t) => t.id === id)
             if (tab?.readOnly) return
             // A save error stays until a save works, so typing doesn't hide that edits aren't reaching the disk.
-            setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content, isDirty: true } : t)))
+            const typed = (t: DocumentTab) => (t.id === id ? { ...t, content, isDirty: true } : t)
+            // The ref changes straight away too, so a save or restore finishing before React draws again sees this
+            // keystroke (a save would otherwise think the tab clean and drop the copy of it).
+            tabsRef.current = tabsRef.current.map(typed)
+            setTabs((prev) => prev.map(typed))
             coordinator.scheduleSave.current(id)
             coordinator.scheduleBackup.current(id)
         },

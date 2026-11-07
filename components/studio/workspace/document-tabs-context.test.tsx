@@ -1614,6 +1614,27 @@ describe('changes to several tabs at once', () => {
         expect(result.current.activeTabId).toBe('/ws/renamed.mmd')
     })
 
+    it('keeps a keystroke made in the same moment as the saved tabs are put back', async () => {
+        const initial = { tabs: [tab('/ws/opened.mmd', 'opened.mmd')], activeTabId: '/ws/opened.mmd' }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+
+        act(() => {
+            result.current.updateTabContent('/ws/opened.mmd', 'typed while restoring')
+            coordinator.setTabsFromWorkspace.current(
+                [tab('/ws/restored.mmd', 'restored.mmd'), tab('/ws/opened.mmd', 'opened.mmd')],
+                '/ws/restored.mmd'
+            )
+        })
+
+        expect(result.current.tabs).toEqual([
+            expect.objectContaining({ id: '/ws/restored.mmd' }),
+            expect.objectContaining({ id: '/ws/opened.mmd', content: 'typed while restoring', isDirty: true }),
+        ])
+        expect(result.current.activeTabId).toBe('/ws/opened.mmd')
+    })
+
     it('never saves the same file twice in the list of open tabs', async () => {
         const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/a.mmd', 'a.mmd')], activeTabId: '/ws/a.mmd' }
         const coordinator = createWorkspaceCoordinatorRefs()

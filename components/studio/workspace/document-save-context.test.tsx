@@ -135,6 +135,30 @@ describe('DocumentSaveProvider', () => {
         expect(result.current.tabs.tabs[0]?.isDirty).toBe(false)
     })
 
+    it('keeps the copy of text typed just before a save finishes, before the screen draws again', async () => {
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        const writes = deferWrites()
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'v1'))
+        let saving!: Promise<boolean>
+        act(() => {
+            saving = result.current.save.flushSave('/ws/a.mmd')
+        })
+        await waitFor(() => expect(writes.pending).toHaveLength(1))
+
+        await act(async () => {
+            result.current.tabs.updateTabContent('/ws/a.mmd', 'v2')
+            writes.pending.shift()!()
+            await saving
+        })
+
+        expect(writes.disk.get('/ws/a.mmd')).toBe('v1')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'v2', isDirty: true })
+        // 'v2' isn't on disk, so its copy (and the timer that writes it) must stay.
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+    })
+
     it('runs saves for one file one after another, so the newest text lands last', async () => {
         const writes = deferWrites()
         const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
