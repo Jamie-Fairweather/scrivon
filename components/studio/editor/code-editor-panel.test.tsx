@@ -173,6 +173,7 @@ const fakeMonaco = {
         remeasureFonts: vi.fn(),
         /** Monaco's shared command registry; each call returns its own disposable, to check the panel lets go. */
         registerCommand: vi.fn<(id: string, handler: (accessor: unknown) => void) => { dispose: () => void }>(() => ({ dispose: vi.fn() })),
+        addKeybindingRule: () => ({ dispose: () => {} }),
     },
 }
 

@@ -77,3 +77,54 @@ declare module 'monaco-editor/esm/vs/editor/browser/services/openerService.js' {
         open: IOpenerService['open']
     }
 }
+
+// Monaco's keybinding table, used by lib/monaco/editor-keybindings.test.ts to check that the editor's
+// right-click 'Command Palette' no longer shows F1 once Scrivon's palette has taken it over.
+declare module 'monaco-editor/esm/vs/base/common/keybindings.js' {
+    export class Keybinding {
+        private readonly _keybindingBrand: undefined
+    }
+    export function decodeKeybinding(keybinding: number, os: number): Keybinding | null
+}
+
+declare module 'monaco-editor/esm/vs/platform/keybinding/common/usLayoutResolvedKeybinding.js' {
+    import type { Keybinding } from 'monaco-editor/esm/vs/base/common/keybindings.js'
+    export class USLayoutResolvedKeybinding {
+        static resolveKeybinding(keybinding: Keybinding, os: number): USLayoutResolvedKeybinding[]
+    }
+}
+
+declare module 'monaco-editor/esm/vs/platform/contextkey/common/contextkey.js' {
+    export class ContextKeyExpression {
+        private readonly _contextKeyExpressionBrand: undefined
+    }
+    export const ContextKeyExpr: {
+        has(key: string): ContextKeyExpression
+    }
+}
+
+declare module 'monaco-editor/esm/vs/platform/keybinding/common/resolvedKeybindingItem.js' {
+    import type { ContextKeyExpression } from 'monaco-editor/esm/vs/platform/contextkey/common/contextkey.js'
+    import type { USLayoutResolvedKeybinding } from 'monaco-editor/esm/vs/platform/keybinding/common/usLayoutResolvedKeybinding.js'
+    export class ResolvedKeybindingItem {
+        constructor(
+            resolvedKeybinding: USLayoutResolvedKeybinding | undefined,
+            command: string | null,
+            commandArgs: unknown,
+            when: ContextKeyExpression | undefined,
+            isDefault: boolean,
+            extensionId: string | null,
+            isBuiltinExtension: boolean
+        )
+        readonly command: string | null
+    }
+}
+
+declare module 'monaco-editor/esm/vs/platform/keybinding/common/keybindingResolver.js' {
+    import type { ResolvedKeybindingItem } from 'monaco-editor/esm/vs/platform/keybinding/common/resolvedKeybindingItem.js'
+    export class KeybindingResolver {
+        constructor(defaults: ResolvedKeybindingItem[], overrides: ResolvedKeybindingItem[], log: (message: string) => void)
+        /** The key the editor's menus show next to `commandId`, or null when it has none. */
+        lookupPrimaryKeybinding(commandId: string, context: unknown): ResolvedKeybindingItem | null
+    }
+}
