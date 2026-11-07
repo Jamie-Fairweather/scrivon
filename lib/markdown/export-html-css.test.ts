@@ -287,6 +287,19 @@ describe('buildPdfExportCss', () => {
         expect(resolvePdfPrintOptions(profile, metadata)).toMatchObject({ pageNumberFormat: 'n-of-total', pageNumberColor: '#ff0000' })
     })
 
+    it("hands the author and subtitle over for the PDF's document properties", () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(resolvePdfPrintOptions(profile, { title: 'Spec', subtitle: ' Q3 figures ', author: ' Zoë Ångström ', date: '' })).toMatchObject({
+            author: 'Zoë Ångström',
+            subject: 'Q3 figures',
+        })
+
+        // Unset ones are left out, so the PDF gets no empty properties.
+        const options = resolvePdfPrintOptions(profile, { title: 'Spec', subtitle: '  ', author: '', date: '2026-11-07' })
+        expect(options).not.toHaveProperty('author')
+        expect(options).not.toHaveProperty('subject')
+    })
+
     it('zeroes the print margins when the css emulates them', () => {
         const profile = createDefaultPdfExportProfile()
         profile.header.enabled = true

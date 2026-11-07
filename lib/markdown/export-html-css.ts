@@ -77,6 +77,8 @@ export function pdfPrintMarginsMm(profile: PdfExportProfile): PdfMarginsMm {
 export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfExportMetadata): PdfPrintOptions {
     const page = pdfPageSizeMm(profile)
     const margins = pdfPrintMarginsMm(profile)
+    const author = metadata.author.trim()
+    const subject = metadata.subtitle.trim()
     return {
         pageWidthMm: page.width,
         pageHeightMm: page.height,
@@ -87,6 +89,9 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
         marginLeftMm: margins.left,
         pageNumberFormat: pdfPageNumberFormat(profile, metadata),
         pageNumberColor: profile.footer.textColor.trim(),
+        // Word files get these as creator and description; the PDF stamper writes them into the file's properties.
+        ...(author ? { author } : {}),
+        ...(subject ? { subject } : {}),
     }
 }
 

@@ -96,6 +96,18 @@ function pageSpaceNote(profile: PdfExportProfile): string {
     return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
 }
 
+/**
+ * With the title page off, the subtitle, author and date fields change nothing on the page
+ * unless a header or footer uses them, so say where they go. Word files, and PDFs from the
+ * Windows app, also keep the author and subtitle in the file's properties.
+ */
+function titleFieldsNote(format: ExportFormat, profile: PdfExportProfile): string {
+    if (profile.frontMatter.titlePage) return ''
+    const note = 'Subtitle, author and date appear on the title page (off in this profile) and in {{…}} header or footer text.'
+    const savedInFile = format === 'docx' || isWindowsTauri()
+    return savedInFile ? `${note} Author and subtitle are also saved in the file's properties.` : note
+}
+
 /** How long to wait for a paint at most: a hidden window runs no animation frames. */
 const PAINT_WAIT_MS = 100
 
@@ -144,6 +156,7 @@ function PdfExportForm({
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
     const spaceNote = pageSpaceNote(profile)
+    const fieldsNote = titleFieldsNote(format, profile)
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -216,6 +229,7 @@ function PdfExportForm({
                         <FieldLabel htmlFor="export-date">Date</FieldLabel>
                         <Input id="export-date" value={date} onChange={(event) => setDate(event.target.value)} />
                     </Field>
+                    {fieldsNote ? <p className="text-xs text-muted-foreground">{fieldsNote}</p> : null}
                 </fieldset>
                 {error ? (
                     <p role="alert" className="text-sm text-destructive-foreground">

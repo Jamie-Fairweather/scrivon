@@ -28,6 +28,11 @@ pub struct PdfPrintOptions {
     pub page_number_format: String,
     /// Hex colour for the stamped label; empty for the default chrome colour.
     pub page_number_color: String,
+    /// Saved in the PDF's document properties; left out when empty.
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub subject: String,
 }
 
 /// How long to wait for the export page's images and web fonts before
@@ -641,6 +646,18 @@ mod tests {
         assert_eq!(options.margin_right_mm, 0.0);
         assert_eq!(options.page_number_format, "page-n");
         assert_eq!(options.page_number_color, "#ff0000");
+        // Document properties are only sent when set.
+        assert_eq!(
+            (options.author.as_str(), options.subject.as_str()),
+            ("", "")
+        );
+
+        let with_properties: PdfPrintOptions = serde_json::from_str(
+            r##"{"pageWidthMm":210,"pageHeightMm":297,"landscape":false,"marginTopMm":10,"marginRightMm":10,"marginBottomMm":10,"marginLeftMm":10,"pageNumberFormat":"none","pageNumberColor":"","author":"Ada","subject":"Q3"}"##,
+        )
+        .unwrap();
+        assert_eq!(with_properties.author, "Ada");
+        assert_eq!(with_properties.subject, "Q3");
     }
 
     #[test]
@@ -801,6 +818,8 @@ mod tests {
             margin_left_mm: 10.0,
             page_number_format: format.into(),
             page_number_color: String::new(),
+            author: String::new(),
+            subject: String::new(),
         }
     }
 

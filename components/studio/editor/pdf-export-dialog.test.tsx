@@ -249,6 +249,29 @@ describe('PdfExportDialog', () => {
         expect(screen.queryByText(/Margins, header and footer/)).toBeNull()
     })
 
+    it('says where subtitle, author and date go when the profile has no title page', async () => {
+        const note = 'Subtitle, author and date appear on the title page (off in this profile) and in {{…}} header or footer text.'
+        const view = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText(`${note} Author and subtitle are also saved in the file's properties.`)).toBeInTheDocument()
+        view.unmount()
+
+        // The print dialog outside Windows doesn't keep them in the PDF's properties; Word files do.
+        platform.windows = false
+        const printed = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText(note)).toBeInTheDocument()
+        printed.unmount()
+        const word = render(<Owner format="docx" onOpenChange={vi.fn()} />)
+        expect(await screen.findByText(`${note} Author and subtitle are also saved in the file's properties.`)).toBeInTheDocument()
+        word.unmount()
+
+        profiles.edit = (profile) => {
+            profile.frontMatter.titlePage = true
+        }
+        render(<Owner onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/appear on the title page/)).toBeNull()
+    })
+
     it('says outside Windows that page numbers the profile asks for may be missing', async () => {
         platform.windows = false
         profiles.edit = (profile) => {

@@ -1478,8 +1478,11 @@ pub fn stamp_page_numbers_to(
     options: &PdfPrintOptions,
 ) -> Result<Stamped, String> {
     let mut doc = Document::load(input).map_err(|e| plain_error(COULD_NOT_READ, e))?;
-    let stamped =
+    let mut stamped =
         stamp_document(&mut doc, options).map_err(|e| plain_error(COULD_NOT_NUMBER, e))?;
+    if set_document_properties(&mut doc, options) {
+        stamped.changed = true;
+    }
     if stamped.changed {
         save_replacing(&mut doc, output).map_err(|e| plain_error(COULD_NOT_SAVE, e))?;
     }
@@ -1490,6 +1493,49 @@ pub fn stamp_page_numbers_to(
 pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), String> {
     let path = Path::new(path);
     stamp_page_numbers_to(path, path, options).map(|_| ())
+}
+
+/// Saves the author and subject in the PDF's document properties (its Info
+/// dictionary), next to the title Chromium put there. Returns whether it
+/// changed anything.
+fn set_document_properties(doc: &mut Document, options: &PdfPrintOptions) -> bool {
+    let properties: Vec<(&str, &str)> = [
+        ("Author", options.author.trim()),
+        ("Subject", options.subject.trim()),
+    ]
+    .into_iter()
+    .filter(|(_, value)| !value.is_empty())
+    .collect();
+    if properties.is_empty() {
+        return false;
+    }
+
+    let existing = doc
+        .trailer
+        .get(b"Info")
+        .and_then(Object::as_reference)
+        .ok()
+        .filter(|id| doc.get_dictionary(*id).is_ok());
+    let info_id = existing.unwrap_or_else(|| {
+        // None yet, or written into the trailer itself: keep its entries in a new one.
+        let kept = doc
+            .trailer
+            .get(b"Info")
+            .and_then(Object::as_dict)
+            .cloned()
+            .unwrap_or_default();
+        let id = doc.add_object(kept);
+        doc.trailer.set("Info", id);
+        id
+    });
+    let Ok(info) = doc.get_dictionary_mut(info_id) else {
+        return false;
+    };
+    for (key, value) in properties {
+        // PDFDocEncoding for plain ASCII, else UTF-16BE with a byte order mark.
+        info.set(key, lopdf::text_string(value));
+    }
+    true
 }
 
 /// Writes `doc` next to `output` and then renames it over `output`.
@@ -1678,6 +1724,8 @@ mod tests {
             margin_left_mm: 10.0,
             page_number_format: format.into(),
             page_number_color: color.into(),
+            author: String::new(),
+            subject: String::new(),
         }
     }
 
@@ -2328,6 +2376,57 @@ end";
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(stamped.extract_text(&[1]).unwrap().trim(), "");
+    }
+
+    fn info_entry(doc: &Document, key: &[u8]) -> Option<String> {
+        let id = doc.trailer.get(b"Info").ok()?.as_reference().ok()?;
+        lopdf::decode_text_string(doc.get_dictionary(id).ok()?.get(key).ok()?).ok()
+    }
+
+    #[test]
+    fn saves_the_author_and_subject_in_the_document_properties() {
+        let mut doc = Document::with_version("1.5");
+        build_pdf(&mut doc, vec![(vec![], dictionary! {})]);
+        // Chromium writes the page's <title> into the Info dictionary.
+        let info_id = doc.add_object(dictionary! { "Title" => Object::string_literal("Report") });
+        doc.trailer.set("Info", info_id);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-properties.pdf");
+        let mut with_properties = options("none", "");
+        with_properties.author = " Zoë Ångström ".into();
+        with_properties.subject = "Quarterly figures".into();
+
+        let result = stamp_page_numbers_to(&path, &path, &with_properties);
+
+        let saved = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        // Saved even with no page numbers to add.
+        assert!(result.unwrap().changed);
+        assert_eq!(
+            info_entry(&saved, b"Author").as_deref(),
+            Some("Zoë Ångström")
+        );
+        assert_eq!(
+            info_entry(&saved, b"Subject").as_deref(),
+            Some("Quarterly figures")
+        );
+        assert_eq!(info_entry(&saved, b"Title").as_deref(), Some("Report"));
+    }
+
+    #[test]
+    fn adds_document_properties_to_a_pdf_without_any() {
+        let mut doc = Document::with_version("1.5");
+        build_pdf(&mut doc, vec![(vec![], dictionary! {})]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-new-properties.pdf");
+        let mut with_author = options("none", "");
+        with_author.author = "Ada".into();
+
+        let result = stamp_page_numbers_to(&path, &path, &with_author);
+
+        let saved = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(result.unwrap().changed);
+        assert_eq!(info_entry(&saved, b"Author").as_deref(), Some("Ada"));
+        assert_eq!(info_entry(&saved, b"Subject"), None);
     }
 
     #[test]
