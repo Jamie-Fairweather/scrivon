@@ -9,11 +9,6 @@ import { AboutDialog } from './about-dialog'
 
 vi.mock('@/lib/notify', () => ({ notifySuccess: vi.fn(), notifyError: vi.fn() }))
 
-// happy-dom has no Web Animations API; the dialog's scroll area asks for it.
-if (!Element.prototype.getAnimations) {
-    Element.prototype.getAnimations = () => []
-}
-
 function renderAbout() {
     return render(<AboutDialog open onOpenChange={vi.fn()} onOpenLicenses={vi.fn()} />)
 }

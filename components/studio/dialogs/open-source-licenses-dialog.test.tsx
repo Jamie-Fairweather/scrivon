@@ -3,11 +3,6 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ThirdPartyPackage } from '@/lib/legal/third-party-licenses'
 
-// happy-dom has no Web Animations API; the dialog's scroll area asks for it.
-if (!Element.prototype.getAnimations) {
-    Element.prototype.getAnimations = () => []
-}
-
 const { licences } = vi.hoisted(() => ({
     licences: {
         loads: 0,

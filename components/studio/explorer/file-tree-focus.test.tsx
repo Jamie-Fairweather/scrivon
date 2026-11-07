@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
 import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
 import type { FileNode } from '@/lib/workspace/types'
@@ -28,11 +28,6 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabActions: () => tabs,
     useWorkspaceSession: () => session,
 }))
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API; Base UI popups ask for running animations.
-    Element.prototype.getAnimations ??= () => []
-})
 
 const file = (name: string): FileNode => ({ kind: 'file', name, path: `/ws/${name}` })
 const tree: FileNode[] = [file('a.md'), file('b.md'), file('c.md')]

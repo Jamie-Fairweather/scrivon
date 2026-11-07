@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toggleButtonClassName } from '@/lib/ui/button-classes'
 import { WorkspaceExplorer } from './workspace-explorer'
 
@@ -9,11 +9,6 @@ vi.mock('@/components/studio/explorer/file-tree', () => ({ FileTree: () => null 
 vi.mock('@/components/studio/explorer/examples-explorer', () => ({ ExamplesExplorer: () => null }))
 vi.mock('@/components/studio/explorer/file-tree-root-actions', () => ({ FileTreeRootActions: () => null }))
 vi.mock('@/components/studio/command-palette/command-palette-trigger-button', () => ({ CommandPaletteTriggerButton: () => null }))
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API; Base UI's scroll area asks for running animations.
-    Element.prototype.getAnimations ??= () => []
-})
 
 afterEach(() => {
     // The chosen panel is kept for the session.

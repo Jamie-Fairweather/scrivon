@@ -1,11 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { NamePromptProvider, useNamePrompt, type NamePromptOptions } from './name-prompt-provider'
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API; the dialog's scroll area asks for running animations.
-    Element.prototype.getAnimations ??= () => []
-})
 
 function Opener({ options, onResult }: { options: NamePromptOptions; onResult: (name: string | null) => void }) {
     const { promptName } = useNamePrompt()

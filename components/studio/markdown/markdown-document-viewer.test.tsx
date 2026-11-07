@@ -103,8 +103,6 @@ describe('MarkdownDocumentViewer', () => {
     let scrollIntoView: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
-        // happy-dom has no Web Animations API; Base UI's scroll area calls it after scrolling.
-        if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
         workspace.tabs = [fileTab(DOC_A)]
         workspace.workspaceRoot = 'C:\\notes'
         workspace.tree = []

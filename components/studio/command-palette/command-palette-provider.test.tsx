@@ -1,6 +1,6 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteProvider, useCommandPalette, useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
@@ -40,11 +40,6 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
 })
 
 const palette: { openMode: (mode: PaletteMode) => void } = { openMode: () => {} }
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API, which Base UI's scroll area calls on a timer.
-    if (typeof Element.prototype.getAnimations !== 'function') Element.prototype.getAnimations = () => []
-})
 
 beforeEach(() => {
     search.groups = []

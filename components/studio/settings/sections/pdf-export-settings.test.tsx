@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { getActivePdfExportProfile, updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -48,13 +48,6 @@ function renderWithProfile(change: (profile: PdfExportProfile) => PdfExportProfi
 }
 
 const savedNames = () => screen.getByTestId('saved-names').textContent
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API, which the scroll area in the font list asks for.
-    if (!('getAnimations' in Element.prototype)) {
-        Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] })
-    }
-})
 
 beforeEach(() => {
     // Start each test from default settings (the provider reads and writes localStorage).

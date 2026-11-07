@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 
@@ -31,11 +31,6 @@ vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({
 function tab(name: string, content: string): DocumentTab {
     return { id: name, path: `D:\\docs\\${name}`, name, content, isDirty: false, isSaving: false }
 }
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API; Base UI menus ask for running animations.
-    Element.prototype.getAnimations ??= () => []
-})
 
 describe('DocumentExportMenu', () => {
     beforeEach(() => {

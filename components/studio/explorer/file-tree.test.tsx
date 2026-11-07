@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { Profiler } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
@@ -48,11 +48,6 @@ vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNameProm
 vi.mock('@/lib/tauri/fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/tauri/fs')>()
     return { ...actual, isMermaidFile: vi.fn(actual.isMermaidFile) }
-})
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API; Base UI menus ask for running animations.
-    Element.prototype.getAnimations ??= () => []
 })
 
 const tree: FileNode[] = [

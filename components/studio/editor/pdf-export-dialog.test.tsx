@@ -25,9 +25,6 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
     },
 }))
 
-// happy-dom has no Web Animations API; the dialog's scroll area asks for running animations.
-if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
-
 /** Stands in for the export menu, which owns the export state; `shown` mimics a tab switch unmounting the dialog. */
 function Owner({
     shown = true,

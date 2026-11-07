@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
@@ -170,6 +170,7 @@ describe('KeyboardSettings recording', () => {
         const confirm = await screen.findByRole('alertdialog')
         expect(confirm).toHaveTextContent('Reset all keyboard shortcuts?')
         fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }))
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
         expect(within(editor).getByText('Not assigned')).toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button', { name: 'Reset all' }))

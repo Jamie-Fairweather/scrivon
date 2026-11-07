@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { exampleTabId } from '@/lib/examples/example-tab'
 import { ExamplesExplorer } from './examples-explorer'
@@ -12,11 +12,6 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useActiveTabId: () => tabs.activeTabId,
     useDocumentTabActions: () => tabs,
 }))
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API; Base UI's collapsible and scroll area ask for running animations.
-    Element.prototype.getAnimations ??= () => []
-})
 
 const [first, second] = APP_EXAMPLES as [(typeof APP_EXAMPLES)[number], (typeof APP_EXAMPLES)[number]]
 const exampleButton = (title: string) => screen.getAllByRole('button').find((button) => button.textContent === title)!

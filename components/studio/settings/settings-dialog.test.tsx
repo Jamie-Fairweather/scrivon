@@ -36,11 +36,6 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
     notifyError: vi.fn(),
 }))
 
-// happy-dom has no Web Animations API, which Base UI's scroll area asks for.
-if (!('getAnimations' in Element.prototype)) {
-    Object.defineProperty(Element.prototype, 'getAnimations', { value: () => [], configurable: true })
-}
-
 function OpenSettingsButtons() {
     const { openSettings } = useAppSettings()
     return (

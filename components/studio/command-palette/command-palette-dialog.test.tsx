@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import type { ActionPaletteItem, PaletteItem } from '@/components/studio/command-palette/types'
 import { notifyError } from '@/lib/notify'
@@ -8,11 +8,6 @@ import { notifyError } from '@/lib/notify'
 vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
 
 type DialogProps = ComponentProps<typeof CommandPaletteDialog>
-
-beforeAll(() => {
-    // happy-dom has no Web Animations API, which Base UI's scroll area calls on a timer.
-    if (typeof Element.prototype.getAnimations !== 'function') Element.prototype.getAnimations = () => []
-})
 
 function renderDialog(overrides: Partial<DialogProps> = {}) {
     const props: DialogProps = {
