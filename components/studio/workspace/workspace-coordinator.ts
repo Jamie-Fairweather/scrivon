@@ -52,8 +52,8 @@ export type WorkspaceCoordinatorRefs = {
     clearTabs: MutableRefObject<() => void>
     /**
      * Puts back a folder's saved tabs, keeping any the user opened meanwhile. A tab with unsaved text kept
-     * from a crash goes into the open tab for its file if that has no edits. Returns those it couldn't put
-     * back because the user had already changed that file's open tab.
+     * from a crash goes into the open tab for its file if that has no edits and wasn't saved since. Returns
+     * those it couldn't put back because the user had already changed that file's open tab.
      */
     setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => DocumentTab[]>
     /**

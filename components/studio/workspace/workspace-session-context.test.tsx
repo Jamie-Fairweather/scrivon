@@ -1751,7 +1751,7 @@ describe('unsaved text kept from a crash', () => {
             })
         })
 
-        async function openNotesDuringRestore(result: { current: ReturnType<typeof useHarness> }, typed?: string) {
+        async function openNotesDuringRestore(result: { current: ReturnType<typeof useHarness> }, typed?: string, { saved = false } = {}) {
             let opening!: Promise<void>
             act(() => {
                 opening = result.current.session.openWorkspace('C:\\ws')
@@ -1762,6 +1762,7 @@ describe('unsaved text kept from a crash', () => {
             })
             expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'on disk', isDirty: false })])
             if (typed !== undefined) act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', typed))
+            if (saved) await expect(save('C:\\ws\\notes.md')).resolves.toBe(true)
             await act(async () => {
                 finishOther()
                 await opening
@@ -1801,6 +1802,21 @@ describe('unsaved text kept from a crash', () => {
             )
             await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toContain('notes (recovered).md'))
             expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+
+        it('saves the unsaved text as a new file when the user typed in that tab and saved it, and keeps what they saved', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openNotesDuringRestore(result, 'typed and saved after opening', { saved: true })
+
+            // Clean again, but newer than the text kept from the crash, which doesn't replace it.
+            expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({
+                content: 'typed and saved after opening',
+                isDirty: false,
+            })
+            await waitFor(async () => expect(await disk.exists('C:\\ws\\notes (recovered).md')).toBe(true))
+            expect(await disk.read('C:\\ws\\notes (recovered).md')).toBe('typed before the crash')
+            expect(await disk.read('C:\\ws\\notes.md')).toBe('typed and saved after opening')
+            expect(notifyWarning).not.toHaveBeenCalledWith('Recovered unsaved changes', expect.objectContaining({ id: 'recovered-changes' }))
         })
     })
 

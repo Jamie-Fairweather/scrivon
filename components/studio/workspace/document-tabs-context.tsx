@@ -381,16 +381,22 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !openTab(current, t.path))
                 const restored = notOpen(opened)
                 // Unsaved text kept from a crash (a restored tab with edits) goes into that open tab instead, as long as
-                // the user hasn't changed it. If they have, it is left out for the caller to keep some other way.
-                const takesRecovered = (o: DocumentTab) => !o.isDirty && !o.isSaving
+                // the user hasn't changed it: no edits, and still the version of the file that text was written on.
+                // A tab typed in and saved since is clean again, but holds newer text (and its save dropped the copy).
+                // Otherwise the text is left out for the caller to keep some other way.
+                const takesRecovered = (o: DocumentTab, r: DocumentTab) => {
+                    const onDisk = o.disk?.stamp
+                    const writtenOn = r.disk?.stamp
+                    return !o.isDirty && !o.isSaving && !!onDisk && !!writtenOn && !stampChanged(writtenOn, onDisk)
+                }
                 const recovered = nextTabs.filter((t) => {
                     const o = t.isDirty ? openTab(opened, t.path) : undefined
                     return o !== undefined && o.content !== t.content
                 })
-                const left = recovered.filter((t) => !takesRecovered(openTab(opened, t.path)!))
+                const left = recovered.filter((t) => !takesRecovered(openTab(opened, t.path)!, t))
                 const withRecovered = (o: DocumentTab): DocumentTab => {
-                    const r = takesRecovered(o) ? recovered.find((t) => samePath(t.path, o.path)) : undefined
-                    if (!r) return o
+                    const r = recovered.find((t) => samePath(t.path, o.path) && !left.includes(t))
+                    if (!r || !takesRecovered(o, r)) return o
                     const merged: DocumentTab = { ...o, content: r.content, format: r.format, disk: r.disk, isDirty: true }
                     // As tabWithRecoveredText: it was being edited, so a read-only reason from the file now doesn't apply.
                     delete merged.readOnly
@@ -405,6 +411,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     if (left.includes(t)) continue
                     const id = openTab(opened, t.path)!.id
                     coordinator.replaceEditorText.current(id, t.content)
+                    // Copied again, as after any edit, so the text is kept even if its copy went while the file was open.
+                    coordinator.scheduleBackup.current(id)
                     dismissNotification(readOnlyNoticeId(id))
                 }
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)

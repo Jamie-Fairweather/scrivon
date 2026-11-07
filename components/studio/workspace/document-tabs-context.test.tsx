@@ -1896,31 +1896,45 @@ describe('changes to several tabs at once', () => {
     })
 
     it('puts unsaved text kept from a crash into the tab opened meanwhile, and hands back what it could not', async () => {
+        // The version of each file the kept text was written on; a.md and c.md were opened on it.
+        const writtenOn = { mtimeMs: 1, size: 6 }
         const initial = {
-            tabs: [tab('/ws/a.md', 'a.md', { readOnly: true, largeFile: true }), tab('/ws/b.md', 'b.md', { content: 'typed since', isDirty: true })],
+            tabs: [
+                tab('/ws/a.md', 'a.md', { readOnly: true, largeFile: true, disk: { stamp: { ...writtenOn } } }),
+                tab('/ws/b.md', 'b.md', { content: 'typed since', isDirty: true }),
+                // Typed in and saved since it was opened: no edits now, but newer text and a newer file.
+                tab('/ws/c.md', 'c.md', { content: 'typed and saved', disk: { stamp: { mtimeMs: 2, size: 15 } } }),
+            ],
             activeTabId: '/ws/a.md',
         }
         const coordinator = createWorkspaceCoordinatorRefs()
+        const scheduleBackup = vi.fn()
+        coordinator.scheduleBackup.current = scheduleBackup
         const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
-        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
 
         const keptB = tab('/ws/b.md', 'b.md', { content: 'kept b', isDirty: true, disk: { stamp: null } })
+        const keptC = tab('/ws/c.md', 'c.md', { content: 'kept c', isDirty: true, disk: { stamp: writtenOn } })
         let left!: DocumentTab[]
         act(() => {
             left = coordinator.setTabsFromWorkspace.current(
-                [tab('/ws/a.md', 'a.md', { content: 'kept a', isDirty: true, disk: { stamp: { mtimeMs: 1, size: 6 } } }), keptB],
+                [tab('/ws/a.md', 'a.md', { content: 'kept a', isDirty: true, disk: { stamp: writtenOn } }), keptB, keptC],
                 '/ws/b.md'
             )
         })
 
-        // a.md had no edits: it takes the kept text, editable as it was then. b.md was edited since: left as it is.
+        // a.md had no edits: it takes the kept text, editable as it was then. b.md and c.md were edited since: left as they are.
         expect(result.current.tabs).toEqual([
-            expect.objectContaining({ id: '/ws/a.md', content: 'kept a', isDirty: true, disk: { stamp: { mtimeMs: 1, size: 6 } } }),
+            expect.objectContaining({ id: '/ws/a.md', content: 'kept a', isDirty: true, disk: { stamp: writtenOn } }),
             expect.objectContaining({ id: '/ws/b.md', content: 'typed since', isDirty: true }),
+            expect.objectContaining({ id: '/ws/c.md', content: 'typed and saved', isDirty: false }),
         ])
         expect(result.current.tabs[0]).not.toHaveProperty('readOnly')
         expect(result.current.tabs[0]).not.toHaveProperty('largeFile')
-        expect(left).toEqual([keptB])
+        expect(left).toEqual([keptB, keptC])
+        // The text put back is copied again, as after any edit.
+        expect(scheduleBackup).toHaveBeenCalledTimes(1)
+        expect(scheduleBackup).toHaveBeenCalledWith('/ws/a.md')
         expect(result.current.activeTabId).toBe('/ws/a.md')
     })
 
