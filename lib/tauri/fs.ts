@@ -457,9 +457,14 @@ export function joinPath(parent: string, name: string): string {
     return normalizePath(base.endsWith(sep) ? `${base}${name}` : `${base}${sep}${name}`)
 }
 
+/**
+ * The last part of a path: `notes.md`, or `docs` for `C:\work\docs\`. A drive or the file system root has
+ * no name of its own, so it goes by its path (`E:\`, `/`) rather than showing up blank.
+ */
 export function getBaseName(path: string): string {
-    const parts = path.split(/[/\\]/)
-    return parts[parts.length - 1]!
+    const trimmed = path.replace(/[/\\]+$/, '')
+    const name = trimmed.slice(Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\')) + 1)
+    return name && !/^[a-zA-Z]:$/.test(name) ? name : path
 }
 
 export function getParentPath(path: string): string {

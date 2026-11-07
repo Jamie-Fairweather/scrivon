@@ -36,6 +36,19 @@ describe('getBaseName', () => {
         expect(getBaseName('/home/user/diagram.mmd')).toBe('diagram.mmd')
         expect(getBaseName('C:\\Users\\jamie\\diagram.mmd')).toBe('diagram.mmd')
     })
+
+    it('ignores trailing separators', () => {
+        expect(getBaseName('C:\\work\\docs\\')).toBe('docs')
+        expect(getBaseName('/home/user/docs/')).toBe('docs')
+        expect(getBaseName('\\\\server\\share\\')).toBe('share')
+    })
+
+    it('names a drive or the file system root by its path instead of leaving it blank', () => {
+        expect(getBaseName('E:\\')).toBe('E:\\')
+        expect(getBaseName('E:/')).toBe('E:/')
+        expect(getBaseName('E:')).toBe('E:')
+        expect(getBaseName('/')).toBe('/')
+    })
 })
 
 describe('getParentPath', () => {

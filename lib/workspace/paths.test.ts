@@ -7,7 +7,9 @@ import {
     entryNameError,
     findNameClash,
     findNodeByPath,
+    folderLabels,
     nameTakenMessage,
+    shortenPath,
     uniqueFileName,
     uniqueNewName,
     validateFileName,
@@ -102,6 +104,38 @@ describe('uniqueNewName', () => {
 
     it('numbers names without an extension', () => {
         expect(uniqueNewName('diagrams', ['diagrams'])).toBe('diagrams 2')
+    })
+})
+
+describe('folderLabels', () => {
+    it('labels folders by name, adding where they are only when two share a name', () => {
+        expect(folderLabels(['C:\\work\\docs', 'D:\\personal\\Docs', 'C:\\work\\notes'])).toEqual([
+            { path: 'C:\\work\\docs', name: 'docs', location: 'C:\\work' },
+            { path: 'D:\\personal\\Docs', name: 'Docs', location: 'D:\\personal' },
+            { path: 'C:\\work\\notes', name: 'notes', location: null },
+        ])
+    })
+
+    it('names a drive root by its path', () => {
+        expect(folderLabels(['E:\\'])).toEqual([{ path: 'E:\\', name: 'E:\\', location: null }])
+    })
+})
+
+describe('shortenPath', () => {
+    it('leaves a short path as it is', () => {
+        expect(shortenPath('C:\\work\\docs')).toBe('C:\\work\\docs')
+    })
+
+    it('keeps the start and end of a long path', () => {
+        expect(shortenPath('abcdefghij', 6, 2, 3)).toBe('ab…hij')
+    })
+
+    it('never cuts an emoji in half', () => {
+        const path = `C:\\${'😀'.repeat(10)}`
+        const short = shortenPath(path, 6, 4, 2)
+        expect(short).toBe('C:\\😀…😀😀')
+        expect(short).not.toContain('\uFFFD')
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(short)).toBe(false)
     })
 })
 

@@ -1,4 +1,4 @@
-import { samePath } from '@/lib/tauri/fs'
+import { getBaseName, getParentPath, samePath } from '@/lib/tauri/fs'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -55,6 +55,38 @@ export function uniqueNewName(base: string, existing: Iterable<string>): string 
         i += 1
     }
     return `${stem} ${i}${ext}`
+}
+
+export type FolderLabel = {
+    path: string
+    name: string
+    /** The folder it is in, only when another folder in the list has the same name; otherwise null. */
+    location: string | null
+}
+
+/**
+ * How to label a list of folders, such as the recent folders: by name, plus where each one is when two
+ * share a name (`docs` in C:\work and in D:\personal), so they can be told apart. Letter case is ignored.
+ */
+export function folderLabels(paths: readonly string[]): FolderLabel[] {
+    const names = paths.map((path) => getBaseName(path))
+    const counts = new Map<string, number>()
+    for (const name of names) counts.set(name.toLowerCase(), (counts.get(name.toLowerCase()) ?? 0) + 1)
+    return paths.map((path, i) => {
+        const name = names[i]!
+        const shared = (counts.get(name.toLowerCase()) ?? 0) > 1
+        return { path, name, location: shared ? getParentPath(path) || null : null }
+    })
+}
+
+/**
+ * Shortens a long path in the middle, keeping its start and its end: `C:\Users\jamie\…\notes\docs`.
+ * Works on whole characters, so an emoji or other character outside the basic range is never cut in half.
+ */
+export function shortenPath(path: string, max = 56, head = 20, tail = 32): string {
+    const chars = Array.from(path)
+    if (chars.length <= max) return path
+    return `${chars.slice(0, head).join('')}…${chars.slice(-tail).join('')}`
 }
 
 export function collectFilePaths(nodes: FileNode[]): Set<string> {
