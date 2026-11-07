@@ -83,6 +83,14 @@ describe('buildCommandRegistry recent folders', () => {
             ['Open Recent Folder: docs', 'D:\\notes\\docs'],
         ])
     })
+
+    it('marks the folder that is open now', () => {
+        const recent = byValue(
+            context({ workspaceRoot: 'C:\\work\\docs', recentWorkspaces: ['c:\\work\\docs\\', 'D:\\notes'] }),
+            'action:recent-workspace:'
+        )
+        expect(recent.map((action) => action.detail)).toEqual(['Current folder · c:\\work\\docs\\', 'D:\\notes'])
+    })
 })
 
 describe('buildCommandRegistry examples', () => {

@@ -24,11 +24,18 @@ vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOrigi
     WindowTitlebarControls: () => null,
 }))
 
-function mockContexts({ isDesktop = false, workspaceRoot = null as string | null, keybinds = createDefaultKeybinds(false) as KeybindBindings } = {}) {
+function mockContexts({
+    isDesktop = false,
+    workspaceRoot = null as string | null,
+    openingWorkspace = null as string | null,
+    recentWorkspaces = [] as string[],
+    keybinds = createDefaultKeybinds(false) as KeybindBindings,
+} = {}) {
     vi.mocked(useWorkspaceSession).mockReturnValue({
         isDesktop,
         workspaceRoot,
-        recentWorkspaces: [],
+        openingWorkspace,
+        recentWorkspaces,
         pickAndOpenWorkspace: vi.fn(),
         openWorkspace: vi.fn(),
         closeWorkspace: vi.fn(),
@@ -112,6 +119,27 @@ describe('StudioMenuBar', () => {
         await user.keyboard('{Escape}')
         await user.click(screen.getByRole('menuitem', { name: 'Options' }))
         expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Settings… Ctrl+,' })).toBeInTheDocument()
+    })
+
+    it('marks the open folder in Open Recent and turns off the one still being opened', async () => {
+        mockContexts({
+            isDesktop: true,
+            workspaceRoot: 'C:\\work\\diagrams',
+            openingWorkspace: 'C:\\work\\big',
+            recentWorkspaces: ['c:\\work\\diagrams', 'C:\\work\\big', 'C:\\work\\notes'],
+        })
+        render(<StudioMenuBar />)
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'File' }))
+        await user.click(await screen.findByRole('menuitem', { name: 'Open Recent' }))
+        const item = async (name: string) => screen.findByRole('menuitem', { name })
+
+        expect(await item('diagrams')).toHaveAttribute('aria-current', 'true')
+        expect(await item('notes')).not.toHaveAttribute('aria-current')
+        expect(await item('big')).toHaveAttribute('aria-disabled', 'true')
+        expect(await item('big')).toHaveAttribute('aria-busy', 'true')
+        expect(await item('notes')).not.toHaveAttribute('aria-disabled', 'true')
     })
 
     it("follows the user's own key bindings and shows nothing for an unbound action", async () => {

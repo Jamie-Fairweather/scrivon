@@ -2,7 +2,7 @@ import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
 import { isLightTheme, SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME, type AppThemeId } from '@/lib/theme/catalog'
-import { getBaseName } from '@/lib/tauri/fs'
+import { getBaseName, samePath } from '@/lib/tauri/fs'
 import type { KeybindBindings } from '@/lib/settings/types'
 import type { ActionPaletteItem } from '@/components/studio/command-palette/types'
 
@@ -195,13 +195,14 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
     }
 
     for (const path of ctx.recentWorkspaces) {
+        const current = ctx.workspaceRoot !== null && samePath(path, ctx.workspaceRoot)
         actions.push({
             kind: 'action',
             value: `action:recent-workspace:${path}`,
             searchText: `recent workspace ${getBaseName(path)} ${path}`,
             label: `Open Recent Folder: ${getBaseName(path)}`,
-            // Two recent folders can share a name, so show where each one is.
-            detail: path,
+            // Two recent folders can share a name, so show where each one is (the note first, so it isn't cut off).
+            detail: current ? `Current folder · ${path}` : path,
             disabled: !ctx.isDesktop,
             disabledReason: 'Desktop only',
             run: () => void ctx.openWorkspace(path),

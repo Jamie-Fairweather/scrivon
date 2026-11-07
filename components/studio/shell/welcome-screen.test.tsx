@@ -6,22 +6,77 @@ import { WelcomeScreen } from './welcome-screen'
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession: vi.fn() }))
 
+function mockSession(overrides: Partial<ReturnType<typeof useWorkspaceSession>> = {}) {
+    const session = {
+        isDesktop: true,
+        recentWorkspaces: [] as string[],
+        openingWorkspace: null,
+        pickAndOpenWorkspace: vi.fn(),
+        openWorkspace: vi.fn(),
+        removeRecent: vi.fn(),
+        ...overrides,
+    }
+    vi.mocked(useWorkspaceSession).mockReturnValue(session as unknown as ReturnType<typeof useWorkspaceSession>)
+    return session
+}
+
+describe('WelcomeScreen', () => {
+    it('lists every supported extension in the intro, without markdown backticks', () => {
+        mockSession()
+        const { container } = render(<WelcomeScreen />)
+
+        expect(container.textContent).not.toContain('`')
+        expect(screen.getByText(/Open a folder to browse \.md, \.mmd and \.mermaid files/)).toBeInTheDocument()
+    })
+})
+
 describe('WelcomeScreen recent folders', () => {
     it('names the folder in each remove button and removes the right one', async () => {
-        const removeRecent = vi.fn()
-        vi.mocked(useWorkspaceSession).mockReturnValue({
-            isDesktop: true,
-            recentWorkspaces: ['C:\\work\\diagrams', '/home/me/notes'],
-            pickAndOpenWorkspace: vi.fn(),
-            openWorkspace: vi.fn(),
-            removeRecent,
-        } as unknown as ReturnType<typeof useWorkspaceSession>)
+        const session = mockSession({ recentWorkspaces: ['C:\\work\\diagrams', '/home/me/notes'] })
 
         render(<WelcomeScreen />)
 
         expect(screen.getByRole('button', { name: 'Remove diagrams from recent folders' })).toBeInTheDocument()
         await userEvent.setup().click(screen.getByRole('button', { name: 'Remove notes from recent folders' }))
 
-        expect(removeRecent).toHaveBeenCalledWith('/home/me/notes')
+        expect(session.removeRecent).toHaveBeenCalledWith('/home/me/notes')
+    })
+
+    it('names a drive root by its path instead of leaving the row blank', () => {
+        mockSession({ recentWorkspaces: ['D:\\'] })
+
+        render(<WelcomeScreen />)
+
+        // Both lines of the row: the name, then the path.
+        expect(screen.getAllByText('D:\\')).toHaveLength(2)
+        expect(screen.getByRole('button', { name: 'Remove D:\\ from recent folders' })).toBeInTheDocument()
+    })
+
+    it('shows the folder being opened as busy, ignores clicks on it, and leaves the other folders clickable', async () => {
+        const session = mockSession({ recentWorkspaces: ['C:\\work\\big', 'C:\\work\\small'], openingWorkspace: 'c:\\work\\big' })
+        const user = userEvent.setup()
+
+        render(<WelcomeScreen />)
+        const big = screen.getByRole('button', { name: /^big/ })
+        const small = screen.getByRole('button', { name: /^small/ })
+
+        expect(big).toHaveAttribute('aria-busy', 'true')
+        expect(big).toHaveAttribute('aria-disabled', 'true')
+        expect(small).not.toHaveAttribute('aria-busy')
+        expect(screen.getByRole('button', { name: 'Open Folder' })).not.toHaveAttribute('aria-busy')
+
+        await user.click(big)
+        expect(session.openWorkspace).not.toHaveBeenCalled()
+        await user.click(small)
+        expect(session.openWorkspace).toHaveBeenCalledWith('C:\\work\\small')
+    })
+
+    it('shows the Open Folder button as busy while a folder picked in the dialog opens', () => {
+        mockSession({ recentWorkspaces: ['C:\\work\\small'], openingWorkspace: 'C:\\work\\picked' })
+
+        render(<WelcomeScreen />)
+
+        expect(screen.getByRole('button', { name: 'Open Folder' })).toHaveAttribute('aria-busy', 'true')
+        expect(screen.getByRole('button', { name: /^small/ })).not.toHaveAttribute('aria-busy')
     })
 })
