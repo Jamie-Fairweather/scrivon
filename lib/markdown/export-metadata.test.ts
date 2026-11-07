@@ -172,6 +172,11 @@ describe('fallbackPdfExportTitle', () => {
         expect(fallbackPdfExportTitle('# ![logo](logo.png) Project', 'x.md')).toBe('Project')
     })
 
+    it('leaves an HTML comment or tag in the heading off the title page (S03)', () => {
+        expect(fallbackPdfExportTitle('# Report <!-- draft -->', 'x.md')).toBe('Report')
+        expect(fallbackPdfExportTitle('# Press <kbd>Ctrl</kbd>', 'x.md')).toBe('Press Ctrl')
+    })
+
     it('counts setext headings and ignores lower levels', () => {
         expect(fallbackPdfExportTitle('Setext Title\n============\n\nBody', 'x.md')).toBe('Setext Title')
         expect(fallbackPdfExportTitle('## Section\n\nSub\n---\n\n# Main', 'x.md')).toBe('Main')

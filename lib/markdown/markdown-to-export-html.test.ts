@@ -519,6 +519,19 @@ SHIKI_FAIL
         expect(html).not.toContain('SFT0003')
     })
 
+    it('keeps a comment in a heading off the Contents page, and its id the one GitHub gives (S03)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        const { html } = await markdownToExportHtml('# Pricing <!-- internal: 40% margin -->\n\nSee [the prices](#pricing).', { profile })
+        expect(html).not.toContain('<!--')
+        expect(html).not.toContain('internal')
+        expect(html).toContain('<h1 id="pricing">')
+        expect(html).toContain('<span class="pdf-toc-title">Pricing</span>')
+        expect(html).toContain('<title>Pricing</title>')
+    })
+
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })

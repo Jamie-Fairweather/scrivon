@@ -70,6 +70,15 @@ describe('collectPdfExportOutline', () => {
         expect(collectPdfExportOutline(before).map((item) => item.id)).toEqual(['one-1', 'one', 'one-2'])
     })
 
+    it('leaves raw HTML and comments out of the text and the id, keeping text inside tags (S03)', () => {
+        const tree = parse('# Pricing <!-- internal: 40% margin -->\n\n## Keys <kbd>Ctrl</kbd>\n\n## Café <sup>2</sup>')
+        expect(collectPdfExportOutline(tree)).toEqual([
+            { id: 'pricing', level: 1, text: 'Pricing' },
+            { id: 'keys-ctrl', level: 2, text: 'Keys Ctrl' },
+            { id: 'café-2', level: 2, text: 'Café 2' },
+        ])
+    })
+
     it('uses the plain text of inline markup and slugifies punctuation-only headings', () => {
         const tree = parse('## `code` and *emphasis*\n\n## !!!\n\n##')
         expect(collectPdfExportOutline(tree)).toEqual([

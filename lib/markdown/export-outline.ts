@@ -24,11 +24,16 @@ function slugify(text: string, used: Set<string>): string {
     return slug
 }
 
-/** The plain text of an mdast node: its inline markup dropped, image and break nodes left out. */
-export function nodeText(node: { value?: string; children?: unknown[] }): string {
+/**
+ * The plain text of an mdast node: its inline markup dropped, image and break nodes left out. Raw HTML (a tag or a
+ * `<!-- comment -->`) is left out too, so `## Keys <kbd>Ctrl</kbd>` reads 'Keys Ctrl' and a hidden note never
+ * reaches the Contents page, the title or the heading's id.
+ */
+export function nodeText(node: { type?: string; value?: string; children?: unknown[] }): string {
+    if (node.type === 'html') return ''
     if (typeof node.value === 'string') return node.value
     if (!Array.isArray(node.children)) return ''
-    return node.children.map((child) => nodeText(child as { value?: string; children?: unknown[] })).join('')
+    return node.children.map((child) => nodeText(child as { type?: string; value?: string; children?: unknown[] })).join('')
 }
 
 /**
