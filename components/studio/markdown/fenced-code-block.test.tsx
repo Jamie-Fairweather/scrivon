@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FencedCodeBlock } from './fenced-code-block'
+import { createHighlightCache, FencedCodeBlock } from './fenced-code-block'
 
 const theme = vi.hoisted(() => ({ themeId: 'scrivon-dark', isLight: false }))
 
@@ -115,5 +115,99 @@ describe('FencedCodeBlock', () => {
         shiki.readyThemes.clear()
         rerender(<FencedCodeBlock code={`${code}4`} language="ts" />)
         expect(shown(container)).toEqual({ text: `${code}4`, mode: 'plain', theme: undefined })
+    })
+
+    describe('remembers only the latest version of a block being edited (N71)', () => {
+        /** Whether a block with this code would show in colour straight from the cache. */
+        function isRemembered(code: string): boolean {
+            const ready = shiki.readyThemes
+            shiki.readyThemes = new Set()
+            const { container, unmount } = render(<FencedCodeBlock code={code} language="ts" />)
+            const mode = shown(container).mode
+            unmount()
+            shiki.readyThemes = ready
+            return mode === 'highlight'
+        }
+
+        it('when its colours are made on the spot', () => {
+            const versions = [0, 1, 2].map((n) => `const e${uniqueCode} = ${n}`)
+            const { rerender, unmount } = render(<FencedCodeBlock code={versions[0]!} language="ts" />)
+            act(() => vi.advanceTimersByTime(400))
+            for (const code of versions.slice(1)) {
+                rerender(<FencedCodeBlock code={code} language="ts" />)
+                act(() => vi.advanceTimersByTime(400))
+            }
+            unmount()
+
+            expect(versions.map(isRemembered)).toEqual([false, false, true])
+        })
+
+        it('when its colours come after a pause, as for a big block', async () => {
+            shiki.readyThemes.clear()
+            const versions = [0, 1].map((n) => `const f${uniqueCode} = ${n}`)
+            const { rerender, unmount } = render(<FencedCodeBlock code={versions[0]!} language="ts" />)
+            for (const [index, code] of versions.entries()) {
+                if (index > 0) rerender(<FencedCodeBlock code={code} language="ts" />)
+                await act(async () => {
+                    vi.advanceTimersByTime(400)
+                    shiki.pending.at(-1)?.resolve()
+                })
+            }
+            unmount()
+
+            expect(versions.map(isRemembered)).toEqual([false, true])
+        })
+
+        it('but keeps the colours of a block that goes, for when its tab is shown again', () => {
+            const code = `const g${uniqueCode} = 1`
+            const first = render(<FencedCodeBlock code={code} language="ts" />)
+            act(() => vi.advanceTimersByTime(400))
+            first.unmount()
+            expect(isRemembered(code)).toBe(true)
+
+            // Shown again and then edited: the version it no longer shows goes.
+            const again = render(<FencedCodeBlock code={code} language="ts" />)
+            again.rerender(<FencedCodeBlock code={`${code}0`} language="ts" />)
+            act(() => vi.advanceTimersByTime(400))
+            again.unmount()
+            expect([code, `${code}0`].map(isRemembered)).toEqual([false, true])
+        })
+    })
+})
+
+describe('createHighlightCache (N71)', () => {
+    it('drops the oldest entries once there are too many', () => {
+        const cache = createHighlightCache(2, 1_000)
+        cache.set('a', '1')
+        cache.set('b', '2')
+        cache.set('c', '3')
+        expect([cache.has('a'), cache.get('b'), cache.get('c')]).toEqual([false, '2', '3'])
+    })
+
+    it('drops the oldest entries once keys and HTML together are too big', () => {
+        const cache = createHighlightCache(200, 10)
+        cache.set('a', '1234')
+        cache.set('b', '1234')
+        expect([cache.has('a'), cache.has('b')]).toEqual([true, true])
+        cache.set('c', '12')
+        expect([cache.has('a'), cache.has('b'), cache.has('c')]).toEqual([false, true, true])
+    })
+
+    it('counts an entry saved again only once, and frees what a removed entry took', () => {
+        const cache = createHighlightCache(200, 10)
+        for (let n = 0; n < 5; n++) cache.set('a', '1234')
+        cache.set('b', '1234')
+        expect([cache.has('a'), cache.has('b')]).toEqual([true, true])
+
+        cache.delete('a')
+        cache.set('c', '1234')
+        expect([cache.has('b'), cache.has('c')]).toEqual([true, true])
+    })
+
+    it('doesn’t keep an entry too big on its own, nor drop the others for it', () => {
+        const cache = createHighlightCache(200, 10)
+        cache.set('a', '1')
+        cache.set('big', '123456789')
+        expect([cache.has('a'), cache.has('big')]).toEqual([true, false])
     })
 })
