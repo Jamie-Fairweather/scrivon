@@ -49,13 +49,52 @@ type DocumentTabsContextValue = {
     closeTab: (id: string) => Promise<void>
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
+    /**
+     * Lets the user edit a tab that opened read-only for a reason they may accept: a file that isn't UTF-8
+     * (saved as UTF-8 from then on) or a very large one. Does nothing for a file that looks binary.
+     */
+    makeTabEditable: (id: string) => void
 }
 
 /** What can be done with the tabs. These functions stay the same while the user types. */
 export type DocumentTabActions = Pick<
     DocumentTabsContextValue,
-    'openFile' | 'openExample' | 'setActiveTab' | 'updateTabContent' | 'closeTab' | 'closeOtherTabs' | 'closeAllTabs'
+    'openFile' | 'openExample' | 'setActiveTab' | 'updateTabContent' | 'closeTab' | 'closeOtherTabs' | 'closeAllTabs' | 'makeTabEditable'
 >
+
+/** Why a tab opened read-only, and the label of the button that lets the user edit it anyway, if there is one. */
+export type ReadOnlyReason = { text: string; editLabel: string | null }
+
+/**
+ * Why a file opened read-only: its bytes couldn't be read safely as text, and editing could damage them, or
+ * it is so big that editing it would be slow. Null for a tab that isn't read-only for either reason.
+ */
+export function readOnlyReason(tab: DocumentTab): ReadOnlyReason | null {
+    if (tab.encodingIssue === 'legacy-encoding') {
+        return {
+            text: "It isn't saved as UTF-8, so it's shown as Windows-1252 and left as it is. If you edit it, it will be saved as UTF-8.",
+            editLabel: 'Edit as UTF-8',
+        }
+    }
+    if (tab.encodingIssue) {
+        return { text: "It looks like a binary file or uses a text encoding Scrivon can't read, so it's left as it is.", editLabel: null }
+    }
+    if (tab.largeFile) {
+        // From when it was read: a read-only tab is never saved, so this doesn't change under it.
+        const size = tab.disk?.stamp?.size
+        return { text: `It's ${size ? formatFileSize(size) : 'very large'}, which is big enough to make editing slow.`, editLabel: 'Edit Anyway' }
+    }
+    return null
+}
+
+/** The tab once the user chose to edit it anyway. */
+function withEditingAllowed(t: DocumentTab): DocumentTab {
+    if (t.encodingIssue === 'legacy-encoding') {
+        return { ...t, readOnly: false, encodingIssue: undefined, largeFile: undefined, format: DEFAULT_TEXT_FORMAT }
+    }
+    if (t.largeFile && !t.encodingIssue) return { ...t, readOnly: false, largeFile: undefined }
+    return t
+}
 
 const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
 const DocumentTabActionsContext = createContext<DocumentTabActions | null>(null)
@@ -172,65 +211,30 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         registerCoordinatorRefs(coordinator, { persistWorkspaceTabSession: persistTabSession })
     }, [coordinator, persistTabSession])
 
-    /** Lets the user edit a file that isn't UTF-8 after all; from then on it is saved as UTF-8. */
-    const editAsUtf8 = useCallback(
+    const makeTabEditable = useCallback(
         (id: string) => {
             dismissNotification(readOnlyNoticeId(id))
-            setTabs((prev) =>
-                prev.map((t) =>
-                    t.id === id && t.encodingIssue === 'legacy-encoding'
-                        ? { ...t, readOnly: false, encodingIssue: undefined, largeFile: undefined, format: DEFAULT_TEXT_FORMAT }
-                        : t
-                )
-            )
+            const allow = (t: DocumentTab) => (t.id === id ? withEditingAllowed(t) : t)
+            // The ref too, so typing straight away isn't turned away as read-only.
+            tabsRef.current = tabsRef.current.map(allow)
+            setTabs((prev) => prev.map(allow))
         },
-        [setTabs]
+        [setTabs, tabsRef]
     )
 
-    /** Lets the user edit a very large file anyway, knowing it may be slow. */
-    const editLargeFile = useCallback(
-        (id: string) => {
-            dismissNotification(readOnlyNoticeId(id))
-            setTabs((prev) => prev.map((t) => (t.id === id && t.largeFile && !t.encodingIssue ? { ...t, readOnly: false, largeFile: undefined } : t)))
-        },
-        [setTabs]
-    )
-
-    /**
-     * Says why a file opened read-only: its bytes couldn't be read safely as text, and editing could damage
-     * them, or it is so big that editing it would be slow.
-     */
+    /** Says why a file opened read-only. The bar above the editor says it too, for as long as the tab is open. */
     const explainReadOnlyFile = useCallback(
         (tab: DocumentTab) => {
-            const id = readOnlyNoticeId(tab.id)
-            if (!tab.encodingIssue) {
-                if (!tab.largeFile) return
-                const size = tab.disk?.stamp?.size
-                notifyWarning(`${tab.name} is read-only`, {
-                    id,
-                    description: `It's ${size ? formatFileSize(size) : 'very large'}, which is big enough to make editing slow.`,
-                    timeout: 0,
-                    action: { label: 'Edit Anyway', onClick: () => editLargeFile(tab.id) },
-                })
-                return
-            }
-            if (tab.encodingIssue === 'legacy-encoding') {
-                notifyWarning(`${tab.name} is read-only`, {
-                    id,
-                    description:
-                        "It isn't saved as UTF-8, so it's shown as Windows-1252 and left as it is. If you edit it, it will be saved as UTF-8.",
-                    timeout: 0,
-                    action: { label: 'Edit as UTF-8', onClick: () => editAsUtf8(tab.id) },
-                })
-                return
-            }
+            const reason = readOnlyReason(tab)
+            if (!reason) return
             notifyWarning(`${tab.name} is read-only`, {
-                id,
-                description: "It looks like a binary file or uses a text encoding Scrivon can't read, so it's left as it is.",
+                id: readOnlyNoticeId(tab.id),
+                description: reason.text,
                 timeout: 0,
+                ...(reason.editLabel ? { action: { label: reason.editLabel, onClick: () => makeTabEditable(tab.id) } } : {}),
             })
         },
-        [editAsUtf8, editLargeFile]
+        [makeTabEditable]
     )
 
     /**
@@ -644,8 +648,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     }, [coordinator, openFile])
 
     const actions = useMemo<DocumentTabActions>(
-        () => ({ openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs }),
-        [openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs]
+        () => ({ openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs, makeTabEditable }),
+        [openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs, makeTabEditable]
     )
 
     const value = useMemo(() => ({ ...actions, tabs, activeTabId, activeTab }), [actions, tabs, activeTabId, activeTab])

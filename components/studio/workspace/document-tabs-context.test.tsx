@@ -308,6 +308,42 @@ describe('DocumentTabsProvider', () => {
         expect(result.current.tabs[0]).toMatchObject({ content: 'Café!', isDirty: true })
     })
 
+    it('still lets the user edit a read-only file after its notice was closed', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const big = { isFile: true, isDirectory: false, isSymlink: false, size: 6 * 1024 * 1024, mtime: null, nlink: null }
+        vi.mocked(stat).mockResolvedValue(big as never)
+        vi.mocked(confirmOpenLargeFile).mockResolvedValue(true)
+        vi.mocked(readFile)
+            .mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+            .mockResolvedValueOnce(new TextEncoder().encode('# log'))
+            .mockResolvedValueOnce(new TextEncoder().encode('PK\0\0data'))
+        const { result } = renderHook(() => ({ tabs: useDocumentTabs(), actions: useDocumentTabActions() }), {
+            wrapper: createTabsWrapper({ workspaceRoot: '/ws' }),
+        })
+        for (const path of ['/ws/old.md', '/ws/big.md', '/ws/data.md']) {
+            await act(async () => {
+                await result.current.tabs.openFile(path)
+            })
+        }
+        expect(result.current.tabs.tabs.map((t) => t.readOnly)).toEqual([true, true, true])
+        vi.mocked(stat).mockReset()
+
+        act(() => result.current.actions.makeTabEditable('/ws/old.md'))
+        // Typing works straight away, before React draws again.
+        act(() => {
+            result.current.actions.makeTabEditable('/ws/big.md')
+            result.current.actions.updateTabContent('/ws/big.md', '# log!')
+        })
+        act(() => result.current.actions.makeTabEditable('/ws/data.md'))
+
+        const [old, large, binary] = result.current.tabs.tabs
+        expect(old).toMatchObject({ readOnly: false, encodingIssue: undefined, format: { encoding: 'utf-8', bom: false } })
+        expect(large).toMatchObject({ readOnly: false, largeFile: undefined, content: '# log!', isDirty: true })
+        // Editing a file that looks binary could damage it, so it stays read-only.
+        expect(binary).toMatchObject({ readOnly: true, encodingIssue: 'binary' })
+        expect(dismissNotification).toHaveBeenCalledWith('read-only:/ws/big.md')
+    })
+
     it('keeps the encoding of a UTF-16 file on its tab', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
         vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0xff, 0xfe, 0x41, 0x00]))
