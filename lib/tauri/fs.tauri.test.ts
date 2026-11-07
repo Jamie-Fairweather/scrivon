@@ -151,11 +151,14 @@ describe('workspace fs (Tauri)', () => {
         expect(writeFileMock).not.toHaveBeenCalled()
     })
 
-    it('writes a hidden or system file in place, so it keeps those marks', async () => {
-        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null, fileAttributes: 0x22 })
+    it('replaces a hidden or system file in one step like any other, which keeps those marks', async () => {
+        // A hidden, archived file. tauri-plugin-fs 2.5.1 sends its attributes as the misspelt `fileAttribues`, which
+        // its own code drops; even when they are known, writing in place would be neither in one step nor flushed.
+        const hidden = { isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null }
+        lstatMock.mockResolvedValue({ ...hidden, fileAttribues: 0x22, fileAttributes: 0x22 })
         await writeWorkspaceFile('C:\\ws\\.notes.md', 'text')
-        expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\.notes.md', new TextEncoder().encode('text'))
-        expect(invokeMock).not.toHaveBeenCalled()
+        expect(lastSave()).toEqual({ path: 'C:\\ws\\.notes.md', bytes: new TextEncoder().encode('text') })
+        expect(writeFileMock).not.toHaveBeenCalled()
     })
 
     it('writes through a link instead of replacing it with a plain file', async () => {

@@ -361,10 +361,6 @@ function saveRequestBody(path: string, bytes: Uint8Array): Uint8Array {
     return body
 }
 
-/** Windows file attributes that a file put in place of the original wouldn't have. */
-const FILE_ATTRIBUTE_HIDDEN = 0x2
-const FILE_ATTRIBUTE_SYSTEM = 0x4
-
 type FileOnDisk = {
     /** Written straight into the file rather than replaced; see inspectFile. */
     inPlace: boolean
@@ -381,10 +377,9 @@ async function inspectFile(path: string): Promise<FileOnDisk | null> {
         throw err
     }
     // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file
-    // it points to. A hidden or system file is too, since the new file would show up without those marks.
-    const attributes = info.fileAttributes ?? 0
-    // (A hard link is written through as well; the save command checks that, since only it can tell on Windows.)
-    const inPlace = info.isSymlink || (info.nlink ?? 1) > 1 || (attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) !== 0
+    // it points to. (A hard link is written through as well; the save command checks that, since only it can tell
+    // on Windows.) A hidden or system file is replaced like any other: ReplaceFileW keeps those marks.
+    const inPlace = info.isSymlink || (info.nlink ?? 1) > 1
     if (!info.isSymlink) return { inPlace, stamp: stampOf(info) }
     try {
         return { inPlace, stamp: stampOf(await stat(path)) }
