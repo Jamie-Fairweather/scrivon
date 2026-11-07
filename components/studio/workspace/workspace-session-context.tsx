@@ -28,7 +28,7 @@ import {
     type WorkspaceChange,
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
-import { allowWorkspacePath } from '@/lib/tauri/scope'
+import { allowWorkspacePath, forgetWorkspacePath } from '@/lib/tauri/scope'
 import { deleteUnsavedBackup, listUnsavedBackups, settleUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
 import {
     addRecentWorkspace,
@@ -491,7 +491,15 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             setRecentWorkspaces(await removeRecentWorkspace(path))
         } catch (err) {
             notifyError("Couldn't update recent folders", err)
+            return
         }
+        // It stops opening without the folder dialog too, unless it is open now (it opens again next time), or
+        // has unsaved changes kept from a crash, which only come back when it opens.
+        const openRoot = workspaceRootRef.current
+        if (openRoot && samePath(openRoot, path)) return
+        const backups = await listBackupsSafely()
+        if (backups.some((b) => isPathInside(b.path, path) || (b.root !== null && samePath(b.root, path)))) return
+        await forgetWorkspacePath(path).catch((err: unknown) => console.warn("Couldn't forget the folder's access", err))
     }, [])
 
     /**

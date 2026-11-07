@@ -993,6 +993,42 @@ describe('file system errors', () => {
         expect(result.current.session.recentWorkspaces).toEqual(['D:\\old'])
     })
 
+    it('stops a folder removed from Recent opening without the dialog, unless it is open or has changes kept from a crash', async () => {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const crashed: UnsavedBackup = { path: 'E:\\crashed\\notes.md', root: 'E:\\crashed', content: 'kept', stamp: null, savedAt: 1 }
+        vi.mocked(listUnsavedBackups).mockResolvedValue([crashed])
+        try {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+            await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+            await openWorkspace(result)
+
+            for (const path of ['D:\\private', 'c:/WS', 'E:\\crashed']) {
+                await act(async () => {
+                    await result.current.session.removeRecent(path)
+                })
+            }
+
+            expect(removeRecentWorkspace).toHaveBeenCalledTimes(3)
+            const forgotten = vi.mocked(invoke).mock.calls.filter(([command]) => command === 'forget_workspace')
+            expect(forgotten).toEqual([['forget_workspace', { path: 'D:\\private' }]])
+        } finally {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([])
+        }
+    })
+
+    it('keeps a folder openable when it could not be removed from the recent list', async () => {
+        const { invoke } = await import('@tauri-apps/api/core')
+        vi.mocked(removeRecentWorkspace).mockRejectedValueOnce('no app data folder')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+
+        await act(async () => {
+            await result.current.session.removeRecent('D:\\old')
+        })
+
+        expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'forget_workspace')).toBe(false)
+    })
+
     it('opens a folder with a subfolder it cannot read, and says which one shows as empty', async () => {
         const list = disk.list
         vi.mocked(readDir).mockImplementation((async (dir: string) => {

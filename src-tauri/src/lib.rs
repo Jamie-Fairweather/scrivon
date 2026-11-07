@@ -173,6 +173,17 @@ fn allow_workspace(
         .map_err(|e| e.to_string())
 }
 
+/// Stops a folder the user removed from Recent opening again without the
+/// folder dialog (see `workspace_access`). It only takes access away, so any
+/// caller may use it. A folder opened in this session stays in the fs scope
+/// until Scrivon closes: forbidding it would also stop the user choosing it
+/// again with Open Folder.
+#[tauri::command(async)]
+fn forget_workspace(access: tauri::State<'_, WorkspaceAccess>, path: String) -> Result<(), String> {
+    access.forget(&path);
+    Ok(())
+}
+
 /// Gives the app's windows the taskbar ID (AppUserModelID) the installer puts on
 /// its shortcuts. Without it, Windows only matches a window to a pinned icon
 /// when the app was started from that shortcut. After an update the installer
@@ -244,6 +255,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
+            forget_workspace,
             atomic_write::rename_workspace_path,
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
