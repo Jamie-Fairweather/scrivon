@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     exists: vi.fn(async () => false),
     stat: vi.fn(async () => ({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null })),
     lstat: vi.fn(async () => ({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null })),
-    watch: vi.fn(async () => () => undefined),
+    watchImmediate: vi.fn(async () => () => undefined),
 }))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({

@@ -267,7 +267,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return { read: ++treeRead.current, signal: controller.signal }
     }, [])
 
-    // Whether the tree shown was cut short, having too many entries to list them all.
+    // Whether the tree shown was cut short, having too many entries to list them all. Such a folder isn't
+    // watched (see below).
+    const [treeTruncated, setTreeTruncated] = useState(false)
     const treeTruncatedRef = useRef(false)
 
     /**
@@ -279,6 +281,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         const truncated = isTreeTruncated(next)
         if (announce || truncated !== treeTruncatedRef.current) warnIfTruncated(next, getBaseName(root) || root)
         treeTruncatedRef.current = truncated
+        setTreeTruncated(truncated)
     }, [])
 
     /**
@@ -427,13 +430,17 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
             request()
         }
-        // Where the folder can't be watched (some network drives), coming back to the window still reads it.
-        void watchWorkspace(root, onDiskChange)
-            .then((fn) => {
-                if (disposed) fn()
-                else unwatch = fn
-            })
-            .catch((err: unknown) => console.warn(`Can't watch ${root} for changes`, err))
+        // Where the folder can't be watched (some network drives), coming back to the window still reads it. So
+        // does a folder too big to show it all (a whole drive): something in it changes all the time, and
+        // reading it again for each change would keep the app busy for nothing shown.
+        if (!treeTruncated) {
+            void watchWorkspace(root, onDiskChange)
+                .then((fn) => {
+                    if (disposed) fn()
+                    else unwatch = fn
+                })
+                .catch((err: unknown) => console.warn(`Can't watch ${root} for changes`, err))
+        }
         try {
             void getCurrentWindow()
                 .onFocusChanged(({ payload: focused }) => {
@@ -454,7 +461,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             unlisten?.()
             unwatch?.()
         }
-    }, [isDesktop, workspaceRoot, coordinator, startTreeRead, noteTruncation])
+    }, [isDesktop, workspaceRoot, treeTruncated, coordinator, startTreeRead, noteTruncation])
 
     const removeRecent = useCallback(async (path: string) => {
         try {
@@ -728,6 +735,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         dismissNotification(OPENING_NOTICE_ID)
         dismissNotification(TRUNCATED_NOTICE_ID)
         treeTruncatedRef.current = false
+        setTreeTruncated(false)
         const leaving = coordinator.persistWorkspaceTabSession.current()
         workspaceRootRef.current = null
         setWorkspaceRoot(null)

@@ -10,7 +10,7 @@ import {
     lstat,
     exists,
     copyFile,
-    watch,
+    watchImmediate,
     type DirEntry,
     type WatchEvent,
 } from '@tauri-apps/plugin-fs'
@@ -579,8 +579,8 @@ export function classifyWatchEvent(root: string, event: WatchEvent): WorkspaceCh
     return change.added.length + change.removed.length + change.changed.length > 0 ? change : null
 }
 
-/** How long the watcher lets changes settle (a git checkout touches many files at once) before reporting them. */
-const WATCH_DELAY_MS = 500
+/** How long changes are gathered before they are reported together (a git checkout touches many files at once). */
+const WATCH_BATCH_MS = 300
 
 /**
  * Tells `onChange` about files and folders that change inside `root`, everything in it included, leaving
@@ -590,14 +590,38 @@ const WATCH_DELAY_MS = 500
 export async function watchWorkspace(root: string, onChange: (change: WorkspaceChange) => void): Promise<() => void> {
     if (!isTauri()) return () => {}
     const base = normalizePath(root)
-    return watch(
+    let gathered: WorkspaceChange | null = null
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const report = () => {
+        timer = undefined
+        const change = gathered
+        gathered = null
+        if (change) onChange(change)
+    }
+    // Not plugin-fs `watch`: with its delay the plugin first goes through the whole folder, .git and
+    // node_modules too, to note every file's ID, which takes a long while in a big folder or a whole drive
+    // and holds up the window. The system's own change reports cost nothing to set up.
+    const stop = await watchImmediate(
         base,
         (event) => {
             const change = classifyWatchEvent(base, event)
-            if (change) onChange(change)
+            if (!change) return
+            if (gathered) {
+                gathered.added.push(...change.added)
+                gathered.removed.push(...change.removed)
+                gathered.changed.push(...change.changed)
+            } else {
+                gathered = change
+            }
+            timer ??= setTimeout(report, WATCH_BATCH_MS)
         },
-        { recursive: true, delayMs: WATCH_DELAY_MS }
+        { recursive: true }
     )
+    return () => {
+        clearTimeout(timer)
+        gathered = null
+        stop()
+    }
 }
 
 /** The names of everything directly inside a folder, read from disk rather than the cached tree. */

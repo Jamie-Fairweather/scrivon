@@ -55,7 +55,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     stat: statMock,
     lstat: lstatMock,
     exists: existsMock,
-    watch: watchMock,
+    watchImmediate: watchMock,
 }))
 
 import {
@@ -717,19 +717,34 @@ describe('watching the opened folder', () => {
         })
     })
 
-    it('watches the whole folder and passes on only what is left', async () => {
-        const unwatch = vi.fn()
-        watchMock.mockResolvedValue(unwatch)
-        const onChange = vi.fn()
+    it('watches the whole folder without reading it all first, and passes on what is left in one go', async () => {
+        vi.useFakeTimers()
+        try {
+            const unwatch = vi.fn()
+            watchMock.mockResolvedValue(unwatch)
+            const onChange = vi.fn()
 
-        await expect(watchWorkspace('/ws/', onChange)).resolves.toBe(unwatch)
+            const stop = await watchWorkspace('/ws/', onChange)
 
-        expect(watchMock).toHaveBeenCalledWith('/ws', expect.any(Function), { recursive: true, delayMs: 500 })
-        const report = watchMock.mock.calls[0]![1] as (e: Event) => void
-        report(event({ modify: { kind: 'any' } }, '/ws/.git/HEAD'))
-        expect(onChange).not.toHaveBeenCalled()
-        report(event({ create: { kind: 'file' } }, '/ws/new.md'))
-        expect(onChange).toHaveBeenCalledWith({ added: ['/ws/new.md'], removed: [], changed: [] })
+            // No delayMs: with one, plugin-fs walks the whole folder (a whole drive, even) before it watches.
+            expect(watchMock).toHaveBeenCalledExactlyOnceWith('/ws', expect.any(Function), { recursive: true })
+            const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+            report(event({ modify: { kind: 'any' } }, '/ws/.git/HEAD'))
+            report(event({ create: { kind: 'file' } }, '/ws/new.md'))
+            report(event({ modify: { kind: 'rename', mode: 'from' } }, '/ws/old.md'))
+            expect(onChange).not.toHaveBeenCalled()
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledExactlyOnceWith({ added: ['/ws/new.md'], removed: ['/ws/old.md'], changed: [] })
+
+            // Nothing is reported once watching stops, not even what came in just before.
+            report(event({ create: { kind: 'file' } }, '/ws/late.md'))
+            stop()
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(unwatch).toHaveBeenCalled()
+        } finally {
+            vi.useRealTimers()
+        }
     })
 
     it('does nothing outside Tauri', async () => {

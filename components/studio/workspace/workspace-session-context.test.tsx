@@ -11,7 +11,7 @@ import {
     remove,
     rename,
     stat,
-    watch,
+    watchImmediate,
     writeFile,
     writeTextFile,
     type WatchEvent,
@@ -1252,14 +1252,14 @@ describe('changes made outside Scrivon', () => {
 
         beforeEach(() => {
             report = undefined
-            vi.mocked(watch).mockImplementation(async (_path, cb) => {
+            vi.mocked(watchImmediate).mockImplementation(async (_path, cb) => {
                 report = cb
                 return unwatch
             })
         })
 
         afterEach(() => {
-            vi.mocked(watch).mockReset()
+            vi.mocked(watchImmediate).mockReset()
         })
 
         async function openWatched(result: { current: ReturnType<typeof useHarness> }) {
@@ -1272,7 +1272,7 @@ describe('changes made outside Scrivon', () => {
         it('shows files another app adds, and stops watching when the folder closes', async () => {
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
             await openWatched(result)
-            expect(watch).toHaveBeenCalledWith('C:\\ws', expect.any(Function), { recursive: true, delayMs: 500 })
+            expect(watchImmediate).toHaveBeenCalledWith('C:\\ws', expect.any(Function), { recursive: true })
 
             await disk.write('C:\\ws\\from-sync.md', '# new')
             await act(async () => {
@@ -1312,7 +1312,7 @@ describe('changes made outside Scrivon', () => {
         })
 
         it('still reads the folder on focus where it cannot be watched', async () => {
-            vi.mocked(watch).mockRejectedValue('Access is denied. (os error 5)')
+            vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
             await act(async () => {
                 await result.current.session.openWorkspace('C:\\ws')
@@ -1326,6 +1326,29 @@ describe('changes made outside Scrivon', () => {
 
             await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
             expect(notifyError).not.toHaveBeenCalled()
+        })
+
+        it("doesn't watch a folder too big to show it all, such as a drive, but still reads it on focus", async () => {
+            const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+            vi.mocked(readDir).mockImplementation((async (dir: string) => {
+                if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+                if (dir === 'D:\\big') return Array.from({ length: 50_001 }, (_, i) => entry(`f${i}.md`, false))
+                if (dir === 'D:\\sub') return [entry('deeper', true)]
+                return [entry('x.md', false)]
+            }) as unknown as typeof readDir)
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await act(async () => {
+                await result.current.session.openWorkspace('D:\\')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            expect(watchImmediate).not.toHaveBeenCalled()
+            const reads = vi.mocked(readDir).mock.calls.length
+
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+
+            await waitFor(() => expect(vi.mocked(readDir).mock.calls.length).toBeGreaterThan(reads))
         })
     })
 
