@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 
-function renderSetting({ initial, min, max, step }: { initial: number; min: number; max: number; step: number }) {
+type SettingOptions = { initial: number; min: number; max: number; step: number; precision?: number; disabled?: boolean }
+
+function renderSetting({ initial, min, max, step, precision, disabled }: SettingOptions) {
     const onChange = vi.fn()
     function Harness() {
         const [value, setValue] = useState(initial)
@@ -11,10 +13,13 @@ function renderSetting({ initial, min, max, step }: { initial: number; min: numb
             <NumberSetting
                 id="setting"
                 label="Setting"
+                description="Help text"
                 value={value}
                 min={min}
                 max={max}
                 step={step}
+                precision={precision}
+                disabled={disabled}
                 onChange={(next) => {
                     onChange(next)
                     setValue(next)
@@ -104,6 +109,32 @@ describe('NumberSetting', () => {
 
         expect(onChange).toHaveBeenLastCalledWith(1.3)
         expect(input.value).toBe('1.3')
+    })
+
+    it('keeps the decimals a precision allows while the step stays coarser', () => {
+        const lineHeight = renderSetting({ initial: 1.6, min: 1, max: 2.5, step: 0.1, precision: 2 })
+
+        type(lineHeight.input, '1.15')
+        fireEvent.blur(lineHeight.input)
+        expect(lineHeight.onChange).toHaveBeenLastCalledWith(1.15)
+        expect(lineHeight.input.value).toBe('1.15')
+
+        type(lineHeight.input, '1.157')
+        fireEvent.blur(lineHeight.input)
+        expect(lineHeight.onChange).toHaveBeenLastCalledWith(1.16)
+
+        fireEvent.keyDown(lineHeight.input, { key: 'ArrowUp' })
+        expect(lineHeight.onChange).toHaveBeenLastCalledWith(1.26)
+    })
+
+    it('takes a typed fraction of a whole-number step when the precision allows it', () => {
+        const { input, onChange } = renderSetting({ initial: 10, min: 0, max: 50, step: 1, precision: 1 })
+
+        type(input, '12.7')
+        fireEvent.blur(input)
+
+        expect(onChange).toHaveBeenCalledWith(12.7)
+        expect(input.value).toBe('12.7')
     })
 
     it('applies typed text on Enter', () => {

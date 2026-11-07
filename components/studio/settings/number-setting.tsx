@@ -13,6 +13,11 @@ type NumberSettingProps = {
     min: number
     max: number
     step: number
+    /**
+     * Decimal places a typed value keeps; the step's by default. Lets a field step by 0.1 or 1
+     * and still take a typed 1.15 line height or 12.7 mm margin.
+     */
+    precision?: number
     disabled?: boolean
     onChange: (value: number) => void
     /** For the stepper, which is a fixed width so a small number doesn't get a full-width control. */
@@ -45,12 +50,12 @@ function commitOnKey(event: KeyboardEvent<HTMLInputElement>) {
 /**
  * Labelled stepper for a bounded numeric setting. Steps (arrow keys, the +/- buttons) apply at
  * once; typed text applies when you leave the field or press Enter or Esc, so a half-typed number never
- * does. Values are kept within min and max and rounded to the step's decimal places. Cleared
- * input is ignored and the previous value stays. A saved value with more decimals than the step
- * (a 12.7 mm margin from an older version) is shown as it is and kept until it's changed.
+ * does. Values are kept within min and max and rounded to `precision` decimal places (the step's
+ * by default). Cleared input is ignored and the previous value stays. A saved value with more
+ * decimals than that is shown as it is and kept until it's changed.
  */
-export function NumberSetting({ id, label, description, value, min, max, step, disabled, onChange, className }: NumberSettingProps) {
-    const decimals = decimalsOf(step)
+export function NumberSetting({ id, label, description, value, min, max, step, precision, disabled, onChange, className }: NumberSettingProps) {
+    const decimals = precision ?? decimalsOf(step)
     // Showing fewer decimals would round the saved value, and leaving the field would then save that.
     const shownDecimals = Math.max(decimals, Math.min(MAX_SHOWN_DECIMALS, decimalsOf(value)))
 
