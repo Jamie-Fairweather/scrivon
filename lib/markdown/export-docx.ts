@@ -316,8 +316,11 @@ const HTML_CODE_TAGS = new Set(['code', 'kbd', 'samp', 'tt'])
 type HtmlMarks = { bold?: boolean; italics?: boolean; strike?: boolean; code?: boolean; href?: string }
 /** A piece of a line of raw HTML: some text, a picture, a line break or an anchor, with the marks of the tags around it. */
 type HtmlLeaf = { node: Text | InlineCode | Image | Break | Html; marks: HtmlMarks }
-/** A line of raw HTML: a block such as `<p>`, `<summary>` or a table row, and the alignment it asks for. */
-type HtmlLine = { align?: string; leaves: HtmlLeaf[] }
+/**
+ * A line of raw HTML: a block such as `<p>`, `<summary>` or a table row, and the alignment it asks for. `rule` marks
+ * an `<hr>`, and `blank` a line of only line breaks, such as a `<br>` spacer (see {@link visibleHtmlLines}).
+ */
+type HtmlLine = { align?: string; leaves: HtmlLeaf[]; rule?: boolean; blank?: boolean }
 
 /**
  * The id each anchor from raw HTML (`<a name="setup">`, or any tag's `id`) marks, by the empty `html` node standing in
@@ -330,6 +333,9 @@ function htmlAnchor(id: string): Html {
     HTML_ANCHORS.set(node, id)
     return node
 }
+
+/** Paragraphs standing for a blank line of raw HTML, such as a `<br>` spacer: written though they show nothing, as the PDF shows the line. */
+const HTML_BLANK_LINES = new WeakSet<MdParagraph>()
 
 function isTableCell(node: HastContent): boolean {
     return node.type === 'element' && (node.tagName === 'td' || node.tagName === 'th')
@@ -344,7 +350,7 @@ function htmlLines(root: HastRoot): HtmlLine[] {
     const lines: HtmlLine[] = []
     let line: HtmlLine = { leaves: [] }
     const endLine = (align: string | undefined) => {
-        if (line.leaves.length > 0) lines.push(line)
+        if (line.leaves.length > 0 || line.rule) lines.push(line)
         line = { align, leaves: [] }
     }
     const text = (value: string, marks: HtmlMarks) => {
@@ -379,6 +385,7 @@ function htmlLines(root: HastRoot): HtmlLine[] {
                 for (const anchor of [id, tag === 'a' ? name : undefined]) {
                     if (typeof anchor === 'string' && anchor) line.leaves.push({ node: htmlAnchor(xmlSafe(anchor)), marks: {} })
                 }
+                if (tag === 'hr') line.rule = true
                 const inner: HtmlMarks = {
                     bold: marks.bold || HTML_BOLD_TAGS.has(tag) || undefined,
                     italics: marks.italics || HTML_ITALIC_TAGS.has(tag) || undefined,
@@ -397,14 +404,27 @@ function htmlLines(root: HastRoot): HtmlLine[] {
 }
 
 /**
- * The lines of an HTML block that show something or hold an anchor, spaces collapsed across tags. A line of only
- * spaces or breaks is left out.
+ * Whether `text` is only the spaces HTML collapses to nothing on an empty line. A no-break space (`&nbsp;`) isn't
+ * one, so a paragraph of it still shows, as the blank line it is in the preview and PDF.
+ */
+function onlyCollapsibleSpace(text: string): boolean {
+    return /^[ \t\n\f\r]*$/.test(text)
+}
+
+/**
+ * The lines of an HTML block that show something, as the PDF does, spaces collapsed across tags: words (a line of
+ * only `&nbsp;` too), pictures, anchors and rules. A line of only spaces is left out. A line of only line breaks,
+ * such as a `<br>` spacer or `<p><br></p>`, is a blank line for each break, the last one ending it.
  */
 function visibleHtmlLines(lines: HtmlLine[]): HtmlLine[] {
-    return lines.flatMap(({ align, leaves }) => {
-        const kept = trimHtmlLine(leaves)
-        const shown = kept.some(({ node }) => node.type === 'image' || node.type === 'html' || (node.type !== 'break' && node.value.trim() !== ''))
-        return shown ? [{ align, leaves: kept }] : []
+    return lines.flatMap((line) => {
+        const breaks = line.leaves.filter(({ node }) => node.type === 'break')
+        const kept = trimHtmlLine(line.leaves)
+        const shown = kept.some(
+            ({ node }) => node.type === 'image' || node.type === 'html' || (node.type !== 'break' && !onlyCollapsibleSpace(node.value))
+        )
+        if (shown || line.rule) return [{ ...line, leaves: kept }]
+        return breaks.length > 0 ? [{ ...line, blank: true, leaves: [...kept, ...breaks.slice(1)] }] : []
     })
 }
 
@@ -477,13 +497,17 @@ function expandHtml(tree: Root): void {
         const lines = htmlLines(hast)
         // A tag in a line of text holds no words of its own: at most a picture or a line break, kept as they are.
         const replacement: RootContent[] = HTML_BLOCK_PARENTS.has(parent.type)
-            ? visibleHtmlLines(lines).map(
-                  (line): MdParagraph => ({
+            ? visibleHtmlLines(lines).flatMap((line): RootContent[] => {
+                  const paragraph: MdParagraph = {
                       type: 'paragraph',
                       data: line.align ? { hProperties: { align: line.align } } : undefined,
                       children: htmlPhrasing(line.leaves),
-                  })
-              )
+                  }
+                  if (line.blank) HTML_BLANK_LINES.add(paragraph)
+                  if (!line.rule) return [paragraph]
+                  // An <hr> is a rule, as `---` is. An anchor on it goes in a paragraph before, which hands it to the rule.
+                  return [...(line.leaves.length > 0 ? [paragraph] : []), { type: 'thematicBreak' }]
+              })
             : lines.flatMap((line) => htmlPhrasing(line.leaves))
         // The visit goes on after the replacement, so the empty html nodes standing for its anchors stay as they are.
         ;(parent.children as RootContent[]).splice(index, 1, ...replacement)
@@ -1190,14 +1214,6 @@ function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Mark
     return children
 }
 
-/**
- * Whether `text` is only the spaces HTML collapses to nothing on an empty line. A no-break space (`&nbsp;`) isn't
- * one, so a paragraph of it still shows, as the blank line it is in the preview and PDF.
- */
-function onlyCollapsibleSpace(text: string): boolean {
-    return /^[ \t\n\f\r]*$/.test(text)
-}
-
 /** Whether a paragraph shows nothing: only anchors from raw HTML (see {@link HTML_ANCHORS}) and spaces, or nothing at all. */
 function showsNothing(nodes: PhrasingContent[]): boolean {
     return nodes.every(
@@ -1206,6 +1222,11 @@ function showsNothing(nodes: PhrasingContent[]): boolean {
             (node.type === 'text' && onlyCollapsibleSpace(node.value)) ||
             ((node.type === 'emphasis' || node.type === 'strong' || node.type === 'delete') && showsNothing(node.children))
     )
+}
+
+/** Whether a paragraph is left out of the Word file: it shows nothing, and isn't a blank line from raw HTML ({@link HTML_BLANK_LINES}). */
+function writesNothing(node: MdParagraph): boolean {
+    return showsNothing(node.children) && !HTML_BLANK_LINES.has(node)
 }
 
 /** Link and image definitions by label. When a label is defined twice the first one counts, as in CommonMark and the PDF. */
@@ -1716,7 +1737,7 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
         const node = nodes[index]!
         // "First" means nothing has been written yet. Link definitions, footnotes, HTML comments and anchors before it write nothing.
         if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && blocks.length === 0))
-        else if (node.type === 'paragraph' && showsNothing(node.children) && !state.inFootnote) {
+        else if (node.type === 'paragraph' && writesNothing(node) && !state.inFootnote) {
             // A paragraph that is only an anchor, like `<a name="setup"></a>` above a heading, isn't a blank line, as in
             // the PDF. Its bookmarks go to the start of the next block written.
             state.pendingAnchors = renderInlines(state, node.children).filter((child) => child instanceof Bookmark)
@@ -2234,7 +2255,7 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     walk(node.children)
     const lineTwip = lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight)
     const wrapped = lines.reduce((count, text) => count + lineCount(text, state.bodyHalfPoints, width), 0)
-    const textHeight = lines.length > 1 || !onlyCollapsibleSpace(lines[0]!) ? wrapped * lineTwip + 120 : 120
+    const textHeight = lines.length > 1 || !onlyCollapsibleSpace(lines[0]!) || HTML_BLANK_LINES.has(node) ? wrapped * lineTwip + 120 : 120
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
 }
 
@@ -2286,7 +2307,7 @@ function measureFlow(
             const id = headingId(node)
             if (id) pages.set(id, cursor.page)
         } else if (node.type === 'paragraph') {
-            if (!showsNothing(node.children)) placeBlock(cursor, pageHeight, paragraphTwip(state, node, width))
+            if (!writesNothing(node)) placeBlock(cursor, pageHeight, paragraphTwip(state, node, width))
         } else if (node.type === 'list') {
             measureList(state, node, 0, width, pages, cursor, pageHeight)
         } else if (node.type === 'blockquote') {

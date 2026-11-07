@@ -952,6 +952,57 @@ describe('renderExportDocx', () => {
         expect(body).toContain('>Bell</w:t>')
     })
 
+    it('keeps the blank lines and rules raw HTML blocks show: &nbsp;, <br> spacers and <hr> (review)', async () => {
+        const { parts } = await render(
+            [
+                '[r](#rule)',
+                '',
+                'One',
+                '',
+                '<p>&nbsp;</p>',
+                '',
+                'Two',
+                '',
+                '<br>',
+                '',
+                'Three',
+                '',
+                '<p><br></p>',
+                '',
+                'Four',
+                '',
+                '<div><br><br></div>',
+                '',
+                'Five',
+                '',
+                '<hr id="rule">',
+                '',
+                'Six',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const paragraphs = body.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? []
+        const words = paragraphs.map((paragraph) => [...paragraph.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((text) => text[1]).join(''))
+        // Each spacer is a blank line, as in the PDF: two <br>s are two lines, so one break in an empty paragraph.
+        expect(words).toEqual(['r', 'One', ' ', 'Two', '', 'Three', '', 'Four', '', 'Five', '', 'Six'])
+        expect(paragraphs.map((paragraph) => paragraph.match(/<w:br\/>/g)?.length ?? 0)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+        // The <hr> is a rule, and a link to its id lands on it.
+        const rule = paragraphs[10]!
+        expect(rule).toContain('<w:pBdr>')
+        expect(rule).toContain(`<w:bookmarkStart w:name="${/w:anchor="([^"]+)"/.exec(body)![1]}"`)
+        // It is written just as `---` is.
+        const html = await render('One\n\n<hr>\n\nTwo')
+        const markdown = await render('One\n\n---\n\nTwo')
+        expect(html.parts['word/document.xml']).toBe(markdown.parts['word/document.xml'])
+        // The contents page numbers count each blank line.
+        const spacers = Array.from({ length: 40 }, () => ['<br>', '']).flat()
+        const { xml } = await render(['# Start', '', ...spacers, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        expect(tocPage(xml, 'End')).toBe(3)
+    })
+
     it('counts raw HTML blocks in the contents page numbers', async () => {
         const blocks = Array.from({ length: 40 }, (_, index) => [`<p align="center">Line ${index}</p>`, '']).flat()
         const { xml } = await render(['# Start', '', ...blocks, '# End'].join('\n'), (draft) => {
