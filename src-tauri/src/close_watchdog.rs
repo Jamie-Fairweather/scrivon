@@ -207,46 +207,62 @@ pub fn watch_page_process(app: &tauri::App) {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
+#[derive(Debug, PartialEq, Eq)]
 enum PageChoice {
     Reload,
     Quit,
 }
 
 /// Reload or quit, or (for a page that is only frozen, which may recover)
-/// keep waiting. Only a button press quits: Esc never does.
+/// keep waiting.
 #[cfg(windows)]
 fn ask_after_page_failed(app: &tauri::AppHandle, frozen: bool) -> Option<PageChoice> {
-    use tauri_plugin_dialog::MessageDialogResult;
-
-    let (what, buttons) = if frozen {
-        (
-            "Scrivon isn't responding. You can keep waiting, reload the window or quit.",
-            MessageDialogButtons::YesNoCancelCustom(
-                "Keep Waiting".into(),
-                "Reload".into(),
-                "Quit".into(),
-            ),
-        )
+    let what = if frozen {
+        "Scrivon isn't responding. You can reload the window, quit, or keep waiting."
     } else {
-        (
-            "Scrivon's window stopped working. Reload it to carry on, or quit.",
-            MessageDialogButtons::OkCancelCustom("Reload".into(), "Quit".into()),
-        )
+        "Scrivon's window stopped working. Reload it to carry on, or quit."
     };
     let mut dialog = app
         .dialog()
         .message(format!("{what}\n\n{KEPT_COPIES}"))
         .title("Scrivon")
         .kind(MessageDialogKind::Warning)
-        .buttons(buttons);
+        .buttons(page_failed_buttons(frozen));
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.parent(&window);
     }
-    match dialog.blocking_show_with_result() {
+    page_choice(dialog.blocking_show_with_result(), frozen)
+}
+
+/// Esc, the question's close button and Alt+F4 all pick the last (cancel)
+/// button, so that one is the safe choice: keep waiting for a frozen page, and
+/// reload one that has exited, since it shows nothing until then.
+#[cfg(any(windows, test))]
+fn page_failed_buttons(frozen: bool) -> MessageDialogButtons {
+    if frozen {
+        MessageDialogButtons::YesNoCancelCustom(
+            "Reload".into(),
+            "Quit".into(),
+            "Keep Waiting".into(),
+        )
+    } else {
+        MessageDialogButtons::OkCancelCustom("Quit".into(), "Reload".into())
+    }
+}
+
+#[cfg(any(windows, test))]
+fn page_choice(
+    answer: tauri_plugin_dialog::MessageDialogResult,
+    frozen: bool,
+) -> Option<PageChoice> {
+    use tauri_plugin_dialog::MessageDialogResult;
+
+    match answer {
         MessageDialogResult::Custom(label) if label == "Quit" => Some(PageChoice::Quit),
         MessageDialogResult::Custom(label) if label == "Reload" => Some(PageChoice::Reload),
-        // A page that has exited shows nothing, so closing the question reloads it.
+        // Not expected (the buttons above are all named), but a page that has
+        // exited shows nothing, so it is reloaded rather than left blank.
         _ if !frozen => Some(PageChoice::Reload),
         _ => None,
     }
@@ -329,6 +345,48 @@ mod tests {
 
         assert!(!close);
         assert!(watchdog.arm().is_some());
+    }
+
+    /// What dismissing a question answers: the dialog plugin turns Esc, the
+    /// close button and Alt+F4 into the last (cancel) button's label.
+    fn dismissed(buttons: MessageDialogButtons) -> tauri_plugin_dialog::MessageDialogResult {
+        use tauri_plugin_dialog::MessageDialogResult;
+        match buttons {
+            MessageDialogButtons::OkCancelCustom(_, cancel)
+            | MessageDialogButtons::YesNoCancelCustom(_, _, cancel) => {
+                MessageDialogResult::Custom(cancel)
+            }
+            _ => MessageDialogResult::Cancel,
+        }
+    }
+
+    #[test]
+    fn dismissing_a_page_failure_question_never_quits() {
+        // A frozen page may recover, and quitting would lose what it holds.
+        assert_eq!(
+            page_choice(dismissed(page_failed_buttons(true)), true),
+            None
+        );
+        // A page that has exited is reloaded.
+        assert_eq!(
+            page_choice(dismissed(page_failed_buttons(false)), false),
+            Some(PageChoice::Reload)
+        );
+    }
+
+    #[test]
+    fn a_page_failure_question_does_what_the_button_says() {
+        use tauri_plugin_dialog::MessageDialogResult;
+        let pressed = |label: &str| MessageDialogResult::Custom(label.into());
+
+        for frozen in [true, false] {
+            assert_eq!(page_choice(pressed("Quit"), frozen), Some(PageChoice::Quit));
+            assert_eq!(
+                page_choice(pressed("Reload"), frozen),
+                Some(PageChoice::Reload)
+            );
+        }
+        assert_eq!(page_choice(pressed("Keep Waiting"), true), None);
     }
 
     #[test]
