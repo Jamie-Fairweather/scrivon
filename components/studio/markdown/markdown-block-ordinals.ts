@@ -102,7 +102,23 @@ function sameBlockEdited(before: string, after: string): boolean {
 export function matchMermaidBlockIds(previous: readonly MermaidBlockIdentity[], sources: readonly string[], createId = newBlockId): string[] {
     const ids: (string | undefined)[] = sources.map(() => undefined)
     const taken = new Set<number>()
+    const shared = Math.min(sources.length, previous.length)
+    // Unchanged blocks at the start and the end keep their own place first, so a copy of a diagram being edited
+    // isn't out-matched by an identical copy further down, which would take its id.
+    let start = 0
+    for (; start < shared && previous[start]!.source === sources[start]; start++) {
+        taken.add(start)
+        ids[start] = previous[start]!.id
+    }
+    for (let back = 1; back <= shared - start; back++) {
+        const index = sources.length - back
+        const at = previous.length - back
+        if (previous[at]!.source !== sources[index]) break
+        taken.add(at)
+        ids[index] = previous[at]!.id
+    }
     sources.forEach((source, index) => {
+        if (ids[index] !== undefined) return
         const at = previous.findIndex((block, position) => !taken.has(position) && block.source === source)
         if (at === -1) return
         taken.add(at)
@@ -117,7 +133,6 @@ export function matchMermaidBlockIds(previous: readonly MermaidBlockIdentity[], 
         ids[index] = previous[at]!.id
         return true
     }
-    const shared = Math.min(sources.length, previous.length)
     if (sources.length === previous.length) {
         for (let index = 0; index < shared; index++) pair(index, index)
     } else {
@@ -166,6 +181,15 @@ export function rehypeMermaidBlockIds(documentKey: string) {
             blocksByDocument.delete(oldest)
         }
     }
+}
+
+/**
+ * The source of each Mermaid block in a document, by ordinal, as {@link rehypeMermaidBlockIds} found them the last
+ * time the preview showed it, or undefined when it hasn't. Read once the preview has rendered, so an expanded
+ * diagram can follow its block without parsing the document a second time.
+ */
+export function lastMermaidBlockSources(documentKey: string): string[] | undefined {
+    return blocksByDocument.get(documentKey)?.map((block) => block.source)
 }
 
 /** The lasting id {@link rehypeMermaidBlockIds} gave a Mermaid block, or null when `code` isn't one. */

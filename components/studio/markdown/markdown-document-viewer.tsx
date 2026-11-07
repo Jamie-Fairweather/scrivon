@@ -4,12 +4,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import { lastMermaidBlockSources } from '@/components/studio/markdown/markdown-block-ordinals'
 import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
-import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
+import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
+import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -73,6 +75,67 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
     return exactMatch ?? caseMatch ?? keyMatch
 }
 
+/**
+ * Moves focus to the section a link led to, as following a link in a browser moves where Tab carries on from, so
+ * the next Tab goes into that section and a screen reader reads it. A heading, footnote or `<a name>` anchor can't
+ * normally take focus, so it can until focus moves on from it.
+ */
+function focusAnchorTarget(target: HTMLElement): void {
+    // Tried first, as only the browser knows what can take focus (an `<a>` with no link can't, whatever its tabIndex).
+    target.focus({ preventScroll: true })
+    if (document.activeElement === target || target.hasAttribute('tabindex')) return
+
+    target.setAttribute('tabindex', '-1')
+    target.focus({ preventScroll: true })
+    if (document.activeElement !== target) {
+        target.removeAttribute('tabindex')
+        return
+    }
+    const onBlur = () => {
+        // Switching to another window blurs it but leaves it focused in the page, so it has focus again on return.
+        if (document.activeElement === target) return
+        target.removeEventListener('blur', onBlur)
+        target.removeAttribute('tabindex')
+    }
+    target.addEventListener('blur', onBlur)
+}
+
+/**
+ * Whether a `#fragment` that nothing in the document has means its top, as in a browser: `#top` in any letter case,
+ * as in a README's `[Back to top](#top)`.
+ */
+function isTopOfDocument(id: string): boolean {
+    return id.toLowerCase() === 'top'
+}
+
+/** How long a linked section is held at the top of the preview while the diagrams above it are drawn. */
+const ANCHOR_SETTLE_MS = 1500
+/** What the user does to scroll the preview themselves, which ends that hold. */
+const USER_SCROLL_EVENTS = ['wheel', 'pointerdown', 'keydown', 'touchstart'] as const
+
+/**
+ * Scrolls a document that has just opened to its `#fragment`, then again each time its content changes size for a
+ * moment after, as the diagrams above the section grow from placeholders into pictures. The user scrolling ends
+ * it early. Returns the function that ends it.
+ */
+function holdAnchorInView(root: HTMLElement, id: string): () => void {
+    const scrollToAnchor = () => findAnchorTarget(root, id)?.scrollIntoView({ block: 'start' })
+    scrollToAnchor()
+    const content = scrollViewport(root)?.firstElementChild
+    if (!content || typeof ResizeObserver === 'undefined') return () => {}
+
+    const observer = new ResizeObserver(scrollToAnchor)
+    const timer = setTimeout(stop, ANCHOR_SETTLE_MS)
+    function stop() {
+        observer.disconnect()
+        clearTimeout(timer)
+        for (const type of USER_SCROLL_EVENTS) root.removeEventListener(type, stop)
+    }
+    for (const type of USER_SCROLL_EVENTS) root.addEventListener(type, stop, { passive: true })
+    observer.observe(content)
+    return stop
+}
+
 /** The Expand button of a block, found again if the element that had focus was replaced. */
 function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElement | null {
     if (!root) return null
@@ -93,6 +156,10 @@ function PreviewEmpty() {
             </Card>
         </div>
     )
+}
+
+function previewCrashNotice(error: Error) {
+    return <PaneCrashNotice title="Couldn't show the preview" error={error} hint="Edit the document to try again." />
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
@@ -169,22 +236,21 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         if (tabId) allowRemoteImages(tabId)
     }, [tabId, allowRemoteImages])
 
-    const expandedOrdinal = expanded?.ordinal ?? null
-    /** The document's Mermaid sources, only worked out while a diagram is expanded. */
-    const liveMermaidSources = useMemo(
-        () => (expandedOrdinal === null ? null : extractMermaidBlockSources(previewSource)),
-        [expandedOrdinal, previewSource]
-    )
+    /** Nothing but spaces, or only front matter, which the preview leaves out. */
+    const previewIsEmpty = useMemo(() => markdownPreviewBody(previewSource).trim() === '', [previewSource])
     const mermaidCountRef = useRef<{ canvasKey: string; count: number } | null>(null)
 
     // Keeps the expanded diagram, and the export that reads it, in step with edits to its block in the document.
+    // Runs after the preview below the overlay has rendered this text, and reads the diagrams it found, so the
+    // document isn't parsed a second time on each edit.
     useEffect(() => {
-        if (!expanded || !liveMermaidSources) return
+        if (!expanded) return
+        const sources = previewIsEmpty ? [] : (lastMermaidBlockSources(tabId ?? '') ?? [])
         const previous = mermaidCountRef.current
         const previousCount = previous?.canvasKey === expanded.canvasKey ? previous.count : null
-        mermaidCountRef.current = { canvasKey: expanded.canvasKey, count: liveMermaidSources.length }
+        mermaidCountRef.current = { canvasKey: expanded.canvasKey, count: sources.length }
 
-        const located = locateMermaidBlock(expanded, liveMermaidSources, previousCount)
+        const located = locateMermaidBlock(expanded, sources, previousCount)
         if (!located) {
             setExpanded(null)
             return
@@ -194,7 +260,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         // The block id (and the canvas key made from it) stays: the preview's ids move with their blocks, so the
         // Expand button to return focus to, and the expanded view's pan and zoom, still belong to this block.
         setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source })
-    }, [expanded, liveMermaidSources, setExpanded])
+    }, [expanded, previewSource, previewIsEmpty, tabId, setExpanded])
 
     const onOverlayKeyDown = useCallback(
         (event: KeyboardEvent<HTMLDivElement>) => {
@@ -208,7 +274,13 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     useEffect(() => {
         const scrollToAnchor = (id: string) => {
             const target = findAnchorTarget(scrollAreaRef.current, id)
-            if (target) target.scrollIntoView({ block: 'start' })
+            if (target) {
+                target.scrollIntoView({ block: 'start' })
+                focusAnchorTarget(target)
+                return
+            }
+            const viewport = isTopOfDocument(id) ? scrollViewport(scrollAreaRef.current) : null
+            if (viewport) viewport.scrollTop = 0
             else notifyInfo("Couldn't find that section", { description: `#${id}` })
         }
 
@@ -220,6 +292,11 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             switch (target.kind) {
                 case 'none':
                     return
+                case 'top': {
+                    const viewport = scrollViewport(scrollAreaRef.current)
+                    if (viewport) viewport.scrollTop = 0
+                    return
+                }
                 case 'anchor':
                     scrollToAnchor(target.id)
                     return
@@ -272,9 +349,6 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
 
-    /** Nothing but spaces, or only front matter, which the preview leaves out. */
-    const previewIsEmpty = useMemo(() => markdownPreviewBody(previewSource).trim() === '', [previewSource])
-
     useEffect(() => {
         if (!expandedKey) return
 
@@ -310,11 +384,21 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         if (tabChanged) {
             const pendingAnchor = pendingAnchorRef.current
             pendingAnchorRef.current = null
-            const anchorTarget = pendingAnchor?.tabId === tabId ? findAnchorTarget(scrollAreaRef.current, pendingAnchor.id) : null
-            if (anchorTarget) {
-                anchorTarget.scrollIntoView({ block: 'start' })
-                return
+            const root = scrollAreaRef.current
+            // The same file however its path is written: openFile tidies the path it was given into the tab's id.
+            const opened = pendingAnchor && tabId && isSamePath(pendingAnchor.tabId, tabId) ? pendingAnchor : null
+            const anchorTarget = root && opened ? findAnchorTarget(root, opened.id) : null
+            if (root && opened && anchorTarget) {
+                // Held there while the diagrams above it are drawn, which would push it down or out of view.
+                const stopHolding = holdAnchorInView(root, opened.id)
+                // Only when focus went down with the link that was followed, or is still in the preview; never pull
+                // it out of the editor.
+                const focused = document.activeElement
+                if (!focused || focused === document.body || root.contains(focused)) focusAnchorTarget(anchorTarget)
+                return stopHolding
             }
+            // A link such as `other.md#top`, with nothing in it called that, opens it at the top.
+            if (opened && tabId && isTopOfDocument(opened.id)) scrollTopByTab.delete(tabId)
         }
 
         const scrollTop = (tabId ? scrollTopByTab.get(tabId) : undefined) ?? 0
@@ -359,14 +443,17 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     {previewIsEmpty ? (
                         <PreviewEmpty />
                     ) : (
-                        <MarkdownPreview
-                            source={previewSource}
-                            tabId={tabId}
-                            onExpandBlock={onExpandBlock}
-                            onLinkClick={onLinkClick}
-                            loadRemoteImages={loadRemoteImages}
-                            onRemoteImageBlocked={onRemoteImageBlocked}
-                        />
+                        // A document the parser can't take (thousands of nested quotes) breaks only the preview.
+                        <PaneErrorBoundary resetKeys={[tabId, previewSource]} fallback={previewCrashNotice}>
+                            <MarkdownPreview
+                                source={previewSource}
+                                tabId={tabId}
+                                onExpandBlock={onExpandBlock}
+                                onLinkClick={onLinkClick}
+                                loadRemoteImages={loadRemoteImages}
+                                onRemoteImageBlocked={onRemoteImageBlocked}
+                            />
+                        </PaneErrorBoundary>
                     )}
                 </ScrollArea>
             </div>

@@ -1,24 +1,34 @@
-import { createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter, type SpecialLanguage } from 'shiki'
+import {
+    bundledLanguages,
+    createHighlighter,
+    isSpecialLang,
+    ShikiError,
+    type BundledLanguage,
+    type BundledTheme,
+    type Highlighter,
+    type SpecialLanguage,
+} from 'shiki'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
 const THEMES = ['github-dark', 'github-light'] as const
 
-const LANG_ALIASES: Record<string, BundledLanguage | 'text'> = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    py: 'python',
-    sh: 'bash',
-    zsh: 'bash',
-    shell: 'bash',
-    yml: 'yaml',
-    md: 'markdown',
-    'c#': 'csharp',
-    cs: 'csharp',
-    rs: 'rust',
-    rb: 'ruby',
-    kt: 'kotlin',
-}
+/** A Map, so a fence named after an object property (`constructor`, `__proto__`) isn't taken for an alias. */
+const LANG_ALIASES = new Map<string, BundledLanguage>([
+    ['js', 'javascript'],
+    ['jsx', 'javascript'],
+    ['ts', 'typescript'],
+    ['py', 'python'],
+    ['sh', 'bash'],
+    ['zsh', 'bash'],
+    ['shell', 'bash'],
+    ['yml', 'yaml'],
+    ['md', 'markdown'],
+    ['c#', 'csharp'],
+    ['cs', 'csharp'],
+    ['rs', 'rust'],
+    ['rb', 'ruby'],
+    ['kt', 'kotlin'],
+])
 
 /** The code themes export offers. The preview also uses others; see {@link previewCodeTheme}. */
 export type ShikiTheme = (typeof THEMES)[number]
@@ -75,6 +85,8 @@ let highlighterPromise: Promise<Highlighter> | null = null
 let readyHighlighter: Highlighter | null = null
 /** Languages Shiki doesn't have. They show as plain text, without trying to load them again on every keystroke. */
 const unavailableLanguages = new Set<string>()
+/** Languages whose grammar failed in a way that may have broken the highlighter, so it was started again. */
+const retriedLanguages = new Set<string>()
 
 function getHighlighter(): Promise<Highlighter> {
     if (!highlighterPromise) {
@@ -97,12 +109,15 @@ function getHighlighter(): Promise<Highlighter> {
 function normalizeLanguage(lang: string | undefined): string {
     if (!lang) return 'text'
     const key = lang.toLowerCase()
-    return LANG_ALIASES[key] ?? key
+    return LANG_ALIASES.get(key) ?? key
 }
 
 /** The grammar to highlight with if it's ready now: `lang`, 'text' for a language Shiki doesn't have, or null. */
 function loadedLanguage(highlighter: Highlighter, lang: string): string | null {
     if (lang === 'text' || unavailableLanguages.has(lang)) return 'text'
+    // Never asked of Shiki: loading a name it has no grammar for, such as `constructor`, can break every later
+    // load until restart.
+    if (!isSpecialLang(lang) && !Object.hasOwn(bundledLanguages, lang)) return 'text'
     return highlighter.getLoadedLanguages().includes(lang) ? lang : null
 }
 
@@ -112,10 +127,27 @@ async function ensureLanguage(highlighter: Highlighter, lang: string): Promise<s
     try {
         await highlighter.loadLanguage(lang as BundledLanguage)
         return lang
-    } catch {
+    } catch (err) {
+        // Shiki's own errors leave it working. Any other may have broken its list of grammars, after which every
+        // later load fails, so the next block gets a fresh highlighter. A grammar that fails on that one too is
+        // left plain, so it can't break one highlighter after another.
+        if (!(err instanceof ShikiError)) {
+            discardHighlighter(highlighter)
+            if (!retriedLanguages.has(lang)) {
+                retriedLanguages.add(lang)
+                return 'text'
+            }
+        }
         unavailableLanguages.add(lang)
         return 'text'
     }
+}
+
+/** Forgets the highlighter, unless a fresh one has already taken its place. */
+function discardHighlighter(highlighter: Highlighter): void {
+    if (readyHighlighter !== highlighter) return
+    readyHighlighter = null
+    highlighterPromise = null
 }
 
 /** Loads a palette's code theme the first time a block needs it; GitHub's two are loaded at start. */

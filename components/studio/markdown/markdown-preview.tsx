@@ -118,6 +118,15 @@ type RemoteImages = {
 
 const RemoteImagesContext = createContext<RemoteImages>({ load: false, onBlocked: () => () => {} })
 
+/** An `<img height>` as a CSS length: `80` or `80px` in pixels, `50%` as written, or undefined for anything else. */
+function imageHeightLength(height: unknown): string | undefined {
+    if (typeof height === 'number') return Number.isFinite(height) && height >= 0 ? `${height}px` : undefined
+    if (typeof height !== 'string') return undefined
+    const value = height.trim()
+    if (/^\d+(\.\d+)?(px)?$/i.test(value)) return `${parseFloat(value)}px`
+    return /^\d+(\.\d+)?%$/.test(value) ? value : undefined
+}
+
 /**
  * A document's image. It reads the web-image choice from context rather than props, so the preview's components
  * stay the same when the choice changes, and diagrams and code blocks aren't rebuilt.
@@ -127,6 +136,11 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
     const { src, alt, ...rest } = withoutNode(props)
     const remote = isRemoteImage(src)
     if (remote && !load) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onBlocked} />
+    // Tailwind's base styles give every image `height: auto`, which beats an HTML height attribute, so a logo sized
+    // only by its height would show at full size. Only an inline style outranks it; the width then follows the
+    // picture's shape. (The sanitizer drops a document's own style attributes.)
+    const hasWidth = rest.width !== undefined && rest.width !== null && rest.width !== ''
+    const height = hasWidth ? undefined : imageHeightLength(rest.height)
     // Inline, so a row of badges stays on one line, and never wider than the page.
     return (
         // eslint-disable-next-line @next/next/no-img-element -- a document's own images, in a static export
@@ -135,7 +149,8 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
             src={src}
             alt={alt}
             referrerPolicy={remote ? 'no-referrer' : undefined}
-            className={cn('inline-block h-auto max-w-full align-middle', rest.className)}
+            style={height ? { ...rest.style, height, width: 'auto' } : rest.style}
+            className={cn('inline-block h-auto max-w-full align-middle', height && 'object-contain', rest.className)}
         />
     )
 }

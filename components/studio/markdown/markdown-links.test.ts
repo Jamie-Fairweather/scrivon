@@ -1,3 +1,4 @@
+import type { Element } from 'hast'
 import { describe, expect, it } from 'vitest'
 import type { FileNode } from '@/lib/workspace/types'
 import {
@@ -34,7 +35,11 @@ describe('resolveMarkdownLink', () => {
         expect(resolveMarkdownLink('#install', inWorkspace)).toEqual({ kind: 'anchor', id: 'install' })
         expect(resolveMarkdownLink('#user-content-fn-1', inWorkspace)).toEqual({ kind: 'anchor', id: 'user-content-fn-1' })
         expect(resolveMarkdownLink('#caf%C3%A9', inWorkspace)).toEqual({ kind: 'anchor', id: 'café' })
-        expect(resolveMarkdownLink('#', inWorkspace)).toEqual({ kind: 'none' })
+    })
+
+    it('takes a bare # to mean the top of the document, as a browser does (N27)', () => {
+        expect(resolveMarkdownLink('#', inWorkspace)).toEqual({ kind: 'top' })
+        expect(resolveMarkdownLink(' # ', inWorkspace)).toEqual({ kind: 'top' })
     })
 
     it('sends web, email and phone links to the system', () => {
@@ -199,5 +204,23 @@ describe('markdownUrlTransform', () => {
         expect(markdownUrlTransform('javascript:alert(1)')).toBe('')
         expect(markdownUrlTransform('notes/a.md')).toBe('notes/a.md')
         expect(markdownUrlTransform('https://example.com')).toBe('https://example.com')
+    })
+
+    it('keeps an image’s inline data: picture, as the PDF does, but no other data: URL (N21)', () => {
+        const element = (tagName: string): Element => ({ type: 'element', tagName, properties: {}, children: [] })
+        const png = 'data:image/png;base64,iVBORw0KGgo='
+        expect(markdownUrlTransform(png, 'src', element('img'))).toBe(png)
+        expect(markdownUrlTransform('DATA:image/gif;base64,R0lGOD', 'src', element('img'))).toBe('DATA:image/gif;base64,R0lGOD')
+        expect(markdownUrlTransform(png, 'href', element('a'))).toBe('')
+        expect(markdownUrlTransform(png, 'src', element('video'))).toBe('')
+        expect(markdownUrlTransform('data:text/html;base64,PHNjcmlwdD4=', 'src', element('img'))).toBe('')
+        expect(markdownUrlTransform(png)).toBe('')
+    })
+
+    it('keeps phone links, which the preview hands to the system (N26)', () => {
+        const link: Element = { type: 'element', tagName: 'a', properties: {}, children: [] }
+        expect(markdownUrlTransform('tel:+442012345678', 'href', link)).toBe('tel:+442012345678')
+        expect(markdownUrlTransform('TEL:+1-555-0100', 'href', link)).toBe('TEL:+1-555-0100')
+        expect(markdownUrlTransform('tel:+442012345678', 'src', { ...link, tagName: 'img' })).toBe('')
     })
 })

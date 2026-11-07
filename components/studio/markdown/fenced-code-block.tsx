@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils'
 
 const HIGHLIGHT_IDLE_MS = 400
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 200
+/** Upper bound on the code and colours kept, in characters, so a few huge blocks can't fill memory. */
+const MAX_HIGHLIGHT_CACHE_CHARS = 4_000_000
 
 const WRAPPER_CLASS =
     'mb-4 overflow-x-auto rounded-lg border border-border bg-muted/40 text-xs [&_code]:font-mono [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:p-3'
@@ -27,21 +29,68 @@ type IdleHighlight = {
     html: string
 }
 
-const globalHighlightCache = new Map<string, string>()
+/** Highlighted code by its cache key, kept for the session and shared by every block. */
+export type HighlightCache = {
+    get: (key: string) => string | undefined
+    has: (key: string) => boolean
+    set: (key: string, html: string) => void
+    delete: (key: string) => void
+}
+
+/**
+ * A cache that drops its oldest entries once it holds more than `maxEntries`, or more than `maxChars` of keys
+ * (which hold the code) and HTML together. An entry bigger than that on its own isn't kept at all.
+ */
+export function createHighlightCache(maxEntries = MAX_HIGHLIGHT_CACHE_ENTRIES, maxChars = MAX_HIGHLIGHT_CACHE_CHARS): HighlightCache {
+    const entries = new Map<string, string>()
+    let chars = 0
+
+    const remove = (key: string) => {
+        const html = entries.get(key)
+        if (html === undefined) return
+        entries.delete(key)
+        chars -= key.length + html.length
+    }
+
+    return {
+        get: (key) => entries.get(key),
+        has: (key) => entries.has(key),
+        set(key, html) {
+            remove(key)
+            const size = key.length + html.length
+            if (size > maxChars) return
+            entries.set(key, html)
+            chars += size
+            for (const oldest of entries.keys()) {
+                if (entries.size <= maxEntries && chars <= maxChars) break
+                remove(oldest)
+            }
+        },
+        delete: remove,
+    }
+}
+
+const globalHighlightCache = createHighlightCache()
+
+/**
+ * How many mounted blocks show each cache key. The same snippet can appear twice, and the preview matches blocks to
+ * the document's code blocks by position, so adding or removing one hands the blocks after it their neighbours'
+ * code: a block's old entry may still be another block's current one.
+ */
+const shownKeyCounts = new Map<string, number>()
+
+/** Counts a block as showing `key`; returns the function that stops counting it. */
+function showKey(key: string): () => void {
+    shownKeyCounts.set(key, (shownKeyCounts.get(key) ?? 0) + 1)
+    return () => {
+        const count = (shownKeyCounts.get(key) ?? 0) - 1
+        if (count > 0) shownKeyCounts.set(key, count)
+        else shownKeyCounts.delete(key)
+    }
+}
 
 function highlightCacheKey(theme: BundledTheme, language: string | undefined, code: string): string {
     return `${theme}\0${language ?? ''}\0${code}`
-}
-
-function setBoundedHighlightCache(key: string, html: string): void {
-    if (globalHighlightCache.has(key)) {
-        globalHighlightCache.delete(key)
-    }
-    globalHighlightCache.set(key, html)
-    if (globalHighlightCache.size > MAX_HIGHLIGHT_CACHE_ENTRIES) {
-        const oldest = globalHighlightCache.keys().next().value
-        if (oldest !== undefined) globalHighlightCache.delete(oldest)
-    }
 }
 
 function resolveHighlightHtml(code: string, language: string | undefined, theme: BundledTheme, idleHighlight: IdleHighlight | null): string | null {
@@ -94,12 +143,18 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
      * burst of keystrokes doesn't push every other block's colours out of the shared cache.
      */
     const nowHighlightRef = useRef<IdleHighlight | null>(null)
+    /** The shared cache's entry for the code the block shows, so its earlier versions don't pile up as it's edited. */
+    const claimedRef = useRef<{ key: string; theme: BundledTheme } | null>(null)
     const { themeId, isLight } = useAppTheme()
     const theme = previewCodeTheme(themeId, isLight)
+    const cacheKey = highlightCacheKey(theme, language, code)
     const [idleHighlight, setIdleHighlight] = useState<IdleHighlight | null>(() => {
-        const html = globalHighlightCache.get(highlightCacheKey(theme, language, code))
+        const html = globalHighlightCache.get(cacheKey)
         return html ? { code, language, theme, html } : null
     })
+
+    // A layout effect, so every block in an update is counted before any of them drops an entry below.
+    useLayoutEffect(() => showKey(cacheKey), [cacheKey])
 
     useLayoutEffect(() => {
         const container = containerRef.current
@@ -123,15 +178,29 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
     }, [code, language, theme, idleHighlight])
 
     useEffect(() => {
-        const key = highlightCacheKey(theme, language, code)
-        if (globalHighlightCache.has(key)) {
+        // The block's entry stays when it goes (its tab may be shown again) and when only the theme changes (it may
+        // be switched back). It's dropped once the block shows other code, unless another block still shows it.
+        const claim = () => {
+            const previous = claimedRef.current
+            if (previous && previous.key !== cacheKey && previous.theme === theme && !shownKeyCounts.has(previous.key)) {
+                globalHighlightCache.delete(previous.key)
+            }
+            claimedRef.current = { key: cacheKey, theme }
+        }
+        const remember = (html: string) => {
+            claim()
+            globalHighlightCache.set(cacheKey, html)
+        }
+
+        if (globalHighlightCache.has(cacheKey)) {
+            claim()
             return
         }
 
         const now = nowHighlightRef.current
         if (isHighlightOf(now, code, language, theme)) {
             // Already in colour: shared once typing pauses.
-            const timer = window.setTimeout(() => setBoundedHighlightCache(key, now.html), HIGHLIGHT_IDLE_MS)
+            const timer = window.setTimeout(() => remember(now.html), HIGHLIGHT_IDLE_MS)
             return () => window.clearTimeout(timer)
         }
 
@@ -142,7 +211,7 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
             void highlightFencedCode(code, language, theme)
                 .then((html) => {
                     if (cancelled) return
-                    setBoundedHighlightCache(key, html)
+                    remember(html)
                     setIdleHighlight({ code, language, theme, html })
                 })
                 .catch(() => {
@@ -154,7 +223,7 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [code, language, theme])
+    }, [cacheKey, code, language, theme])
 
     // Code reads left to right, even in a right-to-left list item or quote.
     return <div ref={containerRef} dir="ltr" className={cn(WRAPPER_CLASS, className)} />

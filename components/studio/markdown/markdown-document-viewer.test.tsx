@@ -6,6 +6,7 @@ import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
+import { extractMermaidBlockSources } from './mermaid-block-sources'
 
 const workspace = vi.hoisted(() => ({
     tabs: [] as DocumentTab[],
@@ -45,7 +46,8 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
     revealItemInDir: vi.fn(async () => undefined),
 }))
 
-vi.mock('@/lib/notify', () => ({
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyInfo: vi.fn(() => 'id'),
     notifyError: vi.fn(() => 'id'),
 }))
@@ -63,6 +65,11 @@ vi.mock('react-markdown', async (importOriginal) => {
             return Markdown(props)
         },
     }
+})
+
+vi.mock('./mermaid-block-sources', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./mermaid-block-sources')>()
+    return { ...actual, extractMermaidBlockSources: vi.fn(actual.extractMermaidBlockSources) }
 })
 
 const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
@@ -146,6 +153,44 @@ describe('MarkdownDocumentViewer', () => {
             await nextFrame()
             expect(container.querySelector('h1')).toBeNull()
             expect(screen.getByText(EMPTY_MESSAGE)).toBeInTheDocument()
+        })
+    })
+
+    describe('a document the preview can’t show (N72)', () => {
+        // Thousands of nested quotes overflow the parser's stack, inside the preview's render.
+        const TOO_DEEP = `${'>'.repeat(5000)} x`
+
+        beforeEach(() => {
+            // React and the boundary both log the caught error.
+            vi.spyOn(console, 'error').mockImplementation(() => {})
+        })
+
+        afterEach(() => vi.restoreAllMocks())
+
+        it('says so in the preview alone, and shows the document again once it is edited', async () => {
+            const { container, rerender } = render(viewer(DOC_A, '# Fine'))
+            const scroller = viewport(container)
+
+            rerender(viewer(DOC_A, TOO_DEEP))
+            await nextFrame()
+            expect(screen.getByText("Couldn't show the preview")).toBeInTheDocument()
+            expect(screen.getByText('Edit the document to try again.')).toBeInTheDocument()
+            expect(viewport(container)).toBe(scroller)
+
+            rerender(viewer(DOC_A, '# Fixed'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toHaveTextContent('Fixed')
+            expect(screen.queryByText("Couldn't show the preview")).toBeNull()
+        })
+
+        it('shows another tab’s document as usual', async () => {
+            workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+            const { container, rerender } = render(viewer(DOC_A, TOO_DEEP))
+            expect(screen.getByText("Couldn't show the preview")).toBeInTheDocument()
+
+            rerender(viewer(DOC_OTHER, '# Other'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toHaveTextContent('Other')
         })
     })
 
@@ -354,6 +399,28 @@ describe('MarkdownDocumentViewer', () => {
             await waitFor(() => expect(screen.queryByTestId('expanded-canvas')).toBeNull())
         })
 
+        it('parses the document only once per edit while following the expanded block (N69)', async () => {
+            const { rerender } = render(viewer(DOC_A, twoDiagrams))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 2: Login flow' }))
+            await nextFrame()
+            const parses = markdownParses.count
+
+            rerender(viewer(DOC_A, twoDiagrams.replace('C --> D', 'C --> E')))
+            await nextFrame()
+            expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart LR\n  accTitle: Login flow\n  C --> E')
+            // The preview under the overlay parsed it; the expanded view reads the diagrams it found.
+            expect(markdownParses.count).toBe(parses + 1)
+            expect(extractMermaidBlockSources).not.toHaveBeenCalled()
+        })
+
+        it('closes when the document is cleared', async () => {
+            const { rerender } = render(viewer(DOC_A, twoDiagrams))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 1' }))
+            rerender(viewer(DOC_A, '   '))
+            await waitFor(() => expect(screen.queryByTestId('expanded-canvas')).toBeNull())
+            expect(screen.getByText('Start writing Markdown to see a preview.')).toBeInTheDocument()
+        })
+
         it('returns focus to the Expand button after Back', () => {
             render(viewer(DOC_A, twoDiagrams))
             const expand = screen.getByRole('button', { name: 'Expand diagram 1' })
@@ -375,6 +442,17 @@ describe('MarkdownDocumentViewer', () => {
             '',
             '[^1]: A note.',
         ].join('\n')
+
+        // happy-dom lets any element take focus. A browser only lets links, form fields and elements with a tabindex
+        // take it, so headings and `<a name>` anchors need one (N28 review).
+        beforeEach(() => {
+            const focus = HTMLElement.prototype.focus
+            vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+                if (this.matches('a[href], button, input, select, textarea, [tabindex]')) focus.call(this, options)
+            })
+        })
+
+        afterEach(() => vi.restoreAllMocks())
 
         it('keeps heading and footnote ids, with GitHub’s prefix, and never uses target=_blank', () => {
             const { container } = render(viewer(DOC_A, source))
@@ -424,6 +502,61 @@ describe('MarkdownDocumentViewer', () => {
             fireEvent.click(container.querySelector('a[data-footnote-ref]')!)
             expect(scrollIntoView.mock.contexts[1]).toBe(container.querySelector('#user-content-fn-1'))
             expect(openUrl).not.toHaveBeenCalled()
+        })
+
+        it('moves focus to the section or footnote it scrolled to, so Tab carries on from there (N28)', () => {
+            const { container } = render(viewer(DOC_A, source))
+            const heading = container.querySelector<HTMLElement>('h1')!
+            const below = screen.getByRole('link', { name: 'below' })
+            below.focus()
+            fireEvent.click(below)
+            expect(heading).toHaveFocus()
+            expect(heading).toHaveAttribute('tabindex', '-1')
+
+            // Focusable only until focus leaves it again.
+            const footnoteRef = container.querySelector<HTMLElement>('a[data-footnote-ref]')!
+            footnoteRef.focus()
+            expect(heading).not.toHaveAttribute('tabindex')
+            fireEvent.click(footnoteRef)
+            const note = container.querySelector<HTMLElement>('#user-content-fn-1')!
+            expect(note).toHaveFocus()
+            expect(note).toHaveAttribute('tabindex', '-1')
+
+            // Back from the footnote to its marker, a link that takes focus as it is.
+            fireEvent.click(note.querySelector<HTMLElement>('a[data-footnote-backref]')!)
+            expect(footnoteRef).toHaveFocus()
+            expect(footnoteRef).not.toHaveAttribute('tabindex')
+            expect(note).not.toHaveAttribute('tabindex')
+        })
+
+        it('moves focus to an old-style <a name> anchor, which has no link to take focus with (N28 review)', () => {
+            const { container } = render(viewer(DOC_A, '<a name="install"></a>\n\nInstall it.\n\n[x](#install)'))
+            const anchor = container.querySelector<HTMLElement>('a[name]')!
+            const link = screen.getByRole('link', { name: 'x' })
+            link.focus()
+            fireEvent.click(link)
+            expect(anchor).toHaveFocus()
+            expect(anchor).toHaveAttribute('tabindex', '-1')
+
+            link.focus()
+            expect(anchor).not.toHaveAttribute('tabindex')
+        })
+
+        it('keeps the section focusable while the user is in another window, so focus is still there on return (N28 review)', () => {
+            const { container } = render(viewer(DOC_A, source))
+            const heading = container.querySelector<HTMLElement>('h1')!
+            fireEvent.click(screen.getByRole('link', { name: 'below' }))
+            expect(heading).toHaveFocus()
+
+            // Leaving the window blurs the heading but leaves it the page's focused element.
+            fireEvent.blur(heading)
+            expect(heading).toHaveFocus()
+            expect(heading).toHaveAttribute('tabindex', '-1')
+
+            // Back in the window, Tab moves on from it.
+            fireEvent.focus(heading)
+            screen.getByRole('link', { name: 'site' }).focus()
+            expect(heading).not.toHaveAttribute('tabindex')
         })
 
         it('follows a README’s GitHub-style table of contents', () => {
@@ -485,6 +618,51 @@ describe('MarkdownDocumentViewer', () => {
             expect(notifyInfo).toHaveBeenCalledWith("Couldn't find that section", { description: '#nowhere' })
         })
 
+        describe('back to top (N27)', () => {
+            it('scrolls to the top for #top when nothing has that id, as a browser does', () => {
+                const { container } = render(viewer(DOC_A, '# Intro\n\nText.\n\n[Back to top](#top) [Up](#TOP)'))
+                for (const name of ['Back to top', 'Up']) {
+                    viewport(container).scrollTop = 500
+                    fireEvent.click(screen.getByRole('link', { name }))
+                    expect(viewport(container).scrollTop).toBe(0)
+                }
+                expect(scrollIntoView).not.toHaveBeenCalled()
+                expect(notifyInfo).not.toHaveBeenCalled()
+            })
+
+            it('goes to the document’s own section called Top when it has one', () => {
+                const { container } = render(viewer(DOC_A, '# Intro\n\n## Top\n\n[Back to top](#top)'))
+                viewport(container).scrollTop = 500
+                fireEvent.click(screen.getByRole('link', { name: 'Back to top' }))
+                expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-top')])
+                expect(viewport(container).scrollTop).toBe(500)
+            })
+
+            it('scrolls to the top for a bare #, even when the document has a section called Top', () => {
+                const { container } = render(viewer(DOC_A, '# Intro\n\n## Top\n\nText.\n\n[Up](#)'))
+                viewport(container).scrollTop = 500
+                fireEvent.click(screen.getByRole('link', { name: 'Up' }))
+                expect(viewport(container).scrollTop).toBe(0)
+                expect(scrollIntoView).not.toHaveBeenCalled()
+                expect(notifyInfo).not.toHaveBeenCalled()
+            })
+
+            it('opens a linked document at its top for other.md#top, not where it was last read', () => {
+                workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+                const { container, rerender } = render(viewer(DOC_OTHER, '# Other'))
+                viewport(container).scrollTop = 300
+                fireEvent.scroll(viewport(container))
+
+                rerender(viewer(DOC_A, '[other](docs/other.md#top)'))
+                fireEvent.click(screen.getByRole('link', { name: 'other' }))
+                expect(workspace.openFile).toHaveBeenCalledWith(DOC_OTHER)
+
+                rerender(viewer(DOC_OTHER, '# Other'))
+                expect(viewport(container).scrollTop).toBe(0)
+                expect(notifyInfo).not.toHaveBeenCalled()
+            })
+        })
+
         it('opens linked documents in a tab and then scrolls to their #fragment', () => {
             const { container, rerender } = render(viewer(DOC_A, source))
             fireEvent.click(screen.getByRole('link', { name: 'setup' }))
@@ -495,6 +673,116 @@ describe('MarkdownDocumentViewer', () => {
             rerender(viewer(DOC_OTHER, '# Intro\n\n## Part'))
             expect(scrollIntoView).toHaveBeenCalledTimes(1)
             expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
+            // The link that was followed went with the old document, so focus starts again at the section (N28).
+            expect(container.querySelector('h2#user-content-part')).toHaveFocus()
+        })
+
+        it('leaves focus where it is when it has moved out of the preview by the time the linked document opens (N28)', () => {
+            const { container, rerender } = render(viewer(DOC_A, source))
+            fireEvent.click(screen.getByRole('link', { name: 'setup' }))
+            const editor = document.createElement('textarea')
+            document.body.append(editor)
+            try {
+                editor.focus()
+                workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+                rerender(viewer(DOC_OTHER, '# Intro\n\n## Part'))
+                expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-part')])
+                expect(editor).toHaveFocus()
+            } finally {
+                editor.remove()
+            }
+        })
+
+        it('still scrolls to the #fragment of a file the explorer doesn’t list, once its tab opens under the tidied path (N23)', () => {
+            const { container, rerender } = render(viewer(DOC_A, '[new](docs/sub/new.md#part)'))
+            fireEvent.click(screen.getByRole('link', { name: 'new' }))
+            expect(workspace.openFile).toHaveBeenCalledWith('C:\\notes/docs/sub/new.md')
+
+            // What openFile really does: the tab's id is the path with `\` throughout.
+            const opened = 'C:\\notes\\docs\\sub\\new.md'
+            workspace.tabs = [fileTab(DOC_A), fileTab(opened)]
+            rerender(viewer(opened, '# New\n\n## Part'))
+            expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
+        })
+
+        describe('while the diagrams above the linked section are drawn (N22)', () => {
+            /** The resize observers in use, and what each one watches. */
+            const observers = new Set<{ callback: ResizeObserverCallback; targets: Element[] }>()
+            const original = globalThis.ResizeObserver
+
+            beforeEach(() => {
+                globalThis.ResizeObserver = class {
+                    private readonly entry: { callback: ResizeObserverCallback; targets: Element[] }
+                    constructor(callback: ResizeObserverCallback) {
+                        this.entry = { callback, targets: [] }
+                        observers.add(this.entry)
+                    }
+                    observe(target: Element) {
+                        this.entry.targets.push(target)
+                    }
+                    unobserve() {}
+                    disconnect() {
+                        observers.delete(this.entry)
+                    }
+                } as unknown as typeof ResizeObserver
+            })
+
+            afterEach(() => {
+                globalThis.ResizeObserver = original
+                observers.clear()
+            })
+
+            /** What a diagram growing from its placeholder into a picture does to the preview's content. */
+            function growContent(container: HTMLElement) {
+                const content = viewport(container).firstElementChild!
+                for (const { callback, targets } of [...observers]) {
+                    if (targets.includes(content)) act(() => callback([], {} as ResizeObserver))
+                }
+            }
+
+            function openLinkedPart() {
+                const view = render(viewer(DOC_A, source))
+                fireEvent.click(screen.getByRole('link', { name: 'setup' }))
+                workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+                view.rerender(viewer(DOC_OTHER, '```mermaid\nflowchart TD\n```\n\n## Part'))
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+                return view
+            }
+
+            it('scrolls to the section again each time the content above it grows', () => {
+                const { container } = openLinkedPart()
+                growContent(container)
+                growContent(container)
+                expect(scrollIntoView).toHaveBeenCalledTimes(3)
+                expect(new Set(scrollIntoView.mock.contexts)).toEqual(new Set([container.querySelector('h2#user-content-part')]))
+            })
+
+            it('stops once the user scrolls the preview themselves', () => {
+                const { container } = openLinkedPart()
+                fireEvent.wheel(viewport(container))
+                growContent(container)
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            })
+
+            it('stops after a moment', () => {
+                vi.useFakeTimers()
+                try {
+                    const { container } = openLinkedPart()
+                    act(() => vi.advanceTimersByTime(1500))
+                    growContent(container)
+                    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+                } finally {
+                    vi.useRealTimers()
+                }
+            })
+
+            it('stops when another tab is shown', () => {
+                const { container, rerender } = openLinkedPart()
+                rerender(viewer(DOC_A, source))
+                growContent(container)
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            })
         })
 
         it('reuses the open tab for a linked document written with other separators', () => {
@@ -521,6 +809,21 @@ describe('MarkdownDocumentViewer', () => {
             render(viewer(DOC_A, source))
             fireEvent.click(screen.getByRole('link', { name: 'site' }))
             expect(openUrl).toHaveBeenCalledWith('https://example.com')
+        })
+
+        it('hands phone links, written in Markdown or HTML, to the system (N26)', () => {
+            vi.mocked(isTauri).mockReturnValue(true)
+            render(viewer(DOC_A, 'Call [the office](tel:+442012345678) or <a href="tel:+15550100">the desk</a>.'))
+            for (const [name, url] of [
+                ['the office', 'tel:+442012345678'],
+                ['the desk', 'tel:+15550100'],
+            ] as const) {
+                const link = screen.getByRole('link', { name })
+                expect(link).toHaveAttribute('href', url)
+                fireEvent.click(link)
+                expect(openUrl).toHaveBeenLastCalledWith(url)
+            }
+            expect(notifyInfo).not.toHaveBeenCalled()
         })
 
         it('shows other linked files in the file explorer instead of running them', () => {

@@ -84,6 +84,15 @@ describe('matchMermaidBlockIds (B28)', () => {
         expect(match(previous('A'), ['A', 'A'])).toEqual(['old0', 'new0'])
     })
 
+    it('keeps both ids when either of two identical diagrams is edited (N24)', () => {
+        expect(match(previous('A', 'A'), ['A2', 'A'])).toEqual(['old0', 'old1'])
+        expect(match(previous('A', 'A'), ['A', 'A2'])).toEqual(['old0', 'old1'])
+        expect(match(previous('A', 'A', 'A'), ['A', 'A2', 'A'])).toEqual(['old0', 'old1', 'old2'])
+        // A block added above two copies leaves each copy its own id.
+        expect(match(previous('A', 'A'), ['N', 'A', 'A'])).toEqual(['new0', 'old0', 'old1'])
+        expect(match(previous('A', 'A'), ['A', 'A', 'N'])).toEqual(['old0', 'old1', 'new0'])
+    })
+
     it('never hands out the same new id twice', () => {
         const first = matchMermaidBlockIds([], ['A'])
         const second = matchMermaidBlockIds([], ['A'])

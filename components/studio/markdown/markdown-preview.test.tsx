@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { lastMermaidBlockSources } from './markdown-block-ordinals'
 import { MarkdownPreview } from './markdown-preview'
 import { extractMermaidBlockSources } from './mermaid-block-sources'
 
@@ -296,7 +297,53 @@ describe('MarkdownPreview', () => {
             )
             expect(container.querySelector('source')).toBeNull()
             expect(container.innerHTML).not.toContain('tracker.example')
-            expect(container.querySelectorAll('picture > img')).toHaveLength(2)
+            const images = Array.from(container.querySelectorAll('picture > img'))
+            expect(images.map((img) => img.getAttribute('src'))).toEqual(['a.png', 'data:image/gif;base64,R0lGOD'])
+        })
+
+        it('shows inline data: images, as the PDF does, and still blanks other data: URLs (N21)', () => {
+            preview(
+                [
+                    '![chart](data:image/png;base64,AAAA)',
+                    '',
+                    '<img src="data:image/gif;base64,R0lGOD" alt="raw">',
+                    '',
+                    '[page](data:text/html;base64,PHNjcmlwdD4=)',
+                ].join('\n')
+            )
+            expect(screen.getByRole('img', { name: 'chart' })).toHaveAttribute('src', 'data:image/png;base64,AAAA')
+            expect(screen.getByRole('img', { name: 'raw' })).toHaveAttribute('src', 'data:image/gif;base64,R0lGOD')
+            expect(screen.getByText('page').closest('a')?.getAttribute('href') ?? '').toBe('')
+        })
+
+        it('sizes an image by its height attribute when it has no width, as GitHub does (N25)', () => {
+            preview(
+                [
+                    '<p align="center"><img src="logo.png" height="80" alt="logo"></p>',
+                    '',
+                    '<img src="a.png" height="64px" alt="px"> <img src="b.png" height="50%" alt="percent">',
+                    '<img src="c.png" width="100" height="80" alt="both"> <img src="d.png" height="tall" alt="odd"> <img src="e.png" alt="plain">',
+                    '',
+                    '![markdown](f.png)',
+                ].join('\n')
+            )
+            const logo = screen.getByRole('img', { name: 'logo' })
+            expect(logo.style.height).toBe('80px')
+            expect(logo.style.width).toBe('auto')
+            expect(logo).toHaveClass('object-contain')
+            expect(screen.getByRole('img', { name: 'px' }).style.height).toBe('64px')
+            expect(screen.getByRole('img', { name: 'percent' }).style.height).toBe('50%')
+            for (const name of ['both', 'odd', 'plain', 'markdown']) {
+                const img = screen.getByRole('img', { name })
+                expect({ name, height: img.style.height, contain: img.classList.contains('object-contain') }).toEqual({
+                    name,
+                    height: '',
+                    contain: false,
+                })
+            }
+            // One with a width is sized by its attributes, and keeps its shape (h-auto) on a narrower page.
+            expect(screen.getByRole('img', { name: 'both' })).toHaveAttribute('width', '100')
+            expect(screen.getByRole('img', { name: 'both' })).toHaveClass('h-auto', 'max-w-full')
         })
 
         it('keeps the document from taking over the app’s ids, document methods, shortcuts and Tab order', () => {
@@ -352,6 +399,7 @@ describe('MarkdownPreview', () => {
             preview(source)
             expect(screen.getAllByRole('button', { name: /^Expand diagram/ })).toHaveLength(2)
             expect(extractMermaidBlockSources(source)).toEqual(['graph LR\n  A --> B', 'flowchart TD'])
+            expect(lastMermaidBlockSources('doc.md')).toEqual(['graph LR\n  A --> B', 'flowchart TD'])
         })
     })
 
@@ -402,8 +450,9 @@ describe('MarkdownPreview', () => {
         expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['Expand diagram 1', 'Expand diagram 2', 'Expand diagram 3'])
         buttons.forEach((button) => fireEvent.click(button))
         // The order MarkdownDocumentViewer finds the blocks in again; the footnote's diagram comes last.
-        const sources = extractMermaidBlockSources(source)
+        const sources = lastMermaidBlockSources('doc.md') ?? []
         expect(sources).toEqual(['flowchart TD', 'flowchart LR', 'pie'])
+        expect(extractMermaidBlockSources(source)).toEqual(sources)
         expect(onExpandBlock.mock.calls).toEqual(sources.map((blockSource, ordinal) => [expect.any(String), ordinal, blockSource]))
         // Each block has its own id, which doesn't come from its position.
         const ids = onExpandBlock.mock.calls.map(([blockId]) => blockId as string)
