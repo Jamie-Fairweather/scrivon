@@ -9,10 +9,13 @@ export function ScrollArea({
     children,
     scrollFade = false,
     scrollbarGutter = false,
+    viewportProps,
     ...props
 }: ScrollAreaPrimitive.Root.Props & {
     scrollFade?: boolean
     scrollbarGutter?: boolean
+    /** Props for the scrolling element, such as a role and label so its tab stop has a name. */
+    viewportProps?: Omit<ScrollAreaPrimitive.Viewport.Props, 'className' | 'children'>
 }): React.ReactElement {
     return (
         <ScrollAreaPrimitive.Root className={cn('size-full min-h-0', className)} {...props}>
@@ -28,6 +31,7 @@ export function ScrollArea({
                     scrollbarGutter && 'pe-2.5 data-has-overflow-x:pb-2.5'
                 )}
                 data-slot="scroll-area-viewport"
+                {...viewportProps}
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>

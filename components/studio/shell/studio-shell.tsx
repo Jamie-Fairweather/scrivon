@@ -3,10 +3,14 @@
 import { AppUpdateProvider } from '@/components/studio/app-update-provider'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
 import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
+import { StudioErrorBoundary, StudioReloadFallback } from '@/components/studio/shell/studio-error-boundary'
 import { StudioLayout } from '@/components/studio/shell/studio-layout'
 import { StudioMenuBar } from '@/components/studio/shell/studio-menu-bar'
+import { StudioRecoveryScreen } from '@/components/studio/shell/studio-recovery-screen'
+import { NativeWindowTitle } from '@/components/studio/shell/use-native-window-title'
 import { WelcomeScreen } from '@/components/studio/shell/welcome-screen'
 import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 function StudioRouter() {
     const { hydrated, workspaceRoot } = useWorkspaceSession()
@@ -17,7 +21,7 @@ function StudioRouter() {
 
     if (!workspaceRoot) {
         return (
-            <div className="fixed inset-0 flex flex-col bg-background">
+            <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
                 <StudioMenuBar />
                 <WelcomeScreen />
             </div>
@@ -25,7 +29,7 @@ function StudioRouter() {
     }
 
     return (
-        <div className="fixed inset-0 flex flex-col bg-background">
+        <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
             <StudioMenuBar />
             <StudioLayout />
         </div>
@@ -33,15 +37,27 @@ function StudioRouter() {
 }
 
 export function StudioShell() {
+    // Outer boundary: a workspace provider crashed, so all that is left to do is reload.
+    // Inner boundary: the UI crashed but the workspace (and unsaved text) is alive, so save first.
+    // It sits right inside WorkspaceProvider so it also covers the dialogs the providers below
+    // render next to their children (name prompt, delete confirm, update notes).
     return (
-        <WorkspaceProvider>
-            <NamePromptProvider>
-                <DeleteConfirmProvider>
-                    <AppUpdateProvider>
-                        <StudioRouter />
-                    </AppUpdateProvider>
-                </DeleteConfirmProvider>
-            </NamePromptProvider>
-        </WorkspaceProvider>
+        <StudioErrorBoundary fallback={StudioReloadFallback}>
+            <WorkspaceProvider>
+                <StudioErrorBoundary fallback={StudioRecoveryScreen}>
+                    <NamePromptProvider>
+                        <DeleteConfirmProvider>
+                            <AppUpdateProvider>
+                                <NativeWindowTitle />
+                                {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
+                                <TooltipProvider delay={400}>
+                                    <StudioRouter />
+                                </TooltipProvider>
+                            </AppUpdateProvider>
+                        </DeleteConfirmProvider>
+                    </NamePromptProvider>
+                </StudioErrorBoundary>
+            </WorkspaceProvider>
+        </StudioErrorBoundary>
     )
 }

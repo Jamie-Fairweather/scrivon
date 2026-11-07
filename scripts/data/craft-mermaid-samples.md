@@ -734,7 +734,7 @@ Rendering…
 
 ## Sequence: Arrow Types
 
-All arrow types: solid `->>` and dashed `-->>` with filled arrowheads, open arrows `-)` .
+All arrow types: solid `->>` and dashed `-->>` with filled arrowheads, open arrows `-)`.
 
 ```
 sequenceDiagram
@@ -1036,7 +1036,7 @@ sequenceDiagram
   else Single panel
     Renderer->>Renderer: closePanel(lastId)
     Note over Renderer: Stack becomes []
-    Renderer->>Renderer: Auto-select fires → new panel created!
+    Renderer->>Renderer: Auto-select → new panel created!
     Note over Renderer: Panel reopens
     Timer-->>Main: 3s elapsed → window.destroy()
   end
@@ -1094,7 +1094,7 @@ Rendering…
 
 ## Class: Interface Annotation
 
-Using <\> annotation above the class name.
+Using `<<interface>>` annotation above the class name.
 
 ```
 classDiagram
@@ -1113,7 +1113,7 @@ Rendering…
 
 ## Class: Abstract Annotation
 
-Using <\> annotation for abstract classes.
+Using `<<abstract>>` annotation for abstract classes.
 
 ```
 classDiagram
@@ -1133,7 +1133,7 @@ Rendering…
 
 ## Class: Enum Annotation
 
-Using <\> annotation for enum types.
+Using `<<enumeration>>` annotation for enum types.
 
 ```
 classDiagram

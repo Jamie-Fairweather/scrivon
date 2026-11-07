@@ -20,10 +20,11 @@ function gh(args) {
     return execFileSync('gh', args, { encoding: 'utf8' }).trim()
 }
 
-const notes = gh(['api', `repos/${repository}/releases/tags/${tag}`, '--jq', '.body'])
+// The release is still a draft here (release.config.mjs). The releases/tags API can't see drafts; gh release can.
+const notes = gh(['release', 'view', tag, '--repo', repository, '--json', 'body', '--jq', '.body'])
 
 // tauri-action leaves latest.json in the workspace; --clobber overwrites it with the release asset
-gh(['release', 'download', tag, '-p', 'latest.json', '--clobber'])
+gh(['release', 'download', tag, '--repo', repository, '-p', 'latest.json', '--clobber'])
 
 const manifestPath = 'latest.json'
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -33,6 +34,6 @@ if (notes) {
 }
 
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-gh(['release', 'upload', tag, manifestPath, '--clobber'])
+gh(['release', 'upload', tag, '--repo', repository, manifestPath, '--clobber'])
 
 console.log(`Patched ${manifestPath} on ${tag}${notes ? ' with release notes' : ' (release has no body)'}`)

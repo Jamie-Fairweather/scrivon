@@ -11,7 +11,7 @@ const alertVariants = cva(
         variants: {
             variant: {
                 default: 'bg-transparent dark:bg-input/32 [&>svg]:text-muted-foreground',
-                error: 'border-destructive/32 bg-destructive/4 [&>svg]:text-destructive',
+                error: 'border-destructive/32 bg-destructive/4 [&>svg]:text-destructive-foreground',
                 info: 'border-info/32 bg-info/4 [&>svg]:text-info',
                 success: 'border-success/32 bg-success/4 [&>svg]:text-success',
                 warning: 'border-warning/32 bg-warning/4 [&>svg]:text-warning',

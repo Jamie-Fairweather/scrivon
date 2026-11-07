@@ -46,8 +46,12 @@ export type AppSettings = {
         fontSize: number
         tabSize: number
         wordWrap: EditorWordWrap
+        /** Where lines wrap when wordWrap is 'wordWrapColumn'. */
+        wordWrapColumn: number
         lineNumbers: EditorLineNumbers
         minimap: boolean
+        /** Tab and Shift+Tab move focus out of the editor instead of indenting (Monaco's tab focus mode). */
+        tabMovesFocus: boolean
     }
     workspace: {
         maxRecentFolders: number

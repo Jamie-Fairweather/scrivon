@@ -1,23 +1,31 @@
+import { isPathInside, joinPath, normalizePath, pathInside, samePath } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
-function isUnderPath(filePath: string, parentPath: string): boolean {
-    return filePath.startsWith(parentPath + '/') || filePath.startsWith(parentPath + '\\')
+/** Where `path` is once `oldPath` is renamed to `newPath`: the renamed entry itself, something inside it, or unchanged. */
+export function remapPathAfterRename(path: string, oldPath: string, newPath: string): string {
+    if (samePath(path, oldPath)) return normalizePath(newPath)
+    const rest = pathInside(path, oldPath)
+    return rest !== null ? joinPath(newPath, rest) : path
 }
 
 export function remapTabsAfterRename(tabs: DocumentTab[], oldPath: string, newPath: string, newName: string): DocumentTab[] {
     return tabs.map((t) => {
-        if (t.path === oldPath) {
-            return { ...t, id: newPath, path: newPath, name: newName }
-        }
-        if (isUnderPath(t.path, oldPath)) {
-            const suffix = t.path.slice(oldPath.length)
-            const updated = newPath + suffix
-            return { ...t, id: updated, path: updated }
-        }
-        return t
+        const updated = remapPathAfterRename(t.path, oldPath, newPath)
+        if (updated === t.path) return t
+        return samePath(t.path, oldPath) ? { ...t, id: updated, path: updated, name: newName } : { ...t, id: updated, path: updated }
     })
 }
 
+/** A map keyed by path once `oldPath` is renamed to `newPath`: the entries for it and anything inside it move with it. */
+export function remapPathKeysAfterRename<T>(entries: ReadonlyMap<string, T>, oldPath: string, newPath: string): Map<string, T> {
+    return new Map([...entries].map(([path, value]) => [remapPathAfterRename(path, oldPath, newPath), value]))
+}
+
+/** A map keyed by path without the entries for `deletedPath` and anything inside it. */
+export function dropPathKeysAfterDelete<T>(entries: ReadonlyMap<string, T>, deletedPath: string): Map<string, T> {
+    return new Map([...entries].filter(([path]) => !samePath(path, deletedPath) && !isPathInside(path, deletedPath)))
+}
+
 export function tabsToCloseOnDelete(tabs: DocumentTab[], deletedPath: string, isDirectory: boolean): DocumentTab[] {
-    return tabs.filter((t) => t.path === deletedPath || (isDirectory && isUnderPath(t.path, deletedPath)))
+    return tabs.filter((t) => samePath(t.path, deletedPath) || (isDirectory && isPathInside(t.path, deletedPath)))
 }

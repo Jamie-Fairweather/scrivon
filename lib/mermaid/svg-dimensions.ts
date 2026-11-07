@@ -1,3 +1,9 @@
+/**
+ * What the PDF and Word export show in place of a Mermaid block with nothing to draw yet (just `graph TD`, say),
+ * which renders without error to a 0×0 picture. Plain text, so both exporters can use it as it is.
+ */
+export const EMPTY_DIAGRAM_MESSAGE = 'Empty diagram: there is nothing to draw yet.'
+
 export function getSvgDimensions(svg: string): { width: number; height: number } | null {
     const viewBoxMatch = svg.match(/viewBox=["']([^"']+)["']/i)
     if (viewBoxMatch) {

@@ -22,6 +22,7 @@ const eslintConfig = defineConfig([
         'lib/examples/craft-samples.ts',
         'lib/examples/markdown-showcase.ts',
         'lib/legal/third-party-licenses.ts',
+        '.agents/**',
     ]),
 ])
 

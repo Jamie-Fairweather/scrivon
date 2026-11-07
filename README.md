@@ -8,7 +8,7 @@
 
 **Mermaid & markdown on your machine.**
 
-Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.mmd` or `.md` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
+Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.md`, `.mmd` or `.mermaid` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
 
 <p align="center">
   <img src="preview.png" alt="Scrivon — workspace, Monaco editor, and live diagram or Markdown preview" width="900" />
@@ -34,7 +34,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
-- **PDF export** — Save the full rendered document as PDF (native export on Windows via WebView2)
+- **PDF and Word export** — Save the rendered document as PDF (native export on Windows via WebView2) or Word (.docx), styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**
 
 ### General
 
@@ -61,9 +61,11 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 
 ### Use a release
 
-1. Download the latest installer from [Releases](https://github.com/Jamie-Fairweather/scrivon/releases).
+1. Download `Scrivon_<version>_x64-setup.exe` from the [latest release](https://github.com/Jamie-Fairweather/scrivon/releases/latest). It installs Scrivon for your Windows user only, so it needs no admin rights.
+    - The installers aren't code-signed yet, so Windows may show **Windows protected your PC** the first time. Click **More info**, then **Run anyway**. On PCs with Smart App Control turned on, Windows may block the installer completely.
+    - Scrivon needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it. If it's missing, the installer adds it, which needs an internet connection. On a PC without internet access, or on Windows 10 LTSC or Windows Server, install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) ("Evergreen Standalone Installer") first.
 2. Launch Scrivon and choose **Open Folder**.
-3. Select a directory containing `.md` and/or `.mmd` files.
+3. Select a folder containing `.md`, `.mmd` or `.mermaid` files.
 4. Edit in the center pane; the preview updates as you type.
     - **Diagram files** — Preview renders on the canvas.
     - **Markdown files** — Preview shows rendered Markdown; use **Expand** on a `mermaid` block to open it on the canvas.
@@ -112,10 +114,10 @@ scrivon/
 
 Contributions are welcome. Please open an issue to discuss larger changes before submitting a pull request.
 
-1. Fork the repository and create a branch from `dev` (or `main` for small fixes).
+1. Fork the repository and create a branch from `dev`.
 2. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, etc.) so releases can be automated.
 3. Run `bun run tauri dev` locally to verify desktop behavior.
-4. Open a pull request with a clear description of the change.
+4. Open a pull request against `dev` with a clear description of the change. `main` and `rc` only take releases.
 
 See **[docs/development.md](docs/development.md)** for the full release pipeline, branch model, and updater signing.
 

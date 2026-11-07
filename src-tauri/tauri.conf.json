@@ -1,6 +1,7 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "Scrivon",
+    "mainBinaryName": "scrivon",
     "version": "1.5.0-rc.2",
     "identifier": "io.github.jamie-fairweather.scrivon",
     "build": {
@@ -12,28 +13,69 @@
     "app": {
         "windows": [
             {
+                "label": "main",
+                "create": false,
                 "title": "Scrivon",
                 "width": 1440,
                 "height": 810,
+                "minWidth": 640,
+                "minHeight": 480,
+                "center": true,
+                "preventOverflow": true,
                 "decorations": false,
+                "visible": false,
                 "backgroundColor": "#161616"
             }
         ],
         "security": {
-            "csp": null
+            "csp": {
+                "default-src": "'self'",
+                "script-src": "'self' 'wasm-unsafe-eval'",
+                "style-src": "'self' 'unsafe-inline'",
+                "img-src": "'self' data: blob: http: https:",
+                "font-src": "'self' data:",
+                "connect-src": "'self' ipc: http://ipc.localhost https://api.github.com",
+                "worker-src": "'self' blob:",
+                "frame-src": "'self'",
+                "object-src": "'none'",
+                "base-uri": "'self'",
+                "form-action": "'none'"
+            },
+            "dangerousDisableAssetCspModification": ["style-src"]
         }
     },
     "bundle": {
         "active": true,
-        "targets": "all",
+        "targets": [
+            "nsis"
+        ],
         "createUpdaterArtifacts": true,
+        "publisher": "github",
+        "copyright": "Copyright (c) 2026 Jamie Fairweather",
+        "homepage": "https://github.com/Jamie-Fairweather/scrivon",
+        "shortDescription": "Local-first editor for Mermaid diagrams and Markdown",
+        "longDescription": "Scrivon is a desktop editor for Mermaid diagrams and Markdown documents. Open a folder on disk, edit .md, .mmd and .mermaid files, and preview diagrams or rendered Markdown live.",
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",
             "icons/128x128@2x.png",
             "icons/icon.icns",
             "icons/icon.ico"
-        ]
+        ],
+        "windows": {
+            "webviewInstallMode": {
+                "type": "embedBootstrapper"
+            },
+            "wix": {
+                "upgradeCode": "2671e548-9e53-5d3e-93c1-5be896bc07d0"
+            },
+            "nsis": {
+                "installerIcon": "icons/icon.ico",
+                "headerImage": "./windows/nsis-header.bmp",
+                "sidebarImage": "./windows/nsis-sidebar.bmp",
+                "installerHooks": "./windows/installer-hooks.nsh"
+            }
+        }
     },
     "plugins": {
         "updater": {

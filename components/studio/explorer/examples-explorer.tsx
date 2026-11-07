@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useActiveTabId, useDocumentTabActions } from '@/components/studio/workspace/workspace-provider'
 import { APP_EXAMPLES, APP_EXAMPLE_CATEGORIES, type AppExample, type AppExampleCategory } from '@/lib/examples/app-samples'
 import { EXAMPLE_CATEGORY_LABELS } from '@/lib/examples/category-labels'
 import { exampleTabId } from '@/lib/examples/example-tab'
@@ -11,7 +11,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
 function ExamplesByCategory({ category, examples }: { category: AppExampleCategory; examples: AppExample[] }) {
-    const { activeTabId, openExample } = useDocumentTabs()
+    const activeTabId = useActiveTabId()
+    const { openExample } = useDocumentTabActions()
 
     return (
         <Collapsible defaultOpen className="border-b border-sidebar-border last:border-b-0">
@@ -32,9 +33,13 @@ function ExamplesByCategory({ category, examples }: { category: AppExampleCatego
                                 <button
                                     type="button"
                                     className={cn(
-                                        'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-muted/50',
-                                        isActive && 'bg-muted/60 font-medium text-foreground'
+                                        'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-sidebar-accent/60',
+                                        // Like the open file in the file tree.
+                                        isActive &&
+                                            `bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_2px_0_0_var(--ring)]
+                                            hover:bg-sidebar-accent`
                                     )}
+                                    aria-current={isActive ? 'true' : undefined}
                                     onClick={() => openExample(example.id)}
                                     title={example.description}
                                 >
@@ -63,7 +68,8 @@ export function ExamplesExplorer() {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <ScrollArea className="min-h-0 flex-1">
+            {/* Every category and example is a button of its own, so the scroll box isn't a Tab stop. */}
+            <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
                 {APP_EXAMPLE_CATEGORIES.map((category) => {
                     const examples = byCategory.get(category) ?? []
                     if (examples.length === 0) return null

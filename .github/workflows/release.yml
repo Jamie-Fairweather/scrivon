@@ -11,21 +11,35 @@ concurrency:
     group: release-${{ github.ref }}
     cancel-in-progress: false
 
+# Every job sets its own permissions. Third-party actions are pinned to full commit SHAs
+# (Dependabot keeps them current) because these jobs hold the updater signing key and the release PAT.
 permissions:
-    contents: write
-    issues: write
-    pull-requests: write
+    contents: read
 
 jobs:
+    # The same checks as a pull request (ci.yml), on the commit being released. Nothing is
+    # tagged or released unless they pass, including for a direct push to main or rc.
+    verify:
+        name: CI checks
+        uses: ./.github/workflows/ci.yml
+        permissions:
+            contents: read
+            id-token: write
+
     release:
         name: semantic-release
+        needs: verify
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            issues: write
+            pull-requests: write
         outputs:
             published: ${{ steps.semrel.outputs.new_release_published }}
             version: ${{ steps.semrel.outputs.new_release_version }}
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
               with:
                   fetch-depth: 0
                   token: ${{ secrets.RELEASE_BOT_TOKEN }}
@@ -34,32 +48,53 @@ jobs:
             - name: Setup Bun and dependencies
               uses: ./.github/actions/setup-bun
 
+            # semantic-release 25 runs on Node (its bin has a node shebang) and exits at once on
+            # anything older than 22.14, so don't rely on whichever Node the runner image ships.
+            - name: Setup Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version: 24
+
+            # Runs the semantic-release version locked in bun.lock (no install at run time).
+            # On a release, the exec plugin's successCmd writes new_release_published and
+            # new_release_version to this step's outputs (scripts/write-release-outputs.mjs).
             - name: Run semantic-release
               id: semrel
-              uses: cycjimmy/semantic-release-action@v4
+              run: bun run release
               env:
                   GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
                   HUSKY: 0
 
+    # The outputs are only written in semantic-release's success phase, after the tag and the
+    # draft exist. A later success step (commenting on and labelling pull requests and issues)
+    # can still fail the release job, so the installers are built whenever the outputs say a
+    # release was made, not only when that job passed. Re-running a failed release job finds
+    # the tag and makes no new release, so it would never build them.
     build-windows:
         name: Build Windows installers
         needs: release
-        if: needs.release.outputs.published == 'true'
+        if: ${{ !cancelled() && needs.release.outputs.published == 'true' }}
         runs-on: windows-latest
+        permissions:
+            contents: write
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
               with:
                   ref: v${{ needs.release.outputs.version }}
+                  persist-credentials: false
 
             - name: Setup Bun and dependencies
               uses: ./.github/actions/setup-bun
 
-            - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@stable
+            # The version CI checks the Windows code with (ci.yml): bump them together.
+            - name: Install Rust 1.97.1
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: 1.97.1
 
             - name: Rust cache
-              uses: swatinem/rust-cache@v2
+              uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
 
@@ -68,22 +103,17 @@ jobs:
               shell: bash
               run: |
                   tag="v${VERSION}"
-                  id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .id)
-                  prerelease=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .prerelease)
+                  # gh release view also finds drafts; the releases/tags API does not.
+                  read -r id draft prerelease < <(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json databaseId,isDraft,isPrerelease --jq '"\(.databaseId) \(.isDraft) \(.isPrerelease)"')
                   echo "id=$id" >> "$GITHUB_OUTPUT"
+                  echo "draft=$draft" >> "$GITHUB_OUTPUT"
                   echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-                  # WiX/MSI only supports numeric pre-release segments (e.g. 1.0.0-1), not 1.0.0-rc.1
-                  if [ "$prerelease" = "true" ] || echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-.+'; then
-                    echo "bundles=nsis" >> "$GITHUB_OUTPUT"
-                  else
-                    echo "bundles=msi,nsis" >> "$GITHUB_OUTPUT"
-                  fi
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   VERSION: ${{ needs.release.outputs.version }}
 
             - name: Build and upload installers
-              uses: tauri-apps/tauri-action@v0
+              uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -95,7 +125,8 @@ jobs:
                   tagName: v${{ needs.release.outputs.version }}
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
-                  args: --bundles ${{ steps.gh_release.outputs.bundles }}
+                  # Only the per-user setup.exe ships. An MSI next to it installed a second, per-machine copy.
+                  args: --bundles nsis
 
             - name: Add release notes to updater manifest
               shell: bash
@@ -104,3 +135,23 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   VERSION: ${{ needs.release.outputs.version }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
+
+            # Last step: until now the release was a draft (release.config.mjs), so neither the
+            # Releases page nor the updater's releases/latest/download/latest.json could see it
+            # without its installers. make_latest=legacy only makes it 'latest' if it is the newest
+            # stable version, so publishing an older draft never moves 'latest' backwards.
+            - name: Publish the release
+              if: steps.gh_release.outputs.draft == 'true'
+              shell: bash
+              run: |
+                  if [ "$PRERELEASE" = "true" ]; then
+                    gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false --silent
+                  else
+                    gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false -f make_latest=legacy --silent
+                  fi
+                  echo "Published v${VERSION}"
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_ID: ${{ steps.gh_release.outputs.id }}
+                  PRERELEASE: ${{ steps.gh_release.outputs.prerelease }}
+                  VERSION: ${{ needs.release.outputs.version }}

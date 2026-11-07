@@ -1,5 +1,6 @@
 import { isAppThemeId } from '@/lib/theme/catalog'
 import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
+import { repairFontStack, repairMonoFontStack } from '@/lib/settings/pdf-export-fonts'
 import type {
     PdfExportChrome,
     PdfExportChromeSide,
@@ -128,9 +129,9 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             marginsMm: normalizeMargins(page?.marginsMm, fallback.page.marginsMm),
         },
         typography: {
-            headingFont: normalizeString(typography?.headingFont, fallback.typography.headingFont),
-            bodyFont: normalizeString(typography?.bodyFont, fallback.typography.bodyFont),
-            monoFont: normalizeString(typography?.monoFont, fallback.typography.monoFont),
+            headingFont: repairFontStack(normalizeString(typography?.headingFont, fallback.typography.headingFont)),
+            bodyFont: repairFontStack(normalizeString(typography?.bodyFont, fallback.typography.bodyFont)),
+            monoFont: repairMonoFontStack(normalizeString(typography?.monoFont, fallback.typography.monoFont)),
             bodySizePt: normalizeNumber(typography?.bodySizePt, fallback.typography.bodySizePt, PDF_EXPORT_LIMITS.bodySizePt),
             lineHeight: normalizeNumber(typography?.lineHeight, fallback.typography.lineHeight, PDF_EXPORT_LIMITS.lineHeight),
             justify: normalizeBoolean(typography?.justify, fallback.typography.justify),
@@ -166,14 +167,24 @@ export function normalizePdfExportSettings(raw: unknown): PdfExportSettings {
     if (!source) return defaults
 
     const profilesRaw = Array.isArray(source.profiles) ? source.profiles : null
-    const profiles =
+    const normalized =
         profilesRaw && profilesRaw.length > 0
             ? profilesRaw.map((profile, index) =>
                   normalizePdfExportProfile(profile, createDefaultPdfExportProfile({ id: `profile-${index}`, name: `Profile ${index + 1}` }))
               )
             : defaults.profiles
 
-    const ids = new Set(profiles.map((profile) => profile.id))
+    // Rename, update and delete find profiles by id, so a repeated id (hand-edited or damaged
+    // storage) would hit several at once. Later copies get a new id; the first keeps it. A new id
+    // is never one another profile saved, so activeProfileId still finds the profile it meant.
+    const stored = new Set(normalized.map((profile) => profile.id))
+    const ids = new Set<string>()
+    const profiles = normalized.map((profile, index) => {
+        let id = profile.id
+        for (let n = index; ids.has(id) || (id !== profile.id && stored.has(id)); n++) id = `${profile.id}-${n}`
+        ids.add(id)
+        return id === profile.id ? profile : { ...profile, id }
+    })
     const activeProfileId = typeof source.activeProfileId === 'string' && ids.has(source.activeProfileId) ? source.activeProfileId : profiles[0]!.id
 
     return { profiles, activeProfileId }

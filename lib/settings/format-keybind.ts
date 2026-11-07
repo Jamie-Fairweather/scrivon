@@ -1,5 +1,4 @@
-import { chordKey } from '@/lib/settings/chord-utils'
-import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { isMacPlatform, isWindowsPlatform } from '@/lib/settings/chord-utils'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
 const KEY_LABELS: Record<string, string> = {
@@ -26,14 +25,19 @@ const KEY_LABELS: Record<string, string> = {
     delete: 'Delete',
     tab: 'Tab',
     space: 'Space',
+    // The space bar's KeyboardEvent.key is a space, which would show as a blank.
+    ' ': 'Space',
+    spacebar: 'Space',
 }
 
-function formatKeyLabel(key: string): string {
-    const normalized = key.length === 1 ? key.toUpperCase() : key
-    return KEY_LABELS[key.toLowerCase()] ?? normalized
+function formatKeyLabel(key: string, isMac: boolean): string {
+    // "Ctrl++" reads like a typo. macOS joins keys without "+", so "⌘+" stays as it is.
+    if (key === '+' && !isMac) return 'Plus'
+    return KEY_LABELS[key.toLowerCase()] ?? (key.length === 1 ? key.toUpperCase() : key)
 }
 
-export function formatChord(chord: KeybindChord, isMac = isMacPlatform()): string {
+/** isWindows names the meta key: the Windows key on Windows, Super elsewhere (macOS uses ⌘). */
+export function formatChord(chord: KeybindChord, isMac = isMacPlatform(), isWindows = isWindowsPlatform()): string {
     const parts: string[] = []
 
     if (isMac) {
@@ -45,19 +49,23 @@ export function formatChord(chord: KeybindChord, isMac = isMacPlatform()): strin
         if (chord.ctrl) parts.push('Ctrl')
         if (chord.alt) parts.push('Alt')
         if (chord.shift) parts.push('Shift')
-        if (chord.meta) parts.push('Meta')
+        if (chord.meta) parts.push(isWindows ? 'Win' : 'Super')
     }
 
-    parts.push(formatKeyLabel(chord.key))
+    parts.push(formatKeyLabel(chord.key, isMac))
     return isMac ? parts.join('') : parts.join('+')
+}
+
+/**
+ * Several chords for one action are alternatives, so they're joined with "or". A space between
+ * them would read as a sequence (press one, then the other).
+ */
+export function formatChords(chords: readonly KeybindChord[], isMac = isMacPlatform()): string {
+    return chords.map((chord) => formatChord(chord, isMac)).join(' or ')
 }
 
 export function formatKeybindForAction(actionId: KeybindActionId, bindings: KeybindBindings, isMac = isMacPlatform()): string | undefined {
     const chords = bindings[actionId]
     if (!chords || chords.length === 0) return undefined
-    return chords.map((chord) => formatChord(chord, isMac)).join(' ')
-}
-
-export function formatChordKey(chord: KeybindChord): string {
-    return chordKey(chord)
+    return formatChords(chords, isMac)
 }

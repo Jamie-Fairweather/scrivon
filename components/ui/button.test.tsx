@@ -35,4 +35,14 @@ describe('Button', () => {
         expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
         expect(screen.queryByRole('status')).toBeNull()
     })
+
+    it('puts the white text of a red button on the darker button red, also on hover and press', () => {
+        render(<Button variant="destructive">Delete</Button>)
+        const classes = screen.getByRole('button', { name: 'Delete' }).className.split(/\s+/)
+        // --destructive is the lighter red of field borders, under 4.5:1 with white (globals-css.test.ts checks the fill).
+        expect(classes).toEqual(
+            expect.arrayContaining(['text-white', 'bg-destructive-fill', 'hover:bg-destructive-fill/90', 'data-pressed:bg-destructive-fill/90'])
+        )
+        expect(classes.filter((name) => /(^|:)bg-destructive(\/|$)/.test(name))).toEqual([])
+    })
 })

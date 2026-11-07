@@ -17,8 +17,9 @@ type SwitchSettingProps = {
 export function SwitchSetting({ label, description, checked, onChange, className }: SwitchSettingProps) {
     return (
         <Field>
-            <div className={cn('flex items-center justify-between gap-4', className)}>
-                <div>
+            {/* w-full: a Field only sizes its children to their content, which left each switch at a different spot. */}
+            <div className={cn('flex w-full items-center justify-between gap-4', className)}>
+                <div className="min-w-0 flex-1">
                     <FieldLabel>{label}</FieldLabel>
                     {description ? <FieldDescription>{description}</FieldDescription> : null}
                 </div>

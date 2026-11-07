@@ -89,6 +89,103 @@ describe('ColorPicker', () => {
         expect(screen.getByTestId('hsl')).toBeInTheDocument()
     })
 
+    it('places the thumb on the colour and keeps it under the pointer along the black row', () => {
+        const onChange = vi.fn()
+        const { container } = render(
+            <ColorPicker value="#ff8080" onChange={onChange}>
+                <ColorPickerSelection />
+            </ColorPicker>
+        )
+        // #ff8080 is half-saturated (HSV) at full value: the middle of the top edge, not the top-right corner.
+        expect(Number.parseFloat(dot(container).style.left)).toBeCloseTo(50, 0)
+        expect(Number.parseFloat(dot(container).style.top)).toBeCloseTo(0, 0)
+
+        const field = container.querySelector('.cursor-crosshair')
+        if (!(field instanceof HTMLElement)) throw new Error('missing selection field')
+        field.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) })
+        fireEvent.pointerDown(field, { clientX: 25, clientY: 0 })
+        expect(onChange).toHaveBeenLastCalledWith('#ffbfbf')
+
+        fireEvent.pointerMove(window, { clientX: 60, clientY: 100 })
+        fireEvent.pointerUp(window)
+        expect(onChange).toHaveBeenLastCalledWith('#000000')
+        expect(dot(container)).toHaveStyle({ left: '60%', top: '100%' })
+    })
+
+    it('names the hue and alpha sliders on the focusable input', () => {
+        render(
+            <ColorPicker value="#00ffff80">
+                <ColorPickerHue />
+                <ColorPickerAlpha />
+            </ColorPicker>
+        )
+        // Base UI keeps edge-aligned thumbs invisible until it measures layout, which happy-dom never does,
+        // so a name lookup can't see the range input; check its attributes instead.
+        const hue = screen.getByRole('group', { name: 'Hue' }).querySelector('input[type="range"]')
+        const alpha = screen.getByRole('group', { name: 'Alpha' }).querySelector('input[type="range"]')
+        expect(hue).toHaveAttribute('aria-label', 'Hue')
+        expect(hue).toHaveAttribute('aria-valuetext', '180°')
+        expect(alpha).toHaveAttribute('aria-label', 'Alpha')
+        expect(alpha).toHaveAttribute('aria-valuetext', '50%')
+    })
+
+    it('marks keyboard focus on the square and the slider thumbs with a full-strength ring', () => {
+        const { container } = render(
+            <ColorPicker value="#00ffff80">
+                <ColorPickerSelection />
+                <ColorPickerHue />
+                <ColorPickerAlpha />
+            </ColorPicker>
+        )
+        const square = screen.getByRole('slider', { name: 'Saturation and brightness' })
+        const thumbs = [...container.querySelectorAll<HTMLElement>('[data-slot="slider-thumb"]')]
+        expect(thumbs).toHaveLength(2)
+
+        // A see-through ring (ring-ring/24) measured well under 3:1 on the popover.
+        for (const part of [square, ...thumbs]) {
+            const rings = part.className.split(/\s+/).filter((name) => /ring-ring\b/.test(name))
+            expect(rings.length, part.className).toBeGreaterThan(0)
+            expect(
+                rings.filter((name) => name.includes('/')),
+                part.className
+            ).toEqual([])
+            // A plain outline-hidden leaves a transparent outline at rest, which Windows Contrast themes paint.
+            expect(part.className.split(/\s+/), part.className).not.toContain('outline-hidden')
+        }
+    })
+
+    it('lets the keyboard move around the saturation/brightness square', () => {
+        const onChange = vi.fn()
+        render(
+            <ColorPicker value="#ff0000" onChange={onChange}>
+                <ColorPickerSelection />
+            </ColorPicker>
+        )
+        const square = screen.getByRole('slider', { name: 'Saturation and brightness' })
+        expect(square).toHaveAttribute('tabindex', '0')
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 100%, brightness 100%')
+
+        fireEvent.keyDown(square, { key: 'ArrowLeft' })
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 99%, brightness 100%')
+        expect(onChange).toHaveBeenLastCalledWith('#ff0303')
+
+        fireEvent.keyDown(square, { key: 'ArrowDown', shiftKey: true })
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 99%, brightness 90%')
+
+        fireEvent.keyDown(square, { key: 'End' })
+        expect(onChange).toHaveBeenLastCalledWith('#e60000')
+        fireEvent.keyDown(square, { key: 'ArrowUp', shiftKey: true })
+        fireEvent.keyDown(square, { key: 'ArrowRight' })
+        expect(square).toHaveAttribute('aria-valuetext', 'Saturation 100%, brightness 100%')
+
+        fireEvent.keyDown(square, { key: 'Home' })
+        expect(onChange).toHaveBeenLastCalledWith('#ffffff')
+
+        onChange.mockClear()
+        fireEvent.keyDown(square, { key: 'a' })
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('emits hue and alpha changes from the sliders', () => {
         const onChange = vi.fn()
         render(

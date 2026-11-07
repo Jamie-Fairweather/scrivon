@@ -129,9 +129,11 @@ export function MenuCheckboxItem({
                             [--thumb-size:--spacing(4)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1
                             focus-visible:ring-offset-background sm:[--thumb-size:--spacing(3)] data-checked:bg-primary data-unchecked:bg-input
                             data-disabled:opacity-64"
+                        data-slot="menu-switch"
                         keepMounted
                     >
                         <span
+                            data-slot="menu-switch-thumb"
                             className="pointer-events-none block aspect-square h-full origin-left rounded-(--thumb-size) bg-background shadow-sm/5
                                 will-change-transform [transition:translate_.15s,border-radius_.15s,scale_.1s_.1s,transform-origin_.15s]
                                 in-[[data-slot=menu-checkbox-item]:active]:rounded-[var(--thumb-size)/calc(var(--thumb-size)*1.10)]
@@ -225,10 +227,14 @@ export function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.P
     return <MenuPrimitive.Separator className={cn('mx-2 my-1 h-px bg-border', className)} data-slot="menu-separator" {...props} />
 }
 
+/** On a highlighted row the hint takes the row's text colour: muted text is not readable on the accent fill. */
 export function MenuShortcut({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
-            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground/72', className)}
+            className={cn(
+                'ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground in-data-highlighted:text-accent-foreground',
+                className
+            )}
             data-slot="menu-shortcut"
             {...props}
         />

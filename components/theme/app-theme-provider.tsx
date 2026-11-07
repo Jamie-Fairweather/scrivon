@@ -1,7 +1,9 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { isTauri } from '@/lib/tauri/platform'
 import { applyThemeToDocument } from '@/lib/theme/apply-document-theme'
 import { getDiagramColors, isLightTheme, type AppThemeId, type DiagramColors } from '@/lib/theme/catalog'
 import { resolveThemeTokensForId, type ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
@@ -16,12 +18,45 @@ type AppThemeContextValue = {
 
 const AppThemeContext = createContext<AppThemeContextValue | null>(null)
 
+/** How long showing the window waits for a paint. A hidden window may not draw at all. */
+const PAINT_WAIT_MS = 100
+
+/** Resolves once the page has painted (two animation frames), or after a short wait when it isn't drawing. */
+function afterPaint(): Promise<void> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, PAINT_WAIT_MS)
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                clearTimeout(timer)
+                resolve()
+            })
+        )
+    })
+}
+
+/**
+ * The app's only theme system: it owns the `dark` class and theme variables on <html>.
+ * Do not add next-themes. Registry components that call its useTheme() should use useAppTheme() instead.
+ */
 export function AppThemeProvider({ children }: { children: ReactNode }) {
     const { settings, setThemeId } = useAppSettings()
     const themeId = settings.theme.id
+    const windowShown = useRef(false)
 
     useEffect(() => {
         applyThemeToDocument(themeId)
+        if (!isTauri()) return
+        const appWindow = getCurrentWebviewWindow()
+        // The window's own colour shows before the page paints, and at the edges a resize uncovers.
+        const colored = appWindow.setBackgroundColor(resolveThemeTokensForId(themeId).bg).catch(() => undefined)
+        if (windowShown.current) return
+        windowShown.current = true
+        // The window starts hidden (tauri.conf.json), so a light theme never opens on the dark default colour.
+        // If this never runs, the app shows the window by itself after a few seconds.
+        void colored
+            .then(afterPaint)
+            .then(() => appWindow.show())
+            .catch((err: unknown) => console.warn("Couldn't show the window", err))
     }, [themeId])
 
     const value = useMemo<AppThemeContextValue>(() => {

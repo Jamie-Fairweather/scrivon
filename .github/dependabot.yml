@@ -1,11 +1,83 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot version updates. Options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Updates are grouped and weekly so a handful of open PRs can't block new ones.
+# Commit prefixes follow conventional commits: shipped dependencies use fix(deps) so they
+# produce a release, dev-only and CI updates use chore(deps-dev) / ci(deps) and don't.
 
 version: 2
 updates:
-  - package-ecosystem: "bun" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "bun"
+    directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # The Tauri CLI won't build when an @tauri-apps package and its Rust crate are on different minor
+    # versions, and Dependabot opens the bun and cargo updates as separate PRs that CI can't catch
+    # (it never runs the Tauri CLI). So minor and major Tauri bumps are done by hand, both sides together.
+    ignore:
+      - dependency-name: "@tauri-apps/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    groups:
+      # Patch updates only (see ignore above).
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
+      dev-tooling:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      prod-minor-patch:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "fix"
+      prefix-development: "chore"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # Same as the bun entry: minor and major Tauri bumps are done by hand, together with @tauri-apps/*.
+    # webview2-com and windows-core must match the versions wry uses, so they move with Tauri.
+    ignore:
+      - dependency-name: "tauri*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "webview2-com*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "windows-core"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    groups:
+      # Patch updates only (see ignore above).
+      tauri:
+        patterns:
+          - "tauri*"
+          - "webview2-com*"
+          - "windows-core"
+      rust-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+
+  # Workflows pin actions to full commit SHAs; this keeps the pins (and their version comments) current.
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/" # .github/workflows
+      - "/.github/actions/*" # composite actions
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

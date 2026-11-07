@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { formatChord, formatChordKey, formatKeybindForAction } from '@/lib/settings/format-keybind'
+import { formatChord, formatChords, formatKeybindForAction } from '@/lib/settings/format-keybind'
 
 describe('formatChord', () => {
     it('formats Windows-style chords', () => {
@@ -13,13 +13,21 @@ describe('formatChord', () => {
         expect(formatChord({ key: 'r', ctrl: true }, true)).toBe('⌃R')
     })
 
-    it('formats Windows-style chords with meta and alt', () => {
-        expect(formatChord({ key: 'a', meta: true, alt: true }, false)).toBe('Alt+Meta+A')
+    it('names the meta key Win on Windows and Super on Linux', () => {
+        expect(formatChord({ key: 'a', meta: true, alt: true }, false, true)).toBe('Alt+Win+A')
+        expect(formatChord({ key: 'a', meta: true, alt: true }, false, false)).toBe('Alt+Super+A')
     })
 
     it('uses special key labels', () => {
         expect(formatChord({ key: 'F1' }, false)).toBe('F1')
         expect(formatChord({ key: 'ArrowUp' }, false)).toBe('↑')
+    })
+
+    it('names the space bar and the plus key instead of showing a blank or "++"', () => {
+        expect(formatChord({ key: ' ', ctrl: true }, false)).toBe('Ctrl+Space')
+        expect(formatChord({ key: ' ', meta: true }, true)).toBe('⌘Space')
+        expect(formatChord({ key: '+', ctrl: true }, false)).toBe('Ctrl+Plus')
+        expect(formatChord({ key: '+', meta: true }, true)).toBe('⌘+')
     })
 })
 
@@ -33,18 +41,13 @@ describe('formatKeybindForAction', () => {
         expect(formatKeybindForAction('settings.open', bindings)).toBeUndefined()
     })
 
-    it('joins multiple chords for an action', () => {
+    it('joins alternative chords with "or", not a space that reads as a sequence', () => {
         const bindings = createDefaultKeybinds(false)
         bindings['document.save'] = [
             { key: 's', ctrl: true },
-            { key: 's', meta: true },
+            { key: 's', ctrl: true, shift: true },
         ]
-        expect(formatKeybindForAction('document.save', bindings, false)).toBe('Ctrl+S Meta+S')
-    })
-})
-
-describe('formatChordKey', () => {
-    it('delegates to chordKey', () => {
-        expect(formatChordKey({ key: 'b', ctrl: true })).toBe('ctrl+b')
+        expect(formatKeybindForAction('document.save', bindings, false)).toBe('Ctrl+S or Ctrl+Shift+S')
+        expect(formatChords(bindings['document.save'], false)).toBe('Ctrl+S or Ctrl+Shift+S')
     })
 })

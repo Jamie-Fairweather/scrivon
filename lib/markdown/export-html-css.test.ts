@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { buildPdfExportCss, pdfPageSizeMm, pdfPrintMarginsMm, resolvePdfExportLayout, resolvePdfPrintOptions } from '@/lib/markdown/export-html-css'
+import {
+    applyPdfFooterSwitch,
+    buildPdfExportCss,
+    pdfBodyHeightMm,
+    PDF_STAMP_GLYPHS_CLASS,
+    pdfPageSizeMm,
+    pdfPrintMarginsMm,
+    pdfStampGlyphText,
+    resolvePdfExportLayout,
+    resolvePdfPrintOptions,
+} from '@/lib/markdown/export-html-css'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 
 describe('buildPdfExportCss', () => {
@@ -14,10 +24,278 @@ describe('buildPdfExportCss', () => {
         expect(css).not.toContain('text-align: justify')
     })
 
-    it('justifies only top-level body paragraphs', () => {
+    it('wraps long code lines instead of cutting them off at the box edge', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        for (const selector of ['.code-block pre.shiki {', '.code-block pre:not(.shiki) {', '.pdf-body pre:not([class]) {']) {
+            const rule = css.slice(css.indexOf(selector), css.indexOf('}', css.indexOf(selector)))
+            expect(rule, selector).toContain('white-space: pre-wrap;')
+            expect(rule, selector).toContain('overflow-wrap: anywhere;')
+            expect(rule, selector).not.toContain('overflow-x: auto')
+        }
+    })
+
+    it('wraps a raw HTML <pre> too, without restyling code blocks or diagram errors (B08)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        // As strong as the code block rules, which come after it and so keep their own look; .export-error has a class.
+        expect(css.indexOf('.pdf-body pre:not([class]) {')).toBeGreaterThan(-1)
+        expect(css.indexOf('.pdf-body pre:not([class]) {')).toBeLessThan(css.indexOf('.code-block pre:not(.shiki) {'))
+        expect(css).toMatch(/\.pdf-body pre:not\(\[class\]\) \{[^}]*font-size: 0\.82em;/)
+        // A raw <hr width="3000"> can't widen the page either.
+        expect(css).toMatch(/\bhr \{[^}]*max-width: 100%;/)
+    })
+
+    it('keeps wide content from stretching the page past its width', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        const css = buildPdfExportCss(profile)
+        // The section table can't grow to fit its widest line, and long words break instead of overflowing.
+        expect(css).toMatch(/\.pdf-chrome-table \{\s*width: 100%;\s*border-collapse: collapse;\s*table-layout: fixed;/)
+        expect(css).toMatch(/\.export-article \{[^}]*overflow-wrap: anywhere;/)
+        // Table cells must not shrink below their longest word, or short columns break mid-word.
+        expect(css).toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*overflow-wrap: break-word;/)
+        // ...except in a table too wide for the page, which would otherwise shrink every page.
+        expect(css).toMatch(
+            /table:not\(\.pdf-chrome-table\) \.pdf-long-word,\s*table\.pdf-wide-table:not\(\.pdf-chrome-table\) th,\s*table\.pdf-wide-table:not\(\.pdf-chrome-table\) td \{ overflow-wrap: anywhere; \}/
+        )
+        expect(css.indexOf('.pdf-long-word')).toBeGreaterThan(css.indexOf('overflow-wrap: break-word;'))
+    })
+
+    it('fits body images to the text width and to one page', () => {
+        const profile = createDefaultPdfExportProfile()
+        // A4 portrait: 297 - 10 - 10, less a little slack.
+        expect(buildPdfExportCss(profile)).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 271mm;\s*object-fit: contain;\s*\}/)
+
+        // Header and footer bars take room from the page, so the cap shrinks.
+        profile.header.enabled = true
+        profile.header.heightMm = 20
+        profile.header.gapMm = 4
+        profile.footer.pageNumbers = 'number'
+        expect(buildPdfExportCss(profile)).toContain('max-height: 235mm;')
+
+        profile.page.orientation = 'landscape'
+        expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
+    })
+
+    it('keeps the size raw HTML gives an image, which any width or height rule would override (N30)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile()).replace(/\/\*[\s\S]*?\*\//g, '')
+        const rules = [...css.matchAll(/([^{}]*\.pdf-body img[^{}]*)\{([^{}]*)\}/g)].map(([, selectors, body]) => ({
+            selectors: selectors!.trim(),
+            body: body!,
+        }))
+        expect(rules.length).toBeGreaterThan(0)
+        // No rule sets a width, so <img width="120"> prints 120px wide.
+        for (const { body } of rules) expect(body).not.toMatch(/(^|[\s;])width:/)
+        // The height follows the width, unless the document gave a height and no width.
+        expect(rules.find(({ body }) => /height: auto/.test(body))?.selectors).toBe('.pdf-body img[width], .pdf-body img:not([height])')
+    })
+
+    it('gives body images the room the settings report when a bar ignores the margins', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, enabled: true, heightMm: 0, gapMm: 0, ignoreMargins: true }
+        profile.footer = { ...profile.footer, enabled: true, heightMm: 20, gapMm: 0, ignoreMargins: true }
+        // Each bar sits in its 10mm margin band and only pushes the text past it: 297 - 12 - 20.
+        expect(pdfBodyHeightMm(profile)).toBe(265)
+        const css = buildPdfExportCss(profile)
+        expect(css).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 259mm;/)
+        expect(css).toMatch(/\.mermaid-export svg \{[^}]*max-height: 251mm;/)
+    })
+
+    it('shrinks a diagram taller than a page to fit on one page', () => {
+        const profile = createDefaultPdfExportProfile()
+        // The body image room (271mm on A4 portrait), less the diagram box's padding and border.
+        expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-width: 100%;\s*max-height: 263mm;\s*width: auto;\s*height: auto;/)
+
+        // Landscape A4 with a page-number footer: 210 - 10 - 10 - 12 (auto bar) - 6 - 8.
+        profile.page.orientation = 'landscape'
+        profile.footer.pageNumbers = 'number'
+        expect(buildPdfExportCss(profile)).toMatch(/\.mermaid-export svg \{[^}]*max-height: 164mm;/)
+    })
+
+    it('keeps the title page on one sheet, shrinking the logo to fit', () => {
+        const titleRule = (css: string) => css.slice(css.indexOf('.pdf-title-page {'), css.indexOf('}', css.indexOf('.pdf-title-page {')))
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        // A4 portrait: the classic 297 - 20 - 40, growing up to the printable height less slack.
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 237mm;\s*max-height: 273mm;/)
+        const css = buildPdfExportCss(profile)
+        expect(css).toMatch(/\.pdf-title-page \.pdf-logo \{[^}]*flex: 0 1 auto;\s*min-height: 0;/)
+        expect(css).toMatch(/\.pdf-title-body \{[^}]*flex: 0 0 auto;/)
+
+        // Landscape: the sheet's short side is the height.
+        profile.page.orientation = 'landscape'
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 150mm;\s*max-height: 186mm;/)
+
+        // A footer hidden on the cover is covered there, by a copy as tall as it: 297 - 10 - (10 + 12) - 4.
+        profile.page.orientation = 'portrait'
+        profile.footer.pageNumbers = 'number'
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 237mm;\s*max-height: 261mm;/)
+        profile.footer.pageNumbers = 'none'
+
+        // Large margins.
+        profile.page.marginsMm = { top: 50, right: 30, bottom: 50, left: 30 }
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 157mm;\s*max-height: 193mm;/)
+
+        // 30mm bars shown on the cover: 297 - (10 + 30) - (10 + 30) - 4.
+        profile.page.marginsMm = { top: 10, right: 10, bottom: 10, left: 10 }
+        for (const chrome of [profile.header, profile.footer]) {
+            chrome.enabled = true
+            chrome.heightMm = 30
+            chrome.hideOnFirstPages = 'none'
+        }
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 213mm;\s*max-height: 213mm;/)
+
+        // A bar that ignores margins sits in the margin band, so only its overflow counts: 297 - 30 - 30 - 4.
+        profile.header.ignoreMargins = true
+        profile.footer.ignoreMargins = true
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/max-height: 233mm;/)
+    })
+
+    it('only keeps marked blocks and diagrams whole, not every code block and table', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const print = css.slice(css.indexOf('@media print'), css.indexOf('.export-article {'))
+        expect(print).toMatch(/\.pdf-avoid-break,\s*\.mermaid-export \{\s*break-inside: avoid;/)
+        expect(print).not.toMatch(/\.code-block[,\s{]/)
+        expect(print).not.toContain('table:not(.pdf-chrome-table)')
+    })
+
+    it('keeps body headings with the content that follows them', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const print = css.slice(css.indexOf('@media print'))
+        expect(print).toMatch(
+            /\.pdf-body h1, \.pdf-body h2, \.pdf-body h3, \.pdf-body h4, \.pdf-body h5, \.pdf-body h6 \{\s*break-after: avoid;\s*page-break-after: avoid;/
+        )
+    })
+
+    it('raises the toc leader without a transform, which bloats every pdf page', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const rule = css.slice(css.indexOf('.pdf-toc-leader {'), css.indexOf('}', css.indexOf('.pdf-toc-leader {')))
+        expect(rule).toContain('position: relative;')
+        expect(rule).toContain('top: -0.25em;')
+        expect(rule).not.toContain('transform')
+    })
+
+    it('sizes headings, the title and code relative to the body size', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.typography.bodySizePt = 16
+        const css = buildPdfExportCss(profile)
+        expect(css).toContain('font-size: 16pt;')
+        // em follows the body size; rem would stay at the browser's 16px root whatever the setting.
+        const sizes = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].map((tag) => {
+            const match = css.match(new RegExp(`\\n\\s*${tag} \\{[^}]*font-size: ([\\d.]+)em;`))
+            expect(match, tag).not.toBeNull()
+            return Number(match![1])
+        })
+        expect(sizes.slice(0, 5).every((size) => size >= 1)).toBe(true)
+        expect([...sizes].sort((a, b) => b - a)).toEqual(sizes)
+        expect(css).not.toMatch(/font-size: [\d.]+rem/)
+        expect(css).not.toMatch(/\.code-block pre[^{]*\{[^}]*font-size: 12px/)
+        expect(css).toMatch(/\.pdf-title-page h1 \{[^}]*font-size: [\d.]+em;/)
+        expect(css).toMatch(/\.pdf-toc-page h1 \{[^}]*font-size: [\d.]+em;/)
+    })
+
+    it('puts a bulleted task’s checkbox in place of its bullet, and keeps a numbered task’s number (N32)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).toContain('ul > li.task-list-item { list-style: none; }')
+        // No rule takes the number off a numbered task.
+        expect(css).not.toMatch(/(^|[\n,])\s*(ol > )?li\.task-list-item \{[^}]*list-style/)
+        // The box moves back into the bullet's place, in a tight list or the first paragraph of a loose one.
+        expect(css).toMatch(
+            /ul > li\.task-list-item > input\[type="checkbox"\],\s*ul > li\.task-list-item > p:first-child > input\[type="checkbox"\] \{ margin-inline-start: -1\.25rem; \}/
+        )
+        expect(css).toMatch(
+            /\n\s*li\.task-list-item > input\[type="checkbox"\],\s*li\.task-list-item > p:first-child > input\[type="checkbox"\] \{ margin-block: 0; margin-inline: 0 0\.25rem; vertical-align: middle; \}/
+        )
+    })
+
+    it('hides the footnotes heading meant for screen readers and sets the notes apart with a rule (N34)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).toContain('.pdf-body section.footnotes > #footnote-label { display: none; }')
+        expect(css).toMatch(/\.pdf-body section\.footnotes \{[^}]*border-top: 1px solid #e5e5e5;/)
+    })
+
+    it('honours markdown table column alignment', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).not.toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*text-align: left;/)
+        expect(css).toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*text-align: start;/)
+        for (const align of ['left', 'center', 'right']) {
+            expect(css).toContain(`table:not(.pdf-chrome-table) td[align="${align}"] { text-align: ${align}; }`)
+        }
+    })
+
+    it('indents lists, quotes and TOC levels from the start side, so Arabic and Hebrew indent on the right', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        // The list has no direction of its own, so the indent goes on each item, which has one.
+        expect(css).toContain('ul, ol { margin: 0 0 0.75rem; padding-inline-start: 0; }')
+        expect(css).toContain('li { margin: 0.25rem 0; margin-inline-start: 1.25rem; word-break: break-word; }')
+        // The Contents rows keep no indent of their own.
+        expect(css).toMatch(/\.pdf-toc-list li \{\s*margin: 0;/)
+        expect(css).toMatch(/blockquote \{[^}]*padding-inline-start: 1rem;[^}]*border-inline-start: 2px solid #[0-9a-f]+;/i)
+        expect(css).not.toMatch(/blockquote \{[^}]*(padding|border)-left/)
+        expect(css).toContain('.pdf-toc-l2 a { padding-inline-start: 1rem; }')
+        expect(css).toContain('.pdf-toc-l3 a { padding-inline-start: 2rem;')
+        expect(css).toContain('.pdf-toc-l4 a { padding-inline-start: 3rem;')
+        expect(css).not.toMatch(/\.pdf-toc-l\d a \{[^}]*padding-left/)
+    })
+
+    it('fixes the footer to the page bottom, hides its table copies and covers it where it hides (U04, N29)', () => {
+        const profile = createDefaultPdfExportProfile()
+        const css = buildPdfExportCss(profile)
+        expect(css).toContain('.pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }')
+        expect(css).toContain('.pdf-footer-spacer { visibility: hidden; }')
+        // The cover is opaque and drawn over the fixed footer (z-index 2), but its copy of the bar isn't.
+        expect(css).toContain('.pdf-footer-cover > tr > td { position: relative; z-index: 3; background: #ffffff; }')
+        expect(css).toContain('.pdf-footer-cover .pdf-chrome-bar { visibility: hidden; }')
+        // The anchor fills the first page of its section, from the top of the section's table, bar at its foot.
+        expect(css).toMatch(/\.pdf-chrome-table \{\s*height: 100vh;\s*position: relative;\s*\}/)
+        expect(css).toMatch(
+            /\.pdf-fixed-footer\.pdf-footer-anchor \{\s*position: absolute;\s*top: 0;\s*bottom: auto;\s*height: 100vh;\s*display: flex;\s*flex-direction: column;\s*justify-content: flex-end;\s*visibility: hidden;\s*\}/
+        )
+        // Printer margins already place the page bottom; nothing to emulate.
+        expect(css).not.toMatch(/\.pdf-fixed-footer \{ (padding|min-height)/)
+        expect(css).not.toContain('.pdf-page-number-mark')
+
+        // Only the anchor draws its page-number marker once the fixed footer's is switched off.
+        profile.footer.pageNumbers = 'number'
+        const numbered = buildPdfExportCss(profile)
+        expect(numbered).toContain('.pdf-footer-anchor .pdf-page-number-mark { visibility: visible; }')
+        expect(numbered).toContain('.pdf-footer-unmarked .pdf-page-number-mark { visibility: hidden; }')
+    })
+
+    it('puts the fixed footer in the emulated bottom margin when printing edge to edge', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page.marginsMm = { top: 12, right: 15, bottom: 14, left: 13 }
+        profile.header.enabled = true
+        profile.header.ignoreMargins = true
+        profile.footer.pageNumbers = 'number'
+        expect(buildPdfExportCss(profile)).toContain('.pdf-fixed-footer { padding: 0 15mm 14mm 13mm; }')
+
+        profile.footer.ignoreMargins = true
+        expect(buildPdfExportCss(profile)).toContain(
+            '.pdf-fixed-footer { min-height: 14mm; display: flex; flex-direction: column; justify-content: flex-end; }'
+        )
+    })
+
+    it('draws the watermark over the positioned section tables but under the body and footer (N29)', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.content.watermark = 'DRAFT'
+        profile.footer.enabled = true
+        const css = buildPdfExportCss(profile)
+        // The tables are positioned with no z-index, so a watermark at 0 would sit under the cover image and bars.
+        expect(css).toMatch(/\.pdf-chrome-table \{\s*height: 100vh;\s*position: relative;\s*\}/)
+        const watermark = css.slice(css.indexOf('.export-article::before {'), css.indexOf('}', css.indexOf('.export-article::before {')))
+        expect(watermark).toContain('position: fixed;')
+        expect(watermark).toMatch(/z-index: 1;\s*$/)
+        // The body shares its level and comes later in the page, so it still paints over it; the footer is higher.
+        expect(css).toContain('.pdf-body { position: relative; z-index: 1; }')
+        expect(css).toContain('.pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }')
+    })
+
+    it('justifies only top-level body paragraphs, leaving one its HTML aligns as it is (N33)', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true
-        expect(buildPdfExportCss(profile)).toContain('.pdf-body > p { text-align: justify; }')
+        const css = buildPdfExportCss(profile)
+        expect(css).toContain('.pdf-body > p:not([align]) { text-align: justify; }')
+        expect(css).not.toContain('.pdf-body > p {')
     })
 
     it('applies letter landscape, link fallback, chrome, watermark, and heading breaks', () => {
@@ -57,7 +335,7 @@ describe('buildPdfExportCss', () => {
         expect(css).not.toContain('.pdf-title-table .pdf-footer-bar')
         expect(css).toMatch(/\.pdf-title-table,\s*\.pdf-toc-table \{\s*break-after: page;/)
         expect(css).toMatch(/\.pdf-title-table \.pdf-title-page,\s*\.pdf-toc-table \.pdf-toc-page \{\s*break-after: auto;/)
-        // Every section table fills its (last) page so a short body still pins its footer to the bottom.
+        // A one-page section fills its page, so the title page centres on it with its footer row at the bottom.
         expect(css).toMatch(/\.pdf-chrome-table \{\s*height: 100vh;/)
         expect(css).toContain('.pdf-body-table > tbody > tr > td { vertical-align: top; }')
         // Letter landscape: 215.9 - 10 - 10 - 40
@@ -119,6 +397,19 @@ describe('buildPdfExportCss', () => {
         expect(resolvePdfPrintOptions(profile, metadata)).toMatchObject({ pageNumberFormat: 'n-of-total', pageNumberColor: '#ff0000' })
     })
 
+    it("hands the author and subtitle over for the PDF's document properties", () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(resolvePdfPrintOptions(profile, { title: 'Spec', subtitle: ' Q3 figures ', author: ' Zoë Ångström ', date: '' })).toMatchObject({
+            author: 'Zoë Ångström',
+            subject: 'Q3 figures',
+        })
+
+        // Unset ones are left out, so the PDF gets no empty properties.
+        const options = resolvePdfPrintOptions(profile, { title: 'Spec', subtitle: '  ', author: '', date: '2026-11-07' })
+        expect(options).not.toHaveProperty('author')
+        expect(options).not.toHaveProperty('subject')
+    })
+
     it('zeroes the print margins when the css emulates them', () => {
         const profile = createDefaultPdfExportProfile()
         profile.header.enabled = true
@@ -169,7 +460,8 @@ describe('buildPdfExportCss', () => {
         // and let the section fill the cell so the title centres in the space below the image.
         expect(css).toContain('.pdf-title-table > thead > tr > td { padding: 0; height: auto; }')
         expect(css).toContain('.pdf-title-table > tbody > tr > td { vertical-align: top; }')
-        expect(css).toContain('.pdf-title-page { height: 100%; min-height: 0; padding-top: 0; justify-content: flex-start; }')
+        // The image starts at the sheet's top edge; only the footer's band (covered, as the cover hides the footer) and slack come off.
+        expect(css).toContain('.pdf-title-page { height: 281mm; min-height: 0; max-height: none; padding-top: 0; justify-content: flex-start; }')
         expect(css).toContain('width: calc(100% + 20mm);')
         expect(css).toContain('margin: 0 -10mm 0 -10mm;')
         expect(css).toMatch(/\.pdf-title-page \.pdf-logo \{[^}]*max-width: none;[^}]*object-fit: cover;/)
@@ -204,12 +496,64 @@ describe('buildPdfExportCss', () => {
         // "Page 000 of 000 —" = 17 chars × 0.55em
         expect(buildPdfExportCss(profile)).toContain('.pdf-page-number { min-width: 9.4em;')
 
+        // The filled-in title is part of the stamped label, so it needs room too: "Quarterly Report · 000/000" = 26 chars.
+        profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
+        const meta = (title: string) => ({ title, subtitle: '', author: '', date: '' })
+        expect(buildPdfExportCss(profile, meta('Quarterly Report'))).toContain('.pdf-page-number { min-width: 14.3em;')
+        // A title the stamper can't draw is ordinary footer text beside the slot, which then only holds "000/000".
+        expect(buildPdfExportCss(profile, meta('Отчёт о продажах'))).toContain('.pdf-page-number { min-width: 3.9em;')
+
         // Blank custom text means there is nothing to show, so no footer is forced on.
         profile.footer.right.text = ' '
         expect(resolvePdfExportLayout(profile).showFooter).toBe(false)
         expect(buildPdfExportCss(profile)).not.toContain('.pdf-page-number')
         profile.footer.right.text = 'Draft'
         expect(resolvePdfExportLayout(profile).showFooter).toBe(true)
+    })
+
+    it('keeps only the page number of a footer that is switched off', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.enabled = false
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.left = { text: 'Confidential', imagePath: 'C:/left.png' }
+        profile.footer.right = { text: 'Page {{page}}', imagePath: 'C:/right.png' }
+        profile.footer.backgroundColor = '#1f2937'
+        profile.footer.textColor = '#ffffff'
+        profile.footer.heightMm = 20
+        profile.footer.gapMm = 5
+        profile.footer.ignoreMargins = true
+
+        const shown = applyPdfFooterSwitch(profile)
+        expect(shown.footer).toMatchObject({
+            left: { text: '', imagePath: '' },
+            right: { text: 'Page {{page}}', imagePath: '' },
+            backgroundColor: '',
+            textColor: '',
+            heightMm: 0,
+            gapMm: 0,
+            ignoreMargins: false,
+            pageNumbers: 'custom',
+        })
+        expect(resolvePdfExportLayout(shown)).toMatchObject({ showFooter: true, footerBleeds: false, bleed: false })
+        // White numbers from a dark footer would vanish on bare paper, so the stamp uses its default colour.
+        expect(resolvePdfPrintOptions(shown, { title: '', subtitle: '', author: '', date: '' })).toMatchObject({
+            pageNumberFormat: 'custom:Page {{page}}',
+            pageNumberColor: '',
+        })
+        const css = buildPdfExportCss(shown)
+        expect(css).not.toContain('#1f2937')
+        expect(css).not.toMatch(/\.pdf-footer-bar \{[^}]*(height|margin-top|padding-left):/)
+
+        profile.footer.enabled = true
+        expect(applyPdfFooterSwitch(profile)).toBe(profile)
+    })
+
+    it('keeps an image’s room in an unseen copy of a bar, as wide and tall as a bar image can be (P15)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const tallest = css.match(/\.pdf-chrome-bar img \{[^}]*max-height: (\d+px);/)![1]
+        const widest = css.match(/\.pdf-chrome-bar img \{[^}]*max-width: (\d+px);/)![1]
+        // No narrower than the drawn image, or the copy's text could wrap later and the copy come out shorter.
+        expect(css).toContain(`.pdf-chrome-img-room { display: block; flex: none; width: ${widest}; height: ${tallest}; }`)
     })
 
     it('lets images fill a fixed-height bar', () => {
@@ -238,8 +582,69 @@ describe('buildPdfExportCss', () => {
             }
             expect(css).not.toContain('@bottom-right')
             expect(css).not.toContain('.pdf-title-table .pdf-header-bar { display: none')
-            expect(css).toContain('.pdf-title-table .pdf-footer-bar { display: none !important; }')
-            expect(css).not.toContain('.pdf-toc-table .pdf-footer-bar')
+            // The footer is fixed and covered where it hides, so its copy there keeps its size.
+            expect(css).not.toContain('.pdf-footer-bar { display: none')
         }
+    })
+})
+
+describe('marker transparency the stamper relies on', () => {
+    /** Declarations of every rule whose selector list names `className`. */
+    function rulesFor(css: string, className: string): string[] {
+        return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+            .filter(([, selectors]) => selectors!.split(',').some((selector) => selector.trim() === `.${className}`))
+            .map(([, , declarations]) => declarations!)
+    }
+
+    it('draws every marker nearly, but not fully, transparent', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        profile.frontMatter.toc = true
+        const css = buildPdfExportCss(profile)
+        // src-tauri/src/page_numbers.rs only treats text below MARKER_MAX_ALPHA (0.05) as a marker and cuts it
+        // out of the PDF's text; fully transparent text may not be drawn at all, which loses the page numbers.
+        for (const className of ['pdf-page-number-mark', 'pdf-toc-mark', 'pdf-heading-mark', PDF_STAMP_GLYPHS_CLASS]) {
+            const rules = rulesFor(css, className)
+            expect(rules.length, className).toBeGreaterThan(0)
+            const alphas = rules.flatMap((rule) =>
+                [...rule.matchAll(/color:\s*rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/g)].map((match) => Number(match[1]))
+            )
+            expect(alphas, className).toHaveLength(1)
+            expect(alphas[0], className).toBeGreaterThan(0)
+            expect(alphas[0], className).toBeLessThan(0.05)
+            for (const rule of rules) {
+                expect(rule, className).not.toMatch(/opacity|transparent/)
+            }
+        }
+    })
+})
+
+describe('glyph samples for the stamper', () => {
+    it('lists every character a label can use, each once, with any space between digits', () => {
+        expect(pdfStampGlyphText('number')).toBe('0123456789')
+        expect(pdfStampGlyphText('page-n')).toBe('01234 56789Page')
+        expect(pdfStampGlyphText('n-of-total')).toBe('01234 56789/')
+        expect(pdfStampGlyphText('custom:{{page}} из {{ total }}')).toBe('01234 56789из')
+        expect(pdfStampGlyphText('custom:{{page}}/{{total}}页')).toBe('0123456789/页')
+        expect(pdfStampGlyphText('custom:Seite {{page}} von {{total}}, Seite 2')).toBe('01234 56789Seitvon,')
+        expect(pdfStampGlyphText('custom:{{page}}')).toBe('0123456789')
+    })
+
+    it('has nothing to sample when no label is drawn', () => {
+        expect(pdfStampGlyphText('none')).toBe('')
+        expect(pdfStampGlyphText('constructor')).toBe('')
+    })
+
+    it('draws the sample tiny and see-through, taking no room and not clipped', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const start = css.indexOf(`.${PDF_STAMP_GLYPHS_CLASS} {`)
+        expect(start).toBeGreaterThan(-1)
+        const rule = css.slice(start, css.indexOf('}', start))
+        expect(rule).toContain('width: 0;')
+        expect(rule).toContain('white-space: pre;')
+        // Under 1pt and nearly transparent: page_numbers.rs cuts such text back out (SAMPLE_MAX_FONT_SIZE).
+        expect(rule).toContain('font-size: 1px;')
+        expect(rule).toContain('color: rgba(64, 64, 64, 0.01);')
+        expect(rule).not.toContain('overflow: hidden')
     })
 })

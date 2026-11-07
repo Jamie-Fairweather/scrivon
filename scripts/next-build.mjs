@@ -6,14 +6,21 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const nextBin = join(root, 'node_modules', 'next', 'dist', 'bin', 'next')
 
-export function runProductionBuild() {
+/**
+ * Runs `next build` (the static export in out/). Source maps are only for generate-licenses.mjs,
+ * which reads them to trace the shipped packages and then deletes them.
+ */
+export function runProductionBuild({ sourceMaps = true } = {}) {
     if (!existsSync(nextBin)) {
         throw new Error('Next.js is not installed. Run install first.')
     }
 
+    const env = { ...process.env, GENERATE_LICENSES: '1', NODE_ENV: 'production' }
+    if (!sourceMaps) delete env.GENERATE_LICENSES
+
     const result = spawnSync(process.execPath, [nextBin, 'build'], {
         cwd: root,
-        env: { ...process.env, GENERATE_LICENSES: '1', NODE_ENV: 'production' },
+        env,
         stdio: 'inherit',
     })
 

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { colorSelectionFromPointer, hexToHsl, hslToHex, hslToRgb, isEyeDropperSupported, normalizeColorHex } from '@/components/ui/color-picker'
+import {
+    colorSelectionFromPointer,
+    hexToHsl,
+    hslFromSelection,
+    hslToHex,
+    hslToRgb,
+    isEyeDropperSupported,
+    normalizeColorHex,
+    selectionFromHsl,
+} from '@/components/ui/color-picker'
 
 describe('color picker helpers', () => {
     it('normalizes hex colours', () => {
@@ -58,7 +67,7 @@ describe('colorSelectionFromPointer', () => {
     it('ignores a pointer when the field is not mounted', () => {
         const setSaturation = vi.fn()
         const setLightness = vi.fn()
-        colorSelectionFromPointer(null, 10, 10, setSaturation, setLightness)
+        expect(colorSelectionFromPointer(null, 10, 10, setSaturation, setLightness)).toBeNull()
         expect(setSaturation).not.toHaveBeenCalled()
         expect(setLightness).not.toHaveBeenCalled()
     })
@@ -66,22 +75,68 @@ describe('colorSelectionFromPointer', () => {
     it('maps pointer position onto saturation and lightness, clamping to the field', () => {
         const setSaturation = vi.fn()
         const setLightness = vi.fn()
+        const last = () => [setSaturation.mock.lastCall?.[0], setLightness.mock.lastCall?.[0]]
 
-        colorSelectionFromPointer(field(), 0, 0, setSaturation, setLightness)
-        expect(setSaturation).toHaveBeenCalledWith(0)
-        expect(setLightness).toHaveBeenCalledWith(100)
+        expect(colorSelectionFromPointer(field(), 0, 0, setSaturation, setLightness)).toEqual({ x: 0, y: 0 })
+        expect(last()).toEqual([0, 100])
 
-        colorSelectionFromPointer(field(), 40, 25, setSaturation, setLightness)
-        expect(setSaturation).toHaveBeenCalledWith(40)
-        expect(setLightness).toHaveBeenCalledWith(60)
+        expect(colorSelectionFromPointer(field(), 40, 25, setSaturation, setLightness)).toEqual({ x: 0.4, y: 0.25 })
+        const [saturation, lightness] = last()
+        expect(saturation).toBeCloseTo(37.5)
+        expect(lightness).toBeCloseTo(60)
 
-        colorSelectionFromPointer(field(), -50, 250, setSaturation, setLightness)
-        expect(setSaturation).toHaveBeenLastCalledWith(0)
-        expect(setLightness).toHaveBeenLastCalledWith(0)
+        expect(colorSelectionFromPointer(field(), -50, 250, setSaturation, setLightness)).toEqual({ x: 0, y: 1 })
+        expect(last()).toEqual([0, 0])
 
-        colorSelectionFromPointer(field(), 500, -20, setSaturation, setLightness)
-        expect(setSaturation).toHaveBeenLastCalledWith(100)
-        expect(setLightness).toHaveBeenLastCalledWith(50)
+        expect(colorSelectionFromPointer(field(), 500, -20, setSaturation, setLightness)).toEqual({ x: 1, y: 0 })
+        expect(last()).toEqual([100, 50])
+    })
+})
+
+describe('selection square colour model', () => {
+    /** What the square paints at (x, y) for `hue`: the pure hue, white fading out to the right, black fading in downwards (HSV). */
+    function drawnRgb(hue: number, x: number, y: number): [number, number, number] {
+        const pure = hslToRgb(hue, 100, 50)
+        return pure.map((channel) => Math.round((channel * x + 255 * (1 - x)) * (1 - y))) as [number, number, number]
+    }
+
+    it('picks the colour that is drawn under the pointer', () => {
+        for (const hue of [0, 120, 216]) {
+            for (const [x, y] of [
+                [0.5, 0],
+                [0.5, 0.5],
+                [0.8, 0.2],
+                [0.1, 0.9],
+                [1, 0.3],
+            ] as const) {
+                const { saturation, lightness } = hslFromSelection(x, y)
+                const picked = hslToRgb(hue, saturation, lightness)
+                const drawn = drawnRgb(hue, x, y)
+                picked.forEach((channel, index) => expect(Math.abs(channel - drawn[index]!)).toBeLessThanOrEqual(1))
+            }
+        }
+        // The finding's example: hue 0, middle of the top edge is pink, not greyish #df9f9f.
+        const topMiddle = hslFromSelection(0.5, 0)
+        expect(hslToHex(0, topMiddle.saturation, topMiddle.lightness)).toBe('#ff8080')
+    })
+
+    it('places a colour back where it was picked', () => {
+        for (const [x, y] of [
+            [0.4, 0.25],
+            [0.9, 0.6],
+            [0.05, 0.05],
+        ] as const) {
+            const { saturation, lightness } = hslFromSelection(x, y)
+            const point = selectionFromHsl(saturation, lightness)
+            expect(point.x).toBeCloseTo(x)
+            expect(point.y).toBeCloseTo(y)
+        }
+        const pink = hexToHsl('#ff8080')
+        const point = selectionFromHsl(pink.saturation, pink.lightness)
+        expect(point.x).toBeCloseTo(0.5, 1)
+        expect(point.y).toBeCloseTo(0)
+        expect(selectionFromHsl(0, 0)).toEqual({ x: 0, y: 1 })
+        expect(selectionFromHsl(0, 100)).toEqual({ x: 0, y: 0 })
     })
 })
 

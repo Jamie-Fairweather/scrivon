@@ -132,11 +132,13 @@ export function AutocompletePopup({
 }): React.ReactElement {
     return (
         <AutocompletePrimitive.Portal {...portalProps}>
+            {/* z-[60] like Select and Popover, so the list draws over the title bar, which is raised to z-60
+                while a dialog is open (TITLEBAR_ABOVE_DIALOGS_CLASS). */}
             <AutocompletePrimitive.Positioner
                 align={align}
                 alignOffset={alignOffset}
                 anchor={anchor}
-                className="z-50 select-none"
+                className="z-[60] select-none"
                 data-slot="autocomplete-positioner"
                 side={side}
                 sideOffset={sideOffset}
