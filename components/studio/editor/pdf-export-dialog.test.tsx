@@ -194,6 +194,44 @@ describe('PdfExportDialog', () => {
         expect(onOpenChange).not.toHaveBeenCalled()
     })
 
+    it('passes a skipped contents page to the saved notice', async () => {
+        const saved: ExportResult = { status: 'saved', path: 'C:/out/report.pdf', tocSkipped: true }
+        exportMarkdown.mockResolvedValue(saved)
+        renderDialog()
+        await exportWithTitle('Quarterly report')
+        expect(notifyExportSaved).toHaveBeenCalledWith(saved)
+    })
+
+    it('warns when the profile leaves no room on the page for the text', async () => {
+        const bar = { enabled: true, heightMm: 60, gapMm: 60, ignoreMargins: true }
+        profiles.edit = (profile) => {
+            profile.page.orientation = 'landscape'
+            profile.header = { ...profile.header, ...bar }
+            profile.footer = { ...profile.footer, ...bar }
+        }
+        const cramped = render(<Owner onOpenChange={vi.fn()} />)
+        expect(
+            await screen.findByText('Margins, header and footer are taller than the page, so there is no room left for the text.')
+        ).toBeInTheDocument()
+        // Only a warning: the export can still run.
+        expect(screen.getByRole('button', { name: 'Export' })).not.toBeDisabled()
+        cramped.unmount()
+
+        profiles.edit = (profile) => {
+            profile.page.orientation = 'landscape'
+            // 210 mm tall: a 180 mm header band and the 10 mm bottom margin leave 20 mm.
+            profile.header = { ...profile.header, ...bar, heightMm: 100, gapMm: 80 }
+        }
+        const tight = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText('Margins, header and footer leave only 20 mm of page height for the text.')).toBeInTheDocument()
+        tight.unmount()
+
+        profiles.edit = () => undefined
+        render(<Owner onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/Margins, header and footer/)).toBeNull()
+    })
+
     it('says outside Windows that page numbers the profile asks for may be missing', async () => {
         platform.windows = false
         profiles.edit = (profile) => {

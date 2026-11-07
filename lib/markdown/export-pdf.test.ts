@@ -8,6 +8,7 @@ const pickSavePath = vi.hoisted(() => vi.fn())
 const notifyError = vi.hoisted(() => vi.fn())
 const notifySuccess = vi.hoisted(() => vi.fn())
 const notifyWarning = vi.hoisted(() => vi.fn())
+const notifyInfo = vi.hoisted(() => vi.fn())
 const revealItemInDir = vi.hoisted(() => vi.fn<(path: string) => Promise<void>>(async () => undefined))
 const writeBinaryFile = vi.hoisted(() => vi.fn())
 const isWindowsTauri = vi.hoisted(() => vi.fn(() => false))
@@ -28,7 +29,7 @@ const EXPORT_DOCUMENT = vi.hoisted(() => ({
         pageNumberColor: '',
     },
 }))
-const markdownToExportHtml = vi.hoisted(() => vi.fn(async () => EXPORT_DOCUMENT))
+const renderExportPdf = vi.hoisted(() => vi.fn(async () => EXPORT_DOCUMENT))
 const EMPTY_ASSETS = vi.hoisted(() => ({ logoDataUrl: '', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
 const MISSING_LOGO = vi.hoisted(() => ({ slot: 'Logo', path: 'G:/brand/logo.png', reason: 'Could not read image: not found' }))
 const resolvePdfExportAssets = vi.hoisted(() =>
@@ -42,10 +43,11 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
     notifyError,
     notifySuccess,
     notifyWarning,
+    notifyInfo,
 }))
 vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir }))
 vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri, isTauri }))
-vi.mock('@/lib/markdown/markdown-to-export-html', () => ({ markdownToExportHtml }))
+vi.mock('@/lib/markdown/markdown-to-export-html', () => ({ renderExportPdf }))
 vi.mock('@/lib/markdown/export-assets', () => ({ resolvePdfExportAssets }))
 vi.mock('@/lib/markdown/export-docx', () => ({ renderExportDocx }))
 
@@ -65,8 +67,9 @@ describe('export-pdf helpers', () => {
         writeBinaryFile.mockReset()
         renderExportDocx.mockReset()
         renderExportDocx.mockResolvedValue(new Uint8Array([1, 2, 3]))
-        markdownToExportHtml.mockReset()
-        markdownToExportHtml.mockImplementation(async () => EXPORT_DOCUMENT)
+        notifyInfo.mockReset()
+        renderExportPdf.mockReset()
+        renderExportPdf.mockImplementation(async () => EXPORT_DOCUMENT)
         resolvePdfExportAssets.mockReset()
         resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [] })
         document.body.innerHTML = ''
@@ -125,7 +128,7 @@ describe('export-pdf helpers', () => {
         expect(print).toHaveBeenCalled()
         expect(invoke).not.toHaveBeenCalled()
         // No stamper behind the print dialog: the html must not carry its marks.
-        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', expect.objectContaining({ stamped: false }))
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: false })
     })
 
     it('awaits document fonts when available before printing', async () => {
@@ -241,7 +244,7 @@ describe('export-pdf helpers', () => {
             options: EXPORT_DOCUMENT.print,
         })
         // The Windows exporter stamps the page numbers, so the html keeps its marks.
-        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', expect.objectContaining({ stamped: true }))
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true })
     })
 
     it('cancels windows save when dialog is dismissed', async () => {
@@ -254,7 +257,7 @@ describe('export-pdf helpers', () => {
     })
 
     it('returns pipeline errors to the caller without showing anything', async () => {
-        markdownToExportHtml.mockRejectedValueOnce(new Error('boom'))
+        renderExportPdf.mockRejectedValueOnce(new Error('boom'))
         const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
         await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'failed', message: 'boom' })
         expect(notifyError).not.toHaveBeenCalled()
@@ -272,7 +275,7 @@ describe('export-pdf helpers', () => {
     })
 
     it('returns stringified non-error failures', async () => {
-        markdownToExportHtml.mockRejectedValueOnce('nope')
+        renderExportPdf.mockRejectedValueOnce('nope')
         const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
         await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'failed', message: 'nope' })
         expect(notifyError).not.toHaveBeenCalled()
@@ -340,7 +343,7 @@ describe('export-pdf helpers', () => {
         await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf', missingImages: [MISSING_LOGO] })
         // The images are read once and handed to the renderer.
         expect(resolvePdfExportAssets).toHaveBeenCalledTimes(1)
-        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', expect.objectContaining({ assets: EMPTY_ASSETS }))
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ assets: EMPTY_ASSETS }), { stamped: true })
 
         pickSavePath.mockResolvedValue('C:/out.docx')
         await expect(exportMarkdown('# Hi', 'hi.md', { format: 'docx' })).resolves.toMatchObject({ status: 'saved', missingImages: [MISSING_LOGO] })
@@ -367,6 +370,54 @@ describe('export-pdf helpers', () => {
         notifyExportSaved({ status: 'saved' })
         expect(notifyWarning).not.toHaveBeenCalled()
         expect(notifySuccess).not.toHaveBeenCalled()
+    })
+
+    it('says when the table of contents had no headings to list', async () => {
+        isWindowsTauri.mockReturnValue(true)
+        isTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue('C:/out/notes.pdf')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        const { createDefaultPdfExportProfile } = await import('@/lib/settings/pdf-export-defaults')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+
+        // Only H1 headings, and the default TOC leaves H1 out.
+        await expect(exportMarkdown('# One\n\nText\n\n# Two', 'notes.md', { profile })).resolves.toEqual({
+            status: 'saved',
+            path: 'C:/out/notes.pdf',
+            tocSkipped: true,
+        })
+        // The PDF is rendered from the same document whose contents came up empty.
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true })
+        pickSavePath.mockResolvedValue('C:/out/notes.docx')
+        await expect(exportMarkdown('# One\n\nText', 'notes.md', { profile, format: 'docx' })).resolves.toMatchObject({ tocSkipped: true })
+
+        // A heading the TOC lists, or a TOC that is off: nothing to say.
+        pickSavePath.mockResolvedValue('C:/out/notes.pdf')
+        await expect(exportMarkdown('# One\n\n## Part', 'notes.md', { profile })).resolves.toEqual({ status: 'saved', path: 'C:/out/notes.pdf' })
+        profile.frontMatter.toc = false
+        await expect(exportMarkdown('# One', 'notes.md', { profile })).resolves.toEqual({ status: 'saved', path: 'C:/out/notes.pdf' })
+        // Nothing was saved, so there is nothing to report.
+        profile.frontMatter.toc = true
+        pickSavePath.mockResolvedValue(null)
+        await expect(exportMarkdown('# One', 'notes.md', { profile })).resolves.toEqual({ status: 'cancelled' })
+    })
+
+    it('adds the missing contents page to the saved notice', async () => {
+        const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
+        const toc = 'No headings matched the table of contents settings, so no contents page was added.'
+        notifyExportSaved({ status: 'saved', path: 'C:/out/notes.pdf', tocSkipped: true })
+        expect(notifySuccess).toHaveBeenCalledWith('Saved notes.pdf', expect.objectContaining({ description: toc }))
+
+        notifyExportSaved({ status: 'saved', path: 'C:/out/notes.pdf', missingImages: [MISSING_LOGO], tocSkipped: true })
+        expect(notifyWarning).toHaveBeenCalledWith('Saved notes.pdf without some images', {
+            description: `Logo (logo.png): Could not read image: not found. ${toc}`,
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        // Printed: no file to name, but the user still hears why there is no contents page.
+        notifyExportSaved({ status: 'saved', tocSkipped: true })
+        expect(notifyInfo).toHaveBeenCalledWith('No contents page was added', { description: toc })
     })
 
     it('says in one notice that the PDF was saved without page numbers, and why', async () => {

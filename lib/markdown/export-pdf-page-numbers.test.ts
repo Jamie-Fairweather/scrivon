@@ -21,7 +21,7 @@ vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true, isWindowsTauri: ()
 vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), ...notify }))
 vi.mock('@/lib/markdown/export-assets', () => ({ resolvePdfExportAssets: vi.fn(async () => ({ assets: {}, missing: [] })) }))
 vi.mock('@/lib/markdown/markdown-to-export-html', () => ({
-    markdownToExportHtml: vi.fn(async () => ({ html: '<html></html>', print: PRINT })),
+    renderExportPdf: vi.fn(async () => ({ html: '<html></html>', print: PRINT })),
 }))
 
 import { exportMarkdown } from '@/lib/markdown/export-pdf'

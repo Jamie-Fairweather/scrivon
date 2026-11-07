@@ -1,9 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
-import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
+import { buildExportDocument, type ExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
-import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
-import { errorMessage, notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
+import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
+import { errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
@@ -33,6 +33,8 @@ export type SavedExport = {
     missingImages?: PdfExportMissingImage[]
     /** Why the PDF was saved without its page numbers (the Windows app adds them after printing). */
     pageNumberWarning?: string
+    /** The profile asks for a table of contents, but no heading matched its settings, so there is none. */
+    tocSkipped?: boolean
 }
 
 /** How an export ended: saved, cancelled at the save picker, or failed. */
@@ -147,17 +149,29 @@ async function renderAndSave(
     options: ExportMarkdownOptions & { profile: PdfExportProfile },
     assets: PdfExportResolvedAssets
 ): Promise<ExportResult> {
-    const { profile, overrides, documentPath } = options
+    const { profile, overrides } = options
+    const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
+    const result = await renderAndSaveDocument(exportDocument, tabName, options)
+    // Both renderers leave the contents page out when no heading matches the TOC settings.
+    const tocSkipped = profile.frontMatter.toc && exportDocument.toc.length === 0
+    return result.status === 'saved' && tocSkipped ? { ...result, tocSkipped } : result
+}
+
+async function renderAndSaveDocument(
+    exportDocument: ExportDocument,
+    tabName: string | undefined,
+    options: ExportMarkdownOptions
+): Promise<ExportResult> {
+    const { documentPath } = options
     if (options.format === 'docx') {
-        const document = buildExportDocument(source, { profile, tabName, overrides, assets })
         const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-        const bytes = await renderExportDocx(document)
+        const bytes = await renderExportDocx(exportDocument)
         return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, documentPath)
     }
 
     // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
     const stamped = isWindowsTauri()
-    const { html, print } = await markdownToExportHtml(source, { profile, tabName, overrides, assets, stamped })
+    const { html, print } = await renderExportPdf(exportDocument, { stamped })
     const filename = `${markdownExportBaseName(tabName)}.pdf`
 
     if (stamped) {
@@ -194,15 +208,26 @@ function describeMissingImages(missing: PdfExportMissingImage[]): string {
     return missing.map(({ slot, path, reason }) => `${slot} (${fileName(path)}): ${reason}`).join('; ')
 }
 
+const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'
+
+/** The non-empty parts as one description, each ending in a full stop when another follows. */
+function joinSentences(parts: (string | undefined)[]): string {
+    const kept = parts.filter((part): part is string => Boolean(part))
+    return kept.map((part, index) => (index < kept.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(' ')
+}
+
 /**
  * Tells the user the export was saved and where, with a button that shows the file in its
- * folder. One notice says what had to be left out: page numbers, profile images, or both.
+ * folder. One notice says what had to be left out (page numbers, profile images, or both),
+ * and when no heading matched the table of contents settings.
  */
-export function notifyExportSaved({ path, missingImages = [], pageNumberWarning }: SavedExport): void {
+export function notifyExportSaved({ path, missingImages = [], pageNumberWarning, tocSkipped }: SavedExport): void {
     const images = missingImages.length > 0 ? describeMissingImages(missingImages) : ''
+    const toc = tocSkipped ? TOC_SKIPPED : ''
     if (!path) {
-        // The print dialog or the browser's download took over; only left-out images need a word.
-        if (images) notifyWarning('Some images were left out', { description: images })
+        // The print dialog or the browser's download took over; only what was left out needs a word.
+        if (images) notifyWarning('Some images were left out', { description: joinSentences([images, toc]) })
+        else if (toc) notifyInfo('No contents page was added', { description: toc })
         return
     }
     const action = {
@@ -213,9 +238,10 @@ export function notifyExportSaved({ path, missingImages = [], pageNumberWarning 
     }
     const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : ''].filter(Boolean)
     if (leftOut.length > 0) {
-        const description = [pageNumberWarning, images].filter(Boolean).join(' ')
+        const description = joinSentences([pageNumberWarning, images, toc])
         notifyWarning(`Saved ${fileName(path)} without ${leftOut.join(' or ')}`, { description, action })
         return
     }
-    notifySuccess(`Saved ${fileName(path)}`, { description: path, timeout: SAVED_NOTICE_MS, action })
+    // The title names the file and Show in folder finds it, so the TOC note can take the path's place.
+    notifySuccess(`Saved ${fileName(path)}`, { description: toc || path, timeout: SAVED_NOTICE_MS, action })
 }

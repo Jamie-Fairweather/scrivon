@@ -5,7 +5,7 @@ import { exportMarkdown, notifyExportSaved, type ExportMarkdownOptions } from '@
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { notifyError } from '@/lib/notify'
-import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -85,6 +85,17 @@ function pageNumberNote(format: ExportFormat, profile: PdfExportProfile, metadat
     return ''
 }
 
+/**
+ * The page-space warning from Settings, for the profile picked here: margins, header and footer
+ * that leave little or no room for the text. The export still runs; Settings is where to fix it.
+ */
+function pageSpaceNote(profile: PdfExportProfile): string {
+    const bodyHeightMm = pdfBodyHeightMm(profile)
+    if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return ''
+    if (bodyHeightMm <= 0) return 'Margins, header and footer are taller than the page, so there is no room left for the text.'
+    return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
+}
+
 function PdfExportForm({
     source,
     tabName,
@@ -118,6 +129,7 @@ function PdfExportForm({
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
+    const spaceNote = pageSpaceNote(profile)
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -155,6 +167,7 @@ function PdfExportForm({
                 <DialogTitle>Export document</DialogTitle>
                 <DialogDescription>Choose a format, profile, and optional title metadata for this export.</DialogDescription>
                 {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+                {spaceNote ? <p className="text-xs text-warning-foreground">{spaceNote}</p> : null}
             </DialogHeader>
             <DialogPanel className="space-y-4">
                 <fieldset disabled={busy} className="min-w-0 space-y-4">
