@@ -582,13 +582,18 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     height: auto;
     margin: 0 auto;
   }
-  /* Body images shrink (keeping their shape) to the text width and to what fits on one page. */
+  /*
+   * Body images shrink (keeping their shape) to the text width and to what fits on one page.
+   * A size the document's HTML gives (<img width="120">) stays: any width or height set here
+   * would override it. Only a height without a width is kept as given; otherwise the height
+   * follows the width.
+   */
   .pdf-body img {
     max-width: 100%;
     max-height: ${bodyImageMaxHeightMm(profile)}mm;
-    width: auto;
-    height: auto;
+    object-fit: contain;
   }
+  .pdf-body img[width], .pdf-body img:not([height]) { height: auto; }
   .export-error {
     margin: 0 0 1rem;
     padding: 12px;

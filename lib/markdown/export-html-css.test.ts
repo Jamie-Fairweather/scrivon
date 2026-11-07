@@ -53,7 +53,7 @@ describe('buildPdfExportCss', () => {
     it('fits body images to the text width and to one page', () => {
         const profile = createDefaultPdfExportProfile()
         // A4 portrait: 297 - 10 - 10, less a little slack.
-        expect(buildPdfExportCss(profile)).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 271mm;\s*width: auto;\s*height: auto;/)
+        expect(buildPdfExportCss(profile)).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 271mm;\s*object-fit: contain;\s*\}/)
 
         // Header and footer bars take room from the page, so the cap shrinks.
         profile.header.enabled = true
@@ -64,6 +64,19 @@ describe('buildPdfExportCss', () => {
 
         profile.page.orientation = 'landscape'
         expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
+    })
+
+    it('keeps the size raw HTML gives an image, which any width or height rule would override (N30)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile()).replace(/\/\*[\s\S]*?\*\//g, '')
+        const rules = [...css.matchAll(/([^{}]*\.pdf-body img[^{}]*)\{([^{}]*)\}/g)].map(([, selectors, body]) => ({
+            selectors: selectors!.trim(),
+            body: body!,
+        }))
+        expect(rules.length).toBeGreaterThan(0)
+        // No rule sets a width, so <img width="120"> prints 120px wide.
+        for (const { body } of rules) expect(body).not.toMatch(/(^|[\s;])width:/)
+        // The height follows the width, unless the document gave a height and no width.
+        expect(rules.find(({ body }) => /height: auto/.test(body))?.selectors).toBe('.pdf-body img[width], .pdf-body img:not([height])')
     })
 
     it('gives body images the room the settings report when a bar ignores the margins', () => {

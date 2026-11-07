@@ -741,6 +741,15 @@ SHIKI_FAIL
         expect(html).toContain('<h1 id="title" dir="auto">')
     })
 
+    it('keeps the size raw HTML gives an image, and the stylesheet leaves it alone (N30)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('<p align="center"><img src="data:image/png;base64,AAAA" width="120" alt="logo"></p>', {
+            assets: EMPTY_ASSETS,
+        })
+        expect(html).toContain('<img src="data:image/png;base64,AAAA" width="120" alt="logo">')
+        expect(html).not.toMatch(/\.pdf-body img \{[^}]*width: auto/)
+    })
+
     it('keeps only safe links live, and points #heading links at the heading however they are written (S10, B55)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(
