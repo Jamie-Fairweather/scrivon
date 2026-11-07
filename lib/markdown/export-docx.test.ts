@@ -1266,6 +1266,20 @@ describe('renderExportDocx', () => {
         expect([...even.xml.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))).toEqual([5386, 5387])
     })
 
+    it('sizes a column of web pictures by the alt text Word writes for them, not as pictures (N40)', async () => {
+        const { xml } = await render(
+            [
+                '| Badge | Description |',
+                '| --- | --- |',
+                '| ![build](https://img.shields.io/badge/build-passing-green.svg) | Builds the app on every push to the main branch. |',
+            ].join('\n')
+        )
+        const grid = [...xml.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
+        // Word writes the badge as the word "build", so its column is sized for that and its header (about 6 characters),
+        // not the 20 an embedded picture takes, and the description gets the room.
+        expect(grid).toEqual([1107, 9666])
+    })
+
     it('estimates contents page numbers with each table column at its own width', async () => {
         const rows = Array.from({ length: 30 }, (_, index) => `| ${index} | ${'Description words. '.repeat(16)} |`)
         const { xml } = await render(['# Start', '', '| ID | Description |', '| --- | --- |', ...rows, '', '# End'].join('\n'), (draft) => {

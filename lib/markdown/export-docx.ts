@@ -1400,7 +1400,7 @@ function renderTable(state: RenderState, table: MdTable): Table {
     const indent = state.quoteDepth > 0 ? state.extraLeft - QUOTE_BAR_INSET : state.extraLeft
     const width = Math.max(1, state.contentTwip - indent)
     const columns = tableColumns(table)
-    const widths = columnWidths(table, columns, width)
+    const widths = columnWidths(state, table, columns, width)
     return new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: widths,
@@ -1413,20 +1413,26 @@ function renderTable(state: RenderState, table: MdTable): Table {
     })
 }
 
-/** A picture in a cell counts as this many characters when columns are sized. */
+/** A picture Word embeds in a cell counts as this many characters when columns are sized. */
 const TABLE_IMAGE_UNITS = 20
 /** Column weights, in characters, are kept in this range so one long column can't squeeze the rest to nothing. */
 const TABLE_WEIGHT_RANGE = { min: 4, max: 60 } as const
 /** No column is made narrower than this (0.625in) unless the table is too narrow for that. */
 const TABLE_MIN_COLUMN_TWIP = 900
 
-/** How wide a cell's content is, in narrow characters. Bold header text is a little wider. */
-function cellUnits(cell: MdTableCell, header: boolean): number {
-    let images = 0
+/**
+ * How wide a cell's content is, in narrow characters. Bold header text is a little wider. A picture Word can't embed
+ * (a web badge, say) is written as its alt text, so it counts as that text, as {@link paragraphTwip} measures it.
+ */
+function cellUnits(state: RenderState, cell: MdTableCell, header: boolean): number {
+    const bold = header ? 1.1 : 1
+    let units = textUnits(plainText(cell), 1 / 0.45) * bold
     visit(cell, (node) => {
-        if (node.type === 'image' || node.type === 'imageReference') images += 1
+        if (node.type !== 'image' && node.type !== 'imageReference') return
+        const url = imageUrl(state, node)
+        units += url !== undefined && decodeImage(state.images, url) ? TABLE_IMAGE_UNITS : textUnits(imageText(state, node), 1 / 0.45) * bold
     })
-    return textUnits(plainText(cell), 1 / 0.45) * (header ? 1.1 : 1) + images * TABLE_IMAGE_UNITS
+    return units
 }
 
 /**
@@ -1434,12 +1440,12 @@ function cellUnits(cell: MdTableCell, header: boolean): number {
  * cell, like the PDF's automatic table layout, so a short ID column leaves room for a long description.
  * Every column keeps a minimum width, and the rounding is settled on the last column.
  */
-function columnWidths(table: MdTable, columns: number, width: number): number[] {
+function columnWidths(state: RenderState, table: MdTable, columns: number, width: number): number[] {
     const weights = Array.from({ length: columns }, (_, index) => {
         let longest = 0
         table.children.forEach((row, rowIndex) => {
             const cell = row.children[index]
-            if (cell) longest = Math.max(longest, cellUnits(cell, rowIndex === 0))
+            if (cell) longest = Math.max(longest, cellUnits(state, cell, rowIndex === 0))
         })
         return Math.min(TABLE_WEIGHT_RANGE.max, Math.max(TABLE_WEIGHT_RANGE.min, longest))
     })
@@ -2158,7 +2164,7 @@ function measureFlow(
             placeBlock(cursor, pageHeight, codeTwip(state, node, width))
         } else if (node.type === 'table') {
             // Each cell wraps in its own column's width, as renderTable sizes them; its margins add 120 above.
-            const widths = columnWidths(node, tableColumns(node), width)
+            const widths = columnWidths(state, node, tableColumns(node), width)
             let table = 200
             for (const row of node.children) {
                 let rowHeight = 240
