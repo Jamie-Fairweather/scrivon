@@ -16,8 +16,9 @@ export const APP_THEME_LABELS = Object.fromEntries(APP_THEME_IDS.map((id) => [id
 export const APP_LIGHT_THEME_IDS = APP_THEME_IDS.filter((id) => APP_THEMES[id].kind === 'light')
 export const APP_DARK_THEME_IDS = APP_THEME_IDS.filter((id) => APP_THEMES[id].kind === 'dark')
 
-export function isAppThemeId(value: string): value is AppThemeId {
-    return value in APP_THEMES
+/** Own keys only: `in` would also accept inherited names like 'constructor' from stored data. */
+export function isAppThemeId(value: unknown): value is AppThemeId {
+    return typeof value === 'string' && Object.hasOwn(APP_THEMES, value)
 }
 
 export function getTheme(id: AppThemeId) {

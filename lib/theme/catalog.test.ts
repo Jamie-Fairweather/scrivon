@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mergeStoredSettings } from '@/lib/settings/migrate'
 import {
+    APP_THEME_IDS,
     DEFAULT_APP_THEME,
     getDiagramColors,
     getSystemPreferredTheme,
@@ -18,6 +20,25 @@ describe('isAppThemeId', () => {
 
     it('rejects unknown values', () => {
         expect(isAppThemeId('not-a-theme')).toBe(false)
+    })
+
+    it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf'])('rejects the inherited object key %s', (key) => {
+        expect(isAppThemeId(key)).toBe(false)
+    })
+
+    it('rejects values that are not strings', () => {
+        expect(isAppThemeId(['scrivon-dark'])).toBe(false)
+        expect(isAppThemeId(null)).toBe(false)
+        expect(isAppThemeId(42)).toBe(false)
+    })
+})
+
+describe('stored settings with a bad theme id', () => {
+    it.each(['constructor', '__proto__', 'toString'])('falls back to a real theme for %s instead of crashing the theme lookup', (id) => {
+        const merged = mergeStoredSettings({ theme: { id } })
+
+        expect(APP_THEME_IDS).toContain(merged.theme.id)
+        expect(() => getDiagramColors(merged.theme.id).bg).not.toThrow()
     })
 })
 

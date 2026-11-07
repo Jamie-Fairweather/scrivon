@@ -13,12 +13,24 @@ export default defineConfig({
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html', 'lcov'],
-            exclude: ['vitest/**', '**/*.test.ts', '**/*.test.tsx', 'lib/examples/craft-samples.ts'],
+            // Measure all app source, not just the files some test happens to import.
+            include: ['app/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'hooks/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
+            exclude: [
+                'vitest/**',
+                '**/*.test.ts',
+                '**/*.test.tsx',
+                '**/*.d.ts',
+                'components/ui/**',
+                'lib/examples/craft-samples.ts',
+                'lib/examples/markdown-showcase.ts',
+                'lib/legal/third-party-licenses.ts',
+            ],
+            // Floor just under the real numbers; raise it as tests are added.
             thresholds: {
-                statements: 100,
-                branches: 100,
-                functions: 100,
-                lines: 100,
+                statements: 92,
+                branches: 89,
+                functions: 89,
+                lines: 93,
             },
         },
         projects: [
@@ -26,7 +38,7 @@ export default defineConfig({
                 extends: true,
                 test: {
                     name: 'unit',
-                    include: ['lib/**/*.test.ts', 'hooks/**/*.test.ts', 'components/**/*.test.ts'],
+                    include: ['lib/**/*.test.ts', 'hooks/**/*.test.ts', 'components/**/*.test.ts', 'scripts/**/*.test.ts'],
                     environment: 'node',
                 },
             },
@@ -34,7 +46,7 @@ export default defineConfig({
                 extends: true,
                 test: {
                     name: 'components',
-                    include: ['components/**/*.test.tsx', 'lib/**/*.test.tsx'],
+                    include: ['components/**/*.test.tsx', 'lib/**/*.test.tsx', 'vitest/**/*.test.tsx'],
                     environment: 'happy-dom',
                     setupFiles: ['./vitest.setup.ts'],
                 },

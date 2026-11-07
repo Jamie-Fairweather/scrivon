@@ -3,7 +3,21 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useFlushPendingSettings } from '@/components/studio/settings/settings-provider'
 import { cn } from '@/lib/utils'
+
+/**
+ * Keeps the custom title bar above modal dialogs (their backdrop and viewport cover the whole
+ * window), so the window can still be dragged, minimised, maximised and closed while one is open.
+ * Only raised while a dialog is open, so popovers and tooltips near the top still draw over it.
+ * The dialog viewports in components/ui (dialog, alert-dialog, command) start below the title bar
+ * so no dialog is hidden under it.
+ */
+export const TITLEBAR_ABOVE_DIALOGS_CLASS = 'relative [body:has([data-slot$=dialog-popup])_&]:z-60'
+
+/** Menus in the title bar can't be used while a modal dialog is open; show that and ignore clicks. */
+export const TITLEBAR_MENUS_BLOCKED_CLASS =
+    '[body:has([data-slot$=dialog-popup])_&]:pointer-events-none [body:has([data-slot$=dialog-popup])_&]:opacity-50'
 
 function TitlebarControlButton({
     label,
@@ -35,6 +49,7 @@ function TitlebarControlButton({
 
 export function WindowTitlebarControls() {
     const [maximized, setMaximized] = useState(false)
+    const flushPendingSettings = useFlushPendingSettings()
 
     useEffect(() => {
         const appWindow = getCurrentWindow()
@@ -64,8 +79,10 @@ export function WindowTitlebarControls() {
     }, [])
 
     const close = useCallback(() => {
+        // The window may go without a pagehide, so write a settings change that is still waiting first.
+        flushPendingSettings()
         void getCurrentWindow().close()
-    }, [])
+    }, [flushPendingSettings])
 
     return (
         <div className="flex h-[var(--titlebar-height)] shrink-0 items-center">

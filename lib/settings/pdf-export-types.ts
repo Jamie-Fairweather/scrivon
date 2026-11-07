@@ -135,6 +135,10 @@ export type PdfPrintOptions = {
     pageNumberFormat: string
     /** Hex colour for the stamped label; empty for the default chrome colour. */
     pageNumberColor: string
+    /** Saved in the PDF's document properties (the Windows app only). Left out when empty. */
+    author?: string
+    /** The subtitle, saved as the PDF's subject. Left out when empty. */
+    subject?: string
 }
 
 /** The branded document plus what the printer needs to turn it into a PDF, produced by one call. */

@@ -1,38 +1,97 @@
-const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
+import { getBaseName, getParentPath, isPathInside, isWindowsPath, normalizePath, samePath } from '@/lib/tauri/fs'
+import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/file-types'
+import type { FileNode } from '@/lib/workspace/types'
 
+const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
+/** Device names Windows won't use for a file or folder, with or without an extension (`con`, `nul.md`). */
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i
+const MAX_NAME_LENGTH = 255
+
+/** Checks a file or folder name against the rules of Windows, the strictest of the systems Scrivon runs on. */
 export function validateFileName(name: string): string | null {
     const trimmed = name.trim()
     if (!trimmed) return 'Name cannot be empty'
     if (INVALID_CHARS.test(trimmed)) return 'Name contains invalid characters'
     if (trimmed === '.' || trimmed === '..') return 'Invalid name'
     if (trimmed.includes('/') || trimmed.includes('\\')) return 'Name cannot contain path separators'
+    // Windows quietly drops a trailing dot, so the item would get a different name from the one the app tracks.
+    if (trimmed.endsWith('.')) return 'Name cannot end with a dot'
+    const stem = trimmed.split('.')[0]!.trim()
+    if (WINDOWS_RESERVED_NAME.test(stem)) return `"${stem}" is a reserved name on Windows`
+    if (trimmed.length > MAX_NAME_LENGTH) return `Name is too long (${MAX_NAME_LENGTH} characters at most)`
     return null
 }
 
-export function uniqueFileName(base: string, existing: Set<string>): string {
-    if (!existing.has(base)) return base
+/**
+ * A name for a copy of `base` that no sibling uses: `notes copy.md`, then `notes copy 2.md`…
+ * Names are compared ignoring letter case, because Windows treats `Notes copy.md` and `notes copy.md` as one file.
+ */
+export function uniqueFileName(base: string, existing: Iterable<string>): string {
+    const taken = new Set([...existing].map((name) => name.toLowerCase()))
+    const isTaken = (name: string) => taken.has(name.toLowerCase())
+    if (!isTaken(base)) return base
     const dot = base.lastIndexOf('.')
     const stem = dot > 0 ? base.slice(0, dot) : base
     const ext = dot > 0 ? base.slice(dot) : ''
     let i = 1
-    while (existing.has(`${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`)) {
+    while (isTaken(`${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`)) {
         i += 1
     }
     return `${stem} copy${i > 1 ? ` ${i}` : ''}${ext}`
 }
 
-export function uniqueUntitledName(existing: Set<string>): string {
-    if (!existing.has('untitled.mmd')) return 'untitled.mmd'
+/**
+ * A name for a new file or folder that no sibling uses: `diagram.mmd`, then `diagram 2.mmd`, `diagram 3.mmd`…
+ * Names are compared ignoring letter case, because Windows treats `Diagram.mmd` and `diagram.mmd` as one file.
+ */
+export function uniqueNewName(base: string, existing: Iterable<string>): string {
+    const taken = new Set([...existing].map((name) => name.toLowerCase()))
+    if (!taken.has(base.toLowerCase())) return base
+    const dot = base.lastIndexOf('.')
+    const stem = dot > 0 ? base.slice(0, dot) : base
+    const ext = dot > 0 ? base.slice(dot) : ''
     let i = 2
-    while (existing.has(`untitled-${i}.mmd`)) {
+    while (taken.has(`${stem} ${i}${ext}`.toLowerCase())) {
         i += 1
     }
-    return `untitled-${i}.mmd`
+    return `${stem} ${i}${ext}`
 }
 
-export function collectFilePaths(nodes: import('@/lib/workspace/types').FileNode[]): Set<string> {
+export type FolderLabel = {
+    path: string
+    name: string
+    /** The folder it is in, only when another folder in the list has the same name; otherwise null. */
+    location: string | null
+}
+
+/**
+ * How to label a list of folders, such as the recent folders: by name, plus where each one is when two
+ * share a name (`docs` in C:\work and in D:\personal), so they can be told apart. Letter case is ignored.
+ */
+export function folderLabels(paths: readonly string[]): FolderLabel[] {
+    const names = paths.map((path) => getBaseName(path))
+    const counts = new Map<string, number>()
+    for (const name of names) counts.set(name.toLowerCase(), (counts.get(name.toLowerCase()) ?? 0) + 1)
+    return paths.map((path, i) => {
+        const name = names[i]!
+        const shared = (counts.get(name.toLowerCase()) ?? 0) > 1
+        return { path, name, location: shared ? getParentPath(path) || null : null }
+    })
+}
+
+/**
+ * Shortens a long path in the middle, keeping its start and its end: `C:\Users\jamie\…\notes\docs`.
+ * Works on whole characters, so an emoji or other character outside the basic range is never cut in half.
+ */
+export function shortenPath(path: string, max = 56, head = 20, tail = 32): string {
+    const chars = Array.from(path)
+    if (chars.length <= max) return path
+    return `${chars.slice(0, head).join('')}…${chars.slice(-tail).join('')}`
+}
+
+export function collectFilePaths(nodes: FileNode[]): Set<string> {
     const paths = new Set<string>()
-    const walk = (items: import('@/lib/workspace/types').FileNode[]) => {
+    const walk = (items: FileNode[]) => {
         for (const node of items) {
             if (node.kind === 'file') paths.add(node.path)
             else walk(node.children)
@@ -42,9 +101,9 @@ export function collectFilePaths(nodes: import('@/lib/workspace/types').FileNode
     return paths
 }
 
-export function collectFileNames(nodes: import('@/lib/workspace/types').FileNode[]): Set<string> {
+export function collectFileNames(nodes: FileNode[]): Set<string> {
     const names = new Set<string>()
-    const walk = (items: import('@/lib/workspace/types').FileNode[]) => {
+    const walk = (items: FileNode[]) => {
         for (const node of items) {
             names.add(node.name)
             if (node.kind === 'directory') walk(node.children)
@@ -54,13 +113,165 @@ export function collectFileNames(nodes: import('@/lib/workspace/types').FileNode
     return names
 }
 
-export function findNodeByPath(nodes: import('@/lib/workspace/types').FileNode[], path: string): import('@/lib/workspace/types').FileNode | null {
+/** Folders in the tree that couldn't be read, so they show up empty. */
+export function collectUnreadableFolders(nodes: FileNode[]): FileNode[] {
+    const found: FileNode[] = []
+    const walk = (items: FileNode[]) => {
+        for (const node of items) {
+            if (node.kind !== 'directory') continue
+            if (node.unreadable) found.push(node)
+            else walk(node.children)
+        }
+    }
+    walk(nodes)
+    return found
+}
+
+/** True when part of the tree was left unread because the folder has too many files and folders to list them all. */
+export function isTreeTruncated(nodes: FileNode[]): boolean {
+    return nodes.some((node) => node.kind === 'directory' && (node.truncated === true || isTreeTruncated(node.children)))
+}
+
+function keepUnchangedNode(old: FileNode, node: FileNode): FileNode {
+    if (old.kind === 'file' || node.kind === 'file') return old.kind === node.kind && old.name === node.name ? old : node
+    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside || old.truncated !== node.truncated) {
+        return node
+    }
+    const children = keepUnchangedNodes(old.children, node.children)
+    return children === old.children ? old : { ...node, children }
+}
+
+/**
+ * A tree read again (`next`), using the nodes of the one shown now (`prev`) wherever nothing changed, and
+ * `prev` itself when nothing changed at all. So reading the folder again after a window focus redraws
+ * nothing when no file was added, removed or renamed, and only the changed folders otherwise.
+ */
+export function keepUnchangedNodes(prev: FileNode[], next: FileNode[]): FileNode[] {
+    const before = new Map(prev.map((node) => [node.path, node]))
+    let same = prev.length === next.length
+    const merged = next.map((node, i) => {
+        const old = before.get(node.path)
+        const kept = old ? keepUnchangedNode(old, node) : node
+        if (kept !== prev[i]) same = false
+        return kept
+    })
+    return same ? prev : merged
+}
+
+/**
+ * True when changes another app made (see watchWorkspace) may add something to the file tree of `rootPath`
+ * or take something away: a new path in a folder the tree lists, or a gone path the tree has. A save of a
+ * file already listed, or a change in a folder the tree leaves out, doesn't need the folder read again.
+ */
+export function changeAltersTree(
+    tree: FileNode[],
+    rootPath: string,
+    change: { readonly added: readonly string[]; readonly removed: readonly string[] }
+): boolean {
+    if (change.added.length === 0 && change.removed.length === 0) return false
+    // Windows paths ignore letter case, like samePath.
+    const key = (path: string) => {
+        const normalized = normalizePath(path)
+        return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized
+    }
+    const listed = new Set<string>()
+    const listedFolders = new Set<string>([key(rootPath)])
+    const walk = (nodes: FileNode[]) => {
+        for (const node of nodes) {
+            listed.add(key(node.path))
+            if (node.kind !== 'directory') continue
+            // An unreadable folder, or one left unread in a folder too big to list, shows nothing inside it
+            // however often it is read.
+            if (!node.unreadable && !node.truncated) listedFolders.add(key(node.path))
+            walk(node.children)
+        }
+    }
+    walk(tree)
+    return (
+        change.removed.some((path) => listed.has(key(path))) ||
+        change.added.some((path) => !listed.has(key(path)) && listedFolders.has(key(getParentPath(path))))
+    )
+}
+
+/**
+ * True when `folderPath` is the root or a folder in the tree whose entries were read, so reading just that
+ * folder again can update the tree (see replaceChildren). False for a folder that is missing, couldn't be
+ * read, or was left unread in a folder too big to list: the whole tree has to be read then.
+ */
+export function canReplaceChildren(tree: FileNode[], rootPath: string, folderPath: string): boolean {
+    if (samePath(folderPath, rootPath)) return true
+    const folder = findNodeByPath(tree, folderPath)
+    return folder?.kind === 'directory' && !folder.unreadable && !folder.truncated
+}
+
+/**
+ * The tree with the entries of `folderPath` (the root, or a folder in it) replaced by `children`, that
+ * folder read again. Nodes that didn't change stay the same objects (as keepUnchangedNodes), and so do the
+ * folders around it, so only that folder's rows draw again. Null when canReplaceChildren says no.
+ */
+export function replaceChildren(tree: FileNode[], rootPath: string, folderPath: string, children: FileNode[]): FileNode[] | null {
+    if (samePath(folderPath, rootPath)) return keepUnchangedNodes(tree, children)
+    if (!canReplaceChildren(tree, rootPath, folderPath)) return null
+    const walk = (nodes: FileNode[]): FileNode[] => {
+        let changed = false
+        const next = nodes.map((node) => {
+            if (node.kind !== 'directory') return node
+            let kept: FileNode[]
+            if (samePath(node.path, folderPath)) kept = keepUnchangedNodes(node.children, children)
+            else if (isPathInside(folderPath, node.path)) kept = walk(node.children)
+            else return node
+            if (kept === node.children) return node
+            changed = true
+            return { ...node, children: kept }
+        })
+        return changed ? next : nodes
+    }
+    return walk(tree)
+}
+
+export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
     for (const node of nodes) {
-        if (node.path === path) return node
+        if (samePath(node.path, path)) return node
         if (node.kind === 'directory') {
             const found = findNodeByPath(node.children, path)
             if (found) return found
         }
     }
     return null
+}
+
+/** The entries directly inside `folderPath`, which is the workspace root or a folder in its tree. */
+export function childrenOf(tree: FileNode[], rootPath: string | null, folderPath: string): FileNode[] {
+    if (rootPath && samePath(folderPath, rootPath)) return tree
+    const folder = findNodeByPath(tree, folderPath)
+    return folder?.kind === 'directory' ? folder.children : []
+}
+
+/**
+ * The sibling already using `name`, ignoring letter case (one file on Windows), or null.
+ * `ignorePath` leaves out the entry being renamed, so `notes.md` -> `Notes.md` is allowed.
+ */
+export function findNameClash(siblings: FileNode[], name: string, ignorePath?: string): FileNode | null {
+    const wanted = name.trim().toLowerCase()
+    return siblings.find((node) => node.name.toLowerCase() === wanted && !(ignorePath && samePath(node.path, ignorePath))) ?? null
+}
+
+export function nameTakenMessage(node: FileNode): string {
+    return `A ${node.kind === 'directory' ? 'folder' : 'file'} named "${node.name}" already exists here.`
+}
+
+export const UNSUPPORTED_FILE_NAME_MESSAGE = `File name must end with ${supportedExtensionsLabel('or')}.`
+
+/**
+ * Why `name` can't be used for a new or renamed entry among `siblings`, or null when it can.
+ * `ignorePath` is the entry being renamed, which may keep its own name.
+ */
+export function entryNameError(name: string, kind: FileNode['kind'], siblings: FileNode[], ignorePath?: string): string | null {
+    const invalid = validateFileName(name)
+    if (invalid) return invalid
+    // A file Scrivon doesn't open (an image, say) can be renamed to anything; only a document has to stay one.
+    const renamingOtherFile = ignorePath !== undefined && !isSupportedDocument(getBaseName(ignorePath))
+    if (kind === 'file' && !renamingOtherFile && !isSupportedDocument(name.trim())) return UNSUPPORTED_FILE_NAME_MESSAGE
+    const clash = findNameClash(siblings, name, ignorePath)
+    return clash ? nameTakenMessage(clash) : null
 }

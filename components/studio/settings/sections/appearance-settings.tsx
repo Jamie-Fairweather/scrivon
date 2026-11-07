@@ -1,7 +1,10 @@
 'use client'
 
-import { APP_DARK_THEME_IDS, APP_LIGHT_THEME_IDS, APP_THEME_LABELS, getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
+import { CheckIcon } from 'lucide-react'
+import { useId } from 'react'
+import { APP_DARK_THEME_IDS, APP_LIGHT_THEME_IDS, APP_THEME_LABELS, getDiagramColors, isAppThemeId, type AppThemeId } from '@/lib/theme/catalog'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { RadioGroupPrimitive, RadioPrimitive } from '@/components/ui/radio-group'
 
 function ThemeSwatch({ id }: { id: AppThemeId }) {
     const colors = getDiagramColors(id)
@@ -14,24 +17,28 @@ function ThemeSwatch({ id }: { id: AppThemeId }) {
 }
 
 function ThemeGroup({ title, ids }: { title: string; ids: AppThemeId[] }) {
-    const { settings, setThemeId } = useAppSettings()
+    const headingId = useId()
 
     return (
-        <div className="space-y-2">
-            <h3 className="text-sm font-medium text-foreground">{title}</h3>
+        <div role="group" aria-labelledby={headingId} className="space-y-2">
+            <h4 id={headingId} className="text-sm font-medium text-foreground">
+                {title}
+            </h4>
             <div className="grid gap-1">
                 {ids.map((id) => (
-                    <button
+                    <RadioPrimitive.Root
                         key={id}
-                        type="button"
-                        onClick={() => setThemeId(id)}
-                        className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
-                            settings.theme.id === id ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'
-                        }`}
+                        value={id}
+                        className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors outline-none
+                            not-data-checked:hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-accent
+                            data-checked:font-medium data-checked:text-accent-foreground"
                     >
                         <ThemeSwatch id={id} />
                         <span>{APP_THEME_LABELS[id]}</span>
-                    </button>
+                        <RadioPrimitive.Indicator className="ms-auto flex" aria-hidden>
+                            <CheckIcon className="size-4" />
+                        </RadioPrimitive.Indicator>
+                    </RadioPrimitive.Root>
                 ))}
             </div>
         </div>
@@ -39,10 +46,20 @@ function ThemeGroup({ title, ids }: { title: string; ids: AppThemeId[] }) {
 }
 
 export function AppearanceSettings() {
+    const { settings, setThemeId } = useAppSettings()
+
+    // One choice across both lists, so screen readers announce which theme is selected.
     return (
-        <div className="space-y-6">
+        <RadioGroupPrimitive
+            aria-label="Theme"
+            value={settings.theme.id}
+            onValueChange={(value) => {
+                if (typeof value === 'string' && isAppThemeId(value)) setThemeId(value)
+            }}
+            className="space-y-6"
+        >
             <ThemeGroup title="Dark themes" ids={APP_DARK_THEME_IDS} />
             <ThemeGroup title="Light themes" ids={APP_LIGHT_THEME_IDS} />
-        </div>
+        </RadioGroupPrimitive>
     )
 }

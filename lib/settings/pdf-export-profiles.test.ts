@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultPdfExportSettings, DEFAULT_PDF_EXPORT_PROFILE_ID } from '@/lib/settings/pdf-export-defaults'
+import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, DEFAULT_PDF_EXPORT_PROFILE_ID } from '@/lib/settings/pdf-export-defaults'
 import { normalizePdfExportProfile, normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
 import {
     createPdfExportProfile,
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    otherProfileNamed,
+    PDF_AUTO_BAR_HEIGHT_MM,
+    pdfBodyHeightMm,
     renamePdfExportProfile,
     setActivePdfExportProfile,
+    uniqueProfileName,
     updatePdfExportProfile,
 } from '@/lib/settings/pdf-export-profiles'
 
@@ -104,6 +108,50 @@ describe('normalizePdfExportSettings', () => {
         expect(normalizePdfExportProfile({ flow: { newPageFromHeading: 9 } }).flow.newPageFromHeading).toBe(0)
     })
 
+    it('quotes saved font names that are not valid CSS', () => {
+        const profile = normalizePdfExportProfile({
+            typography: { headingFont: 'Calibri, sans-serif', bodyFont: 'A&B Sans, sans-serif', monoFont: '0xProto, sans-serif' },
+        })
+        expect(profile.typography).toMatchObject({
+            headingFont: 'Calibri, sans-serif',
+            bodyFont: '"A&B Sans", sans-serif',
+            monoFont: '"0xProto", monospace',
+        })
+    })
+
+    it('gives a Monospace font saved by the old system picker a monospace fallback', () => {
+        const mono = (monoFont: string) => normalizePdfExportProfile({ typography: { monoFont } }).typography.monoFont
+        expect(mono('"Cascadia Code", sans-serif')).toBe('"Cascadia Code", monospace')
+        expect(mono('Fira Code, sans-serif')).toBe('"Fira Code", monospace')
+        // Curated stacks, new picks and anything longer are left as saved.
+        expect(mono('Consolas, "Courier New", monospace')).toBe('Consolas, "Courier New", monospace')
+        expect(mono('"Fira Code", monospace')).toBe('"Fira Code", monospace')
+        expect(mono('"Segoe UI", Tahoma, sans-serif')).toBe('"Segoe UI", Tahoma, sans-serif')
+        // Only the Monospace slot: a sans font picked for headings keeps its sans fallback.
+        expect(normalizePdfExportProfile({ typography: { headingFont: '"Cascadia Code", sans-serif' } }).typography.headingFont).toBe(
+            '"Cascadia Code", sans-serif'
+        )
+    })
+
+    it('gives repeated profile ids new ones so each profile can be changed on its own', () => {
+        const normalized = normalizePdfExportSettings({
+            profiles: [
+                { id: 'a', name: 'First' },
+                { id: 'a', name: 'Second' },
+                { id: 'a-1', name: 'Third' },
+            ],
+            activeProfileId: 'a',
+        })
+        const ids = normalized.profiles.map((profile) => profile.id)
+        expect(ids[0]).toBe('a')
+        expect(new Set(ids).size).toBe(3)
+        expect(normalized.activeProfileId).toBe('a')
+
+        const afterDelete = deletePdfExportProfile(normalized, 'a')
+        expect(afterDelete.profiles.map((profile) => profile.name)).toEqual(['Second', 'Third'])
+        expect(afterDelete.activeProfileId).toBe(ids[1])
+    })
+
     it('falls back to defaults when profiles array is empty', () => {
         const normalized = normalizePdfExportSettings({ profiles: [], activeProfileId: 'x' })
         expect(normalized).toEqual(createDefaultPdfExportSettings())
@@ -164,6 +212,57 @@ describe('pdf export profile CRUD', () => {
         expect(deletePdfExportProfile(settings, 'missing')).toEqual(settings)
     })
 
+    it('gives new profiles names the pickers can tell apart', () => {
+        let settings = createDefaultPdfExportSettings()
+        settings = createPdfExportProfile(settings)
+        settings = createPdfExportProfile(settings)
+        settings = createPdfExportProfile(settings)
+        expect(settings.profiles.map((profile) => profile.name)).toEqual(['Default', 'New profile', 'New profile 2', 'New profile 3'])
+
+        // Names are compared trimmed and ignoring case.
+        expect(createPdfExportProfile(settings, ' default ').profiles.at(-1)!.name).toBe('default 2')
+    })
+
+    it('numbers copies instead of stacking "copy copy"', () => {
+        let settings = createDefaultPdfExportSettings()
+        settings = duplicatePdfExportProfile(settings, DEFAULT_PDF_EXPORT_PROFILE_ID)
+        const firstCopyId = settings.activeProfileId
+        settings = duplicatePdfExportProfile(settings, DEFAULT_PDF_EXPORT_PROFILE_ID)
+        settings = duplicatePdfExportProfile(settings, firstCopyId)
+        settings = duplicatePdfExportProfile(settings, settings.activeProfileId)
+        expect(settings.profiles.map((profile) => profile.name)).toEqual([
+            'Default',
+            'Default copy',
+            'Default copy 2',
+            'Default copy 3',
+            'Default copy 4',
+        ])
+    })
+
+    it('uniqueProfileName keeps a free name and counts up from 2', () => {
+        expect(uniqueProfileName([], 'Report')).toBe('Report')
+        expect(uniqueProfileName([{ name: 'Report' }], 'Report')).toBe('Report 2')
+        expect(uniqueProfileName([{ name: 'Report' }, { name: 'report 2' }], 'Report')).toBe('Report 3')
+    })
+
+    it('otherProfileNamed finds a different profile with the same name, ignoring case and spaces', () => {
+        const profiles = [
+            { id: 'a', name: 'Default' },
+            { id: 'b', name: 'Report' },
+        ]
+        expect(otherProfileNamed(profiles, 'b', ' default ')).toBe(profiles[0])
+        // A profile never clashes with itself, and an empty name clashes with nothing.
+        expect(otherProfileNamed(profiles, 'a', 'Default')).toBeUndefined()
+        expect(otherProfileNamed(profiles, 'b', 'Report 2')).toBeUndefined()
+        expect(otherProfileNamed([...profiles, { id: 'c', name: '' }], 'b', '  ')).toBeUndefined()
+    })
+
+    it('never deletes the last profiles, even when they share an id', () => {
+        const profile = createDefaultPdfExportProfile({ id: 'a' })
+        const settings = { profiles: [profile, { ...profile, name: 'Twin' }], activeProfileId: 'a' }
+        expect(deletePdfExportProfile(settings, 'a')).toBe(settings)
+    })
+
     it('falls back when the active profile id is missing', () => {
         const settings = createDefaultPdfExportSettings()
         settings.activeProfileId = 'missing'
@@ -179,5 +278,54 @@ describe('pdf export profile CRUD', () => {
         settings = deletePdfExportProfile(settings, extraId)
         expect(settings.activeProfileId).toBe(DEFAULT_PDF_EXPORT_PROFILE_ID)
         expect(settings.profiles).toHaveLength(1)
+    })
+})
+
+describe('pdfBodyHeightMm', () => {
+    const bar = (heightMm: number, gapMm: number, ignoreMargins: boolean) => ({ enabled: true, heightMm, gapMm, ignoreMargins })
+
+    it('is the page height minus the top and bottom margins when no bar shows', () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 10)
+        // A hidden bar takes no room, whatever its size.
+        profile.header = { ...profile.header, heightMm: 60, gapMm: 60 }
+        expect(pdfBodyHeightMm(profile)).toBe(277)
+        profile.page = { ...profile.page, size: 'letter', orientation: 'landscape' }
+        expect(pdfBodyHeightMm(profile)).toBeCloseTo(215.9 - 20)
+    })
+
+    it('adds a bar inside the margins, and counts a bleeding bar only past the margin', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, ...bar(20, 5, false) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - (10 + 25) - 10)
+        profile.header = { ...profile.header, ...bar(5, 2, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 10)
+        profile.footer = { ...profile.footer, ...bar(30, 10, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 40)
+    })
+
+    it('estimates the height of a bar that fits its content, as the export does', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, ...bar(0, 3, false) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - (10 + PDF_AUTO_BAR_HEIGHT_MM + 3) - 10)
+        // Bleeding into a 10 mm margin, the 12 mm row still pushes the body down a little.
+        profile.header = { ...profile.header, ...bar(0, 0, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - PDF_AUTO_BAR_HEIGHT_MM - 10)
+    })
+
+    it('goes negative when the bars outgrow a landscape A4 page', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page = { ...profile.page, orientation: 'landscape' }
+        profile.header = { ...profile.header, ...bar(60, 60, true) }
+        profile.footer = { ...profile.footer, ...bar(60, 60, true) }
+        expect(pdfBodyHeightMm(profile)).toBe(210 - 120 - 120)
+    })
+
+    it('leaves out the size, gap and bleed of a switched-off footer that prints only page numbers', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer = { ...profile.footer, heightMm: 20, gapMm: 15, ignoreMargins: true, pageNumbers: 'number' }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - (10 + PDF_AUTO_BAR_HEIGHT_MM))
+        profile.footer = { ...profile.footer, enabled: true }
+        expect(pdfBodyHeightMm(profile)).toBe(297 - 10 - 35)
     })
 })

@@ -1,6 +1,7 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
 
@@ -12,28 +13,85 @@ type NumberSettingProps = {
     min: number
     max: number
     step: number
+    /**
+     * Decimal places a typed value keeps; the step's by default. Lets a field step by 0.1 or 1
+     * and still take a typed 1.15 line height or 12.7 mm margin.
+     */
+    precision?: number
+    disabled?: boolean
     onChange: (value: number) => void
+    /** For the stepper, which is a fixed width so a small number doesn't get a full-width control. */
+    className?: string
 }
 
-/** Labelled stepper for a bounded numeric setting. Ignores cleared input; the previous value stays. */
-export function NumberSetting({ id, label, description, value, min, max, step, onChange }: NumberSettingProps) {
+/** Changes that come from typing. They wait until the field is committed (blur or Enter). */
+const TYPING_REASONS = new Set(['input-change', 'input-clear', 'input-paste', 'input-blur'])
+
+/** Decimal places in a number: 1 → 0, 0.5 → 1, 0.25 → 2. */
+function decimalsOf(step: number): number {
+    return (String(step).split('.')[1] ?? '').length
+}
+
+/** Enough for any value a person typed; past this it's floating-point noise (1.7000000000000002). */
+const MAX_SHOWN_DECIMALS = 6
+
+/**
+ * Commit what was typed on Enter, and on Esc before it closes Settings (the field may be gone
+ * before it could see a blur). Blurring runs the field's own parsing, then focus comes straight
+ * back. The key is left to carry on, so Esc still closes the dialog.
+ */
+function commitOnKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
+    const input = event.currentTarget
+    input.blur()
+    input.focus()
+}
+
+/**
+ * Labelled stepper for a bounded numeric setting. Steps (arrow keys, the +/- buttons) apply at
+ * once; typed text applies when you leave the field or press Enter or Esc, so a half-typed number never
+ * does. Values are kept within min and max and rounded to `precision` decimal places (the step's
+ * by default). Cleared input is ignored and the previous value stays. A saved value with more
+ * decimals than that is shown as it is and kept until it's changed.
+ */
+export function NumberSetting({ id, label, description, value, min, max, step, precision, disabled, onChange, className }: NumberSettingProps) {
+    const decimals = precision ?? decimalsOf(step)
+    // Showing fewer decimals would round the saved value, and leaving the field would then save that.
+    const shownDecimals = Math.max(decimals, Math.min(MAX_SHOWN_DECIMALS, decimalsOf(value)))
+
+    const apply = (next: number | null) => {
+        // The saved value typed again is left as it is, even with more decimals than the step.
+        if (next == null || !Number.isFinite(next) || next === value) return
+        const clean = Math.min(max, Math.max(min, Number(next.toFixed(decimals))))
+        if (clean !== value) onChange(clean)
+    }
+
     return (
-        <Field>
+        // Disabled on the Field too, so the label and help text dim with the control.
+        <Field disabled={disabled}>
             <FieldLabel htmlFor={id}>{label}</FieldLabel>
             {description ? <FieldDescription>{description}</FieldDescription> : null}
             <NumberField
                 id={id}
+                className={cn('w-40', className)}
                 value={value}
                 min={min}
                 max={max}
                 step={step}
-                onValueChange={(next) => {
-                    if (next != null) onChange(next)
+                smallStep={step}
+                largeStep={step * 10}
+                format={{ maximumFractionDigits: shownDecimals }}
+                disabled={disabled}
+                onValueChange={(next, details) => {
+                    if (!TYPING_REASONS.has(details.reason)) apply(next)
+                }}
+                onValueCommitted={(next, details) => {
+                    if (details.reason === 'input-blur') apply(next)
                 }}
             >
                 <NumberFieldGroup>
                     <NumberFieldDecrement />
-                    <NumberFieldInput />
+                    <NumberFieldInput onKeyDown={commitOnKey} />
                     <NumberFieldIncrement />
                 </NumberFieldGroup>
             </NumberField>

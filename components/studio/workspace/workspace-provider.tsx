@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { CanvasControlsProvider } from '@/components/studio/canvas/canvas-controls-provider'
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
 import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { CanvasFitProvider } from '@/components/studio/workspace/canvas-fit-context'
@@ -20,7 +21,7 @@ export function useWorkspaceCoordinator(): WorkspaceCoordinatorRefs {
 
 export { useCanvasFit } from '@/components/studio/workspace/canvas-fit-context'
 export { useDocumentSave } from '@/components/studio/workspace/document-save-context'
-export { useDocumentTabs } from '@/components/studio/workspace/document-tabs-context'
+export { useActiveTabId, useDocumentTabActions, useDocumentTabs } from '@/components/studio/workspace/document-tabs-context'
 export { useStudioLayout } from '@/components/studio/workspace/studio-layout-context'
 export { useWorkspaceSession } from '@/components/studio/workspace/workspace-session-context'
 
@@ -50,13 +51,16 @@ function WorkspaceInner({
 
     return (
         <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
-            <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
+            <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs} workspaceRoot={workspaceRoot}>
                 <StudioLayoutProvider>
                     <CanvasFitProvider coordinator={coordinator}>
                         <CoordinatorContext.Provider value={coordinator}>
-                            <CommandPaletteProvider coordinator={coordinator}>
-                                <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
-                            </CommandPaletteProvider>
+                            {/* Above the palette and the menu bar, so they can tell when there is a diagram to fit. */}
+                            <CanvasControlsProvider>
+                                <CommandPaletteProvider coordinator={coordinator}>
+                                    <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+                                </CommandPaletteProvider>
+                            </CanvasControlsProvider>
                         </CoordinatorContext.Provider>
                     </CanvasFitProvider>
                 </StudioLayoutProvider>

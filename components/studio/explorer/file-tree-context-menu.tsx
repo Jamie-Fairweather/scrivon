@@ -1,10 +1,8 @@
 'use client'
 
 import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useCallback } from 'react'
-import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
-import { useFileTreeActions } from '@/components/studio/explorer/use-file-tree-actions'
-import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
+import { useCallback, type RefObject } from 'react'
+import { useFileTreeActions, useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
@@ -13,21 +11,10 @@ import { isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
-    const { confirmDelete } = useDeleteConfirm()
-    const { promptName } = useNamePrompt()
-    const { openFile, renameEntry, deleteEntry, duplicateFile } = useWorkspaceSession()
+    const { openFile, duplicateFile } = useWorkspaceSession()
+    const { renameWithPrompt, deleteWithConfirm } = useRowEntryActions()
     const parentPath = node.kind === 'directory' ? node.path : null
     const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
-
-    const handleRename = async () => {
-        const name = await promptName('Rename', node.name)
-        if (name && name !== node.name) await renameEntry(node.path, name, node.kind === 'directory')
-    }
-
-    const handleDelete = async () => {
-        const ok = await confirmDelete(node.name, node.kind === 'directory')
-        if (ok) await deleteEntry(node.path, node.kind === 'directory')
-    }
 
     if (node.kind === 'file') {
         return (
@@ -35,7 +22,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 <MenuItem disabled={!isSupportedDocument(node.name)} onClick={() => void openFile(node.path)}>
                     Open
                 </MenuItem>
-                <MenuItem onClick={() => void handleRename()}>
+                <MenuItem onClick={() => void renameWithPrompt(node)}>
                     <Pencil />
                     Rename
                 </MenuItem>
@@ -43,7 +30,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                     <Copy />
                     Duplicate
                 </MenuItem>
-                <MenuItem variant="destructive" onClick={() => void handleDelete()}>
+                <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                     <Trash2 />
                     Delete
                 </MenuItem>
@@ -65,11 +52,11 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 <Plus />
                 New Folder
             </MenuItem>
-            <MenuItem onClick={() => void handleRename()}>
+            <MenuItem onClick={() => void renameWithPrompt(node)}>
                 <Pencil />
                 Rename
             </MenuItem>
-            <MenuItem variant="destructive" onClick={() => void handleDelete()}>
+            <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                 <Trash2 />
                 Delete
             </MenuItem>
@@ -77,30 +64,47 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
     )
 }
 
-export function FileTreeContextMenu({ node }: { node: FileNode }) {
+/**
+ * The '...' button at the end of a row, for the mouse. Keyboard users reach the same menu with Shift+F10 or the
+ * menu key on the row, so the button is left out of the Tab order and hidden from screen readers.
+ */
+export function FileTreeContextMenu({ node, rowRef }: { node: FileNode; rowRef: RefObject<HTMLElement | null> }) {
+    // Closing the menu puts focus back on the row, so the arrow keys keep working. But only while focus is still in
+    // the menu (or nowhere): a name prompt or delete confirmation opened from it has taken focus and keeps it.
+    // This runs as the menu closes, before it leaves the page, so it sees where focus really is.
+    const backToRow = useCallback(() => {
+        const active = document.activeElement
+        const focusInMenu = !active || active === document.body || active.closest('[data-slot="menu-popup"]') !== null
+        return focusInMenu ? rowRef.current : false
+    }, [rowRef])
+
     return (
         <Menu>
             <MenuTrigger
-                nativeButton={false}
                 render={
                     <Button
-                        render={<span />}
                         variant="ghost"
                         size="icon-xs"
-                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-                        aria-label="File actions"
-                        onClick={(e) => e.stopPropagation()}
-                        onPointerDown={(e) => e.stopPropagation()}
+                        tabIndex={-1}
+                        aria-hidden
+                        // Shown on hover, when the row has keyboard focus, and while its own menu is open.
+                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100
+                            data-popup-open:opacity-100"
+                        aria-label={`Actions for ${node.name}`}
                     >
                         <MoreHorizontal className="size-3.5" />
                     </Button>
                 }
             />
-            <MenuPopup align="start" className="min-w-44">
+            <MenuPopup align="start" className="min-w-44" finalFocus={backToRow}>
                 <FileTreeMenuItems node={node} />
             </MenuPopup>
         </Menu>
     )
+}
+
+function isMenuKey(e: React.KeyboardEvent): boolean {
+    return e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')
 }
 
 export function FileTreeRowContextMenu({ node, children }: { node: FileNode; children: React.ReactNode }) {
@@ -108,6 +112,8 @@ export function FileTreeRowContextMenu({ node, children }: { node: FileNode; chi
 
     const onContextMenu = useCallback(
         (e: React.MouseEvent) => {
+            // React also delivers right-clicks from this row's open menus (they render in a portal); leave those alone.
+            if (!e.currentTarget.contains(e.target as Node)) return
             e.preventDefault()
             e.stopPropagation()
             openAt({ x: e.clientX, y: e.clientY })
@@ -115,8 +121,21 @@ export function FileTreeRowContextMenu({ node, children }: { node: FileNode; chi
         [openAt]
     )
 
+    // Shift+F10 or the menu key on the focused row opens its menu just below the row.
+    const onKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            const target = e.target as HTMLElement
+            if (target.getAttribute('role') !== 'treeitem' || !e.currentTarget.contains(target) || !isMenuKey(e)) return
+            e.preventDefault()
+            e.stopPropagation()
+            const rect = target.getBoundingClientRect()
+            openAt({ x: rect.left, y: rect.bottom })
+        },
+        [openAt]
+    )
+
     return (
-        <span onContextMenu={onContextMenu} className="contents">
+        <span onContextMenu={onContextMenu} onKeyDown={onKeyDown} className="contents">
             {children}
             <ContextMenuAtPoint open={open} onOpenChange={onOpenChange} anchor={anchor} align="start" className="min-w-44">
                 <FileTreeMenuItems node={node} />

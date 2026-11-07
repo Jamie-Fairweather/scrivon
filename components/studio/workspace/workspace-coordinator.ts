@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react'
 
+import type { UnsavedText } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 export type WorkspaceCoordinatorRefs = {
@@ -7,16 +8,74 @@ export type WorkspaceCoordinatorRefs = {
     flushSave: MutableRefObject<(id: string) => Promise<boolean>>
     flushSaveOnTabLeave: MutableRefObject<(id: string) => void>
     scheduleSave: MutableRefObject<(id: string) => void>
+    /** Keeps a copy of the tab's unsaved text shortly after the user stops typing, so a crash can't lose it. */
+    scheduleBackup: MutableRefObject<(id: string) => void>
+    /** For a tab that is closing: drops its pending autosave, its copy of unsaved text (if it has edits) and its "couldn't save" notice. */
     cancelScheduledSave: MutableRefObject<(id: string) => void>
+    /** Tabs whose file was renamed or moved: their pending saves and copies of unsaved text follow them. */
+    tabsMoved: MutableRefObject<(moves: ReadonlyArray<{ from: string; to: string }>) => void>
+    /**
+     * Before renaming or deleting `path` (and, for a folder, everything in it): waits for saves already
+     * writing those files, and makes any save asked for meanwhile wait. Resolves to `release`, called once
+     * the disk change is done and the tabs are updated; `whereNow` gives each tab's new id (null if closed).
+     */
+    holdSaves: MutableRefObject<(path: string, isDirectory: boolean) => Promise<(whereNow: (id: string) => string | null) => void>>
     getAutosaveEnabled: MutableRefObject<() => boolean>
+    /** The error from the tab's last failed save, if its last save failed. */
+    getSaveError: MutableRefObject<(id: string) => string | undefined>
+    /** True while a save is waiting for the user to answer a question (such as overwriting a file changed elsewhere). */
+    isAskingUser: MutableRefObject<() => boolean>
+    /** The text (and how its file is stored) of the open tab for `path` when it has edits that aren't saved yet, otherwise undefined. */
+    getUnsavedContent: MutableRefObject<(path: string) => UnsavedText | undefined>
+    /**
+     * Gets tabs ready to close (all tabs when `ids` is left out): saves them, or asks the user
+     * about unsaved or unsavable changes. Resolves false when the tabs must stay open. It changes nothing
+     * else: the caller that then really closes them drops their leftovers (closing a tab, clearTabs,
+     * releaseAllTabs). A request made while another is running shares its answer or waits for it.
+     */
+    confirmCloseTabs: MutableRefObject<(ids?: readonly string[]) => Promise<boolean>>
+    /**
+     * For when every tab is going away with the window (or for an app update), after confirmCloseTabs:
+     * drops their pending saves, copies of unsaved text and notices, and waits (at most a second) until
+     * those copies are gone from disk, so discarded or saved text isn't offered back on the next launch.
+     */
+    releaseAllTabs: MutableRefObject<() => Promise<void>>
+    /**
+     * Keeps a copy of every tab's unsaved text again, as typing does: for when releaseAllTabs ran but the
+     * tabs stayed open after all (an app update that failed to install).
+     */
+    backUpUnsavedTabs: MutableRefObject<() => void>
     remapTabsAfterRename: MutableRefObject<(oldPath: string, newPath: string, newName: string) => void>
     closeTabsForDelete: MutableRefObject<(path: string, isDirectory: boolean) => void>
     requestCanvasFit: MutableRefObject<() => void>
+    /** Closes every tab, dropping its leftovers as closing a tab does; for a folder switch or close after confirmCloseTabs. */
     clearTabs: MutableRefObject<() => void>
-    setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => void>
+    /**
+     * Puts back a folder's saved tabs, keeping any the user opened meanwhile. A tab with unsaved text kept
+     * from a crash goes into the open tab for its file if that has no edits and wasn't saved since. Returns
+     * those it couldn't put back because the user had already changed that file's open tab.
+     */
+    setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => DocumentTab[]>
+    /**
+     * Replaces the tab's text with its file as it is on disk now, dropping the tab's unsaved edits, their
+     * copy and its "couldn't save" notice: the user chose Reload over a change made outside Scrivon.
+     * Throws when the file can't be read; the tab is then left as it was.
+     */
+    reloadTabFromDisk: MutableRefObject<(id: string) => Promise<void>>
+    /**
+     * Reads again the open files without edits whose file another app changed since (git, a sync tool), so
+     * they never show old text. Tabs with edits, read-only tabs and deleted files are left alone. With
+     * `paths`, only the files at those paths, or inside those folders, are looked at.
+     */
+    reloadChangedTabs: MutableRefObject<(paths?: readonly string[]) => Promise<void>>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
-    revealInEditor: MutableRefObject<(path: string, line: number, column: number) => void>
+    revealInEditor: MutableRefObject<(path: string, line: number, column: number, length?: number) => void>
+    /**
+     * Puts text a tab got from outside the editor (reloaded from disk) into the editor straight away, when
+     * that tab is on screen, so a key pressed before the screen draws again edits the new text.
+     */
+    replaceEditorText: MutableRefObject<(tabId: string, text: string) => void>
     getEditorSelectedText: MutableRefObject<() => string | null>
 }
 
@@ -26,16 +85,28 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         flushSave: { current: async () => true },
         flushSaveOnTabLeave: { current: () => {} },
         scheduleSave: { current: () => {} },
+        scheduleBackup: { current: () => {} },
         cancelScheduledSave: { current: () => {} },
+        tabsMoved: { current: () => {} },
+        holdSaves: { current: async () => () => {} },
         getAutosaveEnabled: { current: () => true },
+        getSaveError: { current: () => undefined },
+        isAskingUser: { current: () => false },
+        getUnsavedContent: { current: () => undefined },
+        confirmCloseTabs: { current: async () => true },
+        releaseAllTabs: { current: async () => {} },
+        backUpUnsavedTabs: { current: () => {} },
         remapTabsAfterRename: { current: () => {} },
         closeTabsForDelete: { current: () => {} },
         requestCanvasFit: { current: () => {} },
         clearTabs: { current: () => {} },
-        setTabsFromWorkspace: { current: () => {} },
+        setTabsFromWorkspace: { current: () => [] },
+        reloadTabFromDisk: { current: async () => {} },
+        reloadChangedTabs: { current: async () => {} },
         persistWorkspaceTabSession: { current: async () => {} },
         openFile: { current: async () => {} },
         revealInEditor: { current: () => {} },
+        replaceEditorText: { current: () => {} },
         getEditorSelectedText: { current: () => null },
     }
 }

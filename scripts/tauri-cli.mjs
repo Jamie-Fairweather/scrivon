@@ -2,16 +2,22 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { applyTauriSigningFromEnv, loadDotEnv, projectRoot } from './load-dotenv.mjs'
+import { applyTauriSigningFromEnv, loadDotEnv, projectRoot, tauriCommandSigns } from './load-dotenv.mjs'
 
 const tauriBin = join(projectRoot, 'node_modules', '@tauri-apps', 'cli', 'tauri.js')
-
-loadDotEnv()
-applyTauriSigningFromEnv()
 
 const args = process.argv.slice(2)
 if (args.length === 0) {
     console.error('Usage: bun run tauri <command> [args...]')
+    process.exit(1)
+}
+
+loadDotEnv()
+try {
+    // A missing key file only stops commands that sign; `tauri dev` or `signer generate` carry on.
+    applyTauriSigningFromEnv({ keyRequired: tauriCommandSigns(args) })
+} catch (error) {
+    console.error(error instanceof Error ? error.message : error)
     process.exit(1)
 }
 

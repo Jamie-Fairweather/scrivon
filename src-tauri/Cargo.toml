@@ -1,9 +1,11 @@
 [package]
 name = "scrivon"
 version = "1.4.2"
-description = "A Tauri App"
+description = "Local-first editor for Mermaid diagrams and Markdown"
 authors = ["Jamie Fairweather"]
 license = "MIT"
+homepage = "https://github.com/Jamie-Fairweather/scrivon"
+repository = "https://github.com/Jamie-Fairweather/scrivon"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -21,12 +23,14 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
+# watch: lets the app notice files changed by other programs (D10).
+tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-lopdf = "0.38"
+# 0.42+ fixes RUSTSEC-2026-0187 (stack overflow on deeply nested PDFs).
+lopdf = "0.42"
 base64 = "0.22"
 tauri-plugin-process = "2"
 tokio = { version = "1", features = ["sync", "time"] }
@@ -40,10 +44,21 @@ font-kit = "0.14.3"
 [profile.dev.package.lopdf]
 opt-level = 3
 
+# Shipped builds: whole-program optimisation for a smaller exe and smaller update downloads.
+# opt-level stays 3 so PDF page stamping stays fast. panic stays "unwind" on purpose: a panic
+# in lopdf or font-kit then fails that one export instead of closing the app with unsaved tabs.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
 windows-core = "0.61.2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# One Scrivon process at a time, so two windows can't overwrite each other's files and sessions (B60, D20).
+tauri-plugin-single-instance = "~2.4"
 tauri-plugin-updater = "2"
 
