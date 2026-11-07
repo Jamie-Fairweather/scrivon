@@ -340,8 +340,11 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
             aria-valuenow={Math.round(clamp(position.x, 0, 1) * 100)}
             aria-valuetext={`Saturation ${Math.round(clamp(position.x, 0, 1) * 100)}%, brightness ${Math.round((1 - clamp(position.y, 0, 1)) * 100)}%`}
             className={cn(
-                `relative aspect-square w-full cursor-crosshair rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/24
-                dark:focus-visible:ring-ring/48`,
+                // A full-strength ring with a gap in the popover colour, so it reads against the popover, not the gradient.
+                // outline-none, not outline-hidden: that keeps a transparent outline at rest, which Windows Contrast themes
+                // paint. There, globals.css draws a Highlight outline on focus instead.
+                `relative aspect-square w-full cursor-crosshair rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring
+                focus-visible:ring-offset-2 focus-visible:ring-offset-popover`,
                 className
             )}
             style={{ background: backgroundGradient }}
@@ -414,7 +417,8 @@ function ColorSliderTrack({
                         aria-label={ariaLabel}
                         getAriaValueText={(_formatted, thumbValue) => `${Math.round(thumbValue)}${unit}`}
                         className="block size-4 shrink-0 rounded-full border border-primary/50 bg-background shadow outline-none
-                            has-focus-visible:ring-[3px] has-focus-visible:ring-ring/24 dark:has-focus-visible:ring-ring/48"
+                            has-focus-visible:ring-2 has-focus-visible:ring-ring has-focus-visible:ring-offset-1
+                            has-focus-visible:ring-offset-popover"
                         data-slot="slider-thumb"
                         index={0}
                     />

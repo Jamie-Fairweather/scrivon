@@ -43,15 +43,22 @@ function eventToChords(event: KeyboardEvent): KeybindChord[] {
     return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
 }
 
-function shouldSkipForTarget(meta: KeybindActionMeta, target: EventTarget | null, pressed: KeybindChord): boolean {
+function shouldSkipForTarget(meta: KeybindActionMeta, target: EventTarget | null, pressed: KeybindChord, inPalette: boolean): boolean {
     if (meta.allowInNativeTextField) return false
     // In the editor, real shortcuts (Ctrl/Alt/Cmd or an F-key) work on every platform; a bare key
-    // never fires there, so it can't stop that character being typed.
-    if (isInsideCodeEditor(target)) return !(hasCommandModifier(pressed) || isFunctionKey(pressed.key))
+    // never fires there, so it can't stop that character being typed. The same goes for the palette's
+    // search box and the shortcuts that switch what the palette shows.
+    if (isInsideCodeEditor(target) || (inPalette && meta.allowInPalette)) return !(hasCommandModifier(pressed) || isFunctionKey(pressed.key))
     return isNativeTextField(target)
 }
 
-export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: { hasWorkspace?: boolean } = {}): KeybindActionId | null {
+export type MatchKeybindOptions = {
+    hasWorkspace?: boolean
+    /** The key was pressed inside the open command palette (usually in its search box). */
+    inPalette?: boolean
+}
+
+export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
     // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
     if (event.repeat || isModifierKey(event.key)) return null
     // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
@@ -67,7 +74,7 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
         const meta = getKeybindActionMeta(actionId)
         if (!meta) continue
         if (meta.when === 'workspace' && !options.hasWorkspace) continue
-        if (shouldSkipForTarget(meta, event.target, pressed[0])) continue
+        if (shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)) continue
 
         for (const chord of chords) {
             if (pressed.some((candidate) => chordsEqual(candidate, chord))) {

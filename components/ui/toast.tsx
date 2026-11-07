@@ -1,7 +1,7 @@
 'use client'
 
 import { Toast } from '@base-ui/react/toast'
-import { CircleAlertIcon, CircleCheckIcon, InfoIcon, LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react'
+import { CircleAlertIcon, CircleCheckIcon, InfoIcon, LoaderCircleIcon, TriangleAlertIcon, XIcon } from 'lucide-react'
 import type React from 'react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { isAppUpdateToastData } from '@/lib/updater/update-toast-data'
@@ -171,7 +171,7 @@ function Toasts({ position, portalProps }: { position: ToastPosition; portalProp
                                     {Icon && (
                                         <div className="[&_svg]:pointer-events-none [&_svg]:shrink-0 [&>svg]:h-lh [&>svg]:w-4" data-slot="toast-icon">
                                             <Icon
-                                                className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info
+                                                className="in-data-[type=error]:text-destructive-foreground in-data-[type=info]:text-info
                                                     in-data-[type=loading]:animate-spin in-data-[type=loading]:opacity-80
                                                     in-data-[type=success]:text-success in-data-[type=warning]:text-warning"
                                             />
@@ -183,7 +183,15 @@ function Toasts({ position, portalProps }: { position: ToastPosition; portalProp
                                         <Toast.Description className="text-muted-foreground" data-slot="toast-description" />
                                     </div>
                                 </div>
-                                <ToastActions toast={toast} close={close} />
+                                <div className="flex shrink-0 items-center gap-1">
+                                    <ToastActions toast={toast} close={close} />
+                                    {/* Notices that never time out need a visible way out. The update toast has its own Dismiss. */}
+                                    {!isAppUpdateToastData(toast.data) && (
+                                        <Toast.Close aria-label="Dismiss notification" render={<Button variant="ghost" size="icon-xs" />}>
+                                            <XIcon />
+                                        </Toast.Close>
+                                    )}
+                                </div>
                             </Toast.Content>
                         </Toast.Root>
                     )

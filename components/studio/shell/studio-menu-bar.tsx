@@ -40,9 +40,20 @@ import type { KeybindActionId } from '@/lib/settings/types'
 import { getBaseName, samePath } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
 
-function MenuBarEntry({ label, children }: { label: string; children: ReactNode }) {
+function MenuBarEntry({
+    label,
+    children,
+    focusAfterCommand,
+}: {
+    label: string
+    children: ReactNode
+    focusAfterCommand: () => HTMLElement | boolean
+}) {
+    // A chosen command sends focus back to where it was before the menu bar, not to this title. Esc,
+    // clicking away and moving to the next menu keep Base UI's own focus handling.
+    const [closedByCommand, setClosedByCommand] = useState(false)
     return (
-        <Menu>
+        <Menu onOpenChange={(open, details) => setClosedByCommand(!open && details.reason === 'item-press')}>
             <MenuTrigger
                 render={
                     <Button variant="ghost" size="xs" className="h-7 min-h-0 rounded-md px-2.5 font-normal text-foreground/90 hover:bg-accent/80" />
@@ -50,7 +61,7 @@ function MenuBarEntry({ label, children }: { label: string; children: ReactNode 
             >
                 {label}
             </MenuTrigger>
-            <MenuPopup align="start" className="min-w-48">
+            <MenuPopup align="start" className="min-w-48" finalFocus={closedByCommand ? focusAfterCommand : undefined}>
                 {children}
             </MenuPopup>
         </Menu>
@@ -85,7 +96,7 @@ export function StudioMenuBar() {
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
     const menubarRef = useRef<HTMLDivElement>(null)
-    useMenubarAccessKey(menubarRef)
+    const focusAfterCommand = useMenubarAccessKey(menubarRef)
 
     const hasWorkspace = Boolean(workspaceRoot)
     // Read from settings on every render so the menu follows the user's own key bindings.
@@ -105,7 +116,7 @@ export function StudioMenuBar() {
             </div>
             <nav aria-label="Application menu" className={cn('flex shrink-0 items-center px-1', TITLEBAR_MENUS_BLOCKED_CLASS)}>
                 <Menubar ref={menubarRef} modal={false} className="flex items-center gap-0.5">
-                    <MenuBarEntry label="File">
+                    <MenuBarEntry label="File" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
                             <MenuItem disabled={!isDesktop} onClick={() => void pickAndOpenWorkspace()}>
                                 Open Folder…
@@ -165,7 +176,7 @@ export function StudioMenuBar() {
                         )}
                     </MenuBarEntry>
 
-                    <MenuBarEntry label="Options">
+                    <MenuBarEntry label="Options" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
                             <MenuItem onClick={() => openSettings()}>
                                 Settings…
@@ -187,7 +198,7 @@ export function StudioMenuBar() {
                     </MenuBarEntry>
 
                     {hasWorkspace && (
-                        <MenuBarEntry label="View">
+                        <MenuBarEntry label="View" focusAfterCommand={focusAfterCommand}>
                             <MenuGroup>
                                 <MenuCheckboxItem checked={layout.explorerOpen} onCheckedChange={(checked) => setExplorerOpen(checked === true)}>
                                     <CheckboxLabelWithHint label="Explorer" shortcut={shortcut('view.toggleExplorer')} />
@@ -209,7 +220,7 @@ export function StudioMenuBar() {
                         </MenuBarEntry>
                     )}
 
-                    <MenuBarEntry label="Help">
+                    <MenuBarEntry label="Help" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
                             <MenuItem onClick={() => setAboutOpen(true)}>About {APP_NAME}…</MenuItem>
                             <MenuItem onClick={() => setLicensesOpen(true)}>Licences…</MenuItem>

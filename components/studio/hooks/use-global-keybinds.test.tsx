@@ -49,32 +49,61 @@ describe('useGlobalKeybinds', () => {
         expect(event.defaultPrevented).toBe(false)
     })
 
-    it('lets palette shortcuts switch the command palette while it is the only modal open', () => {
+    it('lets palette shortcuts switch the command palette from its search box while it is the only modal open', () => {
         const toggleExplorer = vi.fn()
         const openPalette = vi.fn()
         const openFiles = vi.fn()
+        const openText = vi.fn()
         renderHook(() =>
             useGlobalKeybinds(
                 bindings,
-                { 'view.toggleExplorer': toggleExplorer, 'palette.open': openPalette, 'palette.openFiles': openFiles },
+                { 'view.toggleExplorer': toggleExplorer, 'palette.open': openPalette, 'palette.openFiles': openFiles, 'palette.openText': openText },
                 { hasWorkspace: true }
             )
         )
         const palette = addElement({ role: 'dialog', 'data-open': '', 'data-slot': 'command-dialog-popup' })
-        const list = document.createElement('div')
-        palette.appendChild(list)
+        // The palette keeps focus in its search box.
         const input = document.createElement('input')
         palette.appendChild(input)
 
         const f1 = press('F1', {}, input)
-        press('n', { ctrlKey: true, shiftKey: true }, list)
-        const ctrlB = press('b', { ctrlKey: true }, list)
+        const ctrlShiftN = press('n', { ctrlKey: true, shiftKey: true }, input)
+        const ctrlShiftF = press('f', { ctrlKey: true, shiftKey: true }, input)
+        const ctrlB = press('b', { ctrlKey: true }, input)
 
         expect(openPalette).toHaveBeenCalledTimes(1)
         expect(f1.defaultPrevented).toBe(true)
         expect(openFiles).toHaveBeenCalledTimes(1)
+        expect(ctrlShiftN.defaultPrevented).toBe(true)
+        expect(openText).toHaveBeenCalledTimes(1)
+        expect(ctrlShiftF.defaultPrevented).toBe(true)
         expect(toggleExplorer).not.toHaveBeenCalled()
         expect(ctrlB.defaultPrevented).toBe(false)
+    })
+
+    it('never fires a palette shortcut bound to a bare key while typing in the palette search box', () => {
+        const openFiles = vi.fn()
+        renderHook(() => useGlobalKeybinds({ ...bindings, 'palette.openFiles': [{ key: 'n' }] }, { 'palette.openFiles': openFiles }))
+        const palette = addElement({ role: 'dialog', 'data-open': '', 'data-slot': 'command-dialog-popup' })
+        const input = document.createElement('input')
+        palette.appendChild(input)
+
+        const event = press('n', {}, input)
+
+        expect(openFiles).not.toHaveBeenCalled()
+        expect(event.defaultPrevented).toBe(false)
+    })
+
+    it('still skips palette shortcuts in a text field outside the palette', () => {
+        const openText = vi.fn()
+        renderHook(() => useGlobalKeybinds(bindings, { 'palette.openText': openText }))
+        const input = document.createElement('input')
+        document.body.appendChild(input)
+
+        const event = press('f', { ctrlKey: true, shiftKey: true }, input)
+
+        expect(openText).not.toHaveBeenCalled()
+        expect(event.defaultPrevented).toBe(false)
     })
 
     it('keeps palette shortcuts off when another modal is open with the palette', () => {
@@ -108,6 +137,20 @@ describe('useGlobalKeybinds', () => {
         press('s', { ctrlKey: true })
 
         expect(save).toHaveBeenCalledTimes(1)
+    })
+
+    it("doesn't search the page for open dialogs on keys that aren't shortcuts", () => {
+        renderHook(() => useGlobalKeybinds(bindings, { 'document.save': vi.fn() }, { hasWorkspace: true }))
+        const editor = document.createElement('div')
+        editor.className = 'monaco-editor'
+        document.body.appendChild(editor)
+        const querySelectorAll = vi.spyOn(document, 'querySelectorAll')
+
+        press('a', {}, editor)
+        press('A', { shiftKey: true }, editor)
+
+        expect(querySelectorAll).not.toHaveBeenCalled()
+        querySelectorAll.mockRestore()
     })
 
     it('ignores keys something else already handled', () => {

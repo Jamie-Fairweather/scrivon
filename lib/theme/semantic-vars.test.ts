@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applySemanticVars, tokensToSemanticVars } from './semantic-vars'
 import { APP_THEME_IDS } from './catalog'
-import { contrastRatio } from './color-mix'
+import { contrastRatio, hexColorMix } from './color-mix'
 import { resolveThemeTokensForId, type ResolvedThemeTokens } from './resolve-theme-tokens'
 
 const sampleTokens: ResolvedThemeTokens = {
@@ -70,6 +70,8 @@ describe('tokensToSemanticVars', () => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 
         expect(contrastRatio(vars['--ring'], vars['--background'])).toBeGreaterThanOrEqual(3)
+        // Popovers too: the colour picker draws its ring with a popover-coloured gap.
+        expect(contrastRatio(vars['--ring'], vars['--popover'])).toBeGreaterThanOrEqual(3)
     })
 
     it.each(APP_THEME_IDS)('%s: body text on hover and selected fills reaches 4.5:1', (id) => {
@@ -96,6 +98,26 @@ describe('tokensToSemanticVars', () => {
         expect(vars['--popover-foreground']).toBe('#ffffff')
         expect(vars['--secondary-foreground']).toBe('#ffffff')
         expect(vars['--sidebar-accent-foreground']).toBe('#ffffff')
+    })
+
+    it.each(APP_THEME_IDS)('%s: text on primary buttons and selected text reaches 4.5:1, also on a hovered or pressed button', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--primary-foreground'], vars['--primary'])).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(vars['--sidebar-primary-foreground'], vars['--sidebar-primary'])).toBeGreaterThanOrEqual(4.5)
+        // button.tsx draws a hovered or pressed primary button at bg-primary/90, over a dialog or the page.
+        for (const under of [vars['--popover'], vars['--background']]) {
+            const pressed = hexColorMix(vars['--primary'], under, 90)
+            expect(contrastRatio(vars['--primary-foreground'], pressed), `over ${under}`).toBeGreaterThanOrEqual(4.5)
+        }
+    })
+
+    it('keeps the palette text colour as the primary fill when it already reaches 4.5:1', () => {
+        const vars = tokensToSemanticVars(sampleTokens)
+
+        expect(vars['--primary']).toBe('#eeeeee')
+        expect(vars['--sidebar-primary']).toBe('#eeeeee')
+        expect(vars['--primary-foreground']).toBe('#111111')
     })
 
     it.each(APP_THEME_IDS)('%s: text on highlighted rows reaches 4.5:1', (id) => {

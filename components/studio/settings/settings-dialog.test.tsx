@@ -6,6 +6,7 @@ import { SETTINGS_STORAGE_KEY } from '@/lib/settings/storage'
 import { notifyError } from '@/lib/notify'
 
 const advanced = vi.hoisted(() => ({ broken: false }))
+const pdfExport = vi.hoisted(() => ({ broken: false }))
 const nav = vi.hoisted(() => ({ brokenLabelFor: null as string | null }))
 
 // The Advanced section as it is, unless a test breaks it.
@@ -15,6 +16,17 @@ vi.mock('@/components/studio/settings/sections/advanced-settings', async (import
         AdvancedSettings: () => {
             if (advanced.broken) throw new Error('bad setting')
             return <actual.AdvancedSettings />
+        },
+    }
+})
+
+// The Document export section as it is, unless a test breaks it.
+vi.mock('@/components/studio/settings/sections/pdf-export-settings', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/studio/settings/sections/pdf-export-settings')>()
+    return {
+        PdfExportSettings: () => {
+            if (pdfExport.broken) throw new Error('bad profile')
+            return <actual.PdfExportSettings />
         },
     }
 })
@@ -144,6 +156,7 @@ describe('SettingsDialog when a section fails to draw', () => {
 
     afterEach(() => {
         advanced.broken = false
+        pdfExport.broken = false
         nav.brokenLabelFor = null
         vi.unstubAllGlobals()
         vi.restoreAllMocks()
@@ -171,6 +184,39 @@ describe('SettingsDialog when a section fails to draw', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
         expect(within(screen.getByRole('region', { name: 'Advanced' })).queryByRole('alert')).toBeNull()
         expect(screen.getByText('Recent folders limit')).toBeInTheDocument()
+    })
+
+    it('tries the section again after Restore defaults, without switching sections', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        await screen.findByRole('region', { name: 'Keyboard' })
+
+        advanced.broken = true
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+        expect(within(screen.getByRole('region', { name: 'Advanced' })).getByRole('alert')).toHaveTextContent('Restore defaults can put')
+
+        // What broke it was a saved setting, which Restore defaults puts back.
+        advanced.broken = false
+        fireEvent.click(screen.getByRole('button', { name: 'Restore defaults' }))
+        const confirm = await screen.findByRole('alertdialog')
+        fireEvent.click(within(confirm).getByRole('button', { name: 'Restore defaults' }))
+
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+        expect(within(screen.getByRole('region', { name: 'Advanced' })).queryByRole('alert')).toBeNull()
+        expect(screen.getByText('Recent folders limit')).toBeInTheDocument()
+    })
+
+    it("doesn't offer Restore defaults as the fix for the Document export section, which it doesn't reset", async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        await screen.findByRole('region', { name: 'Keyboard' })
+
+        pdfExport.broken = true
+        fireEvent.click(screen.getByRole('button', { name: 'Document export' }))
+
+        const notice = within(screen.getByRole('region', { name: 'Document export' })).getByRole('alert')
+        expect(notice).toHaveTextContent("Restore defaults keeps your export profiles, so it won't fix this one.")
+        expect(notice).not.toHaveTextContent('can put its settings back')
     })
 
     it('closes Settings with a notice when the rest of it fails, and reopens on General instead of the same section', async () => {

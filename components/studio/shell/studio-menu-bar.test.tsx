@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
@@ -191,5 +191,80 @@ describe('StudioMenuBar View menu', () => {
 
         const fit = within(await screen.findByRole('menu')).getByRole('menuitem', { name: /^Fit Diagram to Screen/ })
         expect(fit).toHaveAttribute('aria-disabled', 'true')
+    })
+})
+
+describe('StudioMenuBar focus after a command', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        mockContexts({ workspaceRoot: 'C:/work' })
+    })
+
+    function renderWithEditor() {
+        render(
+            <>
+                <StudioMenuBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+        const editor = screen.getByLabelText('editor')
+        editor.focus()
+        return editor
+    }
+
+    it('goes back to the editor after a command chosen with the keyboard', async () => {
+        const editor = renderWithEditor()
+        const user = userEvent.setup()
+
+        fireEvent.keyDown(editor, { key: 'Alt', altKey: true })
+        fireEvent.keyUp(editor, { key: 'Alt' })
+        expect(screen.getByRole('menuitem', { name: 'File' })).toHaveFocus()
+        await user.keyboard('{ArrowRight}{ArrowRight}')
+        expect(screen.getByRole('menuitem', { name: 'View' })).toHaveFocus()
+        await user.keyboard('{ArrowDown}')
+        const fit = within(await screen.findByRole('menu')).getByRole('menuitem', { name: /^Fit Diagram to Screen/ })
+        await waitFor(() => expect(document.activeElement?.closest('[role="menu"]')).not.toBeNull())
+        fit.focus()
+        await user.keyboard('{Enter}')
+
+        expect(vi.mocked(useCanvasFit)().requestCanvasFit).toHaveBeenCalledTimes(1)
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+        await waitFor(() => expect(editor).toHaveFocus())
+    })
+
+    it('goes back to the editor after a command chosen with the mouse', async () => {
+        const editor = renderWithEditor()
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'View' }))
+        await user.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: /^Preview Only/ }))
+
+        expect(vi.mocked(useStudioLayout)().setPreviewOnly).toHaveBeenCalledTimes(1)
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+        await waitFor(() => expect(editor).toHaveFocus())
+    })
+
+    it('keeps focus in a dialog the command opened', async () => {
+        renderWithEditor()
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'Help' }))
+        await user.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'About Scrivon…' }))
+
+        const about = await screen.findByRole('dialog')
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+        await waitFor(() => expect(about.contains(document.activeElement)).toBe(true))
+    })
+
+    it('goes back to the menu title when Esc closes a menu', async () => {
+        renderWithEditor()
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'View' }))
+        await screen.findByRole('menu')
+        await user.keyboard('{Escape}')
+
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+        await waitFor(() => expect(screen.getByRole('menuitem', { name: 'View' })).toHaveFocus())
     })
 })
