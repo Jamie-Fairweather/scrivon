@@ -123,10 +123,43 @@ fn rename_allowed(
 }
 
 /// Moves `from` to `to` in one step, unless something is already at `to`
-/// (ERROR_ALREADY_EXISTS). Without MOVEFILE_REPLACE_EXISTING, Windows still
+/// (ERROR_ALREADY_EXISTS). Without MOVEFILE_REPLACE_EXISTING, NTFS still
 /// renames a file or folder to its own name in another letter case.
 #[cfg(windows)]
 fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    rename_unless_taken(from, to, move_file_no_replace)
+}
+
+/// Runs `move_file` (MoveFileExW, which never replaces), and deals with a
+/// drive that takes a change of letter case for a name that is taken.
+#[cfg(any(windows, test))]
+fn rename_unless_taken(
+    from: &Path,
+    to: &Path,
+    move_file: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    const ERROR_FILE_EXISTS: i32 = 80;
+    const ERROR_ALREADY_EXISTS: i32 = 183;
+
+    let Err(err) = move_file(from, to) else {
+        return Ok(());
+    };
+    // Some network, virtual and cloud drives see that the new name is there but
+    // not that it is the very same file. Renamed as the file plugin did then
+    // (replacing, which loses nothing, as `to` is `from` itself). NTFS doesn't
+    // need this, so the real case can't be tested here; tests fake that drive.
+    if matches!(
+        err.raw_os_error(),
+        Some(ERROR_FILE_EXISTS | ERROR_ALREADY_EXISTS)
+    ) && same_entry_in_new_case(from, to)
+    {
+        return fs::rename(from, to);
+    }
+    Err(err)
+}
+
+#[cfg(windows)]
+fn move_file_no_replace(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     #[link(name = "kernel32")]
@@ -177,10 +210,8 @@ fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
 
 /// True when `to` is `from` with its name in another letter case and the
 /// drive finds the very same entry under both names.
-#[cfg(unix)]
+#[cfg(any(windows, unix))]
 fn same_entry_in_new_case(from: &Path, to: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-
     let lower = |path: &Path| {
         path.file_name()
             .map(|name| name.to_string_lossy().to_lowercase())
@@ -188,10 +219,40 @@ fn same_entry_in_new_case(from: &Path, to: &Path) -> bool {
     if from == to || from.parent() != to.parent() || lower(from) != lower(to) {
         return false;
     }
-    match (fs::symlink_metadata(from), fs::symlink_metadata(to)) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+    match (entry_id(from), entry_id(to)) {
+        (Some(a), Some(b)) => a == b,
         _ => false,
     }
+}
+
+/// Which entry on which drive `path` is (a link itself, not what it points to).
+#[cfg(unix)]
+fn entry_id(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    fs::symlink_metadata(path)
+        .ok()
+        .map(|meta| (meta.dev(), meta.ino()))
+}
+
+/// Which entry on which drive `path` is (a link itself, not what it points
+/// to): the volume's serial number and the file's index on it.
+#[cfg(windows)]
+fn entry_id(path: &Path) -> Option<(u32, u64)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+    // No access is needed to read who it is, so another program holding it
+    // open doesn't get in the way; backup semantics open a folder too.
+    let entry = OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
+    let info = handle_info(&entry)?;
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    // Some drives give every file 0, which says nothing about which one it is.
+    (index != 0).then_some((info.dwVolumeSerialNumber, index))
 }
 
 /// rename(2) that fails with EEXIST instead of replacing what is at `to`.
@@ -455,21 +516,32 @@ fn replace(path: &Path, temp: &Path) -> io::Result<()> {
 /// How many names (hard links) the file has; 1 when that can't be read.
 #[cfg(windows)]
 fn link_count(path: &Path) -> u32 {
+    File::open(path)
+        .ok()
+        .and_then(|file| handle_info(&file))
+        .map_or(1, |info| info.nNumberOfLinks)
+}
+
+/// BY_HANDLE_FILE_INFORMATION. Only filled in by Windows, and not every field is read.
+#[cfg(windows)]
+#[repr(C)]
+#[allow(non_snake_case, dead_code)]
+struct ByHandleFileInformation {
+    dwFileAttributes: u32,
+    times: [u32; 6],
+    dwVolumeSerialNumber: u32,
+    nFileSizeHigh: u32,
+    nFileSizeLow: u32,
+    nNumberOfLinks: u32,
+    nFileIndexHigh: u32,
+    nFileIndexLow: u32,
+}
+
+/// What Windows says about the file `file` has open; None when it can't say.
+#[cfg(windows)]
+fn handle_info(file: &File) -> Option<ByHandleFileInformation> {
     use std::os::windows::io::AsRawHandle;
 
-    // BY_HANDLE_FILE_INFORMATION. Only filled in by Windows, and only the link count is read.
-    #[repr(C)]
-    #[allow(non_snake_case, dead_code)]
-    struct ByHandleFileInformation {
-        dwFileAttributes: u32,
-        times: [u32; 6],
-        dwVolumeSerialNumber: u32,
-        nFileSizeHigh: u32,
-        nFileSizeLow: u32,
-        nNumberOfLinks: u32,
-        nFileIndexHigh: u32,
-        nFileIndexLow: u32,
-    }
     #[link(name = "kernel32")]
     extern "system" {
         fn GetFileInformationByHandle(
@@ -478,16 +550,12 @@ fn link_count(path: &Path) -> u32 {
         ) -> i32;
     }
 
-    let Ok(file) = File::open(path) else { return 1 };
     let mut info = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
     // SAFETY: the handle is open for the whole call and `info` is a writable
     // BY_HANDLE_FILE_INFORMATION.
     let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
-    if ok == 0 {
-        return 1;
-    }
     // SAFETY: the call succeeded, so it filled `info` in.
-    unsafe { info.assume_init() }.nNumberOfLinks
+    (ok != 0).then(|| unsafe { info.assume_init() })
 }
 
 #[cfg(unix)]
@@ -842,6 +910,72 @@ mod tests {
 
         assert_eq!(dir.names(), ["Notes.md"]);
         assert_eq!(fs::read_to_string(dir.0.join("Notes.md")).unwrap(), "NOTES");
+    }
+
+    /// A drive that says the new name is taken whatever it is (ERROR_ALREADY_EXISTS).
+    fn name_taken(_: &Path, _: &Path) -> io::Result<()> {
+        Err(io::Error::from_raw_os_error(183))
+    }
+
+    #[test]
+    fn renames_to_another_letter_case_on_a_drive_that_says_the_name_is_taken() {
+        // A file and a folder.
+        for (old, new) in [("notes.md", "Notes.md"), ("docs", "Docs")] {
+            let dir = TempDir::new();
+            let (from, to) = (dir.0.join(old), dir.0.join(new));
+            if old == "docs" {
+                fs::create_dir(&from).unwrap();
+            } else {
+                fs::write(&from, "NOTES").unwrap();
+            }
+            // Only a drive that ignores case finds the same entry under the new name.
+            let ignores_case = to.exists();
+
+            let renamed = rename_unless_taken(&from, &to, name_taken);
+
+            if ignores_case {
+                renamed.unwrap();
+                assert_eq!(dir.names(), [new]);
+            } else {
+                assert_eq!(renamed.unwrap_err().raw_os_error(), Some(183));
+                assert_eq!(dir.names(), [old]);
+            }
+        }
+    }
+
+    #[test]
+    fn still_refuses_a_name_that_is_not_the_same_entry_in_another_case() {
+        let dir = TempDir::new();
+        let notes = dir.0.join("notes.md");
+        fs::write(&notes, "NOTES").unwrap();
+        let other = dir.0.join("other.md");
+        fs::write(&other, "OTHER").unwrap();
+        // The same file under another name, and under its own name in another
+        // case but in another folder.
+        let linked = dir.0.join("linked.md");
+        fs::hard_link(&notes, &linked).unwrap();
+        fs::create_dir(dir.0.join("sub")).unwrap();
+        let elsewhere = dir.0.join("sub").join("Notes.md");
+        fs::hard_link(&notes, &elsewhere).unwrap();
+        let mut targets = vec![&other, &linked, &elsewhere, &notes];
+        let mut names = vec!["linked.md", "notes.md", "other.md", "sub"];
+        // Another file whose name differs only in case, on a drive that allows one.
+        let other_case = dir.0.join("Notes.md");
+        if !other_case.exists() {
+            fs::write(&other_case, "OTHER CASE").unwrap();
+            targets.push(&other_case);
+            names.insert(0, "Notes.md");
+        }
+
+        for to in targets {
+            let refused = rename_unless_taken(&notes, to, name_taken).unwrap_err();
+            assert_eq!(refused.raw_os_error(), Some(183), "{}", to.display());
+        }
+
+        assert_eq!(dir.names(), names);
+        assert_eq!(fs::read_to_string(&other).unwrap(), "OTHER");
+        assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "NOTES");
+        assert_eq!(fs::read_to_string(&notes).unwrap(), "NOTES");
     }
 
     #[test]
