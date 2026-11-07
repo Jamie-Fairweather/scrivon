@@ -22,6 +22,7 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         pickAndOpenWorkspace: vi.fn(async () => {}),
         openWorkspace: vi.fn(async () => {}),
         closeWorkspace: vi.fn(async () => {}),
+        refreshTree: vi.fn(async () => {}),
         flushSave: vi.fn(async () => true),
         flushAllSaves: vi.fn(async () => true),
         setAutosaveEnabled: vi.fn(),
@@ -90,6 +91,21 @@ describe('buildCommandRegistry recent folders', () => {
             'action:recent-workspace:'
         )
         expect(recent.map((action) => action.detail)).toEqual(['Current folder · c:\\work\\docs\\', 'D:\\notes'])
+    })
+})
+
+describe('buildCommandRegistry Refresh Explorer', () => {
+    it('reads the folder again', () => {
+        const ctx = context()
+        const [refresh] = byValue(ctx, 'action:refresh-explorer')
+        expect(refresh).toMatchObject({ label: 'Refresh Explorer', disabled: false })
+        void refresh!.run()
+        expect(ctx.refreshTree).toHaveBeenCalledTimes(1)
+    })
+
+    it('says why it is off when no folder is open', () => {
+        const [refresh] = byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:refresh-explorer')
+        expect(refresh).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
     })
 })
 

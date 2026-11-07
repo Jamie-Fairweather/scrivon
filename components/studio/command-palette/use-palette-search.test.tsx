@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
         pickAndOpenWorkspace: async () => {},
         openWorkspace: async () => {},
         closeWorkspace: async () => {},
+        refreshTree: vi.fn(async () => {}),
     },
     tabs: {
         tabs: [] as Array<{ id: string; path: string; name: string; content: string; isDirty: boolean }>,
@@ -526,5 +527,28 @@ describe('usePaletteSearch unavailable commands', () => {
         const disabled = items.map((item) => item.kind === 'action' && Boolean(item.disabled))
         expect(disabled.indexOf(true)).toBeGreaterThan(0)
         expect(disabled.slice(disabled.indexOf(true)).every(Boolean)).toBe(true)
+    })
+})
+
+describe('usePaletteSearch Refresh Explorer', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('reads the folder again', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('>refresh'))
+        const refresh = result.current.groups[0]?.items[0]
+        if (refresh?.kind !== 'action' || refresh.value !== 'action:refresh-explorer') throw new Error('Refresh Explorer missing')
+        expect(refresh.disabled).toBe(false)
+        act(() => void refresh.run())
+
+        expect(state.session.refreshTree).toHaveBeenCalledTimes(1)
     })
 })

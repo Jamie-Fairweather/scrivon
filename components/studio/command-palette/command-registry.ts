@@ -19,6 +19,7 @@ export type CommandRegistryContext = {
     pickAndOpenWorkspace: () => Promise<void>
     openWorkspace: (path: string) => Promise<void>
     closeWorkspace: () => Promise<void>
+    refreshTree: () => Promise<void>
     flushSave: (id: string) => Promise<boolean>
     flushAllSaves: () => Promise<boolean>
     setAutosaveEnabled: (enabled: boolean) => void
@@ -71,6 +72,15 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => void ctx.closeWorkspace(),
+        },
+        {
+            kind: 'action',
+            value: 'action:refresh-explorer',
+            searchText: 'refresh reload explorer files',
+            label: 'Refresh Explorer',
+            disabled: !hasWorkspace,
+            disabledReason: 'Open a folder first',
+            run: () => void ctx.refreshTree(),
         },
         {
             kind: 'action',

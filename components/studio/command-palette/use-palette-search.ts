@@ -75,7 +75,8 @@ function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, has
 }
 
 export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
-    const { isDesktop, workspaceRoot, tree, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } = useWorkspaceSession()
+    const { isDesktop, workspaceRoot, tree, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace, refreshTree } =
+        useWorkspaceSession()
     const { tabs, activeTabId, openFile, openExample, setActiveTab, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
@@ -159,6 +160,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 pickAndOpenWorkspace,
                 openWorkspace,
                 closeWorkspace,
+                refreshTree,
                 flushSave,
                 flushAllSaves,
                 setAutosaveEnabled,
@@ -187,6 +189,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,
+            refreshTree,
             flushSave,
             flushAllSaves,
             setAutosaveEnabled,
