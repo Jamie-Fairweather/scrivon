@@ -67,6 +67,22 @@ describe('NamePromptProvider', () => {
         expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'v1.2'.length])
     })
 
+    it('leaves the extension it is given unselected, such as .png for an image', async () => {
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'screenshot.png', extension: '.png' })
+
+        fireEvent.focus(input)
+
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'screenshot'.length])
+    })
+
+    it('selects the whole name when told there is no extension, even one ending in .md', async () => {
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'notes.md', extension: null })
+
+        fireEvent.focus(input)
+
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'notes.md'.length])
+    })
+
     it('shows the description and button label it is given', async () => {
         await openPrompt({ title: 'Rename "notes.md"', description: 'Choose a new name for this file.', submitLabel: 'Rename' })
 

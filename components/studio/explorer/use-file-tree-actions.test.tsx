@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NamePromptOptions } from '@/components/studio/dialogs/name-prompt-provider'
+import type { FileNode } from '@/lib/workspace/types'
 import { useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
 
 const { promptName, session } = vi.hoisted(() => ({
@@ -84,5 +85,31 @@ describe('useFileTreeEntryActions', () => {
         await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/docs/notes.md')
         await expect(result.current.renameWithPrompt(node)).resolves.toBeNull()
         expect(session.renameEntry).toHaveBeenCalledTimes(1)
+    })
+
+    it("keeps the extension of a file Scrivon doesn't open when it is renamed without one", async () => {
+        promptName.mockResolvedValueOnce('beach').mockResolvedValueOnce('beach.jpg')
+        const { result } = renderHook(() => useFileTreeEntryActions())
+        const node = { kind: 'file', name: 'screenshot.png', path: '/ws/screenshot.png' } as const
+
+        await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/beach.png')
+        const options = promptName.mock.calls[0]![0]
+        expect(options.extension).toBe('.png')
+        options.validate!('beach')
+        expect(session.getNameError).toHaveBeenLastCalledWith('/ws', 'beach.png', 'file', '/ws/screenshot.png')
+        expect(session.renameEntry).toHaveBeenCalledWith('/ws/screenshot.png', 'beach.png', false)
+        // An extension the user typed is kept as typed.
+        await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/beach.jpg')
+        expect(session.renameEntry).toHaveBeenLastCalledWith('/ws/screenshot.png', 'beach.jpg', false)
+    })
+
+    it('leaves folder names as typed, and has the prompt select the whole name', async () => {
+        promptName.mockResolvedValueOnce('archive')
+        const { result } = renderHook(() => useFileTreeEntryActions())
+        const node: FileNode = { kind: 'directory', name: 'notes.md', path: '/ws/notes.md', children: [] }
+
+        await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/archive')
+        expect(promptName.mock.calls[0]![0].extension).toBeNull()
+        expect(session.renameEntry).toHaveBeenCalledWith('/ws/notes.md', 'archive', true)
     })
 })

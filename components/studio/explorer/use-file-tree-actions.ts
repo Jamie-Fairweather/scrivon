@@ -6,7 +6,7 @@ import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { getBaseName, getParentPath, joinPath } from '@/lib/tauri/fs'
-import { documentExtension, withDocumentExtension } from '@/lib/workspace/file-types'
+import { documentExtension, fileExtension, withDocumentExtension } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 /** Names the folder a new item goes in, for the prompt: `Creates the diagram in "docs".` */
@@ -83,14 +83,16 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
     const renameWithPrompt = useCallback(
         async (node: FileNode): Promise<string | null> => {
             const folder = getParentPath(node.path)
-            // A file renamed without an extension keeps its current one ('notes.md' -> 'meeting' -> 'meeting.md').
-            const extension = node.kind === 'file' ? documentExtension(node.name) : null
+            // A file renamed without an extension keeps its current one ('notes.md' -> 'meeting' -> 'meeting.md',
+            // 'screenshot.png' -> 'beach' -> 'beach.png'), and the prompt leaves it unselected. A folder has none.
+            const extension = node.kind === 'file' ? (documentExtension(node.name) ?? fileExtension(node.name)) : null
             const finalName = (value: string) => (extension ? withDocumentExtension(value, extension) : value)
             const name = await promptName({
                 title: `Rename "${node.name}"`,
                 description: `Choose a new name for this ${node.kind === 'directory' ? 'folder' : 'file'}.`,
                 submitLabel: 'Rename',
                 defaultValue: node.name,
+                extension,
                 placeholder: node.name,
                 validate: (value) => getNameError(folder, finalName(value), node.kind, node.path),
             })

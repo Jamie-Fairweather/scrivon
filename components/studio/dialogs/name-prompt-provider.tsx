@@ -14,6 +14,11 @@ export type NamePromptOptions = {
     /** The confirm button's label. Defaults to 'Create'. */
     submitLabel?: string
     defaultValue?: string
+    /**
+     * The end of the name left unselected when the field opens, such as `.png`, so typing a new name keeps it.
+     * Null selects the whole name. Left out, a document extension the name ends with (`.md`) is left unselected.
+     */
+    extension?: string | null
     placeholder?: string
     /**
      * Says why a name can't be used, or null when it can. It runs on the trimmed name as the user types:
@@ -28,11 +33,14 @@ type NamePromptContextValue = {
 
 const NamePromptContext = createContext<NamePromptContextValue | null>(null)
 
-/** Selects `notes` in `notes.md`, so typing a new name keeps the file type. Other text is selected whole. */
-function selectNameWithoutExtension(input: HTMLInputElement) {
-    const extension = documentExtension(input.value)
+/**
+ * Selects `notes` in `notes.md` (or `screenshot` in `screenshot.png`, given `.png`), so typing a new name keeps the
+ * file type. Other text is selected whole. See NamePromptOptions.extension.
+ */
+function selectNameWithoutExtension(input: HTMLInputElement, given: string | null | undefined) {
+    const extension = given === undefined ? documentExtension(input.value) : given
     const end = input.value.length - (extension?.length ?? 0)
-    if (extension && end > 0) input.setSelectionRange(0, end)
+    if (extension && end > 0 && input.value.endsWith(extension)) input.setSelectionRange(0, end)
     else input.select()
 }
 
@@ -53,7 +61,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
     const [request, setRequest] = useState<NamePromptOptions>({ title: '' })
     const [value, setValue] = useState('')
 
-    const { title, description, submitLabel = 'Create', placeholder, validate } = request
+    const { title, description, submitLabel = 'Create', extension, placeholder, validate } = request
     const trimmed = value.trim()
     const error = open && validate ? validate(trimmed) : null
     const canSubmit = trimmed.length > 0 && !error
@@ -118,7 +126,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     id={inputId}
                                     nativeInput
                                     onChange={(e) => setValue(e.target.value)}
-                                    onFocus={(e) => selectNameWithoutExtension(e.target)}
+                                    onFocus={(e) => selectNameWithoutExtension(e.target, extension)}
                                     placeholder={placeholder}
                                     value={value}
                                 />

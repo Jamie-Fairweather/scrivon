@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     documentExtension,
     documentKind,
+    fileExtension,
     isMarkdownFile,
     isMermaidFile,
     isSupportedDocument,
@@ -58,6 +59,19 @@ describe('documentExtension', () => {
         expect(documentExtension('flow.mermaid')).toBe('.mermaid')
         expect(documentExtension('image.png')).toBeNull()
         expect(documentExtension('drafts')).toBeNull()
+    })
+})
+
+describe('fileExtension', () => {
+    it('returns the extension of any file as written, or null when it has none', () => {
+        expect(fileExtension('a.png')).toBe('.png')
+        expect(fileExtension('Photo.JPG')).toBe('.JPG')
+        expect(fileExtension('backup.tar.gz')).toBe('.gz')
+        expect(fileExtension('notes.md')).toBe('.md')
+        expect(fileExtension('.gitignore')).toBeNull()
+        expect(fileExtension('drafts')).toBeNull()
+        expect(fileExtension('a.')).toBeNull()
+        expect(fileExtension('Dr. Smith')).toBeNull()
     })
 })
 

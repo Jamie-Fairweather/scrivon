@@ -36,6 +36,17 @@ export function documentExtension(name: string): string | null {
     return ext ? name.slice(name.length - ext.length) : null
 }
 
+/**
+ * The extension of any file name, as written: `.png` in `screenshot.png`. Null when there is none: no dot, only a
+ * leading one (`.gitignore`), a dot at the end, or a space after the last dot (`Dr. Smith`).
+ */
+export function fileExtension(name: string): string | null {
+    const dot = name.lastIndexOf('.')
+    if (dot <= 0 || dot === name.length - 1) return null
+    const ext = name.slice(dot)
+    return /\s/.test(ext) ? null : ext
+}
+
 /** An extension the user typed, such as `.txt`: a dot, then a letter and up to nine more letters or digits. */
 const TYPED_EXTENSION = /\.[a-z][a-z0-9]{0,9}$/i
 
