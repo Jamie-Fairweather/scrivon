@@ -71,7 +71,7 @@ import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
-import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
@@ -159,8 +159,9 @@ type EastAsianFont = { name: string; charset?: string }
 const EAST_ASIAN_FONTS = {
     japanese: { name: 'Yu Gothic', charset: '80' },
     korean: { name: 'Malgun Gothic', charset: '81' },
-    // There is no language setting to tell Traditional from Simplified; YaHei has the characters of both.
+    // Simplified glyph shapes. A Traditional Chinese language tag (zh-TW, zh-HK, zh-Hant) gets JhengHei instead.
     chinese: { name: 'Microsoft YaHei', charset: '86' },
+    traditional: { name: 'Microsoft JhengHei', charset: '88' },
 } as const satisfies Record<string, EastAsianFont>
 
 /** Word's four font slots. Word draws Chinese, Japanese and Korean characters with `eastAsia` and everything else with the rest. */
@@ -169,12 +170,29 @@ type WordFont = { ascii: string; hAnsi: string; cs: string; eastAsia?: string }
 const KANA = /[぀-ヿㇰ-ㇿｦ-ﾟ]/g
 const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힯]/g
 const HAN = /[㐀-䶿一-鿿豈-﫿\u{20000}-\u{3FFFD}]/u
+const HAN_ALL = new RegExp(HAN.source, 'gu')
+
+/** Language tags Word reads with its East Asian and right-to-left language settings. */
+const CJK_LANGUAGE = /^(?:ja|ko|zh)(?:-|$)/i
+const RTL_LANGUAGE = /^(?:ar|fa|he|ps|ur|yi)(?:-|$)/i
+
+/** The East Asian font a language tag asks for. Undefined when it isn't Chinese, Japanese or Korean. */
+function languageEastAsianFont(lang: string): EastAsianFont | undefined {
+    if (/^ja(?:-|$)/i.test(lang)) return EAST_ASIAN_FONTS.japanese
+    if (/^ko(?:-|$)/i.test(lang)) return EAST_ASIAN_FONTS.korean
+    if (/^zh(?:-|$)/i.test(lang)) return hanScriptOfTag(lang) === 'Hant' ? EAST_ASIAN_FONTS.traditional : EAST_ASIAN_FONTS.chinese
+    return undefined
+}
 
 /**
- * The East Asian font for the document, from the script its text is in: kana means Japanese, Hangul Korean,
- * and Chinese characters alone Chinese. Undefined with no such text, so Word keeps its own choice.
+ * The East Asian font for the document. Its language decides first (the front matter's `lang:`, or the guess from
+ * its text). A document in another language that still has some such text gets one from the script that leads, as
+ * the language guess weighs them: Hangul leading means Korean, kana in its Chinese characters Japanese, else Chinese.
+ * Undefined with no such text, so Word keeps its own choice.
  */
 function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
+    const fromLanguage = languageEastAsianFont(document.lang)
+    if (fromLanguage) return fromLanguage
     const { metadata, profile, tree } = document
     const parts = [metadata.title, metadata.subtitle, metadata.author, metadata.date, profile.content.watermark]
     for (const chrome of [profile.header, profile.footer]) parts.push(chrome.left.text, chrome.right.text)
@@ -186,8 +204,16 @@ function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
     const text = parts.join('\n')
     const kana = text.match(KANA)?.length ?? 0
     const hangul = text.match(HANGUL)?.length ?? 0
-    if (kana > 0 || hangul > 0) return kana >= hangul ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.korean
-    return HAN.test(text) ? EAST_ASIAN_FONTS.chinese : undefined
+    const han = text.match(HAN_ALL)?.length ?? 0
+    if (kana + hangul + han === 0) return undefined
+    if (hangul >= kana + han) return EAST_ASIAN_FONTS.korean
+    // Japanese mixes kana into its kanji, so one stray kana ('ツ', '・') doesn't make Chinese text Japanese.
+    return kana * 10 >= han ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.chinese
+}
+
+/** The document's language for Word's spelling and line breaking, with its East Asian and right-to-left parts. */
+function wordLanguage(lang: string): { value: string; eastAsia?: string; bidirectional?: string } {
+    return { value: lang, eastAsia: CJK_LANGUAGE.test(lang) ? lang : undefined, bidirectional: RTL_LANGUAGE.test(lang) ? lang : undefined }
 }
 
 /** Fonts made for Chinese, Japanese or Korean, by name, with their script's charset. Null where the name doesn't say which script. */
@@ -2180,7 +2206,7 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         styles: {
             default: {
                 document: {
-                    run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626' },
+                    run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626', language: wordLanguage(document.lang) },
                     paragraph: { spacing: bodyLineSpacing(state) },
                 },
                 heading1: headingStyle(1),

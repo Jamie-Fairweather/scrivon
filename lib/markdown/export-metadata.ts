@@ -177,7 +177,7 @@ const SIMPLIFIED_ONLY =
     /[们这个来时说国会对学为与经过还发开关问题点实现种从动机进长样电话读书写体间应该当头见觉业务区历东车门钱买卖认识兴环档检选单输设计显网页图资讯软价产]/gu
 
 /** Which Han script a Chinese language tag asks for, or '' when it doesn't say (`zh`). */
-function hanScriptOfTag(tag: string): 'Hant' | 'Hans' | '' {
+export function hanScriptOfTag(tag: string): 'Hant' | 'Hans' | '' {
     if (/-(?:hant|tw|hk|mo)(?:-|$)/i.test(tag)) return 'Hant'
     if (/-(?:hans|cn|sg|my)(?:-|$)/i.test(tag)) return 'Hans'
     return ''

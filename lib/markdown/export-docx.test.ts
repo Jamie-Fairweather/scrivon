@@ -634,6 +634,36 @@ describe('renderExportDocx', () => {
         expect(latin.parts['word/fontTable.xml']).not.toContain('w:charset')
     })
 
+    it("tags the document with its language and takes the East Asian font from it, so Traditional Chinese isn't Simplified", async () => {
+        const language = (parts: Record<string, string>) => /<w:docDefaults>[\s\S]*?(<w:lang [^>]*\/>)/.exec(parts['word/styles.xml']!)?.[1]
+
+        const traditional = await render('---\nlang: zh-TW\n---\n\n中文段落。')
+        expect(language(traditional.parts)).toBe('<w:lang w:val="zh-TW" w:eastAsia="zh-TW"/>')
+        expect(runWith(traditional.xml, '中文段落。')).toContain('w:eastAsia="Microsoft JhengHei"')
+        expect(traditional.parts['word/fontTable.xml']).toContain('<w:font w:name="Microsoft JhengHei"><w:charset w:val="88"/>')
+        expect(traditional.xml).not.toContain('Microsoft YaHei')
+        // A Chinese font the profile picks still wins over the language's.
+        const picked = await render('---\nlang: zh-Hant\n---\n\n中文段落。', (draft) => {
+            draft.typography.bodyFont = 'PMingLiU, serif'
+        })
+        expect(runWith(picked.xml, '中文段落。')).toContain('w:eastAsia="PMingLiU"')
+
+        // One katakana in Chinese text no longer makes it Japanese, whether the language is guessed or not.
+        const chinese = await render('这是一个中文段落，里面只有一个片假名ツ。')
+        expect(runWith(chinese.xml, '这是一个中文段落，里面只有一个片假名ツ。')).toContain('w:eastAsia="Microsoft YaHei"')
+        const quoted = 'This English paragraph quotes 这是一个很长的中文句子 once, with a stray ツ in it.'
+        const english = await render(quoted)
+        expect(language(english.parts)).toBe('<w:lang w:val="en"/>')
+        expect(runWith(english.xml, quoted)).toContain('w:eastAsia="Microsoft YaHei"')
+
+        const japanese = await render('---\nlang: ja\n---\n\n日本語の文章です。')
+        expect(language(japanese.parts)).toBe('<w:lang w:val="ja" w:eastAsia="ja"/>')
+        expect(runWith(japanese.xml, '日本語の文章です。')).toContain('w:eastAsia="Yu Gothic"')
+
+        const hebrew = await render('שלום עולם, זה מסמך בעברית.')
+        expect(language(hebrew.parts)).toBe('<w:lang w:val="he" w:bidi="he"/>')
+    })
+
     it('keeps a Chinese, Japanese or Korean font the profile picks, as the PDF does', async () => {
         const japanese = await render('# 見出し\n\n日本語の文章です。', (draft) => {
             draft.typography.bodyFont = '"Meiryo", sans-serif'
