@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { applySemanticVars, tokensToSemanticVars } from './semantic-vars'
-import { APP_THEME_IDS } from './catalog'
-import { contrastRatio } from './color-mix'
+import { STATUS_COLORS, STATUS_TINT_PERCENTS, applySemanticVars, tokensToSemanticVars } from './semantic-vars'
+import { APP_THEME_IDS, getTheme } from './catalog'
+import { contrastRatio, hexColorMix } from './color-mix'
 import { resolveThemeTokensForId, type ResolvedThemeTokens } from './resolve-theme-tokens'
 
 const sampleTokens: ResolvedThemeTokens = {
@@ -102,6 +102,50 @@ describe('tokensToSemanticVars', () => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 
         expect(contrastRatio(vars['--accent-foreground'], vars['--accent'])).toBeGreaterThanOrEqual(4.5)
+    })
+})
+
+describe('status text colours', () => {
+    const STATUSES = ['warning', 'destructive', 'info', 'success'] as const
+
+    it.each(APP_THEME_IDS)('%s: warning, error, link and success text reach 4.5:1 on the backgrounds and tints they sit on', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+        const vars = tokensToSemanticVars(tokens)
+        // The tints follow the theme's kind, as globals.css's .dark class does.
+        const kind = getTheme(id).kind
+        for (const status of STATUSES) {
+            const text = vars[`--${status}-foreground`]
+            const { fill } = STATUS_COLORS[kind][status]
+            // e.g. the read-only bar (bg-warning/10 over the editor) and the badges in a dialog.
+            const tints = [tokens.bg, tokens.surface].flatMap((surface) =>
+                STATUS_TINT_PERCENTS[kind].map((percent) => hexColorMix(fill, surface, percent))
+            )
+            for (const background of [tokens.bg, tokens.surface, tokens.interactive, ...tints]) {
+                expect(contrastRatio(text, background), `${status} on ${background}`).toBeGreaterThanOrEqual(4.5)
+            }
+        }
+    })
+
+    it.each(APP_THEME_IDS)("%s: a destructive menu item's text reaches 4.5:1 on the highlighted row", (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--destructive-foreground'], vars['--accent'])).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it("keeps Tailwind's shades where they already pass", () => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId('github-light'))
+
+        expect(vars['--destructive-foreground']).toBe(STATUS_COLORS.light.destructive.text)
+        expect(vars['--info-foreground']).toBe(STATUS_COLORS.light.info.text)
+    })
+
+    it('darkens the read-only bar text in Tokyo Light, where amber-700 was 3.3:1', () => {
+        const tokens = resolveThemeTokensForId('tokyo-night-light')
+        const vars = tokensToSemanticVars(tokens)
+        const bar = hexColorMix(STATUS_COLORS.light.warning.fill, tokens.bg, 10)
+
+        expect(contrastRatio(STATUS_COLORS.light.warning.text, bar)).toBeLessThan(4.5)
+        expect(contrastRatio(vars['--warning-foreground'], bar)).toBeGreaterThanOrEqual(4.5)
     })
 })
 
