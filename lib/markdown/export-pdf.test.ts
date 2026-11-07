@@ -31,7 +31,7 @@ const EXPORT_DOCUMENT = vi.hoisted(() => ({
 }))
 const renderExportPdf = vi.hoisted(() => vi.fn(async () => EXPORT_DOCUMENT))
 const EMPTY_ASSETS = vi.hoisted(() => ({ logoDataUrl: '', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
-const MISSING_LOGO = vi.hoisted(() => ({ slot: 'Logo', path: 'G:/brand/logo.png', reason: 'Could not read image: not found' }))
+const MISSING_LOGO = vi.hoisted(() => ({ slot: 'Cover image', path: 'G:/brand/logo.png', reason: 'Could not read image: not found' }))
 const resolvePdfExportAssets = vi.hoisted(() =>
     vi.fn<() => Promise<{ assets: typeof EMPTY_ASSETS; missing: (typeof MISSING_LOGO)[] }>>(async () => ({ assets: EMPTY_ASSETS, missing: [] }))
 )
@@ -367,14 +367,16 @@ describe('export-pdf helpers', () => {
         notifyExportSaved({ status: 'saved', path: 'C:/out/q3.pdf', missingImages: [MISSING_LOGO] })
         expect(notifySuccess).not.toHaveBeenCalled()
         expect(notifyWarning).toHaveBeenCalledWith('Saved q3.pdf without some images', {
-            description: 'Logo (logo.png): Could not read image: not found',
+            description: 'Cover image (logo.png): Could not read image: not found',
             action: expect.objectContaining({ label: 'Show in folder' }),
         })
 
         // Printed or downloaded: no path to show, but the user still hears about the images.
         notifyWarning.mockReset()
         notifyExportSaved({ status: 'saved', missingImages: [MISSING_LOGO] })
-        expect(notifyWarning).toHaveBeenCalledWith('Some images were left out', { description: 'Logo (logo.png): Could not read image: not found' })
+        expect(notifyWarning).toHaveBeenCalledWith('Some images were left out', {
+            description: 'Cover image (logo.png): Could not read image: not found',
+        })
         notifyWarning.mockReset()
         notifyExportSaved({ status: 'saved' })
         expect(notifyWarning).not.toHaveBeenCalled()
@@ -420,7 +422,7 @@ describe('export-pdf helpers', () => {
 
         notifyExportSaved({ status: 'saved', path: 'C:/out/notes.pdf', missingImages: [MISSING_LOGO], tocSkipped: true })
         expect(notifyWarning).toHaveBeenCalledWith('Saved notes.pdf without some images', {
-            description: `Logo (logo.png): Could not read image: not found. ${toc}`,
+            description: `Cover image (logo.png): Could not read image: not found. ${toc}`,
             action: expect.objectContaining({ label: 'Show in folder' }),
         })
 
@@ -448,7 +450,7 @@ describe('export-pdf helpers', () => {
         })
         expect(notifyWarning).toHaveBeenCalledTimes(1)
         expect(notifyWarning).toHaveBeenCalledWith('Saved Report.pdf without page numbers or some images', {
-            description: "Scrivon couldn't add page numbers to this PDF. Logo (logo.png): Could not read image: not found",
+            description: "Scrivon couldn't add page numbers to this PDF. Cover image (logo.png): Could not read image: not found",
             action: expect.objectContaining({ label: 'Show in folder' }),
         })
     })

@@ -45,7 +45,7 @@ describe('resolvePdfExportAssets', () => {
         const { resolvePdfExportAssets } = await import('@/lib/markdown/export-assets')
         invoke.mockImplementation(async (_cmd: string, args: { path: string }) => {
             if (args.path.includes('header.jpg')) throw 'Could not read image: The system cannot find the file specified. (os error 2)'
-            if (args.path.includes('huge.png')) throw 'Image is too large to embed in the PDF.'
+            if (args.path.includes('huge.png')) throw 'Image is too large to embed in the export (limit 12 MB).'
             return `data:image/png;base64,${args.path.includes('Untitled') ? 'Zg==' : 'YQ=='}`
         })
 
@@ -66,7 +66,7 @@ describe('resolvePdfExportAssets', () => {
                 path: 'C:/header.jpg',
                 reason: 'Could not read image: The system cannot find the file specified. (os error 2)',
             },
-            { slot: 'Footer right image', path: 'C:/huge.png', reason: 'Image is too large to embed in the PDF.' },
+            { slot: 'Footer right image', path: 'C:/huge.png', reason: 'Image is too large to embed in the export (limit 12 MB).' },
         ])
         expect(invoke).toHaveBeenCalledWith('read_export_image', { path: 'C:/header.jpg' })
         expect(invoke).toHaveBeenCalledWith('read_export_image', {

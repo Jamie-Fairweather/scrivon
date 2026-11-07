@@ -149,7 +149,7 @@ describe('PdfExportDialog', () => {
     })
 
     it('passes any images the export left out to the saved notice', async () => {
-        const missing = [{ slot: 'Logo', path: 'G:/logo.png', reason: 'Could not read image: not found' }]
+        const missing = [{ slot: 'Cover image', path: 'G:/logo.png', reason: 'Could not read image: not found' }]
         exportMarkdown.mockResolvedValue({ status: 'saved', missingImages: missing })
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
