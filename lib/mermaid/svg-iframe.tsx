@@ -1,206 +1,138 @@
 'use client'
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
-import { measureSvgContentBounds, type SvgContentBounds } from '@/lib/mermaid/svg-bounds'
+import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 
-export function svgIframeDocument(svg: string, offsetX = 0, offsetY = 0): string {
-    const clip = offsetX !== 0 || offsetY !== 0
-    const clipWrapper = clip
-        ? `<div style="width:100%;height:100%;overflow:hidden"><div style="transform:translate(${-offsetX}px,${-offsetY}px)">${svg}</div></div>`
-        : svg
-
+export function svgIframeDocument(svg: string): string {
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 body{display:block;line-height:0}
 svg{display:block;max-width:none;overflow:visible;vertical-align:top}
-</style></head><body>${clipWrapper}</body></html>`
+</style></head><body>${svg}</body></html>`
 }
+
+/**
+ * The frames run with no scripts and an opaque origin, so nothing in a diagram can reach the app.
+ * Never add allow-scripts: together with allow-same-origin it removes the sandbox entirely. The
+ * opaque origin also means the app can't read a frame's document (contentDocument is null), so
+ * nothing here relies on it. The frame's load event, which still fires, is all this uses.
+ */
+export const DIAGRAM_IFRAME_SANDBOX = ''
 
 type DiagramIframeProps = {
     svg: string
-    bounds: SvgContentBounds | null
+    /** What screen readers announce for the diagram, e.g. "Diagram: flow.mmd". */
+    label?: string
+    /** A longer description screen readers read after the label, e.g. from the diagram's accDescr. */
+    description?: string
+    /**
+     * Ignored, like onBoundsMeasured. Tight bounds needed the frame's document, which the sandbox
+     * hides, so they never worked. Kept only until embedded-mermaid-block stops passing them.
+     */
+    bounds?: SvgContentBounds | null
     onBoundsMeasured?: (bounds: SvgContentBounds, svg: string) => void
-    liveUpdate?: boolean
 }
 
-type SlotState = { svg: string; loadId: number }
+const DEFAULT_LABEL = 'Mermaid diagram'
 
-const SWAP_FALLBACK_MS = 80
+/** Longest a new diagram waits for its frame's load event before it is shown anyway. */
+export const SWAP_FALLBACK_MS = 500
 
-function slotDimensions(svg: string, clip: SvgContentBounds | null) {
-    const base = getSvgDimensions(svg)
-    if (!base) return null
-    return {
-        width: clip?.width ?? base.width,
-        height: clip?.height ?? base.height,
-        offsetX: clip?.offsetX ?? 0,
-        offsetY: clip?.offsetY ?? 0,
+type Frame = { svg: string; id: number }
+type Frames = { shown: Frame; incoming: Frame | null; nextId: number }
+
+/**
+ * Isolated iframe preview, which keeps Mermaid's &lt;style&gt; out of the app document. A new diagram
+ * loads in a hidden second frame and takes over once it has loaded and painted, so edits never
+ * flash a blank frame. Between edits there is only one frame.
+ */
+export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description }: DiagramIframeProps) {
+    const [frames, setFrames] = useState<Frames>(() => ({ shown: { svg, id: 0 }, incoming: null, nextId: 1 }))
+    const paintRequestRef = useRef(0)
+    const descriptionId = useId()
+
+    // Follow the svg prop while rendering: start loading a new diagram, or drop one that was
+    // replaced before it loaded (including going back to the diagram already shown).
+    let current = frames
+    if (svg === frames.shown.svg) {
+        if (frames.incoming) current = { ...frames, incoming: null }
+    } else if (frames.incoming?.svg !== svg) {
+        current = { ...frames, incoming: { svg, id: frames.nextId }, nextId: frames.nextId + 1 }
     }
-}
+    if (current !== frames) setFrames(current)
 
-const LiveDiagramIframe = memo(function LiveDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
-    const iframeRef = useRef<HTMLIFrameElement>(null)
-    const appliedRef = useRef<string | null>(null)
-    const dims = slotDimensions(svg, bounds)
-
-    useLayoutEffect(() => {
-        const iframe = iframeRef.current
-        if (!iframe || !dims) return
-
-        const token = `${svg}\0${dims.offsetX}\0${dims.offsetY}`
-        if (appliedRef.current === token) return
-
-        appliedRef.current = token
-        iframe.srcdoc = svgIframeDocument(svg, dims.offsetX, dims.offsetY)
-    }, [svg, dims])
-
-    const onLoad = useCallback(
-        (e: React.SyntheticEvent<HTMLIFrameElement>) => {
-            const doc = e.currentTarget.contentDocument
-            const svgEl = doc?.querySelector('svg')
-            if (!svgEl) return
-
-            const measured = measureSvgContentBounds(svgEl)
-            if (measured) onBoundsMeasured?.(measured, svg)
-        },
-        [onBoundsMeasured, svg]
-    )
-
-    if (!dims) return null
-
-    return (
-        <iframe
-            ref={iframeRef}
-            title="Diagram preview"
-            className="pointer-events-none overflow-hidden border-0 bg-transparent"
-            sandbox=""
-            onLoad={onLoad}
-            style={{
-                width: dims.width,
-                height: dims.height,
-                background: 'transparent',
-                colorScheme: 'normal',
-                overflow: 'hidden',
-            }}
-        />
-    )
-})
-
-/** Isolated iframe preview — keeps Mermaid &lt;style&gt;/@import out of the app document. */
-const BufferedDiagramIframe = memo(function BufferedDiagramIframe({ svg, bounds, onBoundsMeasured }: DiagramIframeProps) {
-    const [activeSlot, setActiveSlot] = useState(0)
-    const [slots, setSlots] = useState<[SlotState, SlotState]>(() => [
-        { svg, loadId: 0 },
-        { svg, loadId: 0 },
-    ])
-    const pendingSlotRef = useRef<number | null>(null)
-    const slotsRef = useRef(slots)
-    const targetSvgRef = useRef(svg)
-    const swapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-    useEffect(() => {
-        slotsRef.current = slots
-        targetSvgRef.current = svg
-    }, [slots, svg])
-
-    const active = slots[activeSlot]
-    const activeDims = slotDimensions(active.svg, bounds)
-
-    const clearSwapTimer = useCallback(() => {
-        if (swapTimerRef.current !== null) {
-            clearTimeout(swapTimerRef.current)
-            swapTimerRef.current = null
-        }
+    const show = useCallback((id: number) => {
+        setFrames((prev) => (prev.incoming?.id === id ? { ...prev, shown: prev.incoming, incoming: null } : prev))
     }, [])
 
-    const commitSlot = useCallback(
-        (slotIndex: number) => {
-            const slotSvg = slotsRef.current[slotIndex]?.svg
-            if (!slotSvg || slotSvg !== targetSvgRef.current) return
-            if (pendingSlotRef.current !== slotIndex) return
-
-            clearSwapTimer()
-            pendingSlotRef.current = null
-            setActiveSlot(slotIndex)
+    // Two animation frames after load, the new frame has painted, so swapping can't show a blank one.
+    const onIncomingLoad = useCallback(
+        (id: number) => {
+            cancelAnimationFrame(paintRequestRef.current)
+            paintRequestRef.current = requestAnimationFrame(() => {
+                paintRequestRef.current = requestAnimationFrame(() => show(id))
+            })
         },
-        [clearSwapTimer]
+        [show]
     )
 
-    const measureSlot = useCallback(
-        (slotIndex: number, e: React.SyntheticEvent<HTMLIFrameElement>) => {
-            const slotSvg = slotsRef.current[slotIndex]?.svg
-            if (!slotSvg || slotSvg !== targetSvgRef.current) return
-
-            const doc = e.currentTarget.contentDocument
-            const svgEl = doc?.querySelector('svg')
-            if (!svgEl) return
-
-            const measured = measureSvgContentBounds(svgEl)
-            const isSwap = pendingSlotRef.current === slotIndex
-            if (isSwap) commitSlot(slotIndex)
-
-            if (measured && (isSwap || slotIndex === activeSlot)) {
-                onBoundsMeasured?.(measured, slotSvg)
-            }
-        },
-        [activeSlot, commitSlot, onBoundsMeasured]
-    )
-
+    const incomingId = current.incoming?.id
     useEffect(() => {
-        setSlots((prev) => {
-            if (svg === prev[activeSlot].svg) return prev
+        if (incomingId === undefined) return
+        const timer = setTimeout(() => show(incomingId), SWAP_FALLBACK_MS)
+        return () => clearTimeout(timer)
+    }, [incomingId, show])
 
-            const inactive = 1 - activeSlot
-            pendingSlotRef.current = inactive
-            clearSwapTimer()
+    useEffect(() => () => cancelAnimationFrame(paintRequestRef.current), [])
 
-            swapTimerRef.current = setTimeout(() => commitSlot(inactive), SWAP_FALLBACK_MS)
-
-            const next = [...prev] as [SlotState, SlotState]
-            next[inactive] = { svg, loadId: prev[inactive].loadId + 1 }
-            return next
-        })
-    }, [svg, activeSlot, clearSwapTimer, commitSlot])
-
-    useEffect(() => () => clearSwapTimer(), [clearSwapTimer])
-
-    if (!activeDims) return null
+    const shownDims = getSvgDimensions(current.shown.svg)
+    if (!shownDims) return null
 
     return (
-        <div className="relative overflow-hidden" style={{ width: activeDims.width, height: activeDims.height }}>
-            {([0, 1] as const).map((slotIndex) => {
-                const slot = slots[slotIndex]
-                const isActive = slotIndex === activeSlot
-                const clip = isActive ? bounds : null
-                const dims = slotDimensions(slot.svg, clip)
+        // One named image for assistive tech. The frames inside are only how it is drawn, so they are
+        // hidden from screen readers and kept out of the Tab order, the loading one included.
+        <div
+            role="img"
+            aria-label={label}
+            aria-describedby={description ? descriptionId : undefined}
+            className="relative overflow-hidden"
+            style={{ width: shownDims.width, height: shownDims.height }}
+        >
+            {description ? (
+                <span id={descriptionId} hidden>
+                    {description}
+                </span>
+            ) : null}
+            {[current.shown, current.incoming].map((frame) => {
+                if (!frame) return null
+                const dims = getSvgDimensions(frame.svg)
                 if (!dims) return null
+                const isShown = frame === current.shown
 
                 return (
                     <iframe
-                        key={`${slotIndex}-${slot.loadId}`}
+                        key={frame.id}
                         title="Diagram preview"
                         className="pointer-events-none absolute top-0 left-0 overflow-hidden border-0 bg-transparent"
-                        sandbox=""
-                        srcDoc={svgIframeDocument(slot.svg, dims.offsetX, dims.offsetY)}
-                        onLoad={(e) => measureSlot(slotIndex, e)}
+                        sandbox={DIAGRAM_IFRAME_SANDBOX}
+                        tabIndex={-1}
+                        aria-hidden
+                        inert
+                        srcDoc={svgIframeDocument(frame.svg)}
+                        onLoad={isShown ? undefined : () => onIncomingLoad(frame.id)}
                         style={{
                             width: dims.width,
                             height: dims.height,
                             background: 'transparent',
                             colorScheme: 'normal',
                             overflow: 'hidden',
-                            opacity: isActive ? 1 : 0,
-                            zIndex: isActive ? 1 : 0,
+                            opacity: isShown ? 1 : 0,
+                            zIndex: isShown ? 1 : 0,
                         }}
                     />
                 )
             })}
         </div>
     )
-})
-
-export const DiagramIframe = memo(function DiagramIframe({ liveUpdate = false, ...props }: DiagramIframeProps) {
-    if (liveUpdate) return <LiveDiagramIframe {...props} />
-    return <BufferedDiagramIframe {...props} />
 })

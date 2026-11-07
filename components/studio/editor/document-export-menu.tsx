@@ -32,7 +32,7 @@ export function DocumentExportMenu() {
     const diagramExportSource = isMarkdownTab ? (expanded?.source ?? '') : (activeTab?.content ?? '')
     const diagramExportCanvasKey = isMarkdownTab ? (expanded?.canvasKey ?? null) : activeTabId
 
-    const { error, isPending } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
+    const { currentError, isPending, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
@@ -41,7 +41,7 @@ export function DocumentExportMenu() {
     const hasDiagramSource = diagramExportSource.trim().length > 0
     const showDiagramExport = isMermaidTab || (isMarkdownTab && Boolean(expanded))
     const diagramBlocked = isMarkdownTab && !expanded
-    const diagramDisabled = diagramBlocked || !hasDiagramSource || Boolean(error) || isPending || exporting
+    const diagramDisabled = diagramBlocked || !hasDiagramSource || Boolean(currentError) || isPending || isEmpty || exporting
     const pdfDisabled = !hasMarkdown || exporting
 
     const runExport = async (action: () => Promise<void>) => {
@@ -54,6 +54,7 @@ export function DocumentExportMenu() {
     }
 
     const tabName = activeTab?.name
+    const diagramTarget = { tabName, tabPath: activeTab?.path, markdown: isMarkdownTab ? markdownSource : undefined }
     const triggerDisabled =
         exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
 
@@ -93,7 +94,7 @@ export function DocumentExportMenu() {
                             <>
                                 <MenuItem
                                     disabled={diagramDisabled}
-                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, tabName))}
+                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, diagramTarget))}
                                 >
                                     Save SVG
                                 </MenuItem>
@@ -105,7 +106,9 @@ export function DocumentExportMenu() {
                                                 <MenuItem
                                                     key={scale}
                                                     disabled={diagramDisabled}
-                                                    onClick={() => void runExport(() => exportPng(diagramExportSource, themeId, tabName, scale))}
+                                                    onClick={() =>
+                                                        void runExport(() => exportPng(diagramExportSource, themeId, diagramTarget, scale))
+                                                    }
                                                 >
                                                     {label}
                                                 </MenuItem>
