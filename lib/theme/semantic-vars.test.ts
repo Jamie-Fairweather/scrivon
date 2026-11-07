@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applySemanticVars, tokensToSemanticVars } from './semantic-vars'
 import { APP_THEME_IDS } from './catalog'
-import { contrastRatio } from './color-mix'
+import { contrastRatio, hexColorMix } from './color-mix'
 import { resolveThemeTokensForId, type ResolvedThemeTokens } from './resolve-theme-tokens'
 
 const sampleTokens: ResolvedThemeTokens = {
@@ -100,11 +100,16 @@ describe('tokensToSemanticVars', () => {
         expect(vars['--sidebar-accent-foreground']).toBe('#ffffff')
     })
 
-    it.each(APP_THEME_IDS)('%s: text on primary buttons and selected text reaches 4.5:1', (id) => {
+    it.each(APP_THEME_IDS)('%s: text on primary buttons and selected text reaches 4.5:1, also on a hovered or pressed button', (id) => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 
         expect(contrastRatio(vars['--primary-foreground'], vars['--primary'])).toBeGreaterThanOrEqual(4.5)
         expect(contrastRatio(vars['--sidebar-primary-foreground'], vars['--sidebar-primary'])).toBeGreaterThanOrEqual(4.5)
+        // button.tsx draws a hovered or pressed primary button at bg-primary/90, over a dialog or the page.
+        for (const under of [vars['--popover'], vars['--background']]) {
+            const pressed = hexColorMix(vars['--primary'], under, 90)
+            expect(contrastRatio(vars['--primary-foreground'], pressed), `over ${under}`).toBeGreaterThanOrEqual(4.5)
+        }
     })
 
     it('keeps the palette text colour as the primary fill when it already reaches 4.5:1', () => {
