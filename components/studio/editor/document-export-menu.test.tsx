@@ -6,6 +6,8 @@ import { DocumentExportMenu } from './document-export-menu'
 const tabs = vi.hoisted(() => ({ activeTab: null as DocumentTab | null }))
 /** Tabs whose web images the user chose to load in the preview. */
 const remoteImageTabs = vi.hoisted(() => new Set<string>())
+/** What drawing the diagram gave: an error, still drawing, or nothing to draw. */
+const diagram = vi.hoisted(() => ({ currentError: null as string | null, isPending: false, isEmpty: false }))
 type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void; tabPath?: string; allowRemoteImages?: boolean }
 const dialogProps = vi.hoisted(() => ({ current: null as DialogProps | null }))
 /** The props the export dialog last rendered with, or null when the menu left it out. */
@@ -19,7 +21,7 @@ vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
     useMarkdownPreviewMemory: () => ({ scrollTopByTab: new Map(), remoteImageTabs, allowRemoteImages: () => undefined }),
 }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ themeId: 'light' }) }))
-vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: null, isPending: false }) }))
+vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: diagram.currentError, ...diagram }) }))
 vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn() }))
 vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({
     PdfExportDialog: (props: DialogProps) => {
@@ -32,11 +34,15 @@ function tab(name: string, content: string): DocumentTab {
     return { id: name, path: `D:\\docs\\${name}`, name, content, isDirty: false, isSaving: false }
 }
 
+/** The tooltip's own text (the button's description holds a hidden copy of it). */
+const inTooltip = { selector: '[data-slot="tooltip-popup"] *' }
+
 describe('DocumentExportMenu', () => {
     beforeEach(() => {
         tabs.activeTab = null
         dialogProps.current = null
         remoteImageTabs.clear()
+        Object.assign(diagram, { currentError: null, isPending: false, isEmpty: false })
     })
 
     it('lets the PDF print web images only for a tab whose preview loaded them', () => {
@@ -62,9 +68,10 @@ describe('DocumentExportMenu', () => {
         expect(button).toHaveAttribute('aria-disabled', 'true')
         expect(button).not.toBeDisabled()
         expect(button).not.toHaveAttribute('title')
+        expect(button).toHaveAccessibleDescription('Open a document to export')
 
         act(() => button.focus())
-        expect(await screen.findByText('Open a document to export')).toBeInTheDocument()
+        expect(await screen.findByText('Open a document to export', inTooltip)).toBeInTheDocument()
 
         fireEvent.click(button)
         expect(screen.queryByRole('menu')).toBeNull()
@@ -79,11 +86,37 @@ describe('DocumentExportMenu', () => {
         // The export dialog gets the file's path so its save dialog starts in the same folder.
         expect(dialogProps.current?.tabPath).toBe('D:\\docs\\notes.md')
 
+        expect(button).not.toHaveAccessibleDescription()
+
         act(() => button.focus())
-        expect(await screen.findByText('Export document')).toBeInTheDocument()
+        expect(await screen.findByText('Export document', inTooltip)).toBeInTheDocument()
 
         fireEvent.click(button)
         expect(await screen.findByRole('menuitem', { name: 'Save PDF' })).toBeInTheDocument()
+    })
+
+    it.each([
+        { case: 'an empty Markdown file', name: 'notes.md', content: '  \n', state: {}, reason: 'Nothing to export: the document is empty' },
+        { case: 'an empty diagram', name: 'flow.mmd', content: '', state: {}, reason: 'Nothing to export: the diagram is empty' },
+        {
+            case: 'a diagram with an error',
+            name: 'flow.mmd',
+            content: 'graph TD; A--',
+            state: { currentError: 'Parse error' },
+            reason: 'Fix the diagram error to export',
+        },
+        { case: 'a diagram still drawing', name: 'flow.mmd', content: 'graph TD; A-->B', state: { isPending: true }, reason: 'Drawing the diagram…' },
+        { case: 'a diagram with nothing to draw', name: 'flow.mmd', content: '%% note', state: { isEmpty: true }, reason: 'No diagram to export' },
+    ])('says why the export button is off for $case, also to screen readers', async ({ name, content, state, reason }) => {
+        Object.assign(diagram, state)
+        tabs.activeTab = tab(name, content)
+        render(<DocumentExportMenu />)
+        const button = screen.getByRole('button', { name: 'Export document' })
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        expect(button).toHaveAccessibleDescription(reason)
+
+        act(() => button.focus())
+        expect(await screen.findByText(reason, inTooltip)).toBeInTheDocument()
     })
 
     it('shuts the open menu when the export button turns off', async () => {

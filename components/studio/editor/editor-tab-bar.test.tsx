@@ -166,12 +166,14 @@ describe('EditorTabBar', () => {
         expect(fit).not.toBeDisabled()
         expect(fit).toHaveAttribute('aria-disabled', 'true')
         expect(fit).not.toHaveAttribute('title')
+        // Screen readers hear the reason too, not just the name and "dimmed".
+        expect(fit).toHaveAccessibleDescription('Expand a Mermaid block to fit')
 
         fireEvent.click(fit)
         expect(fitToView).not.toHaveBeenCalled()
 
         act(() => fit.focus())
-        expect(await screen.findByText('Expand a Mermaid block to fit')).toBeInTheDocument()
+        expect(await screen.findByText('Expand a Mermaid block to fit', { selector: '[data-slot="tooltip-popup"] *' })).toBeInTheDocument()
     })
 
     it('says why Fit is unavailable for a diagram that cannot be drawn, and fits one that can', async () => {
@@ -181,12 +183,14 @@ describe('EditorTabBar', () => {
 
         const fit = screen.getByRole('button', { name: 'Fit diagram to screen' })
         expect(fit).toHaveAttribute('aria-disabled', 'true')
+        expect(fit).toHaveAccessibleDescription('No diagram to fit')
         act(() => fit.focus())
-        expect(await screen.findByText('No diagram to fit')).toBeInTheDocument()
+        expect(await screen.findByText('No diagram to fit', { selector: '[data-slot="tooltip-popup"] *' })).toBeInTheDocument()
 
         canFitToView = true
         view.rerender(<EditorTabBar />)
         expect(fit).not.toHaveAttribute('aria-disabled')
+        expect(fit).not.toHaveAccessibleDescription()
         fireEvent.click(fit)
         expect(fitToView).toHaveBeenCalledTimes(1)
     })

@@ -204,7 +204,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                 <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
                     <DocumentExportMenu />
                     {/* aria-disabled rather than disabled, so it can still be focused or hovered to say why. */}
-                    <IconTooltip label={fitLabel}>
+                    <IconTooltip label={fitLabel} description={fitDisabled ? fitLabel : undefined}>
                         <Button
                             variant="ghost"
                             size="icon-sm"
