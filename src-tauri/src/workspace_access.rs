@@ -134,13 +134,18 @@ impl WorkspaceAccess {
     /// Stops `path` opening without the folder dialog (the user removed it
     /// from Recent), and takes it out of the saved list in each spelling it was
     /// recorded under, so its name no longer stays in the app data either.
+    ///
+    /// When `path` leads to another folder (a `subst` drive or a link), its
+    /// canonical form names that folder. Only the canonical spelling `remember`
+    /// recorded goes, not that folder's own entry: removing the link from
+    /// Recent mustn't stop the folder itself opening from Recent.
     pub fn forget(&self, path: &str) {
         let canonical = canonical_or_parent(Path::new(path));
         let forgotten = |folder: &str| {
             same_folder(folder, path)
-                || canonical
-                    .as_deref()
-                    .is_some_and(|canonical| same_folder(folder, canonical))
+                || canonical.as_deref().is_some_and(|canonical| {
+                    is_canonical_spelling(folder) && same_folder(folder, canonical)
+                })
         };
 
         // Read and write under the lock, as `remember` does.
@@ -185,6 +190,13 @@ fn canonical_or_parent(path: &Path) -> Option<String> {
         rest.push(folder.file_name()?);
         folder = folder.parent()?;
     }
+}
+
+/// True when `folder` is spelled as `std::fs::canonicalize` gives it, which on
+/// Windows starts with `\\?\`. Elsewhere it looks like any other path, so
+/// every folder counts.
+fn is_canonical_spelling(folder: &str) -> bool {
+    !cfg!(windows) || folder.starts_with(r"\\?\")
 }
 
 /// True when `a` and `b` name the same folder. On Windows letter case, either
@@ -497,6 +509,37 @@ mod tests {
             read_access_file(&data.join(ACCESS_FILE)).unwrap(),
             Vec::<String>::new()
         );
+    }
+
+    /// Two spellings of one folder: a link to it (a junction here, as a
+    /// `subst` drive would be) and its own path.
+    #[cfg(windows)]
+    #[test]
+    fn removing_a_link_to_a_folder_from_recent_keeps_the_folder_itself() {
+        let temp = TempDir::new("forget-link");
+        let data = temp.0.join("data");
+        // Its own path as the folder dialog gives it: no `\\?\`, no short names.
+        let real = canonical_string(Path::new(&temp.folder("real"))).unwrap();
+        let real = real.trim_start_matches(r"\\?\").to_string();
+        let link = temp.0.join("link").to_string_lossy().into_owned();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J", &link, &real])
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let access = WorkspaceAccess::load(Some(&data));
+        for folder in [&real, &link] {
+            access
+                .approve(folder, |path| path == Path::new(folder))
+                .unwrap();
+        }
+
+        access.forget(&link);
+
+        let err = access.approve(&link, never_in_scope).unwrap_err();
+        assert!(err.contains("Open Folder"), "{err}");
+        let restarted = WorkspaceAccess::load(Some(&data));
+        restarted.approve(&real, never_in_scope).unwrap();
     }
 
     #[test]
