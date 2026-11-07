@@ -8,7 +8,8 @@ const renderMermaidDiagramForExport = vi.hoisted(() =>
     vi.fn((source: string) => {
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
-        return `<svg>${source}</svg>`
+        // The size of the 1×1 PNG svgToPngBlob hands back.
+        return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
 )
 const svgToPngBlob = vi.hoisted(() =>
@@ -470,6 +471,18 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'Flowchart')).toEqual({ width: 694, height: 967 })
         // It doesn't fit under the first lines, so it starts page 3, and End still fits below it there.
         expect(tocPage(xml, 'End')).toBe(3)
+    })
+
+    it('says a diagram with nothing to draw yet is empty, as the PDF does, instead of printing its source (U39)', async () => {
+        // Just `graph TD` renders without error to a 0×0 picture.
+        renderMermaidDiagramForExport.mockImplementationOnce(() => '<svg viewBox="0 0 0 0" width="0" height="0"></svg>')
+        svgToPngBlob.mockClear()
+        const { parts } = await render(['Before.', '', fence('mermaid', 'graph TD'), '', 'After.'].join('\n'))
+        const body = parts['word/document.xml']!
+        expect(runWith(body, 'Empty diagram: there is nothing to draw yet.')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('graph TD')
+        expect(body).not.toContain('<w:drawing>')
+        expect(svgToPngBlob).not.toHaveBeenCalled()
     })
 
     it('gives each diagram its own alt text, and leaves a picture with none without a made-up one', async () => {

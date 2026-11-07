@@ -8,7 +8,9 @@ vi.mock('@/lib/mermaid/render', () => ({
     renderMermaidDiagramForExport: vi.fn((source: string) => {
         if (source.includes('FAIL_STRING')) throw 'mermaid string boom'
         if (source.includes('FAIL')) throw new Error('mermaid boom')
-        return `<svg data-mermaid="${source.trim()}"></svg>`
+        // A diagram with nothing to draw yet renders without error to a 0×0 picture.
+        if (source.includes('EMPTY')) return '<svg viewBox="0 0 0 0" width="0" height="0"></svg>'
+        return `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`
     }),
 }))
 
@@ -645,6 +647,14 @@ SHIKI_FAIL
         expect(html).toContain('<a href="https://example.com/safe">web</a>')
         expect(html).toContain('<a href="mailto:me@example.com">mail</a>')
         expect(html).toContain('<a href="other.md">doc</a>')
+    })
+
+    it('says a diagram with nothing to draw yet is empty, as Word does, instead of printing an empty box (U39)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(['Before.', '', '```mermaid', 'graph TD EMPTY', '```', '', 'After.'].join('\n'))
+        expect(html).toContain('<pre class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
+        expect(html).not.toContain('<div class="mermaid-export')
+        expect(html).not.toContain('<svg')
     })
 
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {

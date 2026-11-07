@@ -77,7 +77,7 @@ import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
-import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
+import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { AppThemeId } from '@/lib/theme/catalog'
 import { familyName, splitFontStack } from '@/lib/settings/font-stack'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
@@ -2191,10 +2191,13 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
         try {
             // The renderer leaves out the accTitle and accDescr lines; the alt text reads them.
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
+            // Nothing to draw yet renders a 0×0 picture, which can't be drawn. Say so, as the PDF does, not print the source.
+            const size = getSvgDimensions(svg)
+            if (!size) return { kind: 'error', message: EMPTY_DIAGRAM_MESSAGE }
             return {
                 kind: 'diagram',
                 png: await diagramPng(svg, profile.content.mermaidThemeId),
-                size: getSvgDimensions(svg),
+                size,
                 source: text,
                 alt: diagramAltText(text),
             }
