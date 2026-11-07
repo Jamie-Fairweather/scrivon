@@ -50,7 +50,12 @@ export type WorkspaceCoordinatorRefs = {
     requestCanvasFit: MutableRefObject<() => void>
     /** Closes every tab, dropping its leftovers as closing a tab does; for a folder switch or close after confirmCloseTabs. */
     clearTabs: MutableRefObject<() => void>
-    setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => void>
+    /**
+     * Puts back a folder's saved tabs, keeping any the user opened meanwhile. A tab with unsaved text kept
+     * from a crash goes into the open tab for its file if that has no edits. Returns those it couldn't put
+     * back because the user had already changed that file's open tab.
+     */
+    setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => DocumentTab[]>
     /**
      * Replaces the tab's text with its file as it is on disk now, dropping the tab's unsaved edits, their
      * copy and its "couldn't save" notice: the user chose Reload over a change made outside Scrivon.
@@ -89,7 +94,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         closeTabsForDelete: { current: () => {} },
         requestCanvasFit: { current: () => {} },
         clearTabs: { current: () => {} },
-        setTabsFromWorkspace: { current: () => {} },
+        setTabsFromWorkspace: { current: () => [] },
         reloadTabFromDisk: { current: async () => {} },
         reloadChangedTabs: { current: async () => {} },
         persistWorkspaceTabSession: { current: async () => {} },

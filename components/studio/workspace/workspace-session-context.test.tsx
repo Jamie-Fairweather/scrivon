@@ -1689,6 +1689,73 @@ describe('unsaved text kept from a crash', () => {
         expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
     })
 
+    describe('when the user opens that file while the tabs are still loading', () => {
+        let finishOther!: () => void
+
+        beforeEach(() => {
+            vi.mocked(getWorkspaceTabSession).mockResolvedValueOnce({ tabIds: ['C:\\ws\\other.md'], activeTabId: 'C:\\ws\\other.md' })
+            vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])
+            // Reading the other saved tab is slow, so the user has time to open notes.md from the tree first.
+            const otherRead = new Promise<void>((resolve) => (finishOther = resolve))
+            vi.mocked(readFile).mockImplementation(async (path) => {
+                if (String(path).endsWith('other.md')) await otherRead
+                return disk.readBytes(path)
+            })
+        })
+
+        async function openNotesDuringRestore(result: { current: ReturnType<typeof useHarness> }, typed?: string) {
+            let opening!: Promise<void>
+            act(() => {
+                opening = result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'on disk', isDirty: false })])
+            if (typed !== undefined) act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', typed))
+            await act(async () => {
+                finishOther()
+                await opening
+            })
+        }
+
+        it('puts the unsaved text into the tab the user opened', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openNotesDuringRestore(result)
+
+            expect(result.current.tabs.tabs).toEqual([
+                expect.objectContaining({ id: 'C:\\ws\\other.md' }),
+                expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'typed before the crash', isDirty: true }),
+            ])
+            expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Recovered unsaved changes',
+                expect.objectContaining({ id: 'recovered-changes', description: expect.stringContaining('your changes to notes.md') })
+            )
+            await expect(save('C:\\ws\\notes.md')).resolves.toBe(true)
+            expect(await disk.read('C:\\ws\\notes.md')).toBe('typed before the crash')
+        })
+
+        it('saves the unsaved text as a new file when the user already typed in that tab, and keeps what they typed', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openNotesDuringRestore(result, 'typed after opening')
+
+            expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({ content: 'typed after opening', isDirty: true })
+            await waitFor(async () => expect(await disk.exists('C:\\ws\\notes (recovered).md')).toBe(true))
+            expect(await disk.read('C:\\ws\\notes (recovered).md')).toBe('typed before the crash')
+            expect(notifyWarning).not.toHaveBeenCalledWith('Recovered unsaved changes', expect.objectContaining({ id: 'recovered-changes' }))
+            await waitFor(() =>
+                expect(notifyWarning).toHaveBeenCalledWith(
+                    'Recovered unsaved changes',
+                    expect.objectContaining({ description: expect.stringContaining("they're saved as notes (recovered).md instead") })
+                )
+            )
+            await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toContain('notes (recovered).md'))
+            expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+    })
+
     it('asks before saving the recovered text over a file changed in another app since', async () => {
         vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'mine', { stamp: untouched('older') })])
         const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })

@@ -1832,6 +1832,35 @@ describe('changes to several tabs at once', () => {
         expect(result.current.activeTabId).toBe('/ws/opened.mmd')
     })
 
+    it('puts unsaved text kept from a crash into the tab opened meanwhile, and hands back what it could not', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.md', 'a.md', { readOnly: true, largeFile: true }), tab('/ws/b.md', 'b.md', { content: 'typed since', isDirty: true })],
+            activeTabId: '/ws/a.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+
+        const keptB = tab('/ws/b.md', 'b.md', { content: 'kept b', isDirty: true, disk: { stamp: null } })
+        let left!: DocumentTab[]
+        act(() => {
+            left = coordinator.setTabsFromWorkspace.current(
+                [tab('/ws/a.md', 'a.md', { content: 'kept a', isDirty: true, disk: { stamp: { mtimeMs: 1, size: 6 } } }), keptB],
+                '/ws/b.md'
+            )
+        })
+
+        // a.md had no edits: it takes the kept text, editable as it was then. b.md was edited since: left as it is.
+        expect(result.current.tabs).toEqual([
+            expect.objectContaining({ id: '/ws/a.md', content: 'kept a', isDirty: true, disk: { stamp: { mtimeMs: 1, size: 6 } } }),
+            expect.objectContaining({ id: '/ws/b.md', content: 'typed since', isDirty: true }),
+        ])
+        expect(result.current.tabs[0]).not.toHaveProperty('readOnly')
+        expect(result.current.tabs[0]).not.toHaveProperty('largeFile')
+        expect(left).toEqual([keptB])
+        expect(result.current.activeTabId).toBe('/ws/a.md')
+    })
+
     it('never saves the same file twice in the list of open tabs', async () => {
         const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/a.mmd', 'a.mmd')], activeTabId: '/ws/a.mmd' }
         const coordinator = createWorkspaceCoordinatorRefs()

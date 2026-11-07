@@ -370,13 +370,34 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
                 // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.
                 const opened = tabsRef.current
-                const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !current.some((o) => samePath(o.path, t.path)))
+                const openTab = (current: readonly DocumentTab[], path: string) => current.find((o) => samePath(o.path, path))
+                const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !openTab(current, t.path))
                 const restored = notOpen(opened)
-                tabsRef.current = [...restored, ...opened]
+                // Unsaved text kept from a crash (a restored tab with edits) goes into that open tab instead, as long as
+                // the user hasn't changed it. If they have, it is left out for the caller to keep some other way.
+                const takesRecovered = (o: DocumentTab) => !o.isDirty && !o.isSaving
+                const recovered = nextTabs.filter((t) => {
+                    const o = t.isDirty ? openTab(opened, t.path) : undefined
+                    return o !== undefined && o.content !== t.content
+                })
+                const left = recovered.filter((t) => !takesRecovered(openTab(opened, t.path)!))
+                const withRecovered = (o: DocumentTab): DocumentTab => {
+                    const r = takesRecovered(o) ? recovered.find((t) => samePath(t.path, o.path)) : undefined
+                    if (!r) return o
+                    const merged: DocumentTab = { ...o, content: r.content, format: r.format, disk: r.disk, isDirty: true }
+                    // As tabWithRecoveredText: it was being edited, so a read-only reason from the file now doesn't apply.
+                    delete merged.readOnly
+                    delete merged.encodingIssue
+                    delete merged.largeFile
+                    return merged
+                }
+                tabsRef.current = [...restored, ...opened.map(withRecovered)]
                 // Merged into the latest state, so a keystroke queued in the same update isn't lost.
-                setTabs((prev) => [...notOpen(prev), ...prev])
+                setTabs((prev) => [...notOpen(prev), ...prev.map(withRecovered)])
+                for (const t of recovered) if (!left.includes(t)) dismissNotification(readOnlyNoticeId(openTab(opened, t.path)!.id))
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
                 for (const tab of restored) explainReadOnlyFile(tab)
+                return left
             },
             reloadTabFromDisk: async (id) => {
                 await reloadTab(id, false)

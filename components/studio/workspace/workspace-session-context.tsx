@@ -365,6 +365,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         },
         [workspaceRoot, refreshTree, startTreeRead, endTreeRead]
     )
+    // For work that started before the folder it is in was opened, such as restoring its tabs.
+    const refreshFolderRef = useRef(refreshFolder)
+    useEffect(() => {
+        refreshFolderRef.current = refreshFolder
+    }, [refreshFolder])
 
     // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up, and open files
     // without edits that they changed show the new text: as the watcher sees the change, and again when the
@@ -495,6 +500,36 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [])
 
     /**
+     * Unsaved text kept from a crash that couldn't go back into its tab, because the user opened that file
+     * and changed it while the folder's tabs were still loading. Typing there replaces the kept copy, so the
+     * text is saved straight away as a new file next to it, rather than lost.
+     */
+    const keepRecoveredTextAsCopy = useCallback(
+        async (tab: DocumentTab) => {
+            const folder = getParentPath(tab.path)
+            const dot = tab.name.lastIndexOf('.')
+            const base = dot > 0 ? `${tab.name.slice(0, dot)} (recovered)${tab.name.slice(dot)}` : `${tab.name} (recovered)`
+            let name: string
+            try {
+                name = uniqueNewName(base, await listFolderNames(folder))
+                await createWorkspaceFile(joinPath(folder, name), tab.content, tab.format)
+            } catch (err) {
+                notifyError(`Couldn't keep your earlier changes to ${tab.name}`, err)
+                return
+            }
+            const path = joinPath(folder, name)
+            notifyWarning('Recovered unsaved changes', {
+                id: `recovered-copy:${tab.id}`,
+                description: `Scrivon closed before your changes to ${tab.name} were saved. You edited it before they were put back, so they're saved as ${name} instead.`,
+                timeout: 0,
+                action: { label: 'Open', onClick: () => void coordinator.openFile.current(path) },
+            })
+            await refreshFolderRef.current(folder)
+        },
+        [coordinator]
+    )
+
+    /**
      * Reopens the tabs saved for this folder. Files that can't be read any more are skipped, unless they
      * have unsaved text kept from when Scrivon last closed: that text is always brought back, unsaved.
      * Nothing is shown if `isCurrent` says another folder was opened in the meantime.
@@ -523,7 +558,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (!(await confirmOpenLargeFile(getBaseName(filePath), formatFileSize(size)))) skipped.add(filePath)
             }
 
-            const recovered: string[] = []
+            const recovered: DocumentTab[] = []
             const restoredTabs = (
                 await Promise.all(
                     paths
@@ -543,22 +578,25 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                                 return tab
                             }
                             const recoveredTab = tabWithRecoveredText(tab, backup)
-                            recovered.push(recoveredTab.name)
+                            recovered.push(recoveredTab)
                             return recoveredTab
                         })
                 )
             ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
 
             if (!isCurrent()) return
+            let left: DocumentTab[] = []
             if (restoredTabs.length > 0) {
                 const savedActiveId = tabSession?.activeTabId
                 const activeTab = savedActiveId ? restoredTabs.find((t) => samePath(t.path, savedActiveId)) : undefined
                 const activeId = activeTab?.id ?? restoredTabs[0].id
-                coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
+                left = coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
                 coordinator.requestCanvasFit.current()
             }
-            if (recovered.length > 0) {
-                const what = recovered.length === 1 ? `your changes to ${recovered[0]}` : `your changes to ${recovered.length} files`
+            for (const tab of left) void keepRecoveredTextAsCopy(tab)
+            const putBack = recovered.filter((t) => !left.includes(t))
+            if (putBack.length > 0) {
+                const what = putBack.length === 1 ? `your changes to ${putBack[0]!.name}` : `your changes to ${putBack.length} files`
                 notifyWarning('Recovered unsaved changes', {
                     id: RECOVERED_CHANGES_NOTICE_ID,
                     description: `Scrivon closed before ${what} were saved. They're open again, but not saved yet.`,
@@ -566,7 +604,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 })
             }
         },
-        [coordinator]
+        [coordinator, keepRecoveredTextAsCopy]
     )
 
     /**
