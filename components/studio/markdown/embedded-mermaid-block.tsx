@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
+import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
 const DIAGRAM_PADDING_X = 32
@@ -104,9 +105,9 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
             <div className="absolute top-2 right-2 z-10">
                 <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="xs"
-                    className="h-7 gap-1 shadow-sm"
+                    className={cn('h-7 gap-1', overlayButtonClassName)}
                     disabled={!trimmed}
                     onClick={() => onExpand(blockId, ordinal, source)}
                     aria-label={expandDiagramLabel(ordinal, accessibility.title)}

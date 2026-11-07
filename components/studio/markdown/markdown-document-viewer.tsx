@@ -17,6 +17,7 @@ import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
+import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
 import { cn } from '@/lib/utils'
 
@@ -376,9 +377,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     <div className="absolute top-2 right-2 z-20">
                         <Button
                             type="button"
-                            variant="secondary"
+                            variant="outline"
                             size="sm"
-                            className="h-8 gap-1.5 shadow-sm"
+                            className={cn('h-8 gap-1.5', overlayButtonClassName)}
                             onClick={onCloseExpanded}
                             aria-label="Back to document preview"
                             title="Back to preview (Esc)"
