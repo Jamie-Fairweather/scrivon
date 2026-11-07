@@ -144,7 +144,7 @@ const CONTAINER_DIRECTION_TAGS = new Set(['li', 'blockquote'])
  * or bullet moves to the right too. A dir the document's HTML set wins. Code reads left to right: a raw <pre>
  * gets dir="ltr", and code blocks and diagrams get theirs where they are built, so the paragraphs standing in for
  * them, which are swapped for their HTML by exact match, are left alone. The title page, Contents page and header
- * and footer are built separately, so the stamper still finds their marks.
+ * and footer are built separately, and their text gets dir="auto" there, kept apart from the stamper's marks.
  */
 function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>): void {
     visit(hast, 'element', (node: Element) => {
@@ -314,12 +314,11 @@ async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promi
     return placeholders
 }
 
+/** The cover. Each line takes its own direction from its first letters, as the body's blocks do. */
 function renderTitlePage(metadata: PdfExportMetadata, assets: PdfExportResolvedAssets): string {
     const logo = assets.logoDataUrl ? `<img class="pdf-logo" src="${escapeHtml(assets.logoDataUrl)}" alt="" />` : ''
-    const subtitle = metadata.subtitle ? `<p class="pdf-title-meta">${escapeHtml(metadata.subtitle)}</p>` : ''
-    const author = metadata.author ? `<p class="pdf-title-meta">${escapeHtml(metadata.author)}</p>` : ''
-    const date = metadata.date ? `<p class="pdf-title-meta">${escapeHtml(metadata.date)}</p>` : ''
-    return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1>${escapeHtml(metadata.title)}</h1>${subtitle}${author}${date}</div></section>`
+    const meta = (text: string) => (text ? `<p class="pdf-title-meta" dir="auto">${escapeHtml(text)}</p>` : '')
+    return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1 dir="auto">${escapeHtml(metadata.title)}</h1>${meta(metadata.subtitle)}${meta(metadata.author)}${meta(metadata.date)}</div></section>`
 }
 
 /**
@@ -344,7 +343,9 @@ function renderToc(items: PdfExportOutlineItem[], stamped: boolean): string {
             const page = stamped
                 ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${mark}</span></span>`
                 : ''
-            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title">${escapeHtml(item.text)}</span>${page}</a></li>`
+            // Only the title takes its own direction, so a right-to-left one ends and is cut short on the correct side;
+            // the row, with its leader and page number, stays as it is.
+            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title" dir="auto">${escapeHtml(item.text)}</span>${page}</a></li>`
         })
         .join('')
     return `<section class="pdf-toc-page"><h1>Contents</h1><ol class="pdf-toc-list">${list}</ol></section>`
@@ -355,12 +356,12 @@ function chromeImage(dataUrl: string): string {
 }
 
 function chromeLabel(text: string, metadata: PdfExportMetadata): string {
-    const resolved = resolvePdfChromeText(text, metadata)
-    return resolved ? `<span>${escapeHtml(resolved)}</span>` : ''
+    return plainLabel(resolvePdfChromeText(text, metadata))
 }
 
+/** Header or footer text, which takes its own direction from its first letters, as the body's blocks do. */
 function plainLabel(text: string): string {
-    return text ? `<span>${escapeHtml(text)}</span>` : ''
+    return text ? `<span dir="auto">${escapeHtml(text)}</span>` : ''
 }
 
 /**

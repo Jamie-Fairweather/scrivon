@@ -126,10 +126,10 @@ SHIKI_FAIL
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
-            '<div class="pdf-chrome-bar pdf-header-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,hl" alt="" /><span>Spec / Today</span></span><span class="pdf-chrome-side pdf-chrome-right"><span>Acme</span><img src="data:image/png;base64,hr" alt="" /></span></div>'
+            '<div class="pdf-chrome-bar pdf-header-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,hl" alt="" /><span dir="auto">Spec / Today</span></span><span class="pdf-chrome-side pdf-chrome-right"><span dir="auto">Acme</span><img src="data:image/png;base64,hr" alt="" /></span></div>'
         )
         expect(html).toContain(
-            '<div class="pdf-chrome-bar pdf-footer-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,fl" alt="" /><span>Footer</span></span><span class="pdf-chrome-side pdf-chrome-right"><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789</span>SFPN</span></span><img src="data:image/png;base64,fr" alt="" /></span></div>'
+            '<div class="pdf-chrome-bar pdf-footer-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,fl" alt="" /><span dir="auto">Footer</span></span><span class="pdf-chrome-side pdf-chrome-right"><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789</span>SFPN</span></span><img src="data:image/png;base64,fr" alt="" /></span></div>'
         )
         expect(html).not.toContain('counter(page)')
         expect(html).toContain('data-theme="github-light"')
@@ -382,7 +382,7 @@ SHIKI_FAIL
             assets: EMPTY_ASSETS,
         })
         expect(html).toContain('pdf-footer-bar')
-        expect(html).toContain('<span>Footer</span>')
+        expect(html).toContain('<span dir="auto">Footer</span>')
         expect(html).not.toContain('Ignored')
         expect(html).not.toContain('pdf-page-number')
         expect(html).not.toContain('SFPN')
@@ -396,7 +396,7 @@ SHIKI_FAIL
 
         const source = '---\ntitle: Spec\n---\n# Only'
         const { html: plain } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
-        expect(plain).toContain('<span class="pdf-chrome-side pdf-chrome-right"><span>Spec — confidential</span></span>')
+        expect(plain).toContain('<span class="pdf-chrome-side pdf-chrome-right"><span dir="auto">Spec — confidential</span></span>')
         expect(plain).not.toContain('SFPN')
 
         profile.footer.right.text = 'Page {{page}} of {{total}}'
@@ -437,7 +437,7 @@ SHIKI_FAIL
 
         const { html, print } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(html).toContain(
-            '<span class="pdf-chrome-side pdf-chrome-right"><span>Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789/</span>SFPN</span></span><span>· &lt;b&gt;</span></span>'
+            '<span class="pdf-chrome-side pdf-chrome-right"><span dir="auto">Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789/</span>SFPN</span></span><span dir="auto">· &lt;b&gt;</span></span>'
         )
         // Only the counting part goes to the stamper, which draws in a Latin-only font.
         expect(print.pageNumberFormat).toBe('custom:{{page}}/{{total}}')
@@ -458,7 +458,7 @@ SHIKI_FAIL
         expect(print.pageNumberFormat).toBe('custom:{{page}} из {{total}}')
         // The digits and the counter's own letters, each once, before the marker code the stamper looks for.
         expect(html).toContain(
-            '<span>Страница</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789из</span>SFPN</span></span>'
+            '<span dir="auto">Страница</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789из</span>SFPN</span></span>'
         )
     })
 
@@ -522,7 +522,7 @@ SHIKI_FAIL
             expect(html).not.toContain(mark)
         }
         // The TOC still links each heading, it just has no page column.
-        expect(html).toContain('<a href="#section"><span class="pdf-toc-title">Section</span></a>')
+        expect(html).toContain('<a href="#section"><span class="pdf-toc-title" dir="auto">Section</span></a>')
         expect(html).toContain('content: counter(page) " / " counter(pages);')
         // The sections that hide the footer are a named page without the counter.
         expect(html).toContain('.pdf-title-table, .pdf-toc-table { page: pdf-no-footer; }')
@@ -560,7 +560,9 @@ SHIKI_FAIL
             profile,
             assets: { ...EMPTY_ASSETS, logoDataUrl: 'data:image/png;base64,logo' },
         })
-        expect(html).toContain('<img class="pdf-logo" src="data:image/png;base64,logo" alt="" /><div class="pdf-title-body"><h1>Cover</h1></div>')
+        expect(html).toContain(
+            '<img class="pdf-logo" src="data:image/png;base64,logo" alt="" /><div class="pdf-title-body"><h1 dir="auto">Cover</h1></div>'
+        )
         // No header/footer, but the repeating table rows now carry the emulated page margins.
         expect(html).toContain('class="pdf-chrome-table pdf-title-table"')
         expect(html).not.toContain('class="pdf-chrome-table pdf-toc-table"')
@@ -618,7 +620,7 @@ SHIKI_FAIL
         expect(html).not.toContain('<!--')
         expect(html).not.toContain('internal')
         expect(html).toContain('<h1 id="pricing" dir="auto">')
-        expect(html).toContain('<span class="pdf-toc-title">Pricing</span>')
+        expect(html).toContain('<span class="pdf-toc-title" dir="auto">Pricing</span>')
         expect(html).toContain('<title>Pricing</title>')
     })
 
@@ -662,6 +664,25 @@ SHIKI_FAIL
         expect(html).not.toMatch(/<p[^>]*>\s*<div dir="ltr" class="code-block/)
         expect(html).toContain('<div dir="ltr" class="code-block')
         expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
+    })
+
+    it('lets the cover, Contents titles and header and footer text take their own direction too (N35)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.header.enabled = true
+        profile.header.left.text = '{{title}}'
+        profile.footer.pageNumbers = 'number'
+        const { html } = await markdownToExportHtml('---\nauthor: דנה\n---\n# דוח רבעוני!\n\n## סיכום', { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain('<h1 dir="auto">דוח רבעוני!</h1><p class="pdf-title-meta" dir="auto">דנה</p>')
+        expect(html).toContain('<span class="pdf-toc-title" dir="auto">סיכום</span>')
+        expect(html).toContain('<span class="pdf-chrome-side pdf-chrome-left"><span dir="auto">דוח רבעוני!</span></span>')
+        // The Contents row itself, and the stamper's marks, keep their direction.
+        expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
+        expect(html).toContain('<span class="pdf-toc-num"><span class="pdf-toc-mark">')
+        expect(html).toContain('<span class="pdf-page-number"><span class="pdf-page-number-mark">')
     })
 
     it('turns a quote or list item right to left from its first letter, as dir="auto" can’t see into its paragraphs', async () => {
