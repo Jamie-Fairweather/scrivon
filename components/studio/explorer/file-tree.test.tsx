@@ -110,6 +110,36 @@ describe('FileTree', () => {
         expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .mmd and .mermaid files only')
     })
 
+    it('marks a folder that could not be read, and says why on hover and to screen readers', () => {
+        render(<FileTree tree={[{ kind: 'directory', name: 'private', path: '/ws/private', children: [], unreadable: true }, ...tree]} />)
+
+        const row = item('private')
+        const hint = "Can't be read. Scrivon may not have permission to open it."
+        expect(row).toHaveAccessibleDescription(hint)
+        expect(row).toHaveAttribute('title', `private\n${hint}`)
+        expect(row).toHaveClass('text-muted-foreground')
+        expect(row.querySelector('[data-mark="unreadable"]')).toBeInTheDocument()
+        expect(row.querySelector('[data-mark="links-outside"]')).not.toBeInTheDocument()
+        // A folder that was read normally gets no mark.
+        expect(item('docs')).not.toHaveAttribute('aria-describedby')
+        expect(item('docs').querySelector('[data-mark]')).not.toBeInTheDocument()
+    })
+
+    it('marks a link to a folder outside the open one differently from a folder it could not read', () => {
+        render(
+            <FileTree
+                tree={[{ kind: 'directory', name: 'shared', path: '/ws/shared', children: [], unreadable: true, linksOutside: true }, ...tree]}
+            />
+        )
+
+        const row = item('shared')
+        const hint = "Links to a folder outside the open one, which Scrivon can't open yet."
+        expect(row).toHaveAccessibleDescription(hint)
+        expect(row).toHaveAttribute('title', `shared\n${hint}`)
+        expect(row.querySelector('[data-mark="links-outside"]')).toBeInTheDocument()
+        expect(row.querySelector('[data-mark="unreadable"]')).not.toBeInTheDocument()
+    })
+
     it('is a single Tab stop, on the open file', () => {
         tabs.activeTabId = '/ws/flow.mmd'
         render(<FileTree tree={tree} />)
