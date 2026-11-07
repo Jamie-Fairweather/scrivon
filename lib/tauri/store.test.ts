@@ -5,7 +5,8 @@ import { notifyWarning } from '@/lib/notify'
  * A stand-in for tauri-plugin-store that behaves like the real one: `disk` holds each file's text. The app
  * shell opens each store once at startup, loading its file and quietly starting empty when it can't, and the
  * webview can only get those (there is no `load` here, so the module must never try to open one itself).
- * reload() reports why a file couldn't be read, and save() writes the whole store back.
+ * reload() reports why a file couldn't be read, and save() writes the whole store back. workspace.json also saves
+ * itself soon after any change, as the app shell sets it up to; `runAutoSave` does that here.
  */
 const fake = vi.hoisted(() => ({
     disk: new Map<string, string>(),
@@ -17,9 +18,22 @@ const fake = vi.hoisted(() => ({
     openError: null as unknown,
     /** The name the app shell gave a damaged workspace.json it moved aside at startup (take_store_recovery). */
     keptAs: null as string | null,
+    /** Files another program holds, or that are on a drive that is offline: reading or saving them fails this many times. */
+    held: new Map<string, { error: string; times: number }>(),
+    /** Stores changed since they were last saved, which the store plugin saves by itself soon after. */
+    autoSavePending: new Set<string>(),
 }))
 
+/** Fails while another program holds the file, counting the try. */
+function checkNotHeld(path: string): void {
+    const held = fake.held.get(path)
+    if (!held || held.times <= 0) return
+    held.times--
+    throw held.error
+}
+
 function parseStoreFile(path: string): Record<string, unknown> {
+    checkNotHeld(path)
     const raw = fake.disk.get(path)
     if (raw === undefined) throw 'The system cannot find the file specified. (os error 2)'
     let parsed: unknown
@@ -44,10 +58,16 @@ vi.mock('@tauri-apps/plugin-store', () => {
         async get(key: string) {
             return this.cache.has(key) ? structuredClone(this.cache.get(key)) : undefined
         }
+        /** workspace.json saves itself soon after a change (src-tauri/src/lib.rs); the others are saved by hand. */
+        private changed() {
+            if (this.path === 'workspace.json') fake.autoSavePending.add(this.path)
+        }
         async set(key: string, value: unknown) {
             this.cache.set(key, structuredClone(value))
+            this.changed()
         }
         async delete(key: string) {
+            this.changed()
             return this.cache.delete(key)
         }
         async keys() {
@@ -61,9 +81,12 @@ vi.mock('@tauri-apps/plugin-store', () => {
         }
         async clear() {
             this.cache.clear()
+            this.changed()
         }
         async save() {
             if (fake.saveError) throw fake.saveError
+            checkNotHeld(this.path)
+            fake.autoSavePending.delete(this.path)
             fake.disk.set(this.path, JSON.stringify(Object.fromEntries(this.cache)))
         }
     }
@@ -107,6 +130,14 @@ async function launch() {
     return import('./store')
 }
 
+/** The store plugin's own save soon after a change, which the module can't stop once it is due. */
+function runAutoSave(): void {
+    for (const path of fake.autoSavePending) {
+        fake.autoSavePending.delete(path)
+        if (!fake.held.get(path)?.times) fake.disk.set(path, JSON.stringify(Object.fromEntries(fake.caches.get(path)!)))
+    }
+}
+
 function onDisk(path: string): Record<string, unknown> | undefined {
     const raw = fake.disk.get(path)
     return raw === undefined ? undefined : (JSON.parse(raw) as Record<string, unknown>)
@@ -125,6 +156,8 @@ describe('workspace store', () => {
         fake.saveError = null
         fake.openError = null
         fake.keptAs = null
+        fake.held.clear()
+        fake.autoSavePending.clear()
         vi.mocked(notifyWarning).mockClear()
         vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     })
@@ -219,6 +252,74 @@ describe('workspace store', () => {
             expect(recents).toEqual(['C:\\notes', 'D:\\work'])
             expect(files).toEqual([])
             expect(notifyWarning).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('a workspace.json that cannot be read just now', () => {
+        const IN_USE = 'The process cannot access the file because it is being used by another process. (os error 32)'
+        const OFFLINE = 'The network name cannot be found. (os error 67)'
+        const OLDER = { 'recent-workspaces': ['C:\\old'] }
+
+        it('reads a file another program held for a moment', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            // The app shell's read at startup, then the first two of the module's.
+            fake.held.set('workspace.json', { error: IN_USE, times: 3 })
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            expect(notifyWarning).not.toHaveBeenCalled()
+            await vi.waitFor(() => expect(onDisk('workspace.backup.json')).toEqual({ snapshot: SAVED }))
+        })
+
+        it('leaves the file alone instead of putting the older copy or an empty list over it', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.disk.set('workspace.backup.json', JSON.stringify({ snapshot: OLDER }))
+            fake.held.set('workspace.json', { error: IN_USE, times: Number.POSITIVE_INFINITY })
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            await store.addRecentWorkspace('E:\\new', 10)
+            await store.setWorkspaceTabSession('E:\\new', { tabIds: ['E:\\new\\a.md'], activeTabId: 'E:\\new\\a.md' })
+            await store.setFolderToggles('E:\\new', new Map([['E:\\new\\docs', true]]))
+            await store.addRecentFile('E:\\new', 'E:\\new\\a.md')
+            await store.removeRecentWorkspace('C:\\notes')
+
+            // The other program lets go, and the store plugin's own save after a change would run.
+            fake.held.clear()
+            runAutoSave()
+            expect(onDisk('workspace.json')).toEqual(SAVED)
+            expect(onDisk('workspace.backup.json')).toEqual({ snapshot: OLDER })
+            expect(notifyWarning).toHaveBeenCalledTimes(1)
+            expect(notifyWarning).toHaveBeenCalledWith(
+                "Couldn't read recent folders",
+                expect.objectContaining({ description: expect.stringContaining('(os error 32)') })
+            )
+        })
+
+        it('saves changes as usual once the file can be read again', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.held.set('workspace.json', { error: OFFLINE, times: Number.POSITIVE_INFINITY })
+            const store = await launch()
+            expect(await store.getRecentWorkspaces()).toEqual([])
+
+            // The network drive is back: the next use of the store reads it.
+            fake.held.clear()
+            await vi.waitFor(async () => expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work']))
+
+            expect(await store.addRecentWorkspace('E:\\new', 10)).toEqual(['E:\\new', 'C:\\notes', 'D:\\work'])
+            expect(onDisk('workspace.json')).toEqual({ ...SAVED, 'recent-workspaces': ['E:\\new', 'C:\\notes', 'D:\\work'] })
+            await vi.waitFor(() => expect(onDisk('workspace.backup.json')).toEqual({ snapshot: SAVED }))
+        })
+
+        it('does not wait to try again when the drive is offline', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            const held = { error: OFFLINE, times: 100 }
+            fake.held.set('workspace.json', held)
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            // Once by the app shell, once by the module, and once more as the store was used: no quick tries again.
+            expect(100 - held.times).toBe(3)
         })
     })
 
