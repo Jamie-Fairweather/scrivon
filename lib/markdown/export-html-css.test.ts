@@ -533,6 +533,12 @@ describe('buildPdfExportCss', () => {
         expect(applyPdfFooterSwitch(profile)).toBe(profile)
     })
 
+    it('keeps an image’s room in an unseen copy of a bar, as tall as a bar image can be (P15)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const tallest = css.match(/\.pdf-chrome-bar img \{[^}]*max-height: (\d+px);/)![1]
+        expect(css).toContain(`.pdf-chrome-img-room { display: block; height: ${tallest}; }`)
+    })
+
     it('lets images fill a fixed-height bar', () => {
         const profile = createDefaultPdfExportProfile()
         profile.header.enabled = true

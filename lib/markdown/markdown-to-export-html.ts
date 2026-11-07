@@ -386,19 +386,27 @@ type ChromeSection = 'title' | 'toc' | 'body'
 
 /**
  * Header/footer bar: `[image][text] … [text][image]`, so an image on either
- * end is always the outermost item, nearest the page edge.
+ * end is always the outermost item, nearest the page edge. A `copy` is never
+ * seen and only takes up the bar's room, so its images are left out rather than
+ * embedded again for nothing: a bar of fixed height keeps its height without
+ * them, and otherwise an empty box as tall as an image can be stands in.
  */
 function renderChromeBar(
     kind: 'header' | 'footer',
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
     metadata: PdfExportMetadata,
-    stamped: boolean
+    stamped: boolean,
+    copy = false
 ): string {
     const chrome = kind === 'header' ? profile.header : profile.footer
     const images = kind === 'header' ? assets.header : assets.footer
+    const image = (dataUrl: string) => {
+        if (!copy) return chromeImage(dataUrl)
+        return dataUrl && chrome.heightMm <= 0 ? '<span class="pdf-chrome-img-room"></span>' : ''
+    }
     const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata, stamped)
-    return `<div class="pdf-chrome-bar pdf-${kind}-bar"><span class="pdf-chrome-side pdf-chrome-left">${chromeImage(images.left)}${chromeLabel(chrome.left.text, metadata)}</span><span class="pdf-chrome-side pdf-chrome-right">${rightText}${chromeImage(images.right)}</span></div>`
+    return `<div class="pdf-chrome-bar pdf-${kind}-bar"><span class="pdf-chrome-side pdf-chrome-left">${image(images.left)}${chromeLabel(chrome.left.text, metadata)}</span><span class="pdf-chrome-side pdf-chrome-right">${rightText}${image(images.right)}</span></div>`
 }
 
 /**
@@ -445,17 +453,19 @@ function wrapWithChrome(
     // Drawn once, fixed: Chromium repeats it at the bottom of every page, the last page of a section included,
     // where a table footer row would float up under the text.
     const footer = layout.showFooter ? renderChromeBar('footer', profile, assets, metadata, stamped) : ''
+    const footerCopy = layout.showFooter ? renderChromeBar('footer', profile, assets, metadata, stamped, true) : ''
     // Only the title page and TOC can hide the footer, and they come first.
     const firstShown = sections.findIndex(([kind]) => pdfChromeShown(profile, 'footer', kind))
     // The stamper numbers each page at its footer's page-number marker and leaves the pages before the first
     // marker unnumbered. The fixed footer would put a marker on the title page and TOC too, so when they hide
     // the footer its marker isn't drawn. One copy at the foot of the first page that shows the footer carries
-    // the marker instead, and the stamper numbers each later page, which has none, at the same spot.
+    // the marker instead, and the stamper numbers each later page, which has none, at the same spot. That copy
+    // keeps the footer's images, as their size decides where the marker sits.
     const anchored = firstShown > 0 && stamped && pdfPageNumberFormat(profile, metadata) !== 'none'
     const tables = sections.map(([kind, html], index) => {
         const header = pdfChromeShown(profile, 'header', kind) ? renderChromeBar('header', profile, assets, metadata, stamped) : ''
         const anchor = anchored && index === firstShown ? `<div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true">${footer}</div>` : ''
-        return chromeTable(kind, `${anchor}${html}`, header, footer, index < firstShown)
+        return chromeTable(kind, `${anchor}${html}`, header, footerCopy, index < firstShown)
     })
     const fixed = footer ? `\n  <div class="pdf-fixed-footer${anchored ? ' pdf-footer-unmarked' : ''}">${footer}</div>` : ''
     return `<article class="export-article">

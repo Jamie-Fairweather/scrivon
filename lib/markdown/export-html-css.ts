@@ -818,6 +818,8 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     width: auto;
     height: auto;
   }
+  /* Stands in for an image in an unseen copy of a bar that fits its content: as tall as an image can be there. */
+  .pdf-chrome-img-room { display: block; height: 28px; }
   ${chromeImageCss('header', profile.header)}
   ${chromeImageCss('footer', profile.footer)}
   .pdf-header-bar {

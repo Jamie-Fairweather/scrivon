@@ -360,6 +360,51 @@ SHIKI_FAIL
         expect(noHeader).toContain('<thead class="pdf-chrome-head"><tr><td></td></tr></thead>')
     })
 
+    it('embeds a footer image only in the footers that are drawn, not in the unseen copies that keep its room (P15)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.footer.enabled = true
+        const assets = { ...EMPTY_ASSETS, footer: { left: 'data:image/png;base64,FOOT', right: 'data:image/png;base64,TOOF' } }
+        const render = async () => (await markdownToExportHtml('# A\n\n## B', { profile, assets })).html
+        const ROOM = '<span class="pdf-chrome-img-room"></span>'
+        /** The images in each copy of the footer: the fixed one, and every table row's. */
+        const copies = (html: string) => ({
+            fixed: html.match(/<div class="pdf-fixed-footer[^"]*">.*?<\/div><\/div>/)![0],
+            rows: [...html.matchAll(/<tfoot class="pdf-footer-(?:spacer|cover)" aria-hidden="true">.*?<\/tfoot>/g)].map(([row]) => row),
+        })
+
+        // The default profile, footer on: once, in the fixed footer. The body row keeps the images' room only.
+        const plain = await render()
+        expect(plain.match(/base64,FOOT/g)).toHaveLength(1)
+        expect(plain.match(/base64,TOOF/g)).toHaveLength(1)
+        const { fixed, rows } = copies(plain)
+        expect(fixed).toContain('base64,FOOT')
+        expect(rows).toHaveLength(2)
+        for (const row of rows) expect(row.split(ROOM)).toHaveLength(3)
+
+        // Shown everywhere with a title page and TOC: still once, where it used to be four times.
+        profile.frontMatter.titlePage = true
+        profile.footer.hideOnFirstPages = 'none'
+        expect((await render()).match(/base64,FOOT/g)).toHaveLength(1)
+
+        // Hidden on the title page: the cover over it needs no image either.
+        profile.footer.hideOnFirstPages = 'title'
+        expect((await render()).match(/base64,FOOT/g)).toHaveLength(1)
+        // With page numbers, the one copy that marks where they go keeps the images, as they move the marker.
+        profile.footer.pageNumbers = 'number'
+        const numbered = await render()
+        expect(numbered.match(/base64,FOOT/g)).toHaveLength(2)
+        expect(numbered).toMatch(/<div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true">.*base64,TOOF/)
+
+        // A bar of fixed height keeps its height without them.
+        profile.footer.heightMm = 15
+        const tall = await render()
+        expect(tall).not.toContain(ROOM)
+        expect(copies(tall).rows.every((row) => !row.includes('base64,'))).toBe(true)
+    })
+
     it('keeps footer rows when only the header shows', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
