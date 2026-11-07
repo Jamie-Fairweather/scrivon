@@ -87,6 +87,29 @@ describe('renderMermaidDiagramAsync', () => {
         await expect(renderMermaidDiagramAsync('graph TD', 'scrivon-light', 'a.mmd')).resolves.toBe('<svg>graph TD</svg>')
     })
 
+    it('loads the renderer on the main thread only once a render has to run there (N68)', async () => {
+        const renderer = { loads: 0 }
+        vi.doMock('@/lib/mermaid/render', () => {
+            renderer.loads++
+            return { renderMermaidDiagram }
+        })
+        const { renderMermaidDiagramAsync } = await loadClient()
+
+        const inWorker = renderMermaidDiagramAsync('graph TD', 'scrivon-light', 'a.mmd')
+        const worker = onlyWorker()
+        worker.emit('message', { type: 'ready' })
+        worker.answer(worker.posted[0], { svg: '<svg>from worker</svg>' })
+        await expect(inWorker).resolves.toBe('<svg>from worker</svg>')
+        expect(renderer.loads).toBe(0)
+
+        const second = renderMermaidDiagramAsync('v2', 'scrivon-light', 'a.mmd')
+        const third = renderMermaidDiagramAsync('v3', 'scrivon-light', 'b.mmd')
+        worker.emit('message', { type: 'unavailable', message: 'ELK failed' })
+        await expect(second).resolves.toBe('<svg>v2</svg>')
+        await expect(third).resolves.toBe('<svg>v3</svg>')
+        expect(renderer.loads).toBe(1)
+    })
+
     it('lays the diagram out in the worker, off the main thread (P01)', async () => {
         const { renderMermaidDiagramAsync } = await loadClient()
 

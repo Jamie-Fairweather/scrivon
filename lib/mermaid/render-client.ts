@@ -1,4 +1,3 @@
-import { renderMermaidDiagram } from '@/lib/mermaid/render'
 import type { RenderRequest, RenderResponse } from '@/lib/mermaid/render-worker-core'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
@@ -56,12 +55,37 @@ function settle(job: Job, result: { svg: string } | { error: Error }): void {
     else job.reject(result.error)
 }
 
+function asError(err: unknown): Error {
+    return err instanceof Error ? err : new Error(String(err))
+}
+
+type RenderModule = typeof import('@/lib/mermaid/render')
+let renderModule: Promise<RenderModule> | null = null
+
+/**
+ * The renderer (beautiful-mermaid and ELK, about 1.5 MB) is loaded on the main thread only once it is needed
+ * there, so it isn't part of every launch: the worker has its own copy. A failed load is tried again next time.
+ */
+function loadRenderer(): Promise<RenderModule> {
+    renderModule ??= import('@/lib/mermaid/render').catch((err: unknown) => {
+        renderModule = null
+        throw err
+    })
+    return renderModule
+}
+
+/** Jobs still settle in the order they were queued, as they all wait on the same load. */
 function renderOnMainThread(job: Job): void {
-    try {
-        settle(job, { svg: renderMermaidDiagram(job.source, job.themeId) })
-    } catch (err) {
-        settle(job, { error: err instanceof Error ? err : new Error(String(err)) })
-    }
+    loadRenderer().then(
+        ({ renderMermaidDiagram }) => {
+            try {
+                settle(job, { svg: renderMermaidDiagram(job.source, job.themeId) })
+            } catch (err) {
+                settle(job, { error: asError(err) })
+            }
+        },
+        (err: unknown) => settle(job, { error: asError(err) })
+    )
 }
 
 function clearTimer(timer: ReturnType<typeof setTimeout> | null): null {
@@ -183,7 +207,7 @@ function createJob(source: string, themeId: AppThemeId, requestKey: string): Job
     })
     const job: Job = { id: nextId++, source, themeId, requestKey, callers: new Set(), promise, resolve, reject }
     // Keep sharing the result until callers have had it, so a second view that asks in the same
-    // tick (even when the render ran synchronously on the main thread) reuses it.
+    // tick as it lands reuses it.
     pending.set(requestKey, job)
     const forget = () => {
         if (pending.get(requestKey) === job) pending.delete(requestKey)

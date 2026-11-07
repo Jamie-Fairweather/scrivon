@@ -57,13 +57,20 @@ describe('DocumentExportMenu', () => {
         expect(saveSvg).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByRole('menuitem', { name: 'Save PNG' })).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(saveSvg)
+        // The export code loads on first use, so give a click that got through time to arrive.
+        await act(async () => {
+            await import('@/lib/mermaid/export')
+        })
         expect(exportSvg).not.toHaveBeenCalled()
 
         // Once the text has rendered, the items turn back on.
         diagram.current = { ...diagram.current, isStale: false }
         view.rerender(<DocumentExportMenu />)
-        expect(screen.getByRole('menuitem', { name: 'Save SVG' })).not.toHaveAttribute('aria-disabled')
         expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-disabled')
+        const enabled = screen.getByRole('menuitem', { name: 'Save SVG' })
+        expect(enabled).not.toHaveAttribute('aria-disabled')
+        fireEvent.click(enabled)
+        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', 'light', expect.objectContaining({ tabName: 'flow.mmd' })))
     })
 
     it('lets the PDF print web images only for a tab whose preview loaded them', () => {

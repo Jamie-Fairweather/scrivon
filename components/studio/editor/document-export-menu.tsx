@@ -8,7 +8,8 @@ import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import type { ExportFormat } from '@/lib/markdown/export-document'
-import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
+import type { PngExportScale } from '@/lib/mermaid/export'
+import { notifyError } from '@/lib/notify'
 import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
@@ -19,6 +20,9 @@ const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
     { label: '2×', scale: 2 },
     { label: '4×', scale: 4 },
 ]
+
+/** Loaded when the user exports, so the export code and the diagram renderer it needs aren't part of every launch. */
+const loadDiagramExport = () => import('@/lib/mermaid/export')
 
 export function DocumentExportMenu() {
     const { activeTab, activeTabId } = useDocumentTabs()
@@ -58,6 +62,9 @@ export function DocumentExportMenu() {
         setExporting(true)
         try {
             await action()
+        } catch (err) {
+            // The exports report their own failures, so this is the export code failing to load.
+            notifyError('Export failed', err)
         } finally {
             setExporting(false)
         }
@@ -120,7 +127,9 @@ export function DocumentExportMenu() {
                             <>
                                 <MenuItem
                                     disabled={diagramItemDisabled}
-                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, diagramTarget))}
+                                    onClick={() =>
+                                        void runExport(async () => (await loadDiagramExport()).exportSvg(diagramExportSource, themeId, diagramTarget))
+                                    }
                                 >
                                     Save SVG
                                 </MenuItem>
@@ -133,7 +142,9 @@ export function DocumentExportMenu() {
                                                     key={scale}
                                                     disabled={diagramItemDisabled}
                                                     onClick={() =>
-                                                        void runExport(() => exportPng(diagramExportSource, themeId, diagramTarget, scale))
+                                                        void runExport(async () =>
+                                                            (await loadDiagramExport()).exportPng(diagramExportSource, themeId, diagramTarget, scale)
+                                                        )
                                                     }
                                                 >
                                                     {label}
