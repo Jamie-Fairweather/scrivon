@@ -672,6 +672,42 @@ SHIKI_FAIL
         expect(html).toContain('aria-label="Say &quot;hi&quot; &amp;"><svg')
     })
 
+    describe('web images (S08)', () => {
+        const source = [
+            'Badge ![Build](https://ci.example/badge.svg) and ![](https:bare.example/x.png).',
+            '',
+            '![Logo](//cdn.example/logo.png) ![Pixel](http:evil.example/p.gif)',
+            '',
+            '![Ref][r] and <img src="https://raw.example/raw.png" alt="Raw"> and <img src="https://raw.example/no-alt.png">',
+            '',
+            '![Inline](data:image/png;base64,AAAA) ![Local](img/a.png)',
+            '',
+            '[r]: https://ref.example/r.png',
+        ].join('\n')
+
+        it('prints each web image as its alt text unless the user loaded them, so exporting fetches nothing', async () => {
+            const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+            const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+            expect(html).not.toMatch(/ci\.example|bare\.example|cdn\.example|evil\.example|ref\.example|raw\.example/)
+            expect(html).toContain('Badge Build and [image].')
+            expect(html).toContain('Logo Pixel')
+            expect(html).toContain('Ref and Raw and [image]')
+            // Pictures in the document itself still print.
+            expect(html).toContain('<img src="data:image/png;base64,AAAA" alt="Inline">')
+            expect(html).toContain('<img src="img/a.png" alt="Local">')
+        })
+
+        it('keeps web images when the user chose to load them, without telling their sites which page asked', async () => {
+            const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+            const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS, allowRemoteImages: true })
+            expect(html).toContain('<img src="https://ci.example/badge.svg" alt="Build" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="//cdn.example/logo.png" alt="Logo" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="https://ref.example/r.png" alt="Ref" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="https://raw.example/raw.png" alt="Raw" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="img/a.png" alt="Local">')
+        })
+    })
+
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })

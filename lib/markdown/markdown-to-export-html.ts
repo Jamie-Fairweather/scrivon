@@ -22,6 +22,7 @@ import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-link
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
+import { isExportWebImageUrl } from '@/lib/markdown/web-images'
 import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
@@ -34,6 +35,12 @@ export type PdfRenderOptions = {
      * has no page column, and footer numbers come from CSS page counters where the engine draws them.
      */
     stamped?: boolean
+    /**
+     * Whether web images are fetched and printed. Off by default: as in the preview, which shows them only once the
+     * user loads them, each one prints as its alt text, so exporting a README fires no tracking pixels and doesn't
+     * wait on a slow site.
+     */
+    allowRemoteImages?: boolean
 }
 
 export type MarkdownToExportHtmlOptions = BuildExportDocumentOptions & PdfRenderOptions
@@ -70,6 +77,25 @@ function resolveLinks(hast: HastRoot): void {
         if (node.tagName !== 'a' || typeof href !== 'string') return
         if (href.startsWith('#')) node.properties.href = `#${resolveHeadingAnchor(href.slice(1), ids)}`
         else if (safeExportHref(href) === null) delete node.properties.href
+    })
+}
+
+/**
+ * Swaps each web image for its alt text (or `[image]`), unless the user chose to load web images. Markdown images,
+ * reference-style ones and raw HTML `<img>` are all <img> elements by now. A web image that is kept is fetched
+ * without telling its site which page asked, as in the preview.
+ */
+function handleWebImages(hast: HastRoot, allowRemoteImages: boolean): void {
+    visit(hast, 'element', (node: Element, index, parent) => {
+        const src = node.properties.src
+        if (node.tagName !== 'img' || typeof src !== 'string' || !isExportWebImageUrl(src)) return
+        if (allowRemoteImages) {
+            node.properties.referrerPolicy = 'no-referrer'
+            return
+        }
+        if (!parent || index === undefined) return
+        const alt = typeof node.properties.alt === 'string' ? node.properties.alt.trim() : ''
+        parent.children[index] = { type: 'text', value: alt || '[image]' }
     })
 }
 
@@ -407,12 +433,15 @@ function wrapWithChrome(
  * when the body is empty after front matter is removed.
  */
 export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<PdfExportDocument> {
-    const { stamped, ...build } = options
-    return renderExportPdf(buildExportDocument(source, build), { stamped })
+    const { stamped, allowRemoteImages, ...build } = options
+    return renderExportPdf(buildExportDocument(source, build), { stamped, allowRemoteImages })
 }
 
 /** PDF renderer for an {@link ExportDocument}. Replaces fenced code in `tree` with HTML placeholders. */
-export async function renderExportPdf(document: ExportDocument, { stamped = true }: PdfRenderOptions = {}): Promise<PdfExportDocument> {
+export async function renderExportPdf(
+    document: ExportDocument,
+    { stamped = true, allowRemoteImages = false }: PdfRenderOptions = {}
+): Promise<PdfExportDocument> {
     const { profile, assets, metadata, lang, tree, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
@@ -423,6 +452,7 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
         .use(rehypeSanitize, exportSanitizeSchema)
         .runSync(tree) as HastRoot
     openDetails(hast)
+    handleWebImages(hast, allowRemoteImages)
     resolveLinks(hast)
     markTables(hast, profile)
     setTextDirection(hast, new Set(placeholders.keys()))

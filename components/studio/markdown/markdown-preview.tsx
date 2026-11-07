@@ -16,11 +16,12 @@ import {
     rehypeFencedBlockOrdinals,
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
-import { isWebImageUrl, markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
+import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import { isWebImageUrl } from '@/lib/markdown/web-images'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 

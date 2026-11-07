@@ -73,22 +73,6 @@ export function markdownUrlTransform(url: string): string {
 }
 
 /**
- * Whether showing an image from `src` on a page at `pageUrl` would fetch it from another site. Decided by reading
- * the address the way the webview does (`https:host/x.png` means `https://host/x.png`), not by how it is spelled.
- * An address that can't be read counts as a web image, so it stays blocked.
- */
-export function isWebImageUrl(src: string, pageUrl: string): boolean {
-    try {
-        const page = new URL(pageUrl)
-        const image = new URL(src, page)
-        if (image.protocol !== 'http:' && image.protocol !== 'https:') return false
-        return image.origin !== page.origin
-    } catch {
-        return true
-    }
-}
-
-/**
  * `server\share` (lower case) for a path on a network share, '' for a network or device path that names no share
  * Scrivon would open, or null for a local path.
  */
