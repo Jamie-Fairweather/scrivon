@@ -56,7 +56,7 @@ fn open_stores(app: &tauri::AppHandle) {
 /// Builds the window from its entry in tauri.conf.json. That entry has
 /// `"create": false`, so Tauri doesn't build it before `setup` runs: the old
 /// profile has to be copied in before WebView2 opens it (see `legacy_profile`).
-fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
+fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let config = app
         .config()
         .app
@@ -65,7 +65,16 @@ fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
         .find(|window| window.label == "main")
         .ok_or(tauri::Error::WindowNotFound)?
         .clone();
-    tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+    tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
+    Ok(())
+}
+
+/// Builds the main window and starts what looks after it.
+fn open_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    build_main_window(app)?;
+    show_main_window_later(app);
+    #[cfg(windows)]
+    close_watchdog::watch_page_process(app);
     Ok(())
 }
 
@@ -75,8 +84,8 @@ fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
 /// the window is shown anyway after this long.
 const SHOW_WINDOW_FALLBACK: Duration = Duration::from_secs(3);
 
-fn show_main_window_later(app: &tauri::App) {
-    let app = app.handle().clone();
+fn show_main_window_later(app: &tauri::AppHandle) {
+    let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(SHOW_WINDOW_FALLBACK);
         if let Some(window) = app.get_webview_window("main") {
@@ -85,6 +94,67 @@ fn show_main_window_later(app: &tauri::App) {
             }
         }
     });
+}
+
+/// Brings the main window to the front with `focus` when `main` has it, and
+/// otherwise has `open` open it again.
+fn focus_or_open<W>(main: Option<W>, focus: impl FnOnce(W), open: impl FnOnce()) {
+    match main {
+        Some(window) => focus(window),
+        None => open(),
+    }
+}
+
+fn focus_main_window(window: tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// A second launch brings the open window to the front. The window can be
+/// gone while the app still runs: closed during a PDF export, whose hidden
+/// window keeps the app running until the PDF is saved. The launch then opens
+/// it again, rather than doing nothing. Building a window waits for the main
+/// thread, which runs this, so that is done on another thread.
+fn on_second_launch(app: &tauri::AppHandle) {
+    focus_or_open(app.get_webview_window("main"), focus_main_window, || {
+        let app = app.clone();
+        std::thread::spawn(move || reopen_main_window(&app));
+    });
+}
+
+fn reopen_main_window(app: &tauri::AppHandle) {
+    // Two launches at once: the second finds the window the first one built.
+    static REOPENING: Mutex<()> = Mutex::new(());
+    let _one_at_a_time = REOPENING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    focus_or_open(
+        app.get_webview_window("main"),
+        focus_main_window,
+        || match open_main_window(app) {
+            Ok(()) => focus_once_shown(app),
+            Err(err) => eprintln!("Could not open the window again: {err}"),
+        },
+    );
+}
+
+/// Brings the reopened window to the front once it is shown (by the page, or
+/// by `show_main_window_later`): a hidden window can't take the focus, and
+/// this copy of Scrivon isn't the one the user just started, so Windows may
+/// leave it behind other windows.
+fn focus_once_shown(app: &tauri::AppHandle) {
+    let deadline = std::time::Instant::now() + SHOW_WINDOW_FALLBACK + Duration::from_secs(1);
+    while std::time::Instant::now() < deadline {
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.set_focus();
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Grants the frontend recursive access to a workspace folder, but only one the
@@ -140,11 +210,7 @@ pub fn run() {
         // overwrite each other's recent folders, tabs and kept unsaved edits.
         // A second launch focuses the window that is already open instead.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            on_second_launch(app)
         }))
         .manage(PendingUpdate(Mutex::new(None)))
         .manage(CloseWatchdog::default())
@@ -165,10 +231,7 @@ pub fn run() {
             app.manage(StoreRecovery::set_aside_damaged(data_dir.as_deref()));
             open_stores(app.handle());
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
-            build_main_window(app)?;
-            show_main_window_later(app);
-            #[cfg(windows)]
-            close_watchdog::watch_page_process(app);
+            open_main_window(app.handle())?;
             crash_report::mark_started();
             Ok(())
         })
@@ -239,6 +302,35 @@ mod config_tests {
         assert_eq!(windows[0]["create"], false);
         // The page shows it once its theme is on (show_main_window_later if not).
         assert_eq!(windows[0]["visible"], false);
+    }
+}
+
+#[cfg(test)]
+mod second_launch_tests {
+    use std::cell::Cell;
+
+    use super::focus_or_open;
+
+    /// Which window `focus_or_open` focused, and whether it opened one.
+    fn second_launch(main: Option<&'static str>) -> (Option<&'static str>, bool) {
+        let (focused, opened) = (Cell::new(None), Cell::new(false));
+        focus_or_open(
+            main,
+            |window| focused.set(Some(window)),
+            || opened.set(true),
+        );
+        (focused.get(), opened.get())
+    }
+
+    #[test]
+    fn a_second_launch_focuses_the_open_window() {
+        assert_eq!(second_launch(Some("main")), (Some("main"), false));
+    }
+
+    #[test]
+    fn a_second_launch_opens_the_window_again_when_it_is_gone() {
+        // Closed during a PDF export, whose hidden window keeps the app running.
+        assert_eq!(second_launch(None), (None, true));
     }
 }
 

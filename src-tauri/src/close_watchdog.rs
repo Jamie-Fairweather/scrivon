@@ -143,7 +143,7 @@ pub fn on_close_requested(window: &tauri::Window) {
 
 /// Watches the main window's page process (Windows only: WebView2 reports it).
 #[cfg(windows)]
-pub fn watch_page_process(app: &tauri::App) {
+pub fn watch_page_process(app: &tauri::AppHandle) {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
@@ -153,7 +153,7 @@ pub fn watch_page_process(app: &tauri::App) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let app = app.handle().clone();
+    let app = app.clone();
     // One question at a time: a page that stays frozen is reported again and again.
     let asking = Arc::new(AtomicBool::new(false));
     let result = window.with_webview(move |webview: PlatformWebview| {
