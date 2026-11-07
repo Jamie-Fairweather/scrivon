@@ -354,3 +354,13 @@ export function useAppSettings(): AppSettingsContextValue {
     if (!ctx) throw new Error('useAppSettings must be used within SettingsProvider')
     return ctx
 }
+
+const flushNothing = () => {}
+
+/**
+ * flushPendingSettings, for code that also runs outside a SettingsProvider: the last-resort error screen
+ * (app/global-error.tsx) replaces the layout that holds it, and keeps its title bar. There it does nothing.
+ */
+export function useFlushPendingSettings(): () => void {
+    return useContext(AppSettingsContext)?.flushPendingSettings ?? flushNothing
+}

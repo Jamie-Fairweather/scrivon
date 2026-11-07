@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SettingsProvider, useAppSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
+import { SettingsProvider, useAppSettings, useFlushPendingSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -371,6 +371,28 @@ describe('SettingsProvider persistence', () => {
 
         expect(settingsWrites).toBe(2)
         expect(stored().layout.editorWidth).toBe(640)
+    })
+
+    it('gives the title bar and the close handler the same way to write a waiting change, which does nothing outside it', () => {
+        const { result } = renderHook(() => ({ settings: useAppSettings(), flush: useFlushPendingSettings() }), { wrapper: SettingsProvider })
+        settingsWrites = 0
+        act(() => {
+            result.current.settings.setEditorWidth(600)
+        })
+        act(() => {
+            result.current.settings.setEditorWidth(640)
+        })
+        expect(settingsWrites).toBe(1)
+
+        act(() => {
+            result.current.flush()
+        })
+        expect(settingsWrites).toBe(2)
+        expect(stored().layout.editorWidth).toBe(640)
+
+        // The last-resort error screen has no SettingsProvider above it.
+        const outside = renderHook(() => useFlushPendingSettings())
+        expect(() => outside.result.current()).not.toThrow()
     })
 
     it('writes a waiting change when the provider unmounts', () => {

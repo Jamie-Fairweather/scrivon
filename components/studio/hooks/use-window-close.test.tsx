@@ -33,6 +33,9 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceCoordinator: () => state.coordinator,
 }))
 
+const flushPendingSettings = vi.hoisted(() => vi.fn())
+vi.mock('@/components/studio/settings/settings-provider', () => ({ useFlushPendingSettings: () => flushPendingSettings }))
+
 /** Mirrors Tauri: the window is destroyed after the handler unless it called preventDefault. */
 async function requestClose() {
     let prevented = false
@@ -76,6 +79,23 @@ describe('useWindowCloseHandler', () => {
         await requestClose()
 
         expect(order).toEqual(['close_ack', 'confirmCloseTabs'])
+    })
+
+    it('writes a settings change that is still waiting, right after telling the app it is handling the close', async () => {
+        const order: string[] = []
+        vi.mocked(invoke).mockImplementation(async (command) => {
+            order.push(command)
+        })
+        flushPendingSettings.mockImplementationOnce(() => void order.push('flushPendingSettings'))
+        state.coordinator.confirmCloseTabs.current = vi.fn(async () => {
+            order.push('confirmCloseTabs')
+            return false
+        })
+        renderHook(() => useWindowCloseHandler())
+
+        await requestClose()
+
+        expect(order).toEqual(['close_ack', 'flushPendingSettings', 'confirmCloseTabs'])
     })
 
     it('still asks about unsaved changes when the app could not be told', async () => {

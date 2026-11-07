@@ -28,6 +28,7 @@ const confirmCloseTabs = vi.fn<() => Promise<boolean>>()
 const releaseAllTabs = vi.fn<() => Promise<void>>()
 const backUpUnsavedTabs = vi.fn<() => void>()
 const persistWorkspaceTabSession = vi.fn<() => Promise<void>>()
+const flushPendingSettings = vi.fn<() => void>()
 
 /** How many times the installer was started. */
 function installCalls(): number {
@@ -35,7 +36,9 @@ function installCalls(): number {
 }
 
 function mockSettings(checkOnLaunch: boolean) {
-    vi.mocked(useAppSettings).mockReturnValue({ settings: { updates: { checkOnLaunch } } } as unknown as ReturnType<typeof useAppSettings>)
+    vi.mocked(useAppSettings).mockReturnValue({ settings: { updates: { checkOnLaunch } }, flushPendingSettings } as unknown as ReturnType<
+        typeof useAppSettings
+    >)
 }
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -73,6 +76,7 @@ describe('AppUpdateProvider installUpdate', () => {
         confirmCloseTabs.mockImplementation(record('confirmCloseTabs') as () => Promise<boolean>)
         releaseAllTabs.mockImplementation(record('releaseAllTabs') as () => Promise<void>)
         persistWorkspaceTabSession.mockImplementation(record('persistWorkspaceTabSession') as () => Promise<void>)
+        flushPendingSettings.mockImplementationOnce(() => void calls.push('flushPendingSettings'))
         vi.mocked(invoke).mockImplementation(async (cmd: string) => {
             calls.push(cmd)
         })
@@ -84,7 +88,15 @@ describe('AppUpdateProvider installUpdate', () => {
         await act(() => result.current.installUpdate())
 
         // releaseAllTabs drops the copies of edits that were saved or thrown away, so they aren't offered back.
-        expect(calls).toEqual(['confirmCloseTabs', 'releaseAllTabs', 'persistWorkspaceTabSession', 'install_app_update', 'relaunch'])
+        // A settings change still waiting to be written goes just before the installer ends the app.
+        expect(calls).toEqual([
+            'confirmCloseTabs',
+            'releaseAllTabs',
+            'persistWorkspaceTabSession',
+            'flushPendingSettings',
+            'install_app_update',
+            'relaunch',
+        ])
     })
 
     it('does not install when the user cancels a question about the open files, and Install works again', async () => {

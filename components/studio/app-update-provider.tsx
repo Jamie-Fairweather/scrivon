@@ -50,7 +50,7 @@ export function useAppUpdate(): AppUpdateContextValue {
 }
 
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
-    const { settings } = useAppSettings()
+    const { settings, flushPendingSettings } = useAppSettings()
     const coordinator = useWorkspaceCoordinator()
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
     const [notesLoading, setNotesLoading] = useState(false)
@@ -145,6 +145,9 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 else setDownload({ downloaded: message.event === 'progress' ? message.downloaded : 0, total: message.total })
             }
             try {
+                // A settings change from the last moment is still waiting to be written, and nothing
+                // runs once the installer has ended the app.
+                flushPendingSettings()
                 await invoke('install_app_update', { onProgress })
                 await relaunch()
             } catch (error) {
@@ -157,7 +160,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
         } finally {
             installRunning.current = false
         }
-    }, [coordinator])
+    }, [coordinator, flushPendingSettings])
 
     const value = useMemo(
         () => ({

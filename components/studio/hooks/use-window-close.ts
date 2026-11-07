@@ -4,11 +4,13 @@ import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
+import { useFlushPendingSettings } from '@/components/studio/settings/settings-provider'
 import { useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 export function useWindowCloseHandler() {
     const { workspaceRoot } = useWorkspaceSession()
     const coordinator = useWorkspaceCoordinator()
+    const flushPendingSettings = useFlushPendingSettings()
 
     useEffect(() => {
         if (!isTauri() || !workspaceRoot) return
@@ -21,6 +23,9 @@ export function useWindowCloseHandler() {
                 // First, before anything that can wait on the user: tells the app this page is handling the
                 // close. When no answer comes (the page crashed or froze), it offers to close anyway.
                 void invoke('close_ack').catch((err: unknown) => console.warn("Couldn't acknowledge the close request", err))
+                // A settings change from the last moment is still waiting to be written. The window may go
+                // without a pagehide, which would otherwise write it.
+                flushPendingSettings()
                 // Saves every tab, or asks the user what to do with changes that can't be saved
                 // (Try Again / Close Without Saving / Cancel). A second click on X while this
                 // is still running gets the same answer from confirmCloseTabs, so it never asks twice.
@@ -41,5 +46,5 @@ export function useWindowCloseHandler() {
             disposed = true
             unlisten?.()
         }
-    }, [workspaceRoot, coordinator])
+    }, [workspaceRoot, coordinator, flushPendingSettings])
 }
