@@ -600,6 +600,19 @@ describe('renderExportDocx', () => {
             draft.typography.monoFont = '"A&B Mono"'
         })
         expect(escaped.xml).toContain('<w:font w:name="A&amp;B Mono">')
+
+        // Settings save system font names quoted and escaped: the escapes go, and a comma inside the quotes stays.
+        const quoted = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = String.raw`"Odd \"Quote\" Font", monospace`
+        })
+        expect(runWith(quoted.xml, 'code')).toContain('w:ascii="Odd &quot;Quote&quot; Font"')
+        expect(quoted.parts['word/fontTable.xml']).toContain('<w:font w:name="Odd &quot;Quote&quot; Font">')
+        expect(quoted.xml).not.toContain('\\')
+        const comma = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = '"A, B Mono", monospace'
+        })
+        expect(runWith(comma.xml, 'code')).toContain('w:ascii="A, B Mono"')
+        expect(comma.parts['word/fontTable.xml']).toContain('<w:font w:name="A, B Mono">')
     })
 
     it('gives Chinese, Japanese and Korean text a font that has their characters', async () => {

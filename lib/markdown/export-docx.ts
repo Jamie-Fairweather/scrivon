@@ -78,6 +78,7 @@ import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { AppThemeId } from '@/lib/theme/catalog'
+import { familyName, splitFontStack } from '@/lib/settings/font-stack'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
 type Block = Paragraph | Table
@@ -137,11 +138,13 @@ const HEADING_LEVELS = [
     HeadingLevel.HEADING_6,
 ] as const
 
-/** The font families a CSS stack names, in order, without generic families and browser-only names. */
+/**
+ * The font families a CSS stack names, in order, without generic families and browser-only names. Quoted names
+ * lose their quotes and escapes, and a comma inside one doesn't split it.
+ */
 function fontNames(stack: string): string[] {
-    return stack
-        .split(',')
-        .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+    return splitFontStack(stack)
+        .map(familyName)
         .filter((name) => name && !name.startsWith('-') && !GENERIC_FONTS.has(name.toLowerCase()) && !SKIP_FONTS.has(name.toLowerCase()))
 }
 
