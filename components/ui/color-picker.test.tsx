@@ -129,6 +129,29 @@ describe('ColorPicker', () => {
         expect(alpha).toHaveAttribute('aria-valuetext', '50%')
     })
 
+    it('marks keyboard focus on the square and the slider thumbs with a full-strength ring', () => {
+        const { container } = render(
+            <ColorPicker value="#00ffff80">
+                <ColorPickerSelection />
+                <ColorPickerHue />
+                <ColorPickerAlpha />
+            </ColorPicker>
+        )
+        const square = screen.getByRole('slider', { name: 'Saturation and brightness' })
+        const thumbs = [...container.querySelectorAll<HTMLElement>('[data-slot="slider-thumb"]')]
+        expect(thumbs).toHaveLength(2)
+
+        // A see-through ring (ring-ring/24) measured well under 3:1 on the popover.
+        for (const part of [square, ...thumbs]) {
+            const rings = part.className.split(/\s+/).filter((name) => /ring-ring\b/.test(name))
+            expect(rings.length, part.className).toBeGreaterThan(0)
+            expect(
+                rings.filter((name) => name.includes('/')),
+                part.className
+            ).toEqual([])
+        }
+    })
+
     it('lets the keyboard move around the saturation/brightness square', () => {
         const onChange = vi.fn()
         render(

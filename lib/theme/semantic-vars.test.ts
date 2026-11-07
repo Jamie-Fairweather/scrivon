@@ -70,6 +70,8 @@ describe('tokensToSemanticVars', () => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 
         expect(contrastRatio(vars['--ring'], vars['--background'])).toBeGreaterThanOrEqual(3)
+        // Popovers too: the colour picker draws its ring with a popover-coloured gap.
+        expect(contrastRatio(vars['--ring'], vars['--popover'])).toBeGreaterThanOrEqual(3)
     })
 
     it.each(APP_THEME_IDS)('%s: body text on hover and selected fills reaches 4.5:1', (id) => {
