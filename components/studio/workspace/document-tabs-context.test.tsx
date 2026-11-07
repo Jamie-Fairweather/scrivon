@@ -649,6 +649,32 @@ describe('DocumentTabsProvider', () => {
         })
     })
 
+    it('closes the read-only notice of a renamed file, whose button would no longer find its tab', async () => {
+        const initial = {
+            tabs: [
+                tab('/ws/old.md', 'old.md', { readOnly: true, largeFile: true }),
+                tab('/ws/docs/legacy.md', 'legacy.md', { readOnly: true, encodingIssue: 'legacy-encoding' }),
+                tab('/ws/docs/plain.md', 'plain.md'),
+                tab('/ws/kept.md', 'kept.md', { readOnly: true, largeFile: true }),
+            ],
+            activeTabId: '/ws/old.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(4))
+        vi.mocked(dismissNotification).mockClear()
+
+        act(() => coordinator.remapTabsAfterRename.current('/ws/old.md', '/ws/new.md', 'new.md'))
+        act(() => coordinator.remapTabsAfterRename.current('/ws/docs', '/ws/manual', 'manual'))
+
+        expect(vi.mocked(dismissNotification).mock.calls).toEqual([['read-only:/ws/old.md'], ['read-only:/ws/docs/legacy.md']])
+        // The bar above the editor still offers to edit it, under its new name.
+        act(() => result.current.makeTabEditable('/ws/new.md'))
+        expect(result.current.tabs[0]).toMatchObject({ id: '/ws/new.md', readOnly: false })
+    })
+
     it('closes tabs when coordinator delete handler runs', async () => {
         const initial = {
             tabs: [tab('/ws/docs/readme.md', 'readme.md'), tab('/ws/other.mmd', 'other.mmd')],

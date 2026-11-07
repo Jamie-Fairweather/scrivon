@@ -337,6 +337,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 coordinator.tabsMoved.current(
                     prevTabs.flatMap((t, i) => (t.isDirty && t.id !== nextTabs[i]!.id ? [{ from: t.id, to: nextTabs[i]!.id }] : []))
                 )
+                // A read-only notice's button is tied to the old path, so it would find no tab. It isn't shown again
+                // (the user may have closed it); the bar above the editor still says why and offers the same button.
+                prevTabs.forEach((t, i) => {
+                    if (t.id !== nextTabs[i]!.id && readOnlyReason(t)) dismissNotification(readOnlyNoticeId(t.id))
+                })
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
             closeTabsForDelete: (path, isDirectory) => {
