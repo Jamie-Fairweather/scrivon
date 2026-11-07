@@ -45,8 +45,9 @@ export const FileTreeNode = memo(function FileTreeNode({
             {/* The actions button sits beside the row, not inside it, so its menu clicks never reach the row. */}
             <div
                 className={cn(
-                    'group me-1 flex min-w-0 items-center rounded-md hover:bg-sidebar-accent',
-                    isActive && 'bg-sidebar-accent',
+                    'group me-1 flex min-w-0 items-center rounded-md hover:bg-sidebar-accent/60',
+                    // The open file: full fill (also under the pointer, so it doesn't look hovered) and an accent bar.
+                    isActive && 'bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_var(--ring)] hover:bg-sidebar-accent',
                     isUnsupported && 'hover:bg-transparent'
                 )}
                 style={{ marginLeft: `${(level - 1) * 12 + 4}px` }}
@@ -68,8 +69,9 @@ export const FileTreeNode = memo(function FileTreeNode({
                     className={cn(
                         `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none select-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,
-                        isActive && 'font-medium',
-                        isUnsupported && 'text-muted-foreground/60'
+                        // Contrast themes drop the fill and the bar, so the open file is marked in the system highlight.
+                        isActive && 'font-medium forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]',
+                        isUnsupported && 'text-muted-foreground'
                     )}
                     onClick={() => onActivate(node, expanded)}
                     onFocus={() => onFocusRow(node.path)}

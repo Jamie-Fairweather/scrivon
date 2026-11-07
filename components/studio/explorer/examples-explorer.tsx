@@ -33,9 +33,13 @@ function ExamplesByCategory({ category, examples }: { category: AppExampleCatego
                                 <button
                                     type="button"
                                     className={cn(
-                                        'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-muted/50',
-                                        isActive && 'bg-muted/60 font-medium text-foreground'
+                                        'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-sidebar-accent/60',
+                                        // Like the open file in the file tree.
+                                        isActive &&
+                                            `bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_2px_0_0_var(--ring)]
+                                            hover:bg-sidebar-accent`
                                     )}
+                                    aria-current={isActive ? 'true' : undefined}
                                     onClick={() => openExample(example.id)}
                                     title={example.description}
                                 >
