@@ -140,7 +140,26 @@ function assertWellFormed(part: string, xml: string): void {
     if (roots !== 1) throw problem('no root element', 0)
 }
 
-/** Unzips a .docx. Every XML part is checked with {@link assertWellFormed}, so each test also checks Word can open the file. */
+/**
+ * The relationship ids (`r:id`, `r:embed`, `r:link`) parts use that their own `.rels` file doesn't define, as
+ * `part: id`. Word reports a file with one as unreadable content and offers to repair it.
+ */
+function danglingRelationships(parts: Record<string, string>): string[] {
+    const dangling: string[] = []
+    for (const [name, xml] of Object.entries(parts)) {
+        if (!name.endsWith('.xml')) continue
+        const slash = name.lastIndexOf('/') + 1
+        const rels = parts[`${name.slice(0, slash)}_rels/${name.slice(slash)}.rels`] ?? ''
+        const ids = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((match) => match[1]))
+        for (const [, id] of xml.matchAll(/\br:(?:id|embed|link)="([^"]*)"/g)) if (!ids.has(id)) dangling.push(`${name}: ${id}`)
+    }
+    return dangling
+}
+
+/**
+ * Unzips a .docx. Every XML part is checked with {@link assertWellFormed}, and every relationship id it uses with
+ * {@link danglingRelationships}, so each test also checks Word can open the file.
+ */
 function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Record<string, string> } {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const names: string[] = []
@@ -164,6 +183,7 @@ function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Reco
         }
         offset = start + compressed
     }
+    expect(danglingRelationships(parts)).toEqual([])
     return { xml: xml.join('\n'), names, parts }
 }
 
@@ -353,6 +373,16 @@ describe('renderExportDocx', () => {
         ).not.toThrow()
     })
 
+    it('finds relationship ids that no .rels file defines', () => {
+        expect(
+            danglingRelationships({
+                'word/document.xml': '<w:hyperlink r:id="rId1"/><a:hlinkClick r:id="rId9"/><a:blip r:embed="rId2"/>',
+                'word/_rels/document.xml.rels': '<Relationship Id="rId1"/><Relationship Id="rId2"/>',
+                'word/footnotes.xml': '<w:hyperlink r:id="rId1"/>',
+            })
+        ).toEqual(['word/document.xml: rId9', 'word/footnotes.xml: rId1'])
+    })
+
     it('writes the body: marks, links, images, lists, tables, code, diagrams, and notes', async () => {
         const { xml, names, parts } = await render(RICH)
         const body = parts['word/document.xml']!
@@ -380,9 +410,10 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('descr="Diagram"')
         expect(xml).toContain('The note')
         expect(xml).toContain('Beta')
-        // Raw HTML is left out, as in the PDF, but the words between inline tags stay.
+        // Raw HTML shows its words, as in the PDF, but never its tags.
         expect(xml).not.toContain('&lt;div&gt;')
         expect(xml).not.toContain('&lt;span&gt;')
+        expect(xml).toContain('>block</w:t>')
         expect(xml).toContain('>raw</w:t>')
         expect(runWith(body, 'Paragraph with ')).toContain('w:ascii="Segoe UI"')
         // The default mono stack starts with Mac-only fonts. Windows has neither, so Word gets Consolas.
@@ -458,6 +489,30 @@ describe('renderExportDocx', () => {
         // The contents estimate measures them the same way: the full-page picture takes page 3, so End is on page 4.
         expect(tocPage(xml, 'Start')).toBe(2)
         expect(tocPage(xml, 'End')).toBe(4)
+    })
+
+    it('fits pictures in list items to the width left beside the list, so they stay inside the margin (N39)', async () => {
+        const wide = (alt: string) => `![${alt}](${dataUrl('image/png', sizedPng(2000, 500))})`
+        const { xml } = await render(
+            [
+                `- ${wide('top')}`,
+                '    - nested',
+                '',
+                `        ${wide('nested')}`,
+                '',
+                '1. Click Settings',
+                '',
+                `   ${wide('step')}`,
+                '',
+                `> - ${wide('quoted')}`,
+            ].join('\n')
+        )
+        // The 718px text width less the list's step in: 24px at the top level, 48px one list in.
+        expect(drawingSize(xml, 'top')?.width).toBe(694)
+        expect(drawingSize(xml, 'nested')?.width).toBe(670)
+        expect(drawingSize(xml, 'step')?.width).toBe(694)
+        // In a quote, the quote's 16px step too.
+        expect(drawingSize(xml, 'quoted')?.width).toBe(678)
     })
 
     it('estimates contents page numbers with a diagram in a list at the width it is drawn', async () => {
@@ -807,7 +862,7 @@ describe('renderExportDocx', () => {
         expect(blockWith(xml, 'inner-quote')).toContain(bar)
     })
 
-    it('leaves raw HTML and comments out of the Word file, as the PDF does', async () => {
+    it('leaves HTML tags, comments and scripts out of the Word file but keeps the words, as the PDF does', async () => {
         const { xml } = await render(
             [
                 '<!-- TODO: internal pricing notes -->',
@@ -823,15 +878,280 @@ describe('renderExportDocx', () => {
                 'Hidden body.',
                 '',
                 '</details>',
+                '',
+                '<script>',
+                'stealCookies()',
+                '</script>',
+                '',
+                '<style>p { color: red }</style>',
             ].join('\n')
         )
         expect(xml).not.toContain('pricing')
         expect(xml).not.toContain('secret')
+        expect(xml).not.toContain('stealCookies')
+        expect(xml).not.toContain('color: red')
         expect(xml).not.toContain('&lt;')
         // The words around and between tags stay, and <br> still breaks the line in the cell.
         expect(xml).toContain('>Ctrl</w:t>')
         expect(xml).toContain('>Hidden body.</w:t>')
         expect(blockWith(xml, 'split')).toContain('<w:br/>')
+        // A summary is shown, and in bold, as the PDF prints a <details> open.
+        expect(runWith(xml, 'More')).toContain('<w:b/>')
+    })
+
+    it('writes the words, pictures and links of raw HTML blocks, aligned as they ask, as the preview and PDF show them (N38, B29)', async () => {
+        const { parts } = await render(
+            [
+                '<p align="center">Made by <b>Ada</b> &amp; friends</p>',
+                '',
+                '<div align="center">',
+                '  <h1>Scrivon</h1>',
+                `  <img src="${dataUrl('image/png', sizedPng(64, 32))}" alt="Logo">`,
+                '  <a href="https://example.com/ci"><img src="https://example.com/badge.svg" alt="build passing"></a>',
+                '  <p align="right">Right side</p>',
+                '</div>',
+                '',
+                '<table>',
+                '  <tr><th>Key</th><th>Value</th></tr>',
+                '  <tr><td>one</td><td>two   words</td></tr>',
+                '</table>',
+                '',
+                '<pre>line one',
+                '  line two</pre>',
+                '',
+                'Inline <img src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" alt="Icon"> picture.',
+                '',
+                '<div></div>',
+                '',
+                '<p>&#7;Bell</p>',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        expect(body).not.toContain('&lt;')
+        // Words keep their bold, spaces collapse as in a browser, and the alignment carries over.
+        expect(blockWith(body, 'Made by ')).toContain('<w:jc w:val="center"/>')
+        expect(runWith(body, 'Ada')).toContain('<w:b/>')
+        expect(body).toContain('> &amp; friends</w:t>')
+        expect(blockWith(body, 'Scrivon')).toContain('<w:jc w:val="center"/>')
+        expect(runWith(body, 'Scrivon')).toContain('<w:b/>')
+        expect(blockWith(body, 'Right side')).toContain('<w:jc w:val="end"/>')
+        // A data: picture is embedded at its own size; a web one is its alt text, still linked.
+        expect(drawingSize(body, 'Logo')).toEqual({ width: 64, height: 32 })
+        expect(blockWith(body, 'build passing', '<w:hyperlink ')).toBeTruthy()
+        expect(parts['word/_rels/document.xml.rels']).toContain('Target="https://example.com/ci"')
+        // A table row is one line, its cells split by bars, as in a footnote table.
+        expect(runWith(body, 'Key')).toContain('<w:b/>')
+        expect(body).toContain('>one | two words</w:t>')
+        // <pre> keeps its spaces and lines, in the code font.
+        expect(runWith(body, '  line two')).toContain('w:ascii="Consolas"')
+        expect(blockWith(body, '  line two')).toContain('<w:br/>')
+        // A picture Word can't take is its alt text, and an empty block writes nothing, not a blank line.
+        expect(body).toContain('>Icon</w:t>')
+        expect(body.match(/<w:p>/g)).toHaveLength(9)
+        // A character reference XML forbids is dropped, so Word can still open the file.
+        expect(body).toContain('>Bell</w:t>')
+    })
+
+    it('keeps the links and marks of HTML tags in a line of text, as the PDF does (review)', async () => {
+        const { parts } = await render(
+            [
+                'Made by <a href="https://example.com/ada">Ada *Lovelace*</a> with <b>bold</b>, <i>slanted</i> and <del>gone</del>.',
+                '',
+                'Press <kbd>Ctrl</kbd>, <a href="javascript:alert(1)">unsafe</a>, <a href="https://example.com/out">[inner](https://example.com/in)</a>.',
+                '',
+                'Unclosed <b>to the end',
+                '',
+                'Hidden <script>steal()</script> script.',
+                '',
+                '# Title <em>here</em>',
+                '',
+                '| a |',
+                '| --- |',
+                '| <i>cell</i> |',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const rels = parts['word/_rels/document.xml.rels']!
+        // The link holds the words between its tags, Markdown marks and all.
+        const links = body.match(/<w:hyperlink [\s\S]*?<\/w:hyperlink>/g) ?? []
+        expect(links.some((link) => link.includes('>Ada </w:t>') && link.includes('>Lovelace</w:t>'))).toBe(true)
+        expect(runWith(body, 'Lovelace')).toContain('<w:i/>')
+        expect(rels).toContain('Target="https://example.com/ada"')
+        expect(runWith(body, 'bold')).toContain('<w:b/>')
+        expect(runWith(body, 'slanted')).toContain('<w:i/>')
+        expect(runWith(body, 'gone')).toContain('<w:strike/>')
+        expect(runWith(body, 'Ctrl')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, 'to the end')).toContain('<w:b/>')
+        expect(runWith(body, 'here')).toContain('<w:i/>')
+        expect(runWith(body, 'cell')).toContain('<w:i/>')
+        // A link the PDF drops is plain words, and a Markdown link inside an HTML one keeps its own address.
+        expect(body).toContain('>unsafe</w:t>')
+        expect(rels).not.toContain('javascript')
+        expect(rels).toContain('Target="https://example.com/in"')
+        expect(rels).not.toContain('https://example.com/out')
+        // What the PDF drops, a script's text with it, stays out.
+        expect(body).not.toContain('steal')
+        expect(body).not.toContain('&lt;')
+    })
+
+    it('aligns Markdown inside a <div align> left open across blocks, and HTML in list items and footnotes (review)', async () => {
+        const { parts } = await render(
+            [
+                '<div align="center">',
+                '',
+                `<img src="${dataUrl('image/png', sizedPng(64, 32))}" alt="Logo">`,
+                '',
+                '# Scrivon',
+                '',
+                'A fast diagram editor.',
+                '',
+                '<div>',
+                '',
+                'Nested inherits.',
+                '',
+                '</div>',
+                '',
+                '<div align="left">',
+                '',
+                'Left inside.',
+                '',
+                '</div>',
+                '',
+                'Centred again.',
+                '',
+                '</div>',
+                '<!-- <div align="right"> -->',
+                '',
+                'After the div.',
+                '',
+                '- <p align="center">Centred item</p>',
+                '',
+                'Noted[^n].',
+                '',
+                '[^n]: <p align="right">Right note</p>',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const centred = '<w:jc w:val="center"/>'
+        for (const words of ['Scrivon', 'A fast diagram editor.', 'Nested inherits.', 'Centred again.', 'Centred item']) {
+            expect(blockWith(body, words), words).toContain(centred)
+        }
+        const logo = body.indexOf('descr="Logo"')
+        expect(body.slice(body.lastIndexOf('<w:p>', logo), logo)).toContain(centred)
+        expect(blockWith(body, 'Left inside.')).toContain('<w:jc w:val="start"/>')
+        // The div ends at its </div>; a tag in a comment opens nothing.
+        expect(blockWith(body, 'After the div.')).not.toContain('<w:jc ')
+        expect(blockWith(parts['word/footnotes.xml']!, 'Right note')).toContain('<w:jc w:val="end"/>')
+    })
+
+    it('draws a raw HTML picture at the width or height it gives, as the PDF does (review)', async () => {
+        const picture = dataUrl('image/png', sizedPng(64, 32))
+        const { xml } = await render(
+            [
+                `<img src="${picture}" width="120" alt="By width">`,
+                '',
+                `<img src="${picture}" height="16" alt="By height">`,
+                '',
+                `<img src="${picture}" width="40px" height="40" alt="Both">`,
+                '',
+                `<img src="${picture}" width="5000" alt="Too wide">`,
+                '',
+                `![Wide markdown](${dataUrl('image/png', sizedPng(5000, 2500))})`,
+                '',
+                `<img src="${picture}" width="50%" alt="Percent">`,
+            ].join('\n')
+        )
+        expect(drawingSize(xml, 'By width')).toEqual({ width: 120, height: 60 })
+        expect(drawingSize(xml, 'By height')).toEqual({ width: 32, height: 16 })
+        // A width wins, and the height follows it, as in the PDF.
+        expect(drawingSize(xml, 'Both')).toEqual({ width: 40, height: 20 })
+        // It still shrinks to the text width, keeping its shape. A percentage leaves the picture at its own size.
+        expect(drawingSize(xml, 'Too wide')).toEqual(drawingSize(xml, 'Wide markdown'))
+        expect(drawingSize(xml, 'Percent')).toEqual({ width: 64, height: 32 })
+        // The contents page numbers use the size it is drawn at: twelve 480px pictures shown 10px tall fit on one page.
+        const small = Array.from({ length: 12 }, () => [`<img src="${dataUrl('image/png', sizedPng(640, 480))}" height="10">`, '']).flat()
+        const toc = await render(['# Start', '', ...small, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        expect(tocPage(toc.xml, 'End')).toBe(2)
+    })
+
+    it('keeps the blank lines and rules raw HTML blocks show: &nbsp;, <br> spacers and <hr> (review)', async () => {
+        const { parts } = await render(
+            [
+                '[r](#rule)',
+                '',
+                'One',
+                '',
+                '<p>&nbsp;</p>',
+                '',
+                'Two',
+                '',
+                '<br>',
+                '',
+                'Three',
+                '',
+                '<p><br></p>',
+                '',
+                'Four',
+                '',
+                '<div><br><br></div>',
+                '',
+                'Five',
+                '',
+                '<hr id="rule">',
+                '',
+                'Six',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const paragraphs = body.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? []
+        const words = paragraphs.map((paragraph) => [...paragraph.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((text) => text[1]).join(''))
+        // Each spacer is a blank line, as in the PDF: two <br>s are two lines, so one break in an empty paragraph.
+        expect(words).toEqual(['r', 'One', ' ', 'Two', '', 'Three', '', 'Four', '', 'Five', '', 'Six'])
+        expect(paragraphs.map((paragraph) => paragraph.match(/<w:br\/>/g)?.length ?? 0)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+        // The <hr> is a rule, and a link to its id lands on it.
+        const rule = paragraphs[10]!
+        expect(rule).toContain('<w:pBdr>')
+        expect(rule).toContain(`<w:bookmarkStart w:name="${/w:anchor="([^"]+)"/.exec(body)![1]}"`)
+        // It is written just as `---` is.
+        const html = await render('One\n\n<hr>\n\nTwo')
+        const markdown = await render('One\n\n---\n\nTwo')
+        expect(html.parts['word/document.xml']).toBe(markdown.parts['word/document.xml'])
+        // The contents page numbers count each blank line.
+        const spacers = Array.from({ length: 40 }, () => ['<br>', '']).flat()
+        const { xml } = await render(['# Start', '', ...spacers, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        expect(tocPage(xml, 'End')).toBe(3)
+    })
+
+    it('counts raw HTML blocks in the contents page numbers', async () => {
+        const blocks = Array.from({ length: 40 }, (_, index) => [`<p align="center">Line ${index}</p>`, '']).flat()
+        const { xml } = await render(['# Start', '', ...blocks, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        // About 33 lines fit on a page, so End is pushed to the next one.
+        expect(tocPage(xml, 'Start')).toBe(2)
+        expect(tocPage(xml, 'End')).toBe(3)
+        // Each line of a <pre>, or of a <p> split by <br>, is counted, as each line of a code block is.
+        const lines = Array.from({ length: 80 }, (_, index) => `line ${index}`)
+        const end = async (block: string) =>
+            tocPage(
+                (
+                    await render(['# Start', '', block, '', '# End'].join('\n'), (draft) => {
+                        draft.frontMatter.toc = true
+                        draft.frontMatter.tocExcludeH1 = false
+                    })
+                ).xml,
+                'End'
+            )
+        expect(await end(fence('text', lines.join('\n')))).toBe(4)
+        expect(await end(`<pre>${lines.join('\n')}</pre>`)).toBe(4)
+        expect(await end(`<p>${lines.join('<br>')}</p>`)).toBe(4)
     })
 
     it('leaves raw HTML and comments in headings off the Contents page too', async () => {
@@ -933,6 +1253,57 @@ describe('renderExportDocx', () => {
         expect(table).toContain('>a | b</w:t>')
         expect(table).toContain('>1 | 2</w:t>')
         expect(table).not.toContain('<w:tbl>')
+    })
+
+    it('keeps short code blocks and tables on one page, as the PDF does (N42)', async () => {
+        const lines = (count: number, word: string) => Array.from({ length: count }, (_, index) => `${word} ${index}`).join('\n')
+        const rows = (count: number, word: string) => Array.from({ length: count }, (_, index) => `| ${word} ${index} |`)
+        const { parts } = await render(
+            [
+                fence('text', lines(3, 'short')),
+                '',
+                fence('text', lines(26, 'long')),
+                '',
+                '| Small |',
+                '| --- |',
+                ...rows(2, 'small'),
+                '',
+                '| Big |',
+                '| --- |',
+                ...rows(15, 'big'),
+                '',
+                '| Tall | Other |',
+                '| --- | --- |',
+                `| ${'Many words in one cell. '.repeat(400)} | x |`,
+                `| ${Array.from({ length: 60 }, (_, index) => `item ${index}`).join('<br>')} | y |`,
+                '| after |  |',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        // Each code line keeps with the next, so the block moves to the next page whole; the last line keeps with nothing.
+        for (const index of [0, 1]) expect(blockWith(body, `short ${index}`)).toContain('<w:keepNext/><w:keepLines/>')
+        expect(blockWith(body, 'short 2')).not.toContain('<w:keepNext/>')
+        expect(blockWith(body, 'short 2')).toContain('<w:keepLines/>')
+        // A block of more than 25 lines splits between lines as before, as in the PDF.
+        for (let index = 0; index < 26; index += 1) expect(blockWith(body, `long ${index}`)).not.toContain('<w:keep')
+        const tableRows = (head: string) =>
+            body
+                .slice(body.lastIndexOf('<w:tbl>', body.indexOf(`>${head}</w:t>`)))
+                .split('</w:tbl>')[0]!
+                .split('</w:tr>')
+                .slice(0, -1)
+        // A short table's rows can't split and each keeps with the next; a longer one's only after its header.
+        const small = tableRows('Small')
+        expect(small).toHaveLength(3)
+        for (const row of small) expect(row).toContain('<w:cantSplit/>')
+        expect(small.map((row) => row.includes('<w:keepNext/>'))).toEqual([true, true, false])
+        const big = tableRows('Big')
+        expect(big).toHaveLength(16)
+        expect(big.map((row) => row.includes('<w:keepNext/>'))).toEqual([true, ...Array<boolean>(15).fill(false)])
+        // A row too tall to keep whole may still split, so Word never cuts it off: long text, or many short lines
+        // split by <br>, each a line of its own.
+        const tall = tableRows('Tall')
+        expect(tall.map((row) => row.includes('<w:cantSplit/>'))).toEqual([true, false, false, true])
     })
 
     it('gives every table row the header column count, as the PDF does', async () => {
@@ -1135,6 +1506,20 @@ describe('renderExportDocx', () => {
         // Columns with the same content stay the same width.
         const even = await render('| a | b |\n| --- | --- |\n| one | two |')
         expect([...even.xml.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))).toEqual([5386, 5387])
+    })
+
+    it('sizes a column of web pictures by the alt text Word writes for them, not as pictures (N40)', async () => {
+        const { xml } = await render(
+            [
+                '| Badge | Description |',
+                '| --- | --- |',
+                '| ![build](https://img.shields.io/badge/build-passing-green.svg) | Builds the app on every push to the main branch. |',
+            ].join('\n')
+        )
+        const grid = [...xml.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
+        // Word writes the badge as the word "build", so its column is sized for that and its header (about 6 characters),
+        // not the 20 an embedded picture takes, and the description gets the room.
+        expect(grid).toEqual([1107, 9666])
     })
 
     it('estimates contents page numbers with each table column at its own width', async () => {
@@ -1642,6 +2027,74 @@ describe('renderExportDocx', () => {
         expect(tocPage(body, '1. Intro')).toBe(2)
     })
 
+    it('links to <a name> and id anchors from raw HTML, as the PDF does, without a blank line for them (N41)', async () => {
+        const { parts } = await render(
+            [
+                '[a](#install) [b](#usage) [c](#x) [d](#faq) [e](#setup) [f](#in-link) [g](#end) [h](#code) [i](#pic)',
+                '',
+                '<a name="install"></a>',
+                '',
+                '## 1. Install',
+                '',
+                'Steps with a <span id="x">target</span> inside.',
+                '',
+                '<h2 id="faq">FAQ</h2>',
+                '',
+                '## Setup',
+                '',
+                '<a name="setup"></a><a id="usage"></a>',
+                '',
+                '- item',
+                '',
+                '<img id="pic" src="https://example.com/pic.png" alt="Pic">',
+                '',
+                '<a name="code"></a>',
+                '',
+                fence('js', 'let x = 1'),
+                '',
+                '[<a name="in-link"></a>Back](#install) and [<a id="web"></a>site](https://example.com).',
+                '',
+                '<a name="end"></a>',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const marks = bookmarks(body)
+        const names = new Set(marks.map(({ name }) => name))
+        // Every link lands on a bookmark that is in the file, and each anchor's bookmark is written once.
+        const anchors = [...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1]!)
+        expect(anchors).toHaveLength(10)
+        for (const anchor of anchors) expect(names).toContain(anchor)
+        expect(names.size).toBe(marks.length)
+        // The anchor above the heading is at the heading's start, not on a blank line of its own.
+        const install = anchors[0]!
+        expect(blockWith(body, '1. Install')).toContain(`<w:bookmarkStart w:name="${install}"`)
+        expect(blockWith(body, '1. Install')).toContain('Heading2')
+        expect(blockWith(body, 'target')).toContain(`w:name="${anchors[2]}"`)
+        expect(blockWith(body, 'FAQ')).toContain(`w:name="${anchors[3]}"`)
+        // A heading with the same id keeps it: #setup goes to the heading, whose bookmark is the only one for it.
+        expect(blockWith(body, 'Setup')).toContain(`w:name="${anchors[4]}"`)
+        expect(blockWith(body, 'item')).toContain(`w:name="${anchors[1]}"`)
+        expect(blockWith(body, 'item')).not.toContain(`w:name="${anchors[4]}"`)
+        expect(blockWith(body, 'let x = 1')).toContain(`w:name="${anchors[7]}"`)
+        // A picture's id marks it too.
+        expect(blockWith(body, 'Pic')).toContain(`w:name="${anchors[8]}"`)
+        // Inside a link the bookmark is written before it, and the last one gets a paragraph of its own at the end.
+        expect(blockWith(body, 'Back', '<w:hyperlink ')).not.toContain('bookmark')
+        expect(body.match(/<w:p>/g)).toHaveLength(10)
+    })
+
+    it('keeps a paragraph of only &nbsp; as the blank line the preview and PDF show (review)', async () => {
+        const { parts } = await render('One\n\n&nbsp;\n\nTwo')
+        expect(parts['word/document.xml']!.match(/<w:p>/g)).toHaveLength(3)
+        // The contents page numbers count it as a line too.
+        const spacers = Array.from({ length: 40 }, () => ['&nbsp;', '']).flat()
+        const { xml } = await render(['# Start', '', ...spacers, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        expect(tocPage(xml, 'End')).toBe(3)
+    })
+
     it('links only to safe addresses, and finds #heading links however they are written (S10, B55)', async () => {
         const { parts } = await render(
             [
@@ -1671,6 +2124,45 @@ describe('renderExportDocx', () => {
         expect(body.match(/<w:hyperlink /g)).toHaveLength(4 + 2)
         expect(rels).toContain('Target="https://example.com/safe" TargetMode="External"')
         expect(rels).toContain('Target="other.md" TargetMode="External"')
+    })
+
+    it('sends a link to just "#" to the top of the document, so Word finds no broken link in the file (N36)', async () => {
+        // readDocx fails on a hyperlink whose relationship id points at nothing, which an empty anchor wrote.
+        const { parts } = await render(
+            ['# [Back](#)', '', 'Go [to the top](#) or [up][t].', '', '[t]: #', '', 'A note[^n].', '', '[^n]: Back [to top](#).'].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        // `_top` is Word's own bookmark for the start of the document, where the PDF's `#` goes too.
+        expect(body.match(/w:anchor="_top"/g)).toHaveLength(3)
+        expect(parts['word/footnotes.xml']).toContain('w:anchor="_top"')
+        expect(body).not.toMatch(/<w:hyperlink [^>]*r:id=/)
+    })
+
+    it('keeps a picture in a #heading link just outside the link, which Word would point at nothing (N37)', async () => {
+        // readDocx fails on a picture whose click points at a relationship that doesn't exist.
+        const { parts } = await render(
+            [
+                '# Top',
+                '',
+                `[Back ![up](${PNG_URL}) to the top](#top) and [![ext](${PNG_URL})](https://example.com).`,
+                '',
+                'A note[^n].',
+                '',
+                `[^n]: [![note](${PNG_URL})](#top)`,
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const notes = parts['word/footnotes.xml']!
+        // The pictures are still there, and the words on both sides still go to the heading.
+        expect(body).toContain('descr="up"')
+        expect(notes).toContain('descr="note"')
+        expect(blockWith(body, 'Back ', '<w:hyperlink ')).toContain('w:anchor="_Ref1"')
+        expect(blockWith(body, ' to the top', '<w:hyperlink ')).toContain('w:anchor="_Ref1"')
+        expect(blockWith(body, ' to the top', '<w:hyperlink ')).not.toContain('<w:drawing>')
+        // A picture in a web link keeps its own click, which has its relationship.
+        expect(body.match(/<a:hlinkClick /g)).toHaveLength(2)
+        expect(body).toMatch(/descr="ext"><a:hlinkClick /)
+        expect(notes).not.toContain('hlinkClick')
     })
 
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
@@ -1727,7 +2219,19 @@ describe('renderExportDocx', () => {
         const svgUtf8 = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
         const svgBase64Utf8 = `data:image/svg+xml;charset=utf-8;base64,${Buffer.from(svgMarkup('width="30" height="10"')).toString('base64')}`
         const { xml, names } = await render(
-            ['# Alpha', '', `![chart](${svgIcon})`, '', `![utf8](${svgUtf8})`, '', `![utf8-base64](${svgBase64Utf8})`].join('\n'),
+            [
+                '# Alpha',
+                '',
+                `![chart](${svgIcon})`,
+                '',
+                `![utf8](${svgUtf8})`,
+                '',
+                `![utf8-base64](${svgBase64Utf8})`,
+                '',
+                `<p align="center"><img src="${svgIcon}" alt="html icon"></p>`,
+                '',
+                `<img src="data:image/svg+xml,${encodeURIComponent(svgMarkup('viewBox="0 0 30 15"'))}" width="300" alt="wide icon">`,
+            ].join('\n'),
             (draft) => {
                 draft.frontMatter.titlePage = true
                 draft.header.enabled = true
@@ -1744,6 +2248,10 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'chart')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'utf8')).toEqual({ width: 40, height: 20 })
         expect(drawingSize(xml, 'utf8-base64')).toEqual({ width: 30, height: 10 })
+        // A raw HTML <img> is redrawn the same way, and at 2x the width it gives when that is wider than its own.
+        expect(drawingSize(xml, 'html icon')).toEqual({ width: 32, height: 16 })
+        expect(drawingSize(xml, 'wide icon')).toEqual({ width: 300, height: 150 })
+        expect(canvases).toContainEqual({ width: 600, height: 300 })
         expect(mediaFiles(names).length).toBeGreaterThanOrEqual(3)
         expect(notifyWarning).not.toHaveBeenCalled()
     })

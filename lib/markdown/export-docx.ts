@@ -46,12 +46,14 @@ import {
     type ISectionOptions,
     type ParagraphChild,
 } from 'docx'
+import type { Root as HastRoot, RootContent as HastContent } from 'hast'
 import type {
     Blockquote,
     Code,
     Definition,
     FootnoteDefinition,
     Heading,
+    Html,
     Image,
     ImageReference,
     Link,
@@ -59,19 +61,27 @@ import type {
     List,
     ListItem,
     Paragraph as MdParagraph,
+    Parent,
     PhrasingContent,
+    Root,
     RootContent,
     Table as MdTable,
     TableCell as MdTableCell,
     TableRow as MdTableRow,
     Text,
 } from 'mdast'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
+import remarkRehype from 'remark-rehype'
+import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
+import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
+import { PDF_KEEP_TOGETHER_MAX_CODE_LINES, PDF_KEEP_TOGETHER_MAX_TABLE_ROWS } from '@/lib/markdown/markdown-to-export-html'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
@@ -287,6 +297,319 @@ function xmlSafeCopy<T>(value: T): T {
 function xmlSafeDocument(document: ExportDocument): ExportDocument {
     const { assets, ...text } = document
     return { ...xmlSafeCopy(text), assets }
+}
+
+/** Raw HTML read and cleaned as the PDF does it (see renderExportPdf): safe tags kept, comments, scripts and styles dropped. */
+const htmlCleaner = unified().use(remarkRehype, { allowDangerousHtml: true }).use(rehypeRaw).use(rehypeSanitize, exportSanitizeSchema).freeze()
+
+/** Tags that are blocks on the page, so each starts a line of its own in the Word file. */
+const HTML_BLOCK_TAGS = new Set([
+    ...['blockquote', 'caption', 'dd', 'details', 'div', 'dl', 'dt', 'figcaption', 'figure', 'hr', 'li', 'ol', 'p', 'pre', 'section'],
+    ...['summary', 'table', 'tbody', 'tfoot', 'thead', 'tr', 'ul', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+])
+const HTML_BOLD_TAGS = new Set(['b', 'strong', 'summary', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+const HTML_ITALIC_TAGS = new Set(['i', 'em', 'cite', 'dfn', 'var'])
+const HTML_STRIKE_TAGS = new Set(['del', 's', 'strike'])
+const HTML_CODE_TAGS = new Set(['code', 'kbd', 'samp', 'tt'])
+
+type HtmlMarks = { bold?: boolean; italics?: boolean; strike?: boolean; code?: boolean; href?: string }
+/**
+ * A piece of a line of raw HTML: some text, a picture, a line break or an anchor, with the marks of the tags around
+ * it. `slot` marks Markdown the tags of a line of text wrap (see {@link inlineHtml}), which is kept as it is.
+ */
+type HtmlLeaf = { node: PhrasingContent; marks: HtmlMarks; slot?: boolean }
+/**
+ * A line of raw HTML: a block such as `<p>`, `<summary>` or a table row, and the alignment it asks for. `rule` marks
+ * an `<hr>`, and `blank` a line of only line breaks, such as a `<br>` spacer (see {@link visibleHtmlLines}).
+ */
+type HtmlLine = { align?: string; leaves: HtmlLeaf[]; rule?: boolean; blank?: boolean }
+
+/**
+ * The id each anchor from raw HTML (`<a name="setup">`, or any tag's `id`) marks, by the empty `html` node standing in
+ * for it once the rest of the HTML is gone (expandHtml). Word gets a bookmark there, so `#setup` links still land on it.
+ */
+const HTML_ANCHORS = new WeakMap<Html, string>()
+
+function htmlAnchor(id: string): Html {
+    const node: Html = { type: 'html', value: '' }
+    HTML_ANCHORS.set(node, id)
+    return node
+}
+
+/** Paragraphs standing for a blank line of raw HTML, such as a `<br>` spacer: written though they show nothing, as the PDF shows the line. */
+const HTML_BLANK_LINES = new WeakSet<MdParagraph>()
+
+/** A width or height an `<img>` gives in pixels (`120` or `120px`), as a browser reads it. Undefined for none, or a percentage. */
+function htmlPixels(value: unknown): number | undefined {
+    const pixels = typeof value === 'number' ? value : typeof value === 'string' && /^\s*\d*\.?\d+\s*(px)?\s*$/i.test(value) ? parseFloat(value) : 0
+    return Number.isFinite(pixels) && pixels > 0 ? pixels : undefined
+}
+
+function isTableCell(node: HastContent): boolean {
+    return node.type === 'element' && (node.tagName === 'td' || node.tagName === 'th')
+}
+
+/** Whether Markdown is or holds a link. */
+function holdsLink(node: PhrasingContent): boolean {
+    return node.type === 'link' || node.type === 'linkReference' || ('children' in node && node.children.some(holdsLink))
+}
+
+/**
+ * Where the Markdown child at an index stands in the HTML of a line of text (see {@link inlineHtml}), split out with
+ * that index. Private-use characters, which never mean anything to the HTML parser.
+ */
+const SLOT = /(\d+)/
+const SLOT_CHARS = /[]/g
+
+/**
+ * The lines of text cleaned HTML shows, as the PDF does, and the marks of the tags around each piece. Every block
+ * tag starts a line, and a table row's cells are split by bars as {@link tableAsText} does. Whitespace collapses as
+ * in a browser, except in `<pre>`. With `slots`, the {@link SLOT}s in the HTML are those Markdown children.
+ */
+function htmlLines(root: HastRoot, slots?: PhrasingContent[]): HtmlLine[] {
+    const lines: HtmlLine[] = []
+    let line: HtmlLine = { leaves: [] }
+    const endLine = (align: string | undefined) => {
+        if (line.leaves.length > 0 || line.rule) lines.push(line)
+        line = { align, leaves: [] }
+    }
+    const text = (value: string, marks: HtmlMarks) => {
+        const safe = xmlSafe(value)
+        line.leaves.push({ node: marks.code ? { type: 'inlineCode', value: safe } : { type: 'text', value: safe }, marks })
+    }
+    const lineBreak = (marks: HtmlMarks) => line.leaves.push({ node: { type: 'break' }, marks })
+    const markdown = (node: PhrasingContent, marks: HtmlMarks) => {
+        // In <code> or <kbd>, text is code. A Markdown link keeps its own address, as one link can't hold another.
+        const shown: PhrasingContent = marks.code && node.type === 'text' ? { type: 'inlineCode', value: node.value } : node
+        line.leaves.push({ node: shown, marks: marks.href !== undefined && holdsLink(node) ? { ...marks, href: undefined } : marks, slot: true })
+    }
+    const walk = (nodes: HastContent[], marks: HtmlMarks, align: string | undefined, pre: boolean) => {
+        nodes.forEach((node, index) => {
+            if (node.type === 'text') {
+                const parts = slots ? node.value.split(SLOT) : [node.value]
+                parts.forEach((part, at) => {
+                    const slot = at % 2 === 1 ? slots?.[Number(part)] : undefined
+                    if (slot) {
+                        markdown(slot, marks)
+                    } else if (pre) {
+                        part.split('\n').forEach((piece, start) => {
+                            if (start > 0) lineBreak(marks)
+                            if (piece) text(piece, { ...marks, code: true })
+                        })
+                    } else if (part) {
+                        text(part.replace(/[ \t\n\f\r]+/g, ' '), marks)
+                    }
+                })
+            } else if (node.type === 'element') {
+                const tag = node.tagName
+                const { align: own, alt, href, id, name, src } = node.properties
+                const blockAlign = typeof own === 'string' ? own.toLowerCase() : align
+                const block = HTML_BLOCK_TAGS.has(tag)
+                if (block) endLine(blockAlign)
+                if (isTableCell(node) && nodes.slice(0, index).some(isTableCell)) text(' | ', {})
+                // The PDF links to any id, a picture's or a line break's too, and to an old-style <a name> (resolveLinks).
+                for (const anchor of [id, tag === 'a' ? name : undefined]) {
+                    if (typeof anchor === 'string' && anchor) line.leaves.push({ node: htmlAnchor(xmlSafe(anchor)), marks: {} })
+                }
+                if (tag === 'br') {
+                    lineBreak(marks)
+                } else if (tag === 'img') {
+                    const description = typeof alt === 'string' ? xmlSafe(alt) : ''
+                    // The size the HTML gives it, which the PDF shows it at (see givenSize).
+                    const size = { width: htmlPixels(node.properties.width), height: htmlPixels(node.properties.height) }
+                    const data = size.width || size.height ? { hProperties: size } : undefined
+                    if (typeof src === 'string') line.leaves.push({ node: { type: 'image', url: xmlSafe(src), alt: description, data }, marks })
+                    else if (description) text(description, marks)
+                } else {
+                    if (tag === 'hr') line.rule = true
+                    const inner: HtmlMarks = {
+                        bold: marks.bold || HTML_BOLD_TAGS.has(tag) || undefined,
+                        italics: marks.italics || HTML_ITALIC_TAGS.has(tag) || undefined,
+                        strike: marks.strike || HTML_STRIKE_TAGS.has(tag) || undefined,
+                        code: marks.code || HTML_CODE_TAGS.has(tag) || undefined,
+                        href: tag === 'a' && typeof href === 'string' ? xmlSafe(href) : marks.href,
+                    }
+                    walk(node.children, inner, blockAlign, pre || tag === 'pre')
+                }
+                if (block) endLine(align)
+            }
+        })
+    }
+    walk(root.children, {}, undefined, false)
+    endLine(undefined)
+    return lines
+}
+
+/**
+ * Whether `text` is only the spaces HTML collapses to nothing on an empty line. A no-break space (`&nbsp;`) isn't
+ * one, so a paragraph of it still shows, as the blank line it is in the preview and PDF.
+ */
+function onlyCollapsibleSpace(text: string): boolean {
+    return /^[ \t\n\f\r]*$/.test(text)
+}
+
+/**
+ * The lines of an HTML block that show something, as the PDF does, spaces collapsed across tags: words (a line of
+ * only `&nbsp;` too), pictures, anchors and rules. A line of only spaces is left out. A line of only line breaks,
+ * such as a `<br>` spacer or `<p><br></p>`, is a blank line for each break, the last one ending it.
+ */
+function visibleHtmlLines(lines: HtmlLine[]): HtmlLine[] {
+    return lines.flatMap((line) => {
+        const breaks = line.leaves.filter(({ node }) => node.type === 'break')
+        const kept = trimHtmlLine(line.leaves)
+        const shown = kept.some(({ node }) =>
+            node.type === 'text' || node.type === 'inlineCode' ? !onlyCollapsibleSpace(node.value) : node.type !== 'break'
+        )
+        if (shown || line.rule) return [{ ...line, leaves: kept }]
+        return breaks.length > 0 ? [{ ...line, blank: true, leaves: [...kept, ...breaks.slice(1)] }] : []
+    })
+}
+
+/** A line with its spaces collapsed across tags, as a browser shows it: none at its ends, never two in a row, and no line break at its end. */
+function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
+    let afterSpace = true
+    for (const { node } of leaves) {
+        if (node.type === 'text') {
+            if (afterSpace) node.value = node.value.replace(/^ /, '')
+            if (node.value) afterSpace = node.value.endsWith(' ')
+        } else if (node.type !== 'html') {
+            afterSpace = node.type === 'break'
+        }
+    }
+    const kept = leaves.filter(({ node }) => node.type !== 'text' || node.value !== '')
+    // From the end, past anchors, which take no room.
+    for (let at = kept.length - 1; at >= 0; at -= 1) {
+        const node = kept[at]!.node
+        if (node.type === 'html') continue
+        if (node.type === 'text') node.value = node.value.replace(/ $/, '')
+        if (node.type === 'break' || (node.type === 'text' && !node.value)) kept.splice(at, 1)
+        else break
+    }
+    return kept
+}
+
+/** The Markdown a line's pieces stand for: runs of the same marks inside one bold, italic, struck-through or link node. */
+function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
+    const phrasing: PhrasingContent[] = []
+    const key = ({ bold, italics, strike, href }: HtmlMarks) => JSON.stringify([bold, italics, strike, href])
+    for (let start = 0; start < leaves.length; ) {
+        const marks = leaves[start]!.marks
+        let end = start
+        const nodes: PhrasingContent[] = []
+        // Pieces of HTML text run together. Markdown text (a slot) keeps its own node, as it would without the tags.
+        let joins = false
+        for (; end < leaves.length && key(leaves[end]!.marks) === key(marks); end += 1) {
+            const { node, slot } = leaves[end]!
+            const previous = nodes[nodes.length - 1]
+            if (joins && !slot && node.type === 'text' && previous?.type === 'text') previous.value += node.value
+            else nodes.push(node)
+            joins = !slot && node.type === 'text'
+        }
+        let wrapped = nodes
+        if (marks.strike) wrapped = [{ type: 'delete', children: wrapped }]
+        if (marks.italics) wrapped = [{ type: 'emphasis', children: wrapped }]
+        if (marks.bold) wrapped = [{ type: 'strong', children: wrapped }]
+        if (marks.href !== undefined) wrapped = [{ type: 'link', url: marks.href, children: wrapped }]
+        phrasing.push(...wrapped)
+        start = end
+    }
+    return phrasing
+}
+
+/** Where raw HTML is a block of its own. Anywhere else it is a tag inside a line of text. */
+const HTML_BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition'])
+
+/** A `<div …>` or `</div>` tag in raw HTML, quoted attributes and all. */
+const DIV_TAG = /<(\/?)div\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi
+const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g
+const ALIGN_ATTRIBUTE = /\balign\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
+const HTML_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify'])
+
+/**
+ * Lines up the Markdown inside a `<div align>` that raw HTML leaves open across blocks, as the PDF does: the README
+ * wrapper `<div align="center">`, a blank line, a heading and text, a blank line, then `</div>`. The PDF reads all
+ * the raw HTML of a document as one, so the div holds the blocks between; Word cleans each HTML block alone. So
+ * paragraphs and headings between get the div's alignment, and each HTML block between is read inside the divs
+ * still open before it: the opening tags returned for it here, for {@link expandHtml}.
+ */
+function openDivs(tree: Root): WeakMap<Html, string> {
+    const prefixes = new WeakMap<Html, string>()
+    visit(tree, (parent) => {
+        if (!HTML_BLOCK_PARENTS.has(parent.type) || !('children' in parent)) return
+        // The alignment each open div asks for, outermost first. One that asks for none takes its parent's.
+        const open: (string | undefined)[] = []
+        for (const child of parent.children as RootContent[]) {
+            const align = open.findLast((value) => value !== undefined)
+            if (child.type === 'html') {
+                if (open.length > 0) prefixes.set(child, open.map((value) => (value ? `<div align="${value}">` : '<div>')).join(''))
+                for (const [, closing, attributes] of child.value.replace(HTML_COMMENT, '').matchAll(DIV_TAG)) {
+                    const own = ALIGN_ATTRIBUTE.exec(attributes!)
+                    const value = (own?.[1] ?? own?.[2] ?? own?.[3])?.trim().toLowerCase()
+                    if (closing) open.pop()
+                    else open.push(value && HTML_ALIGNMENTS.has(value) ? value : undefined)
+                }
+            } else if (align && (child.type === 'paragraph' || child.type === 'heading')) {
+                child.data = { ...child.data, hProperties: { ...child.data?.hProperties, align } }
+            }
+        }
+    })
+    return prefixes
+}
+
+/**
+ * Swaps raw HTML in `tree` for the Markdown it shows, as the preview and PDF show it: a block becomes a paragraph
+ * per line (keeping a `<p align>`'s alignment, or that of a div left open around it: see {@link openDivs}), and the
+ * tags in a line of text wrap its words as they ask (see {@link inlineHtml}). Only tags, comments and what the PDF
+ * drops (scripts, styles) are left out. The rest of the Word export then needs no HTML of its own, so the page
+ * estimate, pictures, language guess and text direction all count it.
+ */
+function expandHtml(tree: Root): void {
+    const cleaned = new Map<string, HastRoot>()
+    const clean = (value: string) => {
+        let hast = cleaned.get(value)
+        if (!hast) {
+            hast = htmlCleaner.runSync({ type: 'root', children: [{ type: 'html', value }] }) as HastRoot
+            cleaned.set(value, hast)
+        }
+        return hast
+    }
+    const prefixes = openDivs(tree)
+    const textParents = new Set<Parent>()
+    visit(tree, 'html', (node: Html, index, parent) => {
+        if (!parent || index === undefined) return
+        if (!HTML_BLOCK_PARENTS.has(parent.type)) {
+            textParents.add(parent)
+            return
+        }
+        const replacement = visibleHtmlLines(htmlLines(clean((prefixes.get(node) ?? '') + node.value))).flatMap((line): RootContent[] => {
+            const paragraph: MdParagraph = {
+                type: 'paragraph',
+                data: line.align ? { hProperties: { align: line.align } } : undefined,
+                children: htmlPhrasing(line.leaves),
+            }
+            if (line.blank) HTML_BLANK_LINES.add(paragraph)
+            if (!line.rule) return [paragraph]
+            // An <hr> is a rule, as `---` is. An anchor on it goes in a paragraph before, which hands it to the rule.
+            return [...(line.leaves.length > 0 ? [paragraph] : []), { type: 'thematicBreak' }]
+        })
+        // The visit goes on after the replacement, so the empty html nodes standing for its anchors stay as they are.
+        ;(parent.children as RootContent[]).splice(index, 1, ...replacement)
+        return index + replacement.length
+    })
+    for (const parent of textParents) {
+        const children = parent.children as PhrasingContent[]
+        children.splice(0, children.length, ...inlineHtml(children, clean))
+    }
+}
+
+/**
+ * A line of text with raw HTML tags in it, as the Markdown it shows. Markdown makes each tag its own node, so
+ * `Made by <a href="…">Ada</a>` is a tag, a word and a closing tag. They are read together, as the PDF reads them,
+ * each Markdown child standing in the HTML as a {@link SLOT}: so the link, `<b>` or `<kbd>` wraps the words between.
+ */
+function inlineHtml(children: PhrasingContent[], clean: (value: string) => HastRoot): PhrasingContent[] {
+    const value = children.map((child, index) => (child.type === 'html' ? child.value.replace(SLOT_CHARS, '') : `${index}`)).join('')
+    return htmlLines(clean(value), children).flatMap((line) => htmlPhrasing(line.leaves))
 }
 
 function escapeXml(text: string): string {
@@ -536,8 +859,12 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
     const urls = new Set(
         [assets.logoDataUrl, assets.header.left, assets.header.right, assets.footer.left, assets.footer.right].map((url) => url.trim())
     )
+    // The widest raw HTML shows each picture at (<img width>), so vector art drawn wider than its own size stays sharp.
+    const shownWidths = new Map<string, number>()
     visit(tree, 'image', (node: Image) => {
-        urls.add(node.url.trim())
+        const url = node.url.trim()
+        urls.add(url)
+        shownWidths.set(url, Math.max(shownWidths.get(url) ?? 0, givenSize(node).width ?? 0))
     })
     const definitions = collectDefinitions(tree)
     visit(tree, 'imageReference', (node: ImageReference) => {
@@ -549,7 +876,7 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
         [...urls]
             .filter((url) => url.startsWith('data:'))
             .map(async (url) => {
-                const image = await redrawForWord(url)
+                const image = await redrawForWord(url, shownWidths.get(url))
                 if (image) converted.set(url, image)
             })
     )
@@ -657,7 +984,7 @@ function errorMessage(err: unknown): string {
 
 type TextNode = { type?: string; value?: string; children?: unknown[] }
 
-/** The words of a node. Raw HTML is left out, as it is everywhere in the Word file. */
+/** The words of a node. Raw HTML is already the Markdown it shows (expandHtml), so any left has no words. */
 function plainText(node: TextNode): string {
     if (node.type === 'html') return ''
     if (typeof node.value === 'string') return node.value
@@ -719,8 +1046,12 @@ type RenderState = {
     cellPx: number | null
     /** The contents entries, worded as their headings are in the body. */
     toc: PdfExportOutlineItem[]
-    /** Each heading id's bookmark number. See {@link headingBookmarks}. */
+    /** Each heading id's bookmark number, then each id an anchor from raw HTML marks. See {@link headingBookmarks}. */
     bookmarks: Map<string, number>
+    /** The bookmark numbers of anchors from raw HTML not written yet, so each is written once. See {@link anchorBookmarks}. */
+    unwrittenAnchors: Set<number>
+    /** Bookmarks of anchors in a paragraph that shows nothing, for the start of the next one written. */
+    pendingAnchors: Bookmark[]
 }
 
 /**
@@ -737,6 +1068,21 @@ function headingBookmarks(tree: ExportDocument['tree']): Map<string, number> {
     return numbers
 }
 
+/**
+ * Numbers each id an anchor from raw HTML marks after the headings' (see {@link HTML_ANCHORS}), so links to it work
+ * as they do in the PDF. A heading with the same id keeps it. Returns the numbers given.
+ */
+function anchorBookmarks(tree: ExportDocument['tree'], numbers: Map<string, number>): Set<number> {
+    const anchors = new Set<number>()
+    visit(tree, 'html', (node: Html) => {
+        const id = HTML_ANCHORS.get(node)
+        if (id === undefined || numbers.has(id)) return
+        numbers.set(id, numbers.size + 1)
+        anchors.add(numbers.size)
+    })
+    return anchors
+}
+
 /** A hidden bookmark name, like the `_Ref` ones Word makes for cross-references: always valid, and kept out of Word's bookmark list. */
 function bookmarkName(number: number): string {
     return `_Ref${number}`
@@ -748,7 +1094,7 @@ function anchorFor(state: RenderState, id: string): string {
     return number === undefined ? id : bookmarkName(number)
 }
 
-/** A heading's bookmark. docx gives every Bookmark the number 1, and Word needs each to have its own, so it is set here. */
+/** A heading's or an anchor's bookmark. docx gives every Bookmark the number 1, and Word needs each to have its own, so it is set here. */
 function headingBookmark(number: number, children: ParagraphChild[]): Bookmark {
     const name = bookmarkName(number)
     return Object.assign(new Bookmark({ id: name, children }), { start: new BookmarkStart(name, number), end: new BookmarkEnd(number) })
@@ -786,6 +1132,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     const eastAsianFonts = [bodyEast, headingEast, monoEast].filter(
         (font, index, all): font is EastAsianFont => font !== undefined && all.findIndex((other) => other?.name === font.name) === index
     )
+    const bookmarks = headingBookmarks(document.tree)
     return {
         document,
         prepared,
@@ -812,7 +1159,9 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         inFootnote: false,
         cellPx: null,
         toc: tocEntries(document),
-        bookmarks: headingBookmarks(document.tree),
+        bookmarks,
+        unwrittenAnchors: anchorBookmarks(document.tree, bookmarks),
+        pendingAnchors: [],
     }
 }
 
@@ -853,6 +1202,17 @@ function quoteBorder(state: RenderState) {
 /** Quote text is grey and italic, as in the PDF. */
 function quoteMarks(state: RenderState): Marks {
     return state.quoteDepth > 0 ? { quote: true } : {}
+}
+
+/** Runs `render` with the content `extraLeft` twips further in, as it is drawn there. */
+function withExtraLeft<T>(state: RenderState, extraLeft: number, render: () => T): T {
+    const saved = state.extraLeft
+    state.extraLeft += extraLeft
+    try {
+        return render()
+    } finally {
+        state.extraLeft = saved
+    }
 }
 
 /** Renders blocks nested one step in: under a list item's text, or inside a quote. */
@@ -915,12 +1275,15 @@ function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     })
 }
 
-function renderInlines(
-    state: RenderState,
-    nodes: PhrasingContent[],
-    marks: Marks = {}
-): (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] {
-    const children: (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] = []
+type InlineChild = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun | Bookmark
+
+/** The bookmarks of a paragraph that showed nothing, for the start of the block written after it. None in a footnote. */
+function takePendingAnchors(state: RenderState): Bookmark[] {
+    return state.inFootnote ? [] : state.pendingAnchors.splice(0)
+}
+
+function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Marks = {}): InlineChild[] {
+    const children: InlineChild[] = takePendingAnchors(state)
     for (const node of nodes) {
         if (node.type === 'text') {
             children.push(textRun(state, (node as Text).value, marks))
@@ -938,18 +1301,33 @@ function renderInlines(
             children.push(...renderLink(state, node, marks))
         } else if (node.type === 'image' || node.type === 'imageReference') {
             const url = imageUrl(state, node)
-            const image = url === undefined ? null : renderImage(state, url, node.alt)
+            const image = url === undefined ? null : renderImage(state, url, node.alt, givenSize(node))
             children.push(image ?? textRun(state, imageText(state, node), marks))
         } else if (node.type === 'footnoteReference') {
             // Word has no footnotes inside footnotes.
             if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
         } else if (node.type === 'html') {
-            // Raw HTML is left out, as in the PDF; the words between tags are their own text nodes and stay.
-            // Only a line break tag is kept, since tables use it to break lines in a cell. Comments stay hidden.
-            if (/^<br\s*\/?>$/i.test(node.value.trim())) children.push(new TextRun({ break: 1 }))
+            // All that is left of raw HTML by now (expandHtml): an anchor, as an empty bookmark where it was.
+            const number = state.bookmarks.get(HTML_ANCHORS.get(node) ?? '')
+            if (number !== undefined && state.unwrittenAnchors.delete(number)) children.push(headingBookmark(number, []))
         }
     }
     return children
+}
+
+/** Whether a paragraph shows nothing: only anchors from raw HTML (see {@link HTML_ANCHORS}) and spaces, or nothing at all. */
+function showsNothing(nodes: PhrasingContent[]): boolean {
+    return nodes.every(
+        (node) =>
+            node.type === 'html' ||
+            (node.type === 'text' && onlyCollapsibleSpace(node.value)) ||
+            ((node.type === 'emphasis' || node.type === 'strong' || node.type === 'delete') && showsNothing(node.children))
+    )
+}
+
+/** Whether a paragraph is left out of the Word file: it shows nothing, and isn't a blank line from raw HTML ({@link HTML_BLANK_LINES}). */
+function writesNothing(node: MdParagraph): boolean {
+    return showsNothing(node.children) && !HTML_BLANK_LINES.has(node)
 }
 
 /** Link and image definitions by label. When a label is defined twice the first one counts, as in CommonMark and the PDF. */
@@ -961,9 +1339,14 @@ function collectDefinitions(tree: ExportDocument['tree']): Map<string, string> {
     return urls
 }
 
+/** Word's own bookmark for the start of the document. */
+const TOP_OF_DOCUMENT = '_top'
+
 /**
  * A link: to a heading's bookmark for `#heading` (matched as {@link resolveHeadingAnchor} does), else to its web,
  * email or relative address. A link the preview would leave dead (`javascript:`, `file:`…) keeps its words as plain text.
+ * A bare `#` goes to the top of the document, as in the PDF: a link with no anchor is written as a link to a
+ * relationship that doesn't exist, and Word then calls the whole file unreadable.
  */
 function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks) {
     const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
@@ -971,9 +1354,45 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     if (href === null) return renderInlines(state, node.children, marks)
     const inner = renderInlines(state, node.children, { ...marks, link: true })
     if (inner.length === 0) return []
-    if (href.startsWith('#'))
-        return [new InternalHyperlink({ anchor: anchorFor(state, resolveHeadingAnchor(href.slice(1), state.bookmarks)), children: inner })]
-    return [new ExternalHyperlink({ link: href, children: inner })]
+    if (href.startsWith('#')) {
+        const fragment = href.slice(1)
+        const anchor = (fragment && anchorFor(state, resolveHeadingAnchor(fragment, state.bookmarks))) || TOP_OF_DOCUMENT
+        // docx links a picture in a link within the document to a relationship it never writes, which makes Word
+        // call the file unreadable, so pictures sit outside it.
+        return splitLink(
+            inner,
+            (child) => child instanceof ImageRun,
+            (children) => new InternalHyperlink({ anchor, children })
+        )
+    }
+    return splitLink(
+        inner,
+        () => false,
+        (children) => new ExternalHyperlink({ link: href, children })
+    )
+}
+
+/**
+ * A link's words in one or more links, with what can't sit inside one just outside, between the linked words around
+ * it: what `outside` picks, and always a bookmark (an anchor from raw HTML), which docx can't write inside a link.
+ */
+function splitLink(inner: InlineChild[], outside: (child: InlineChild) => boolean, link: (children: InlineChild[]) => InlineChild): InlineChild[] {
+    const written: InlineChild[] = []
+    let linked: InlineChild[] = []
+    const closeLink = () => {
+        if (linked.length > 0) written.push(link(linked))
+        linked = []
+    }
+    for (const child of inner) {
+        if (child instanceof Bookmark || outside(child)) {
+            closeLink()
+            written.push(child)
+        } else {
+            linked.push(child)
+        }
+    }
+    closeLink()
+    return written
 }
 
 /**
@@ -1005,19 +1424,36 @@ function pageHeightPx(state: RenderState): number {
 /** The box a picture whose file doesn't give its size is shown in. */
 const UNSIZED_IMAGE = { width: 640, height: 480 } as const
 
-/** A body picture's size: its own, as in the PDF, shrunk only to fit `maxWidth` (the text width where it sits) and the page. */
-function bodyImageSize(state: RenderState, image: DecodedImage, maxWidth: number): { width: number; height: number } {
-    return fit(image.size ?? UNSIZED_IMAGE, maxWidth, pageHeightPx(state))
+/** The size, in pixels, raw HTML gives a picture (`<img width="120">`). Neither is set for a Markdown picture. */
+type GivenSize = { width?: number; height?: number }
+
+function givenSize(node: Image | ImageReference): GivenSize {
+    const props = node.data?.hProperties
+    return { width: typeof props?.width === 'number' ? props.width : undefined, height: typeof props?.height === 'number' ? props.height : undefined }
+}
+
+/**
+ * A body picture's size: its own, as in the PDF, shrunk only to fit `maxWidth` (the text width where it sits) and the
+ * page. A width raw HTML gives wins, the height following it to keep the picture's shape; a height alone keeps it too.
+ */
+function bodyImageSize(state: RenderState, image: DecodedImage, maxWidth: number, given: GivenSize = {}): { width: number; height: number } {
+    const own = image.size ?? UNSIZED_IMAGE
+    const size = given.width
+        ? { width: given.width, height: (given.width * own.height) / Math.max(own.width, 1) }
+        : given.height
+          ? { width: (given.height * own.width) / Math.max(own.height, 1), height: given.height }
+          : own
+    return fit(size, maxWidth, pageHeightPx(state))
 }
 
 /** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
-function renderImage(state: RenderState, url: string, alt: string | null | undefined): ImageRun | null {
+function renderImage(state: RenderState, url: string, alt: string | null | undefined, given: GivenSize = {}): ImageRun | null {
     const image = decodeImage(state.images, url)
     if (!image) return null
     return new ImageRun({
         type: image.kind,
         data: image.bytes,
-        transformation: bodyImageSize(state, image, availablePx(state)),
+        transformation: bodyImageSize(state, image, availablePx(state), given),
         altText: { name: alt || 'Picture', description: alt ?? '' },
     })
 }
@@ -1030,12 +1466,23 @@ function paragraphOptions(state: RenderState) {
     }
 }
 
+/**
+ * The alignment raw HTML asks for, as Word's: a paragraph of it such as `<p align="center">`, or a paragraph or
+ * heading in a `<div align>` (see {@link openDivs}). Undefined when it asks for none.
+ */
+function htmlAlignment(node: MdParagraph | Heading, rtl: boolean) {
+    const align = node.data?.hProperties?.align
+    if (align === 'justify') return AlignmentType.JUSTIFIED
+    return align === 'left' || align === 'center' || align === 'right' ? cellAlignment(align, rtl) : undefined
+}
+
 function renderParagraph(state: RenderState, node: MdParagraph): Paragraph {
     const justify = state.document.profile.typography.justify && state.quoteDepth === 0
+    const rtl = bidi(plainText(node))
     return new Paragraph({
         ...paragraphOptions(state),
-        alignment: justify ? AlignmentType.JUSTIFIED : undefined,
-        bidirectional: bidi(plainText(node)),
+        alignment: htmlAlignment(node, rtl === true) ?? (justify ? AlignmentType.JUSTIFIED : undefined),
+        bidirectional: rtl,
         children: renderInlines(state, node.children, quoteMarks(state)),
     })
 }
@@ -1052,11 +1499,13 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     // A heading in a quote keeps its colour and is italic, as in the PDF.
     const size = headingHalfPoints(state, depth)
     const inlines = renderInlines(state, node.children, { headingSize: size, italics: state.quoteDepth > 0 || undefined })
+    const rtl = bidi(plainText(node))
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
         keepNext: true,
-        bidirectional: bidi(plainText(node)),
+        alignment: htmlAlignment(node, rtl === true),
+        bidirectional: rtl,
         spacing: {
             ...HEADING_SPACING[depth - 1],
             line: lineBoxTwip(size, state.document.profile.typography.lineHeight),
@@ -1121,14 +1570,18 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     const prefix = item.checked === true ? '☑ ' : item.checked === false ? '☐ ' : ''
     for (const child of item.children) {
         if (child.type === 'paragraph') {
-            const inlines = renderInlines(state, child.children, quoteMarks(state))
+            const indent = listIndent(state, depth, !bare && !markerPlaced)
+            // The item's text starts a list step in, so its pictures are fitted to the width left from there.
+            const inlines = withExtraLeft(state, LIST_STEP * (depth + 1), () => renderInlines(state, child.children, quoteMarks(state)))
             if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix, quoteMarks(state)))
+            const rtl = bidi(plainText(child))
             blocks.push(
                 new Paragraph({
                     spacing: { after: 60, ...bodyLineSpacing(state) },
-                    indent: listIndent(state, depth, !bare && !markerPlaced),
+                    indent,
                     border: quoteBorder(state),
-                    bidirectional: bidi(plainText(child)),
+                    alignment: htmlAlignment(child, rtl === true),
+                    bidirectional: rtl,
                     numbering: bare || markerPlaced ? undefined : { reference, level: 0 },
                     children: inlines,
                 })
@@ -1170,7 +1623,14 @@ function renderTable(state: RenderState, table: MdTable): Table {
     const indent = state.quoteDepth > 0 ? state.extraLeft - QUOTE_BAR_INSET : state.extraLeft
     const width = Math.max(1, state.contentTwip - indent)
     const columns = tableColumns(table)
-    const widths = columnWidths(table, columns, width)
+    const widths = columnWidths(state, table, columns, width)
+    const rows = table.children.length
+    // A short table stays on one page, as in the PDF: each row keeps with the next. A longer one splits between rows,
+    // but its header row still keeps with the first row under it.
+    const short = rows <= PDF_KEEP_TOGETHER_MAX_TABLE_ROWS
+    // A row taller than a page can't be kept whole, and Word may cut it off at the foot of the page if told to,
+    // so only a row well under a page is.
+    const wholeRow = pageContentTwip(state, 'body') / 2
     return new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: widths,
@@ -1179,24 +1639,35 @@ function renderTable(state: RenderState, table: MdTable): Table {
         layout: TableLayoutType.FIXED,
         // A right-to-left header row puts the first column on the right.
         visuallyRightToLeft: bidi(plainText(table.children[0]!)),
-        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, widths, table.align, rowIndex === 0)),
+        rows: table.children.map((row, rowIndex) =>
+            renderTableRow(state, row, widths, table.align, rowIndex === 0, {
+                keepNext: rowIndex < rows - 1 && (short || rowIndex === 0),
+                cantSplit: tableRowTwip(state, row, widths) <= wholeRow,
+            })
+        ),
     })
 }
 
-/** A picture in a cell counts as this many characters when columns are sized. */
+/** A picture Word embeds in a cell counts as this many characters when columns are sized. */
 const TABLE_IMAGE_UNITS = 20
 /** Column weights, in characters, are kept in this range so one long column can't squeeze the rest to nothing. */
 const TABLE_WEIGHT_RANGE = { min: 4, max: 60 } as const
 /** No column is made narrower than this (0.625in) unless the table is too narrow for that. */
 const TABLE_MIN_COLUMN_TWIP = 900
 
-/** How wide a cell's content is, in narrow characters. Bold header text is a little wider. */
-function cellUnits(cell: MdTableCell, header: boolean): number {
-    let images = 0
+/**
+ * How wide a cell's content is, in narrow characters. Bold header text is a little wider. A picture Word can't embed
+ * (a web badge, say) is written as its alt text, so it counts as that text, as {@link paragraphTwip} measures it.
+ */
+function cellUnits(state: RenderState, cell: MdTableCell, header: boolean): number {
+    const bold = header ? 1.1 : 1
+    let units = textUnits(plainText(cell), 1 / 0.45) * bold
     visit(cell, (node) => {
-        if (node.type === 'image' || node.type === 'imageReference') images += 1
+        if (node.type !== 'image' && node.type !== 'imageReference') return
+        const url = imageUrl(state, node)
+        units += url !== undefined && decodeImage(state.images, url) ? TABLE_IMAGE_UNITS : textUnits(imageText(state, node), 1 / 0.45) * bold
     })
-    return textUnits(plainText(cell), 1 / 0.45) * (header ? 1.1 : 1) + images * TABLE_IMAGE_UNITS
+    return units
 }
 
 /**
@@ -1204,12 +1675,12 @@ function cellUnits(cell: MdTableCell, header: boolean): number {
  * cell, like the PDF's automatic table layout, so a short ID column leaves room for a long description.
  * Every column keeps a minimum width, and the rounding is settled on the last column.
  */
-function columnWidths(table: MdTable, columns: number, width: number): number[] {
+function columnWidths(state: RenderState, table: MdTable, columns: number, width: number): number[] {
     const weights = Array.from({ length: columns }, (_, index) => {
         let longest = 0
         table.children.forEach((row, rowIndex) => {
             const cell = row.children[index]
-            if (cell) longest = Math.max(longest, cellUnits(cell, rowIndex === 0))
+            if (cell) longest = Math.max(longest, cellUnits(state, cell, rowIndex === 0))
         })
         return Math.min(TABLE_WEIGHT_RANGE.max, Math.max(TABLE_WEIGHT_RANGE.min, longest))
     })
@@ -1234,9 +1705,19 @@ function cellTextPx(columnTwip: number): number {
     return Math.max(1, Math.floor((columnTwip - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right) / 15))
 }
 
-function renderTableRow(state: RenderState, row: MdTableRow, widths: number[], align: MdTable['align'], header: boolean): TableRow {
+function renderTableRow(
+    state: RenderState,
+    row: MdTableRow,
+    widths: number[],
+    align: MdTable['align'],
+    header: boolean,
+    keep: { keepNext: boolean; cantSplit: boolean }
+): TableRow {
     return new TableRow({
         tableHeader: header,
+        // Unset rather than false, so Word's defaults stay as they are.
+        keepNext: keep.keepNext || undefined,
+        cantSplit: keep.cantSplit || undefined,
         children: widths.map((columnTwip, index) =>
             renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, columnTwip, align?.[index], header, index === 0)
         ),
@@ -1307,6 +1788,9 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const fill = codeFill(theme)
     const fallback = codeColor(theme)
     const size = codeHalfPoints(state)
+    const anchors = takePendingAnchors(state)
+    // A short block stays on one page, as in the PDF: each line keeps with the next.
+    const keep = lines.length <= PDF_KEEP_TOGETHER_MAX_CODE_LINES
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
             token.text
@@ -1318,7 +1802,9 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
             indent: contentIndent(state),
             border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
-            children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })],
+            keepNext: (keep && index < lines.length - 1) || undefined,
+            keepLines: keep || undefined,
+            children: [...(index === 0 ? anchors : []), ...(runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })])],
         })
     })
 }
@@ -1341,7 +1827,9 @@ function diagramDisplaySize(
 
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     if (prepared.kind === 'error') {
-        return [new Paragraph({ ...paragraphOptions(state), children: [textRun(state, prepared.message, { code: true })] })]
+        return [
+            new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), textRun(state, prepared.message, { code: true })] }),
+        ]
     }
     if (prepared.kind === 'diagram') {
         const size = diagramDisplaySize(state, prepared)
@@ -1354,6 +1842,7 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
             new Paragraph({
                 ...paragraphOptions(state),
                 children: [
+                    ...takePendingAnchors(state),
                     new ImageRun({
                         type: 'png',
                         data: prepared.png,
@@ -1371,9 +1860,13 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     const blocks: Block[] = []
     for (let index = 0; index < nodes.length; index += 1) {
         const node = nodes[index]!
-        // "First" means nothing has been written yet. Link definitions, footnotes, and raw HTML before it write nothing.
+        // "First" means nothing has been written yet. Link definitions, footnotes, HTML comments and anchors before it write nothing.
         if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && blocks.length === 0))
-        else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
+        else if (node.type === 'paragraph' && writesNothing(node) && !state.inFootnote) {
+            // A paragraph that is only an anchor, like `<a name="setup"></a>` above a heading, isn't a blank line, as in
+            // the PDF. Its bookmarks go to the start of the next block written.
+            state.pendingAnchors = renderInlines(state, node.children).filter((child) => child instanceof Bookmark)
+        } else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
         else if (node.type === 'blockquote') blocks.push(...(await renderBlockquote(state, node)))
         else if (node.type === 'code') blocks.push(...renderPrepared(state, state.prepared.get(node)!))
@@ -1384,19 +1877,28 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
                     border: { bottom: GRID_BORDER, ...quoteBorder(state) },
                     indent: contentIndent(state),
                     spacing: { before: 200, after: 200 },
+                    children: takePendingAnchors(state),
                 })
             )
         } else if (node.type === 'footnoteDefinition') {
             const id = footnoteId(state, node.identifier)
             state.footnotes[id] = { children: await renderFootnote(state, node) }
         }
-        // Raw HTML blocks, comments included, are left out, as in the PDF. Link definitions have nothing to show.
+        // Raw HTML is paragraphs by now (expandHtml). Link definitions have nothing to show.
     }
     return blocks
 }
 
-function footnoteParagraph(children: ReturnType<typeof renderInlines>, text: string): Paragraph {
-    return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, bidirectional: bidi(text), children })
+/** A paragraph of a footnote. `node` is the Markdown one it stands for, if any, whose raw HTML may align it. */
+function footnoteParagraph(children: ReturnType<typeof renderInlines>, text: string, node?: MdParagraph): Paragraph {
+    const rtl = bidi(text)
+    return new Paragraph({
+        style: 'FootnoteText',
+        spacing: { after: 60 },
+        alignment: node && htmlAlignment(node, rtl === true),
+        bidirectional: rtl,
+        children,
+    })
 }
 
 /** Word footnotes hold only paragraphs, so a table in one is written a row per line, its cells split by bars. */
@@ -1422,7 +1924,7 @@ async function renderFootnote(state: RenderState, node: FootnoteDefinition): Pro
     try {
         const paragraphs: Paragraph[] = []
         for (const child of node.children) {
-            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children), plainText(child)))
+            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children), plainText(child), child))
             else for (const block of await renderBlocks(state, [child])) if (block instanceof Paragraph) paragraphs.push(block)
         }
         return paragraphs.length > 0 ? paragraphs : [footnoteParagraph([textRun(state, ' ')], '')]
@@ -1856,29 +2358,48 @@ function measuredPx(state: RenderState, width: number): number {
 }
 
 /** Height of a body picture, sized the way {@link renderImage} draws it. */
-function imageTwip(state: RenderState, image: DecodedImage, width: number): number {
-    return pxToTwip(bodyImageSize(state, image, measuredPx(state, width)).height)
+function imageTwip(state: RenderState, image: DecodedImage, width: number, given: GivenSize): number {
+    return pxToTwip(bodyImageSize(state, image, measuredPx(state, width), given).height)
 }
 
+/**
+ * Height of a paragraph: its text wrapped in `width` twips, a line at a time, since a line break (`<br>` in a table
+ * cell or a raw HTML block, or a Markdown hard break) starts a new one.
+ */
 function paragraphTwip(state: RenderState, node: MdParagraph, width: number): number {
     let image = 0
-    const parts: string[] = []
+    const lines = ['']
+    const add = (text: string) => {
+        lines[lines.length - 1] += text
+    }
     const walk = (nodes: PhrasingContent[]) => {
         for (const child of nodes) {
             if (child.type === 'image' || child.type === 'imageReference') {
                 // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
                 const url = imageUrl(state, child)
                 const decoded = url === undefined ? null : decodeImage(state.images, url)
-                if (decoded) image = Math.max(image, imageTwip(state, decoded, width))
-                else parts.push(imageText(state, child))
-            } else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
+                if (decoded) image = Math.max(image, imageTwip(state, decoded, width, givenSize(child)))
+                else add(imageText(state, child))
+            } else if (child.type === 'text' || child.type === 'inlineCode') add(child.value)
+            else if (child.type === 'break') lines.push('')
             else if ('children' in child) walk(child.children)
         }
     }
     walk(node.children)
-    const text = parts.join('')
-    const textHeight = text.trim() ? textBlockTwip(state, text, state.bodyHalfPoints, width, 0, 120) : 120
+    const lineTwip = lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight)
+    const wrapped = lines.reduce((count, text) => count + lineCount(text, state.bodyHalfPoints, width), 0)
+    const textHeight = lines.length > 1 || !onlyCollapsibleSpace(lines[0]!) || HTML_BLANK_LINES.has(node) ? wrapped * lineTwip + 120 : 120
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
+}
+
+/** Height of a table row: each cell wraps in its own column's width, as renderTable sizes them, and its margins add 120 above. */
+function tableRowTwip(state: RenderState, row: MdTableRow, widths: number[]): number {
+    let height = 240
+    row.children.slice(0, widths.length).forEach((cell, index) => {
+        const text = Math.max(200, widths[index]! - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right)
+        height = Math.max(height, 120 + paragraphTwip(state, { type: 'paragraph', children: cell.children }, text))
+    })
+    return height
 }
 
 /** Height of a code block or diagram in a text column `width` twips wide: a diagram in a list or quote is drawn narrower, so shorter. */
@@ -1919,7 +2440,7 @@ function measureFlow(
             const id = headingId(node)
             if (id) pages.set(id, cursor.page)
         } else if (node.type === 'paragraph') {
-            placeBlock(cursor, pageHeight, paragraphTwip(state, node, width))
+            if (!writesNothing(node)) placeBlock(cursor, pageHeight, paragraphTwip(state, node, width))
         } else if (node.type === 'list') {
             measureList(state, node, 0, width, pages, cursor, pageHeight)
         } else if (node.type === 'blockquote') {
@@ -1927,18 +2448,12 @@ function measureFlow(
         } else if (node.type === 'code') {
             placeBlock(cursor, pageHeight, codeTwip(state, node, width))
         } else if (node.type === 'table') {
-            // Each cell wraps in its own column's width, as renderTable sizes them; its margins add 120 above.
-            const widths = columnWidths(node, tableColumns(node), width)
-            let table = 200
-            for (const row of node.children) {
-                let rowHeight = 240
-                row.children.slice(0, widths.length).forEach((cell, index) => {
-                    const text = Math.max(200, widths[index]! - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right)
-                    rowHeight = Math.max(rowHeight, 120 + paragraphTwip(state, { type: 'paragraph', children: cell.children }, text))
-                })
-                table += rowHeight
-            }
-            placeBlock(cursor, pageHeight, table)
+            const widths = columnWidths(state, node, tableColumns(node), width)
+            placeBlock(
+                cursor,
+                pageHeight,
+                node.children.reduce((table, row) => table + tableRowTwip(state, row, widths), 200)
+            )
         } else if (node.type === 'thematicBreak') {
             placeBlock(cursor, pageHeight, 400)
         }
@@ -2203,6 +2718,7 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
 /** Word renderer for an {@link ExportDocument}. */
 export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
     const document = xmlSafeDocument(source)
+    expandHtml(document.tree)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {
         codes.push(node)
@@ -2211,6 +2727,8 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
     const prepared = new Map(codes.map((node, index) => [node, preparedList[index]!]))
     const state = createState(document, prepared, await convertImages(document))
     const body = await renderBlocks(state, document.tree.children, true)
+    // Anchors after the last words still need somewhere to be.
+    if (state.pendingAnchors.length > 0) body.push(new Paragraph({ spacing: { after: 0 }, children: takePendingAnchors(state) }))
     const groups: { id: FrontGroup; children: Block[] }[] = []
     if (document.profile.frontMatter.titlePage) groups.push({ id: 'title', children: await titleBlocks(state) })
     if (state.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
