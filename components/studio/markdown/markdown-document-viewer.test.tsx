@@ -443,6 +443,17 @@ describe('MarkdownDocumentViewer', () => {
             '[^1]: A note.',
         ].join('\n')
 
+        // happy-dom lets any element take focus. A browser only lets links, form fields and elements with a tabindex
+        // take it, so headings and `<a name>` anchors need one (N28 review).
+        beforeEach(() => {
+            const focus = HTMLElement.prototype.focus
+            vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+                if (this.matches('a[href], button, input, select, textarea, [tabindex]')) focus.call(this, options)
+            })
+        })
+
+        afterEach(() => vi.restoreAllMocks())
+
         it('keeps heading and footnote ids, with GitHub’s prefix, and never uses target=_blank', () => {
             const { container } = render(viewer(DOC_A, source))
             expect(container.querySelector('h1')).toHaveAttribute('id', 'user-content-install-steps')
@@ -516,6 +527,36 @@ describe('MarkdownDocumentViewer', () => {
             expect(footnoteRef).toHaveFocus()
             expect(footnoteRef).not.toHaveAttribute('tabindex')
             expect(note).not.toHaveAttribute('tabindex')
+        })
+
+        it('moves focus to an old-style <a name> anchor, which has no link to take focus with (N28 review)', () => {
+            const { container } = render(viewer(DOC_A, '<a name="install"></a>\n\nInstall it.\n\n[x](#install)'))
+            const anchor = container.querySelector<HTMLElement>('a[name]')!
+            const link = screen.getByRole('link', { name: 'x' })
+            link.focus()
+            fireEvent.click(link)
+            expect(anchor).toHaveFocus()
+            expect(anchor).toHaveAttribute('tabindex', '-1')
+
+            link.focus()
+            expect(anchor).not.toHaveAttribute('tabindex')
+        })
+
+        it('keeps the section focusable while the user is in another window, so focus is still there on return (N28 review)', () => {
+            const { container } = render(viewer(DOC_A, source))
+            const heading = container.querySelector<HTMLElement>('h1')!
+            fireEvent.click(screen.getByRole('link', { name: 'below' }))
+            expect(heading).toHaveFocus()
+
+            // Leaving the window blurs the heading but leaves it the page's focused element.
+            fireEvent.blur(heading)
+            expect(heading).toHaveFocus()
+            expect(heading).toHaveAttribute('tabindex', '-1')
+
+            // Back in the window, Tab moves on from it.
+            fireEvent.focus(heading)
+            screen.getByRole('link', { name: 'site' }).focus()
+            expect(heading).not.toHaveAttribute('tabindex')
         })
 
         it('follows a README’s GitHub-style table of contents', () => {

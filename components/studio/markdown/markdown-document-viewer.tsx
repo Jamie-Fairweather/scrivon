@@ -77,15 +77,27 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
 
 /**
  * Moves focus to the section a link led to, as following a link in a browser moves where Tab carries on from, so
- * the next Tab goes into that section and a screen reader reads it. A heading or footnote can't normally take
- * focus, so it can until focus leaves it again.
+ * the next Tab goes into that section and a screen reader reads it. A heading, footnote or `<a name>` anchor can't
+ * normally take focus, so it can until focus moves on from it.
  */
 function focusAnchorTarget(target: HTMLElement): void {
-    if (target.tabIndex < 0 && !target.hasAttribute('tabindex')) {
-        target.setAttribute('tabindex', '-1')
-        target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true })
-    }
+    // Tried first, as only the browser knows what can take focus (an `<a>` with no link can't, whatever its tabIndex).
     target.focus({ preventScroll: true })
+    if (document.activeElement === target || target.hasAttribute('tabindex')) return
+
+    target.setAttribute('tabindex', '-1')
+    target.focus({ preventScroll: true })
+    if (document.activeElement !== target) {
+        target.removeAttribute('tabindex')
+        return
+    }
+    const onBlur = () => {
+        // Switching to another window blurs it but leaves it focused in the page, so it has focus again on return.
+        if (document.activeElement === target) return
+        target.removeEventListener('blur', onBlur)
+        target.removeAttribute('tabindex')
+    }
+    target.addEventListener('blur', onBlur)
 }
 
 /**
