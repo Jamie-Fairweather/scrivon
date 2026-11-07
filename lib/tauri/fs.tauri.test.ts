@@ -109,6 +109,14 @@ describe('workspace fs (Tauri)', () => {
         expect(writeFileMock).toHaveBeenCalledTimes(1)
     })
 
+    it('removes the temporary file when writing it fails part way', async () => {
+        writeFileMock.mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('There is not enough space on the disk. (os error 112)')
+        const { tempPath } = lastSave()
+        expect(removeMock).toHaveBeenCalledWith(tempPath, { recursive: false })
+        expect(renameMock).not.toHaveBeenCalled()
+    })
+
     it('tries the replace again when the file is busy for a moment', async () => {
         renameMock.mockRejectedValueOnce('The process cannot access the file because it is being used by another process. (os error 32)')
         await writeWorkspaceFile('/ws/a.md', 'text')

@@ -294,7 +294,7 @@ export type WriteWorkspaceFileOptions = {
 /**
  * Saves text in the file's own encoding. The bytes go to a temporary file next to it, which then replaces
  * the file in one step. So a save that fails or is cut short (full disk, unplugged drive, crash) leaves the
- * old version, never an empty or half-written file. If the replace fails, the temporary file is removed.
+ * old version, never an empty or half-written file. If the write or the replace fails, the temporary file is removed.
  * Resolves to the saved file's new stamp (null if it couldn't be read).
  */
 export async function writeWorkspaceFile(
@@ -314,14 +314,15 @@ export async function writeWorkspaceFile(
         return readStamp(path)
     }
     const tempPath = saveTempPath(path)
-    await writeFile(tempPath, bytes, { createNew: true })
     try {
+        await writeFile(tempPath, bytes, { createNew: true })
         await replaceFile(tempPath, path)
     } catch (err) {
+        // A write cut short (full disk, drive gone) can leave part of the temporary file behind too.
         try {
             await removeWorkspacePath(tempPath)
         } catch {
-            // The save already failed; a stray temporary file is hidden from the explorer anyway.
+            // Never created, or already gone with the drive.
         }
         throw err
     }
