@@ -17,10 +17,13 @@ const ANY_ELEMENT_ATTRIBUTES = (defaultSchema.attributes?.['*'] ?? []).filter((a
  * size and alignment and paragraphs and blocks their alignment. Scripts, frames, styles and event handlers never
  * get through, and their contents are dropped rather than shown as text. Comments are dropped too. Links and images
  * may only point at web, email, relative or Windows-path addresses (images may also be data: URLs).
+ *
+ * `<source>` is left out: its `srcset` would load a web image past the preview's and the PDF's web-image block,
+ * which only look at `<img src>`. A `<picture>` then shows its `<img>`, which they do check.
  */
 const baseSchema: SanitizeSchema = {
     ...defaultSchema,
-    tagNames: [...(defaultSchema.tagNames ?? []), 'mark'],
+    tagNames: [...(defaultSchema.tagNames ?? []).filter((tagName) => tagName !== 'source'), 'mark'],
     attributes: {
         ...defaultSchema.attributes,
         '*': ANY_ELEMENT_ATTRIBUTES,

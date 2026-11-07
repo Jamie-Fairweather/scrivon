@@ -706,6 +706,20 @@ SHIKI_FAIL
             expect(html).toContain('<img src="https://raw.example/raw.png" alt="Raw" referrerpolicy="no-referrer">')
             expect(html).toContain('<img src="img/a.png" alt="Local">')
         })
+
+        it('drops a <picture>’s <source>, so its srcset can’t load a web image beside a local <img> (review)', async () => {
+            const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+            const picture = (img: string) =>
+                `<picture><source srcset="https://tracker.example/p.png"><source srcset="https://tracker.example/q.png 2x">${img}</picture>`
+            const source = [picture('<img src="a.png" alt="Local">'), '', picture('<img src="data:image/gif;base64,R0lGOD" alt="Inline">')].join('\n')
+            for (const allowRemoteImages of [false, true]) {
+                const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS, allowRemoteImages })
+                expect(html).not.toContain('tracker.example')
+                expect(html).not.toContain('<source')
+                expect(html).toContain('<picture><img src="a.png" alt="Local"></picture>')
+                expect(html).toContain('<picture><img src="data:image/gif;base64,R0lGOD" alt="Inline"></picture>')
+            }
+        })
     })
 
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {

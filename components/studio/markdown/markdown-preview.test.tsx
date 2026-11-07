@@ -209,6 +209,19 @@ describe('MarkdownPreview', () => {
             expect(link.getAttribute('href') ?? '').not.toMatch(/javascript/i)
         })
 
+        it('drops a <picture>’s <source>, so its srcset can’t load a web image beside a local <img> (review)', () => {
+            const { container } = preview(
+                [
+                    '<picture><source srcset="https://tracker.example/p.png"><img src="a.png" alt="Local"></picture>',
+                    '',
+                    '<picture><source srcset="https://tracker.example/q.gif"><img src="data:image/gif;base64,R0lGOD" alt="Inline"></picture>',
+                ].join('\n')
+            )
+            expect(container.querySelector('source')).toBeNull()
+            expect(container.innerHTML).not.toContain('tracker.example')
+            expect(container.querySelectorAll('picture > img')).toHaveLength(2)
+        })
+
         it('keeps the document from taking over the app’s ids, document methods, shortcuts and Tab order', () => {
             const { container } = preview('<img name="createElement" id="export-title" src="pic.png" alt="x" accesskey="s" tabindex="1">')
             const img = container.querySelector('img')!
