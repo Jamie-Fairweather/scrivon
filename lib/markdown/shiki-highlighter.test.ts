@@ -13,7 +13,8 @@ function fakeHighlighter() {
             themes.push(theme)
         }),
         loadLanguage: vi.fn(async (lang: string) => {
-            if (lang === 'nosuchlang') throw new Error('Language `nosuchlang` is not included in this bundle.')
+            // A grammar Shiki has, but that fails to load (say its file is missing).
+            if (lang === 'cobol') throw new Error('Failed to fetch dynamically imported module')
             loaded.push(lang)
         }),
         codeToHtml: vi.fn((code: string, { lang, theme }: { lang: string; theme: string }) =>
@@ -35,7 +36,7 @@ describe('shiki highlighter', () => {
         const createHighlighter = vi.fn()
 
         async function load(): Promise<HighlighterModule> {
-            vi.doMock('shiki', () => ({ createHighlighter }))
+            vi.doMock('shiki', async (importOriginal) => ({ ...(await importOriginal<typeof import('shiki')>()), createHighlighter }))
             return import('./shiki-highlighter')
         }
 
@@ -74,7 +75,7 @@ describe('shiki highlighter', () => {
 
         async function load(): Promise<HighlighterModule> {
             createHighlighter.mockResolvedValue(fakeHighlighter())
-            vi.doMock('shiki', () => ({ createHighlighter }))
+            vi.doMock('shiki', async (importOriginal) => ({ ...(await importOriginal<typeof import('shiki')>()), createHighlighter }))
             return import('./shiki-highlighter')
         }
 
@@ -92,12 +93,24 @@ describe('shiki highlighter', () => {
             expect(highlightFencedCodeNow('print(1)', 'python', 'github-dark')).toBeNull()
         })
 
-        it('shows a language Shiki doesn’t have as plain text, without trying to load it again', async () => {
+        it('shows a language Shiki doesn’t have as plain text, without asking Shiki for it (N20)', async () => {
             const { highlightFencedCode, highlightFencedCodeNow } = await load()
 
-            await expect(highlightFencedCode('a', 'nosuchlang', 'github-dark')).resolves.toBe('<pre data-lang="text">a</pre>')
-            expect(highlightFencedCodeNow('ab', 'nosuchlang', 'github-dark')).toBe('<pre data-lang="text">ab</pre>')
-            await highlightFencedCode('abc', 'nosuchlang', 'github-dark')
+            for (const lang of ['nosuchlang', 'constructor', '__proto__', 'toString']) {
+                await expect(highlightFencedCode('a', lang, 'github-dark')).resolves.toBe('<pre data-lang="text">a</pre>')
+                expect(highlightFencedCodeNow('ab', lang, 'github-dark')).toBe('<pre data-lang="text">ab</pre>')
+            }
+
+            const highlighter = await createHighlighter.mock.results[0]!.value
+            expect(highlighter.loadLanguage).not.toHaveBeenCalled()
+        })
+
+        it('shows a grammar that fails to load as plain text, without trying to load it again', async () => {
+            const { highlightFencedCode, highlightFencedCodeNow } = await load()
+
+            await expect(highlightFencedCode('a', 'cobol', 'github-dark')).resolves.toBe('<pre data-lang="text">a</pre>')
+            expect(highlightFencedCodeNow('ab', 'cobol', 'github-dark')).toBe('<pre data-lang="text">ab</pre>')
+            await highlightFencedCode('abc', 'cobol', 'github-dark')
 
             const highlighter = await createHighlighter.mock.results[0]!.value
             expect(highlighter.loadLanguage).toHaveBeenCalledTimes(1)
@@ -177,6 +190,17 @@ describe('shiki highlighter', () => {
     it('still highlights a language that was not loaded up front', async () => {
         const { highlightFencedCodeTokens } = await import('./shiki-highlighter')
         const lines = await highlightFencedCodeTokens('const answer = 42', 'ts', 'github-dark')
+        const colours = new Set(lines.flat().map((token) => token.color))
+        expect(colours.size).toBeGreaterThan(1)
+    })
+
+    it('still colours other languages after a fence named `constructor` or `__proto__` (N20)', async () => {
+        const { highlightFencedCode, highlightFencedCodeTokens } = await import('./shiki-highlighter')
+        const plain = await highlightFencedCode('x = 1', 'text', 'github-dark')
+        await expect(highlightFencedCode('x = 1', 'constructor', 'github-dark')).resolves.toBe(plain)
+        await expect(highlightFencedCode('x = 1', '__proto__', 'github-dark')).resolves.toBe(plain)
+
+        const lines = await highlightFencedCodeTokens('def answer():\n    return 42', 'python', 'github-dark')
         const colours = new Set(lines.flat().map((token) => token.color))
         expect(colours.size).toBeGreaterThan(1)
     })

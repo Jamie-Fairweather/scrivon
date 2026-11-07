@@ -1,24 +1,33 @@
-import { createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter, type SpecialLanguage } from 'shiki'
+import {
+    bundledLanguages,
+    createHighlighter,
+    isSpecialLang,
+    type BundledLanguage,
+    type BundledTheme,
+    type Highlighter,
+    type SpecialLanguage,
+} from 'shiki'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
 const THEMES = ['github-dark', 'github-light'] as const
 
-const LANG_ALIASES: Record<string, BundledLanguage | 'text'> = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    py: 'python',
-    sh: 'bash',
-    zsh: 'bash',
-    shell: 'bash',
-    yml: 'yaml',
-    md: 'markdown',
-    'c#': 'csharp',
-    cs: 'csharp',
-    rs: 'rust',
-    rb: 'ruby',
-    kt: 'kotlin',
-}
+/** A Map, so a fence named after an object property (`constructor`, `__proto__`) isn't taken for an alias. */
+const LANG_ALIASES = new Map<string, BundledLanguage>([
+    ['js', 'javascript'],
+    ['jsx', 'javascript'],
+    ['ts', 'typescript'],
+    ['py', 'python'],
+    ['sh', 'bash'],
+    ['zsh', 'bash'],
+    ['shell', 'bash'],
+    ['yml', 'yaml'],
+    ['md', 'markdown'],
+    ['c#', 'csharp'],
+    ['cs', 'csharp'],
+    ['rs', 'rust'],
+    ['rb', 'ruby'],
+    ['kt', 'kotlin'],
+])
 
 /** The code themes export offers. The preview also uses others; see {@link previewCodeTheme}. */
 export type ShikiTheme = (typeof THEMES)[number]
@@ -97,12 +106,15 @@ function getHighlighter(): Promise<Highlighter> {
 function normalizeLanguage(lang: string | undefined): string {
     if (!lang) return 'text'
     const key = lang.toLowerCase()
-    return LANG_ALIASES[key] ?? key
+    return LANG_ALIASES.get(key) ?? key
 }
 
 /** The grammar to highlight with if it's ready now: `lang`, 'text' for a language Shiki doesn't have, or null. */
 function loadedLanguage(highlighter: Highlighter, lang: string): string | null {
     if (lang === 'text' || unavailableLanguages.has(lang)) return 'text'
+    // Never asked of Shiki: loading a name it has no grammar for, such as `constructor`, can break every later
+    // load until restart.
+    if (!isSpecialLang(lang) && !Object.hasOwn(bundledLanguages, lang)) return 'text'
     return highlighter.getLoadedLanguages().includes(lang) ? lang : null
 }
 
