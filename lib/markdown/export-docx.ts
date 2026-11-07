@@ -71,6 +71,7 @@ import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
+import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
@@ -963,12 +964,19 @@ function collectDefinitions(tree: ExportDocument['tree']): Map<string, string> {
     return urls
 }
 
+/**
+ * A link: to a heading's bookmark for `#heading` (matched as {@link resolveHeadingAnchor} does), else to its web,
+ * email or relative address. A link the preview would leave dead (`javascript:`, `file:`…) keeps its words as plain text.
+ */
 function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks) {
+    const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
+    const href = url.startsWith('#') ? url : safeExportHref(url)
+    if (href === null) return renderInlines(state, node.children, marks)
     const inner = renderInlines(state, node.children, { ...marks, link: true })
     if (inner.length === 0) return []
-    const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
-    if (url.startsWith('#')) return [new InternalHyperlink({ anchor: anchorFor(state, url.slice(1)), children: inner })]
-    return [new ExternalHyperlink({ link: url, children: inner })]
+    if (href.startsWith('#'))
+        return [new InternalHyperlink({ anchor: anchorFor(state, resolveHeadingAnchor(href.slice(1), state.bookmarks)), children: inner })]
+    return [new ExternalHyperlink({ link: href, children: inner })]
 }
 
 /**

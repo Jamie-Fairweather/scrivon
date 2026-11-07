@@ -619,6 +619,34 @@ SHIKI_FAIL
         expect(html).toContain('<h1 id="title" dir="auto">')
     })
 
+    it('keeps only safe links live, and points #heading links at the heading however they are written (S10, B55)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '# Résumé',
+                '',
+                '[a](#r%C3%A9sum%C3%A9) [b](#résumé) [c](#Résumé) [d](#%E0%A4%A) [e](#missing) [note][^1]',
+                '',
+                '[run](javascript:alert(1)) [open](file:///C:/Windows/notepad.exe) [find](search-ms:query=x) [path](C:\\docs\\a.md)',
+                '',
+                '[web](https://example.com/safe) [mail](mailto:me@example.com) [doc](other.md)',
+                '',
+                '[^1]: A note.',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        for (const words of ['a', 'b', 'c']) expect(html).toContain(`<a href="#résumé">${words}</a>`)
+        expect(html).toContain('<a href="#%E0%A4%25A">d</a>')
+        expect(html).toContain('<a href="#missing">e</a>')
+        // Footnote links reach their notes as before.
+        expect(html).toMatch(/<a href="#user-content-fn-1" id="user-content-fnref-1"/)
+        for (const words of ['run', 'open', 'find', 'path']) expect(html).toContain(`<a>${words}</a>`)
+        expect(html).not.toMatch(/javascript:|file:|search-ms:|docs/)
+        expect(html).toContain('<a href="https://example.com/safe">web</a>')
+        expect(html).toContain('<a href="mailto:me@example.com">mail</a>')
+        expect(html).toContain('<a href="other.md">doc</a>')
+    })
+
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })

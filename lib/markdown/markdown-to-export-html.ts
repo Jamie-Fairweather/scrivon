@@ -18,6 +18,7 @@ import {
     resolvePdfPrintOptions,
 } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
@@ -49,6 +50,24 @@ const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
 function openDetails(hast: HastRoot): void {
     visit(hast, 'element', (node: Element) => {
         if (node.tagName === 'details') node.properties.open = true
+    })
+}
+
+/**
+ * Points each `#heading` link at the id it means, the way Word's bookmarks are matched ({@link resolveHeadingAnchor}),
+ * so `#Résumé` or a percent-encoded fragment reaches the heading. A link the preview would leave dead (`javascript:`,
+ * `file:`, a Windows path) loses its address and keeps its words. The Contents page is built separately.
+ */
+function resolveLinks(hast: HastRoot): void {
+    const ids = new Set<string>()
+    visit(hast, 'element', (node: Element) => {
+        if (typeof node.properties.id === 'string') ids.add(node.properties.id)
+    })
+    visit(hast, 'element', (node: Element) => {
+        const href = node.properties.href
+        if (node.tagName !== 'a' || typeof href !== 'string') return
+        if (href.startsWith('#')) node.properties.href = `#${resolveHeadingAnchor(href.slice(1), ids)}`
+        else if (safeExportHref(href) === null) delete node.properties.href
     })
 }
 
@@ -398,6 +417,7 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
         .use(rehypeSanitize, exportSanitizeSchema)
         .runSync(tree) as HastRoot
     openDetails(hast)
+    resolveLinks(hast)
     markTables(hast, profile)
     setTextDirection(hast, new Set(placeholders.keys()))
     if (stamped) addHeadingMarks(hast, tocItems)

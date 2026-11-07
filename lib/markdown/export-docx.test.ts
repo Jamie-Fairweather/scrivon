@@ -1623,6 +1623,34 @@ describe('renderExportDocx', () => {
         expect(tocPage(body, '1. Intro')).toBe(2)
     })
 
+    it('links only to safe addresses, and finds #heading links however they are written (S10, B55)', async () => {
+        const { parts } = await render(
+            [
+                '# Résumé',
+                '',
+                '[a](#r%C3%A9sum%C3%A9) [b](#résumé) [c](#Résumé) [d](#%E0%A4%A)',
+                '',
+                '[run](javascript:alert(1)) [open](file:///C:/Windows/notepad.exe) [find](search-ms:query=x) [path](C:\\docs\\a.md)',
+                '',
+                '[web](https://example.com/safe) [doc](other.md)',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const rels = parts['word/_rels/document.xml.rels']!
+        // Copied from a browser (percent-encoded) or written with capitals, each still reaches the heading's bookmark.
+        // A badly encoded one doesn't break the export and is kept as written.
+        expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual(['_Ref1', '_Ref1', '_Ref1', '%E0%A4%A'])
+        // The preview leaves these dead, so Word keeps their words as plain text, not a link that runs or opens something.
+        expect(rels).not.toMatch(/javascript:|file:|search-ms:|docs/)
+        for (const words of ['run', 'open', 'find', 'path']) {
+            expect(runWith(body, words)).toBeTruthy()
+            expect(runWith(body, words)).not.toContain('<w:u ')
+        }
+        expect(body.match(/<w:hyperlink /g)).toHaveLength(4 + 2)
+        expect(rels).toContain('Target="https://example.com/safe" TargetMode="External"')
+        expect(rels).toContain('Target="other.md" TargetMode="External"')
+    })
+
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
         const { xml } = await render('Body text[^1] here.\n\n| a |\n| --- |\n| cell |\n\n[^1]: The note.', (draft) => {
             draft.header.enabled = true
