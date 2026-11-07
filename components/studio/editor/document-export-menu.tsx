@@ -35,7 +35,7 @@ export function DocumentExportMenu() {
     const diagramExportSource = isMarkdownTab ? (expanded?.source ?? '') : (activeTab?.content ?? '')
     const diagramExportCanvasKey = isMarkdownTab ? (expanded?.canvasKey ?? null) : activeTabId
 
-    const { currentError, isPending, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
+    const { currentError, isPending, isStale, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
@@ -49,6 +49,9 @@ export function DocumentExportMenu() {
     const showDiagramExport = isMermaidTab || (isMarkdownTab && Boolean(expanded))
     const diagramBlocked = isMarkdownTab && !expanded
     const diagramDisabled = diagramBlocked || !hasDiagramSource || Boolean(currentError) || isPending || isEmpty || exporting
+    // The text on screen is newer than the picture and may turn out broken or empty. Only the items wait for
+    // it: dimming the whole Export button too would make it flicker on every keystroke.
+    const diagramItemDisabled = diagramDisabled || isStale
     const pdfDisabled = !hasMarkdown || exporting
 
     const runExport = async (action: () => Promise<void>) => {
@@ -116,19 +119,19 @@ export function DocumentExportMenu() {
                         {showDiagramExport ? (
                             <>
                                 <MenuItem
-                                    disabled={diagramDisabled}
+                                    disabled={diagramItemDisabled}
                                     onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, diagramTarget))}
                                 >
                                     Save SVG
                                 </MenuItem>
                                 <MenuSub>
-                                    <MenuSubTrigger disabled={diagramDisabled}>Save PNG</MenuSubTrigger>
+                                    <MenuSubTrigger disabled={diagramItemDisabled}>Save PNG</MenuSubTrigger>
                                     <MenuSubPopup className="min-w-36">
                                         <MenuGroup>
                                             {PNG_SCALES.map(({ label, scale }) => (
                                                 <MenuItem
                                                     key={scale}
-                                                    disabled={diagramDisabled}
+                                                    disabled={diagramItemDisabled}
                                                     onClick={() =>
                                                         void runExport(() => exportPng(diagramExportSource, themeId, diagramTarget, scale))
                                                     }
