@@ -100,8 +100,9 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
             <Dialog onOpenChange={handleOpenChange} open={open}>
                 <DialogPopup showCloseButton={false}>
                     <DialogHeader>
-                        {/* Titles and descriptions can hold long file names; let those wrap instead of overflowing. */}
-                        <DialogTitle className="wrap-anywhere">{title}</DialogTitle>
+                        {/* Titles and descriptions can hold long file names; let those wrap instead of overflowing.
+                            The title's lines need room between them once it wraps; the shared title sets them tight for one line. */}
+                        <DialogTitle className="leading-snug wrap-anywhere">{title}</DialogTitle>
                         {description && <DialogDescription className="wrap-anywhere">{description}</DialogDescription>}
                     </DialogHeader>
                     <form className="contents" onSubmit={handleSubmit}>
