@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-exp
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { getActivePdfExportProfile, updatePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
-import { isTauri } from '@/lib/tauri/platform'
+import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 
 type UpdateSettings = ReturnType<typeof useAppSettings>['updateSettings']
 let updateSettings: UpdateSettings
@@ -292,6 +292,33 @@ describe('PdfExportSettings labels', () => {
         await user.click(group('Footer').getByRole('combobox', { name: 'Page numbers' }))
         await user.click(await screen.findByRole('option', { name: 'Custom text' }))
         expect(await group('Footer').findByRole('textbox', { name: 'Custom text' })).toBeInTheDocument()
+    })
+
+    it('lists every placeholder the header and footer text can use', async () => {
+        renderSection()
+        expect(group('Header').getAllByText('Use {{title}}, {{subtitle}}, {{author}} or {{date}} (today if no date is set).')).toHaveLength(2)
+        const user = userEvent.setup()
+        await user.click(group('Footer').getByRole('combobox', { name: 'Page numbers' }))
+        await user.click(await screen.findByRole('option', { name: 'Custom text' }))
+        const hint = await group('Footer').findByText(
+            /^Use \{\{page\}\}, \{\{total\}\}, \{\{title\}\}, \{\{subtitle\}\}, \{\{author\}\} or \{\{date\}\}\./
+        )
+        expect(hint).toHaveTextContent('Between {{page}} and {{total}}, Arabic, Hebrew, Hindi and letters the footer font lacks print as ?.')
+    })
+
+    it('says which page numbers may be lost outside the Windows app, and only there', () => {
+        const note = 'Outside the Windows app, the table of contents has no page numbers and footer numbers may not print.'
+        renderSection()
+        expect(group('Footer').getByText(note)).toBeInTheDocument()
+        cleanup()
+
+        vi.mocked(isWindowsTauri).mockReturnValue(true)
+        try {
+            renderSection()
+            expect(screen.queryByText(note)).toBeNull()
+        } finally {
+            vi.mocked(isWindowsTauri).mockReturnValue(false)
+        }
     })
 })
 
