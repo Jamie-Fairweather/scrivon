@@ -10,6 +10,7 @@ mod workspace_access;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
@@ -62,6 +63,24 @@ fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
         .clone();
     tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
     Ok(())
+}
+
+/// The window starts hidden, and the page shows it once its theme is painted
+/// (components/theme/app-theme-provider.tsx), so a light theme never opens on
+/// the dark default colour. If the page never does (it failed to load, say),
+/// the window is shown anyway after this long.
+const SHOW_WINDOW_FALLBACK: Duration = Duration::from_secs(3);
+
+fn show_main_window_later(app: &tauri::App) {
+    let app = app.handle().clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(SHOW_WINDOW_FALLBACK);
+        if let Some(window) = app.get_webview_window("main") {
+            if !window.is_visible().unwrap_or(false) {
+                let _ = window.show();
+            }
+        }
+    });
 }
 
 /// Grants the frontend recursive access to a workspace folder, but only one the
@@ -140,6 +159,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().ok();
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             build_main_window(app)?;
+            show_main_window_later(app);
             #[cfg(windows)]
             close_watchdog::watch_page_process(app);
             crash_report::mark_started();
@@ -204,6 +224,8 @@ mod config_tests {
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0]["label"], "main");
         assert_eq!(windows[0]["create"], false);
+        // The page shows it once its theme is on (show_main_window_later if not).
+        assert_eq!(windows[0]["visible"], false);
     }
 }
 

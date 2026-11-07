@@ -23,6 +23,7 @@
                 "center": true,
                 "preventOverflow": true,
                 "decorations": false,
+                "visible": false,
                 "backgroundColor": "#161616"
             }
         ],
