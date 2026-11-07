@@ -72,6 +72,29 @@ describe('licence files', () => {
         expect(texts[3]).toMatch(/^Apache License/)
     })
 
+    it("adds the third-party notices a package ships after its own licence, like monaco-editor's", () => {
+        const path = packageDir('monaco-editor', {
+            'ThirdPartyNotices.txt': 'Notices for bundled code',
+            LICENSE: 'MIT text',
+            'third-party-notices.json': '{}',
+        })
+        const md = packageDir('other', { 'THIRD-PARTY-NOTICES.md': 'Other notices', third_party_notice: 'One more' })
+
+        expect(findLicenseFiles(path)).toEqual(['LICENSE', 'ThirdPartyNotices.txt'])
+        expect(findLicenseFiles(md)).toEqual(['THIRD-PARTY-NOTICES.md', 'third_party_notice'])
+        expect(readLicenseTexts([path], { name: 'monaco-editor', license: 'MIT' })).toEqual(['MIT text', 'Notices for bundled code'])
+    })
+
+    it('still shows the standard licence text when a package ships only third-party notices', () => {
+        const path = packageDir('bundle', { ThirdPartyNotices: 'Notices for bundled code' })
+
+        const texts = readLicenseTexts([path], { name: 'bundle', license: 'MIT' })
+
+        expect(texts[0]).toBe("bundle doesn't include its own licence file, so the standard MIT text is shown below.")
+        expect(texts[1]).toMatch(/^MIT License/)
+        expect(texts[2]).toBe('Notices for bundled code')
+    })
+
     it('splits SPDX expressions, including the old slash form', () => {
         expect(spdxIds('(MIT OR Apache-2.0) AND Unicode-3.0')).toEqual(['MIT', 'Apache-2.0', 'Unicode-3.0'])
         expect(spdxIds('MIT/Apache-2.0')).toEqual(['MIT', 'Apache-2.0'])
@@ -171,13 +194,26 @@ describe('generated module', () => {
             licenseTexts,
         })
 
-        const source = renderLicensesModule([entry('a', ['Shared MIT text']), entry('b', ['Shared MIT text', 'NOTICE b']), entry('c', [])], '9.9.9')
+        const source = renderLicensesModule([entry('a', ['Shared MIT text']), entry('b', ['Shared MIT text', 'NOTICE b']), entry('c', [])])
 
         expect(source.split('Shared MIT text')).toHaveLength(2)
         expect(source).toContain('"licenseText": T[0]\n')
         expect(source).toContain('"licenseText": T[0] + SEP + T[1]\n')
         expect(source).toContain('"licenseText": null\n')
-        expect(source).toContain('export const APP_VERSION = "9.9.9"\n')
+    })
+
+    it('leaves the app version to lib/legal/app-version.ts, passing it on for older imports', () => {
+        const source = renderLicensesModule([])
+
+        expect(source).not.toMatch(/export const APP_(VERSION|NAME)/)
+        expect(source).toContain("export { APP_VERSION } from './app-version'\n")
+    })
+
+    it('matches the committed module apart from the package list', () => {
+        const committed = readFileSync(join(__dirname, '..', 'lib', 'legal', 'third-party-licenses.ts'), 'utf8').replace(/\r\n/g, '\n')
+        const header = (source: string) => source.slice(0, source.indexOf('// Each distinct licence text'))
+
+        expect(header(committed)).toBe(header(renderLicensesModule([])))
     })
 
     it('renames a crate or font that shares a name with an npm package', () => {

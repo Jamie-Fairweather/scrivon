@@ -55,6 +55,8 @@ class FakeEditor {
     private readonly contentListeners = new Set<Listener>()
     private readonly modelListeners = new Set<Listener>()
     private readonly disposeListeners = new Set<Listener>()
+    private readonly focusTextListeners = new Set<Listener>()
+    private readonly blurTextListeners = new Set<Listener>()
     constructor(
         public model: FakeModel | null,
         options: Record<string, unknown>
@@ -121,6 +123,21 @@ class FakeEditor {
         this.disposeListeners.add(listener)
         return { dispose: () => this.disposeListeners.delete(listener) }
     }
+    onDidFocusEditorText(listener: Listener) {
+        this.focusTextListeners.add(listener)
+        return { dispose: () => this.focusTextListeners.delete(listener) }
+    }
+    onDidBlurEditorText(listener: Listener) {
+        this.blurTextListeners.add(listener)
+        return { dispose: () => this.blurTextListeners.delete(listener) }
+    }
+    /** What clicking into the text, or tabbing to it, does. */
+    focusText() {
+        this.focusTextListeners.forEach((l) => l())
+    }
+    blurText() {
+        this.blurTextListeners.forEach((l) => l())
+    }
     dispose() {
         this.setModel(null)
         this.disposeListeners.forEach((l) => l())
@@ -154,6 +171,9 @@ const fakeMonaco = {
         setModelLanguage: () => {},
         onDidChangeMarkers: () => ({ dispose: () => {} }),
         remeasureFonts: vi.fn(),
+        /** Monaco's shared command registry; each call returns its own disposable, to check the panel lets go. */
+        registerCommand: vi.fn<(id: string, handler: (accessor: unknown) => void) => { dispose: () => void }>(() => ({ dispose: vi.fn() })),
+        addKeybindingRule: () => ({ dispose: () => {} }),
     },
 }
 
@@ -164,6 +184,22 @@ const fakeMonaco = {
 
 // Skip loading the real bundled Monaco; the fake above stands in for it.
 vi.mock('@/lib/monaco/setup-monaco', () => ({}))
+
+/** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
+const tabFocus = {
+    mode: false,
+    listeners: new Set<(mode: boolean) => void>(),
+    getTabFocusMode: () => tabFocus.mode,
+    setTabFocusMode: vi.fn((mode: boolean) => {
+        tabFocus.mode = mode
+        tabFocus.listeners.forEach((l) => l(mode))
+    }),
+    onDidChangeTabFocus: (listener: (mode: boolean) => void) => {
+        tabFocus.listeners.add(listener)
+        return { dispose: () => tabFocus.listeners.delete(listener) }
+    },
+}
+vi.mock('@/lib/monaco/tab-focus', () => ({ TabFocus: tabFocus }))
 
 vi.mock('next/dynamic', () => ({
     default: (load: () => Promise<ComponentType<Record<string, unknown>> | { default: ComponentType<Record<string, unknown>> }>) => {
@@ -207,13 +243,26 @@ const defineMonacoDiagramTheme = vi.fn()
 
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => theme }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme }))
-const DEFAULT_EDITOR_SETTINGS = { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false }
+const DEFAULT_EDITOR_SETTINGS = {
+    fontSize: 13,
+    tabSize: 2,
+    wordWrap: 'on',
+    wordWrapColumn: 80,
+    lineNumbers: 'on',
+    minimap: false,
+    tabMovesFocus: false,
+}
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings } }),
 }))
+const palette = { open: vi.fn(), provided: true }
+vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
+    useOptionalCommandPalette: () => (palette.provided ? { open: palette.open } : null),
+}))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
 function tab(path: string, content: string): DocumentTab {
@@ -244,6 +293,11 @@ beforeEach(() => {
     theme = LIGHT_THEME
     editorSettings = DEFAULT_EDITOR_SETTINGS
     tabsState = { tabs: [], activeTabId: null }
+    tabFocus.mode = false
+    tabFocus.setTabFocusMode.mockClear()
+    fakeMonaco.editor.registerCommand.mockClear()
+    palette.open = vi.fn()
+    palette.provided = true
 })
 
 describe('CodeEditorPanel models', () => {
@@ -358,6 +412,128 @@ describe('CodeEditorPanel accessibility', () => {
     })
 })
 
+describe('CodeEditorPanel right-click Command Palette', () => {
+    /** What the editor's right-click 'Command Palette' runs: the newest command registered under Monaco's id. */
+    function quickCommand() {
+        const { calls, results } = fakeMonaco.editor.registerCommand.mock
+        expect(calls.at(-1)?.[0]).toBe('editor.action.quickCommand')
+        return { run: calls.at(-1)![1], registration: results.at(-1)!.value as { dispose: () => void } }
+    }
+
+    it("opens the app's palette instead of Monaco's own command list", async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view } = await mountEditor()
+        const first = palette.open
+
+        quickCommand().run(undefined)
+        expect(first).toHaveBeenCalledTimes(1)
+
+        // A newer open function from the provider is the one used, without setting the editor up again.
+        palette.open = vi.fn()
+        view.rerender(<Panel />)
+        quickCommand().run(undefined)
+        expect(palette.open).toHaveBeenCalledTimes(1)
+        expect(first).toHaveBeenCalledTimes(1)
+        expect(fakeMonaco.editor.registerCommand).toHaveBeenCalledTimes(1)
+    })
+
+    it('still shows the editor with no palette above it, and then the entry does nothing', async () => {
+        palette.provided = false
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        await mountEditor()
+
+        expect(() => quickCommand().run(undefined)).not.toThrow()
+        expect(palette.open).not.toHaveBeenCalled()
+    })
+
+    it('gives the command back to Monaco when the editor is thrown away', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        const { registration } = quickCommand()
+        expect(registration.dispose).not.toHaveBeenCalled()
+
+        act(() => editor.dispose())
+        expect(registration.dispose).toHaveBeenCalled()
+    })
+})
+
+describe('CodeEditorPanel Tab key', () => {
+    const hint = (view: ReturnType<typeof render>) => view.container.querySelector('[data-slot="editor-tab-focus-hint"]')
+
+    it("turns on Monaco's Tab moves focus mode from the setting, and follows Ctrl+M after that", async () => {
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, tabMovesFocus: true }
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenLastCalledWith(true))
+        await waitFor(() => expect(editor.options.ariaLabel).toMatch(/The Tab key moves focus\. Press Control\+M to make it indent again\.$/))
+
+        // Ctrl+M in the editor: Tab indents again until the next switch, and the setting stays.
+        act(() => tabFocus.setTabFocusMode(false))
+        expect(editor.options.ariaLabel).toMatch(/Press Control\+M to make the Tab key move focus instead of indenting\.$/)
+        expect(tabFocus.setTabFocusMode).toHaveBeenCalledTimes(2)
+
+        // Turning the setting off sets the mode again.
+        act(() => tabFocus.setTabFocusMode(true))
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, tabMovesFocus: false }
+        view.rerender(<Panel />)
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenLastCalledWith(false))
+        expect(tabFocus.mode).toBe(false)
+    })
+
+    it('leaves Tab indenting by default', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenLastCalledWith(false))
+    })
+
+    it('says on screen how to leave the editor while it has focus', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenCalled())
+        expect(hint(view)).toBeNull()
+
+        act(() => editor.focusText())
+        expect(hint(view)?.textContent).toBe('Ctrl+M: Tab moves focus')
+        // Screen readers get this from the editor's name instead.
+        expect(hint(view)?.getAttribute('aria-hidden')).toBe('true')
+
+        act(() => tabFocus.setTabFocusMode(true))
+        expect(hint(view)?.textContent).toBe('Tab moves focus · Ctrl+M to indent')
+
+        act(() => editor.blurText())
+        expect(hint(view)).toBeNull()
+    })
+
+    it("hides the hint after a few seconds, so it doesn't sit over the text while typing", async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenCalled())
+        vi.useFakeTimers()
+        try {
+            act(() => editor.focusText())
+            act(() => vi.advanceTimersByTime(4900))
+            expect(hint(view)).not.toBeNull()
+            act(() => vi.advanceTimersByTime(100))
+            expect(hint(view)).toBeNull()
+
+            // Ctrl+M shows it again with the new mode, for a while.
+            act(() => tabFocus.setTabFocusMode(true))
+            expect(hint(view)?.textContent).toBe('Tab moves focus · Ctrl+M to indent')
+            act(() => vi.advanceTimersByTime(5000))
+            expect(hint(view)).toBeNull()
+
+            // So does coming back to the editor.
+            act(() => editor.blurText())
+            act(() => editor.focusText())
+            expect(hint(view)).not.toBeNull()
+            act(() => vi.advanceTimersByTime(5000))
+            expect(hint(view)).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})
+
 describe('CodeEditorPanel unicode highlighting', () => {
     it('does not box ordinary non-Latin text, but shows invisible characters in diagrams', async () => {
         const a = '/w/a.md'
@@ -444,6 +620,17 @@ describe('CodeEditorPanel scrolling', () => {
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
         const { editor } = await mountEditor()
         expect(editor.options.scrollbar).toMatchObject({ horizontal: 'auto' })
+    })
+
+    it('wraps at the Wrap column setting, also when it changes', async () => {
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, wordWrap: 'wordWrapColumn', wordWrapColumn: 60 }
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        expect(editor.options).toMatchObject({ wordWrap: 'wordWrapColumn', wordWrapColumn: 60 })
+
+        editorSettings = { ...editorSettings, wordWrapColumn: 100 }
+        view.rerender(<Panel />)
+        expect(editor.options.wordWrapColumn).toBe(100)
     })
 })
 
@@ -643,6 +830,104 @@ describe('CodeEditorPanel search hits', () => {
 
         view.rerender(<Panel open />)
         expect(coordinatorHandlers.getEditorSelectedText!()).toBe('TODO')
+    })
+})
+
+describe('CodeEditorPanel focus after opening a file', () => {
+    /** The focus waits a frame, for a closing dialog to let go first. */
+    const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+
+    it('focuses the editor on the file that was just opened', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // Callers ask once the open has finished.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
+        act(() => focusEditorFor(b))
+        await waitFor(() => expect(editor.focused).toBe(true))
+    })
+
+    it("forgets a request for a file that didn't open, so opening it by hand later leaves focus alone", async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // The user said no to opening a large b.md (or it couldn't be read or made), so a.md still shows.
+        act(() => focusEditorFor(b))
+        await nextFrame()
+        expect(editor.focused).toBe(false)
+
+        // Later b.md is opened from the explorer, where the keyboard is meant to stay.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
+        await nextFrame()
+        await nextFrame()
+        expect(editor.focused).toBe(false)
+    })
+
+    it('finds the tab however its path is written', async () => {
+        const path = String.raw`C:\Notes\Plan.md`
+        tabsState = { tabs: [tab(path, 'A')], activeTabId: path }
+        const { editor } = await mountEditor()
+
+        act(() => focusEditorFor('c:/notes/plan.md'))
+
+        await waitFor(() => expect(editor.focused).toBe(true))
+    })
+
+    it('focuses straight away when that file is already showing', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+
+        act(() => focusEditorFor('/w/a.md'))
+
+        await waitFor(() => expect(editor.focused).toBe(true))
+    })
+
+    it('forgets the request when another file shows instead', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const c = '/w/c.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // b.md couldn't be opened; the user then moves to c.md and later to b.md by hand.
+        act(() => focusEditorFor(b))
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C')], activeTabId: c })
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C'), tab(b, 'B')], activeTabId: b })
+        await nextFrame()
+
+        expect(editor.focused).toBe(false)
+    })
+
+    it('leaves a hidden editor alone', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        view.rerender(<Panel open={false} />)
+
+        act(() => focusEditorFor('/w/a.md'))
+        await nextFrame()
+        view.rerender(<Panel open />)
+        await nextFrame()
+
+        expect(editor.focused).toBe(false)
+    })
+
+    it('focuses the new editor when the file opens with no tab open before', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view } = await mountEditor()
+
+        // Closing the last tab throws the editor away; the next file opens in a new one.
+        setTabs(view, { tabs: [], activeTabId: null })
+        setTabs(view, { tabs: [tab(b, 'B')], activeTabId: b })
+        act(() => focusEditorFor(b))
+
+        await waitFor(() => expect(editors).toHaveLength(2))
+        await waitFor(() => expect(editors[1]!.focused).toBe(true))
     })
 })
 

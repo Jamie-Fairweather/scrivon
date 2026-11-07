@@ -2,10 +2,13 @@
 
 import Image from 'next/image'
 import { Menubar } from '@base-ui/react/menubar'
+import { Check, Loader2 } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
+import { displayPath } from '@/lib/workspace/display-path'
 import { folderLabels } from '@/lib/workspace/paths'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
@@ -34,7 +37,7 @@ import { ThemeMenu } from '@/components/studio/theme/theme-menu'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
 import type { KeybindActionId } from '@/lib/settings/types'
-import { getBaseName } from '@/lib/tauri/fs'
+import { getBaseName, samePath } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
 
 function MenuBarEntry({ label, children }: { label: string; children: ReactNode }) {
@@ -71,11 +74,14 @@ function CheckboxLabelWithHint({ label, shortcut }: { label: string; shortcut: s
 }
 
 export function StudioMenuBar() {
-    const { isDesktop, workspaceRoot, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } = useWorkspaceSession()
+    const { isDesktop, workspaceRoot, openingWorkspace, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } =
+        useWorkspaceSession()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
     const { settings, openSettings } = useAppSettings()
     const { requestCanvasFit } = useCanvasFit()
+    // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
+    const { canFitToView } = useCanvasControls()
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
     const menubarRef = useRef<HTMLDivElement>(null)
@@ -115,14 +121,43 @@ export function StudioMenuBar() {
                                     <MenuSubTrigger>Open Recent</MenuSubTrigger>
                                     <MenuSubPopup className="min-w-56">
                                         <MenuGroup>
-                                            {folderLabels(recentWorkspaces).map(({ path, location }) => (
-                                                <MenuItem key={path} disabled={!isDesktop} onClick={() => void openWorkspace(path)} title={path}>
-                                                    <span className="truncate">{getBaseName(path)}</span>
-                                                    {location && (
-                                                        <span className="ms-auto truncate ps-4 text-xs text-muted-foreground">{location}</span>
-                                                    )}
-                                                </MenuItem>
-                                            ))}
+                                            {folderLabels(recentWorkspaces).map(({ path, location }) => {
+                                                const current = workspaceRoot !== null && samePath(path, workspaceRoot)
+                                                // Still being read; the other folders stay open to pick, since the last one picked wins.
+                                                const opening = openingWorkspace !== null && samePath(path, openingWorkspace)
+                                                return (
+                                                    <MenuItem
+                                                        key={path}
+                                                        disabled={!isDesktop || opening}
+                                                        onClick={() => void openWorkspace(path)}
+                                                        title={current ? `${displayPath(path)} (current folder)` : displayPath(path)}
+                                                        aria-busy={opening || undefined}
+                                                    >
+                                                        {/* A column like a radio menu's: a tick on the open folder, a spinner on one being opened. */}
+                                                        {opening ? (
+                                                            <Loader2 className="animate-spin" aria-hidden />
+                                                        ) : current ? (
+                                                            <Check aria-hidden />
+                                                        ) : (
+                                                            <span className="-mx-0.5 size-4.5 shrink-0 sm:size-4" aria-hidden />
+                                                        )}
+                                                        <span dir="auto" className="truncate">
+                                                            {getBaseName(path)}
+                                                        </span>
+                                                        {/* Said, not aria-current: Windows Contrast themes fill aria-current rows like the
+                                                            keyboard's row (app/globals.css), so two rows would look picked. */}
+                                                        {current && <span className="sr-only"> (current folder)</span>}
+                                                        {location && (
+                                                            <span
+                                                                className="ms-auto truncate ps-4 text-xs text-muted-foreground
+                                                                    in-data-highlighted:text-accent-foreground"
+                                                            >
+                                                                {displayPath(location)}
+                                                            </span>
+                                                        )}
+                                                    </MenuItem>
+                                                )
+                                            })}
                                         </MenuGroup>
                                     </MenuSubPopup>
                                 </MenuSub>
@@ -167,7 +202,7 @@ export function StudioMenuBar() {
                                 <MenuHint shortcut={shortcut('view.previewOnly')} />
                             </MenuItem>
                             <MenuSeparator />
-                            <MenuItem onClick={requestCanvasFit}>
+                            <MenuItem disabled={!canFitToView} onClick={requestCanvasFit}>
                                 Fit Diagram to Screen
                                 <MenuHint shortcut={shortcut('view.fitDiagram')} />
                             </MenuItem>

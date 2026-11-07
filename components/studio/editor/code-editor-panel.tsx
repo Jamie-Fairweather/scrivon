@@ -2,19 +2,21 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { editor } from 'monaco-editor'
+import type { IDisposable, editor } from 'monaco-editor'
 import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
-import { editorAriaLabel } from '@/lib/monaco/editor-aria'
-import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
+import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
-import { documentKind } from '@/lib/tauri/fs'
+import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
@@ -31,6 +33,9 @@ const MonacoEditor = dynamic(
     },
     { ssr: false, loading: () => <EditorLoading /> }
 )
+
+/** Monaco's shared "Tab moves focus" switch (lib/monaco/tab-focus.ts), loaded with the editor's code. */
+const loadTabFocus = () => import('@/lib/monaco/tab-focus').then((module) => module.TabFocus)
 
 /** Used after the app's own monospace font (while it loads, or if it fails), and instead of it if it can't be read. */
 const FALLBACK_MONO_FONTS = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
@@ -97,6 +102,8 @@ const KEYBOARD_RESIZE_STEP = 16
 const KEYBOARD_RESIZE_BIG_STEP = 64
 /** How many of the editor's own edits are remembered while waiting for the tab to show them. */
 const MAX_UNSEEN_EDITS = 20
+/** How long the "Ctrl+M: Tab moves focus" hint stays up after the editor gains focus or the mode switches. */
+const TAB_FOCUS_HINT_MS = 5000
 
 /** Selects a search hit (a bare caret when it has no length), scrolls it into view and focuses the editor. */
 function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column: number, length = 0) {
@@ -115,6 +122,11 @@ function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
+/** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
+function isTab(tabId: string | null, path: string): boolean {
+    return tabId !== null && samePath(tabId, path)
+}
+
 function languageForTab(tab: DocumentTab) {
     if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
@@ -126,6 +138,13 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
+    // The panel also works on its own (without a palette above it, the right-click entry does nothing).
+    const openPalette = useOptionalCommandPalette()?.open
+    // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
+    const openPaletteRef = useRef(openPalette)
+    useEffect(() => {
+        openPaletteRef.current = openPalette
+    }, [openPalette])
     const resizeDragRef = useRef<{ pointerId: number; startX: number; startWidth: number; available: number; width: number } | null>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const [rowWidth, setRowWidth] = useState(0)
@@ -137,6 +156,43 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     // Text the editor has sent to the active tab that the tab may not show yet.
     const unseenEditsRef = useRef<{ tabId: string | null; texts: string[] }>({ tabId: null, texts: [] })
     const pendingRevealRef = useRef<{ path: string; line: number; column: number; length?: number } | null>(null)
+    const [editorFocused, setEditorFocused] = useState(false)
+    // The Tab key hint sits over the text, so it shows only for a while each time the editor gains focus or
+    // Ctrl+M switches the mode, not the whole time the user types. Each of those starts a new showing.
+    const [hintShowing, setHintShowing] = useState(0)
+    const [hintShowingDone, setHintShowingDone] = useState(0)
+    const showHintAgain = useCallback(() => setHintShowing((n) => n + 1), [])
+    useEffect(() => {
+        if (!editorFocused) return
+        const timer = setTimeout(() => setHintShowingDone(hintShowing), TAB_FOCUS_HINT_MS)
+        return () => clearTimeout(timer)
+    }, [editorFocused, hintShowing])
+
+    // The setting picks what Tab does when the editor starts. Ctrl+M (Monaco's own toggle) can still
+    // switch it while typing, so the hint and the editor's name follow Monaco's mode, not the setting.
+    // Not the tabFocusMode editor option: while that is on, Ctrl+M can't turn it off.
+    const tabMovesFocusSetting = settings.editor.tabMovesFocus
+    const [tabMovesFocus, setTabMovesFocus] = useState(tabMovesFocusSetting)
+    useEffect(() => {
+        let cancelled = false
+        let subscription: IDisposable | undefined
+        loadTabFocus()
+            .then((tabFocus) => {
+                if (cancelled) return
+                tabFocus.setTabFocusMode(tabMovesFocusSetting)
+                setTabMovesFocus(tabFocus.getTabFocusMode())
+                subscription = tabFocus.onDidChangeTabFocus((mode) => {
+                    setTabMovesFocus(mode)
+                    showHintAgain()
+                })
+            })
+            // Monaco failed to load, so there is no editor to set it on.
+            .catch(() => {})
+        return () => {
+            cancelled = true
+            subscription?.dispose()
+        }
+    }, [tabMovesFocusSetting, showHintAgain])
 
     // Each open tab gets its own Monaco model; see lib/monaco/model-keys.ts.
     const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs])
@@ -173,6 +229,44 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition, getEditorSelectedText })
     }, [coordinator, revealPosition, getEditorSelectedText])
+
+    // A file just opened or created (from the palette or the explorer's New menu) gets the keyboard once
+    // the editor is ready, so typing goes straight into it.
+    const pendingFocusRef = useRef<string | null>(null)
+    const focusPendingTab = useCallback(() => {
+        const path = pendingFocusRef.current
+        if (!path || !openRef.current || !editorRef.current || !isTab(activeTabIdRef.current, path)) return
+        pendingFocusRef.current = null
+        // A frame later, so a dialog that is closing (the palette, the name prompt) has let go of focus.
+        requestAnimationFrame(() => {
+            if (openRef.current && isTab(activeTabIdRef.current, path)) editorRef.current?.focus()
+        })
+    }, [])
+
+    // Callers ask once the open has finished. React applies updates in the order they were made, so the
+    // render this request starts already has the open's change of tab, and the check below sees the result.
+    const [focusRequest, setFocusRequest] = useState(0)
+    useEffect(
+        () =>
+            registerEditorFocus((path) => {
+                // A hidden editor can't take focus; the user is working in the explorer or the preview.
+                if (!openRef.current) return
+                pendingFocusRef.current = path
+                setFocusRequest((n) => n + 1)
+            }),
+        []
+    )
+
+    // Kept only while its file is the tab showing, which may still be waiting for the editor to load. If
+    // the file didn't open (the user said no to a large file, it couldn't be read or made) or another tab
+    // shows later, the request is dropped, so opening that file by hand later doesn't move the keyboard.
+    const shownTabId = activeTab?.id ?? null
+    useEffect(() => {
+        const path = pendingFocusRef.current
+        if (path === null) return
+        if (isTab(shownTabId, path)) focusPendingTab()
+        else pendingFocusRef.current = null
+    }, [shownTabId, focusRequest, focusPendingTab])
 
     useEffect(() => {
         openRef.current = open
@@ -277,10 +371,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     // Zero-width characters silently break Mermaid parsing, so show them in diagram files.
     const isMermaid = activeName !== undefined && documentKind(activeName) === 'mermaid'
     const ariaLabel = useMemo(
-        () => editorAriaLabel(activeName !== undefined ? { name: activeName, readOnly: isReadOnly } : null, isMacPlatform()),
-        [activeName, isReadOnly]
+        () => editorAriaLabel(activeName !== undefined ? { name: activeName, readOnly: isReadOnly } : null, isMacPlatform(), tabMovesFocus),
+        [activeName, isReadOnly, tabMovesFocus]
     )
     const [fontFamily] = useState(editorFontFamily)
+    const tabFocusKey = tabFocusToggleKeyLabel(isMacPlatform())
     const editorOptions = useMemo(
         () => ({
             ...BASE_EDITOR_OPTIONS,
@@ -288,6 +383,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             fontSize: settings.editor.fontSize,
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
+            wordWrapColumn: settings.editor.wordWrapColumn,
             lineNumbers: settings.editor.lineNumbers,
             minimap: { enabled: settings.editor.minimap },
             readOnly: isReadOnly,
@@ -306,6 +402,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             fontSize: settings.editor.fontSize,
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
+            wordWrapColumn: settings.editor.wordWrapColumn,
             lineNumbers: settings.editor.lineNumbers,
             minimap: { enabled: settings.editor.minimap },
         })
@@ -400,7 +497,13 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // before the next one is ready waits for it instead of going to the old one.
             editor.onDidDispose(() => {
                 if (editorRef.current === editor) editorRef.current = null
+                setEditorFocused(false)
             })
+            editor.onDidFocusEditorText(() => {
+                setEditorFocused(true)
+                showHintAgain()
+            })
+            editor.onDidBlurEditorText(() => setEditorFocused(false))
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
             // or the cursor and selection drift away from the text.
@@ -408,7 +511,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 ?.load(`16px ${fontFamily}`)
                 .then(() => monaco.editor.remeasureFonts())
                 .catch(() => {})
-            unbindEditorF1Command(editor, monaco)
+            const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
+            editor.onDidDispose(() => paletteBinding.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -422,8 +526,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 revealMatch(editor, pending.line, pending.column, pending.length)
                 pendingRevealRef.current = null
             }
+            focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
     )
 
     useEffect(() => {
@@ -446,7 +551,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             inert={!open}
         >
             {/* data-find-overflow-host: lets the find box's tooltips past this clip (app/globals.css). */}
-            <div className="min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
+            <div className="relative min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (
                     <MonacoEditor
                         path={editorPath}
@@ -465,6 +570,18 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                         Select a file from the explorer or create a new file.
                     </div>
                 )}
+                {/* Tab indents here, so say on screen how to leave with the keyboard. Screen readers
+                    hear it in the editor's name instead. Clear of the scrollbars. */}
+                {editorPath && editorFocused && hintShowingDone !== hintShowing ? (
+                    <div
+                        aria-hidden
+                        data-slot="editor-tab-focus-hint"
+                        className="pointer-events-none absolute right-4 bottom-3 z-10 rounded-sm border border-border bg-code px-1.5 py-0.5 text-xs
+                            text-muted-foreground"
+                    >
+                        {tabMovesFocus ? `Tab moves focus · ${tabFocusKey} to indent` : `${tabFocusKey}: Tab moves focus`}
+                    </div>
+                ) : null}
             </div>
 
             {/* Straddles the border and sits above Monaco's scrollbar (z-index 11), so it can be

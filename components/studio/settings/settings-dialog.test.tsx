@@ -1,8 +1,40 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from '@/components/studio/settings/settings-dialog'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/storage'
+import { notifyError } from '@/lib/notify'
+
+const advanced = vi.hoisted(() => ({ broken: false }))
+const nav = vi.hoisted(() => ({ brokenLabelFor: null as string | null }))
+
+// The Advanced section as it is, unless a test breaks it.
+vi.mock('@/components/studio/settings/sections/advanced-settings', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/studio/settings/sections/advanced-settings')>()
+    return {
+        AdvancedSettings: () => {
+            if (advanced.broken) throw new Error('bad setting')
+            return <actual.AdvancedSettings />
+        },
+    }
+})
+
+// The section labels as they are, unless a test breaks the one in the section's heading (outside the section itself).
+vi.mock('@/components/studio/settings/settings-nav', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/studio/settings/settings-nav')>()
+    return {
+        ...actual,
+        getSettingsSectionLabel: (section: Parameters<typeof actual.getSettingsSectionLabel>[0]) => {
+            if (section === nav.brokenLabelFor) throw new Error('bad label')
+            return actual.getSettingsSectionLabel(section)
+        },
+    }
+})
+
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
+    notifyError: vi.fn(),
+}))
 
 // happy-dom has no Web Animations API, which Base UI's scroll area asks for.
 if (!('getAnimations' in Element.prototype)) {
@@ -18,6 +50,9 @@ function OpenSettingsButtons() {
             </button>
             <button type="button" onClick={() => openSettings('editor')}>
                 Open editor settings
+            </button>
+            <button type="button" onClick={() => openSettings()}>
+                Open settings
             </button>
         </>
     )
@@ -86,5 +121,79 @@ describe('SettingsDialog sections', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
         const saved = JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as { editor?: { fontSize?: number } }
         expect(saved.editor?.fontSize).toBe(16)
+    })
+
+    it('asks for a wrap column only when Word wrap is At column', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
+        await screen.findByRole('textbox', { name: 'Font size' })
+        expect(screen.queryByRole('textbox', { name: 'Wrap column' })).not.toBeInTheDocument()
+    })
+
+    it('shows the saved wrap column when Word wrap is At column', async () => {
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ editor: { wordWrap: 'wordWrapColumn', wordWrapColumn: 100 } }))
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
+
+        const column = (await screen.findByRole('textbox', { name: 'Wrap column' })) as HTMLInputElement
+        expect(column.value).toBe('100')
+    })
+})
+
+describe('SettingsDialog when a section fails to draw', () => {
+    beforeEach(() => {
+        vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        vi.mocked(notifyError).mockClear()
+    })
+
+    afterEach(() => {
+        advanced.broken = false
+        nav.brokenLabelFor = null
+        vi.unstubAllGlobals()
+        vi.restoreAllMocks()
+    })
+
+    it('shows a notice in its place, and the other sections and Restore defaults still work', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        await screen.findByRole('region', { name: 'Keyboard' })
+
+        advanced.broken = true
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+
+        const region = screen.getByRole('region', { name: 'Advanced' })
+        expect(within(region).getByRole('alert')).toHaveTextContent("Couldn't show this section")
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Restore defaults' })).toBeEnabled()
+        expect(notifyError).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Keyboard' }))
+        expect(screen.getByRole('region', { name: 'Keyboard' })).toBeInTheDocument()
+
+        // Picking it again tries afresh, once what broke it is gone.
+        advanced.broken = false
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+        expect(within(screen.getByRole('region', { name: 'Advanced' })).queryByRole('alert')).toBeNull()
+        expect(screen.getByText('Recent folders limit')).toBeInTheDocument()
+    })
+
+    it('closes Settings with a notice when the rest of it fails, and reopens on General instead of the same section', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        await screen.findByRole('region', { name: 'Keyboard' })
+
+        nav.brokenLabelFor = 'advanced'
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(notifyError).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(notifyError).mock.calls[0]![0]).toBe("Couldn't show Settings")
+        expect(screen.getByRole('button', { name: 'Open keyboard settings' })).toBeInTheDocument()
+
+        // Still broken, but Settings opens without a section on General rather than crashing again.
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+        expect(await screen.findByRole('region', { name: 'General' })).toBeInTheDocument()
+        expect(notifyError).toHaveBeenCalledTimes(1)
     })
 })

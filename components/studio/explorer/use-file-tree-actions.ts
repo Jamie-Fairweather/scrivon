@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext } from 'react'
 import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
 import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
+import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { getBaseName, getParentPath, joinPath } from '@/lib/tauri/fs'
 import { documentExtension, withDocumentExtension } from '@/lib/workspace/file-types'
@@ -17,6 +18,16 @@ export function useFileTreeActions(parentPath: string | null) {
     const { promptName } = useNamePrompt()
     const { createFile, createFolder, suggestName, getNameError } = useWorkspaceSession()
 
+    // The new file opens in a tab, and the editor then takes the keyboard so the user can start typing.
+    // If the file couldn't be made, its tab never shows and focus stays where it is.
+    const createAndFocus = useCallback(
+        async (folder: string, name: string) => {
+            await createFile(folder, name)
+            focusEditorFor(joinPath(folder, name))
+        },
+        [createFile]
+    )
+
     const createMermaidFileInParent = useCallback(async () => {
         if (!parentPath) return
         const name = await promptName({
@@ -27,8 +38,8 @@ export function useFileTreeActions(parentPath: string | null) {
             // A name typed without an extension gets the one this menu item is for.
             validate: (value) => getNameError(parentPath, withDocumentExtension(value, '.mmd'), 'file'),
         })
-        if (name) await createFile(parentPath, withDocumentExtension(name, '.mmd'))
-    }, [parentPath, promptName, createFile, suggestName, getNameError])
+        if (name) await createAndFocus(parentPath, withDocumentExtension(name, '.mmd'))
+    }, [parentPath, promptName, createAndFocus, suggestName, getNameError])
 
     const createMarkdownFileInParent = useCallback(async () => {
         if (!parentPath) return
@@ -39,8 +50,8 @@ export function useFileTreeActions(parentPath: string | null) {
             placeholder: 'document.md',
             validate: (value) => getNameError(parentPath, withDocumentExtension(value, '.md'), 'file'),
         })
-        if (name) await createFile(parentPath, withDocumentExtension(name, '.md'))
-    }, [parentPath, promptName, createFile, suggestName, getNameError])
+        if (name) await createAndFocus(parentPath, withDocumentExtension(name, '.md'))
+    }, [parentPath, promptName, createAndFocus, suggestName, getNameError])
 
     const createFolderInParent = useCallback(async () => {
         if (!parentPath) return

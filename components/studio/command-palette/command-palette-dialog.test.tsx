@@ -3,6 +3,9 @@ import type { ComponentProps } from 'react'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import type { ActionPaletteItem, PaletteItem } from '@/components/studio/command-palette/types'
+import { notifyError } from '@/lib/notify'
+
+vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
 
 type DialogProps = ComponentProps<typeof CommandPaletteDialog>
 
@@ -241,6 +244,64 @@ describe('CommandPaletteDialog same-named files', () => {
     })
 })
 
+describe('CommandPaletteDialog secondary text', () => {
+    it("switches secondary lines to the highlighted row's text colour, so they stay readable on its fill", () => {
+        const withDetail: ActionPaletteItem = { ...saveAll, value: 'action:recent', detail: 'C:\\work\\docs' }
+        renderDialog({ groups: [{ id: 'mixed', label: 'Results', items: [withDetail, dirtyTab] }] })
+
+        const secondary = screen.getAllByRole('option').flatMap((option) => [...option.querySelectorAll('span.text-muted-foreground')])
+        // The detail and the reason it is off, and the tab's path.
+        expect(secondary).toHaveLength(3)
+        for (const span of secondary) expect(span).toHaveClass('in-data-highlighted:text-accent-foreground')
+    })
+
+    it('does not fade the status line below the muted text colour', () => {
+        renderDialog({ mode: 'text', query: 'oauth', textCapped: true, textTruncatedFiles: 2, textUnreadableFiles: 1 })
+        expect(document.querySelector('[class*="text-muted-foreground/"]')).toBeNull()
+    })
+})
+
+describe('CommandPaletteDialog right-to-left names', () => {
+    const LRM = '‎'
+
+    it('keeps Hebrew folders in order in a path, and lets the name take its own direction', () => {
+        const tab: PaletteItem = { ...dirtyTab, value: 'tab:hebrew', name: 'סיכום.md', relativePath: 'מסמכים/פרויקט/סיכום.md', isDirty: false }
+        renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [tab] }] })
+
+        const option = screen.getByRole('option')
+        expect(within(option).getByText(`${LRM}מסמכים/${LRM}פרויקט/${LRM}סיכום.md${LRM}`)).toBeInTheDocument()
+        expect(within(option).getByText('סיכום.md')).toHaveAttribute('dir', 'auto')
+    })
+
+    it('sets a text hit apart from its folder and line, so a Hebrew name cannot pull them out of order', () => {
+        const hit: PaletteItem = {
+            kind: 'text',
+            value: 'text:/ws/מסמכים/סיכום.md:4:1',
+            searchText: 'סיכום.md',
+            path: '/ws/מסמכים/סיכום.md',
+            name: 'סיכום.md',
+            relativePath: 'מסמכים/סיכום.md',
+            documentKind: 'markdown',
+            line: 4,
+            column: 1,
+            length: 3,
+            preview: 'abc',
+            previewMatchStart: 0,
+            source: 'disk',
+        }
+        renderDialog({ mode: 'text', query: 'abc', groups: [{ id: 'text', label: 'Text', items: [hit] }] })
+
+        const option = screen.getByRole('option')
+        expect(within(option).getByText('סיכום.md')).toHaveAttribute('dir', 'auto')
+        expect(within(option).getByText(`${LRM}מסמכים${LRM}`, { exact: false })).toBeInTheDocument()
+    })
+
+    it('lets the search box follow the direction of what is typed', () => {
+        renderDialog()
+        expect(screen.getByRole('combobox')).toHaveAttribute('dir', 'auto')
+    })
+})
+
 describe('CommandPaletteDialog icons', () => {
     it('shows the document icon for an upper-case .MD tab', () => {
         const tab: PaletteItem = {
@@ -290,5 +351,66 @@ describe('CommandPaletteDialog accessibility', () => {
     it('announces searching only once while nothing has matched yet', () => {
         renderDialog({ mode: 'text', query: 'oauth', isSearchingText: true })
         expect(screen.getAllByText(/^Searching file contents…/)).toHaveLength(1)
+    })
+})
+
+describe('CommandPaletteDialog picking an item', () => {
+    const openFolder: ActionPaletteItem = {
+        kind: 'action',
+        value: 'action:recent-workspace:C:\big',
+        searchText: 'recent workspace big',
+        label: 'Open Recent Folder: big',
+        run: () => {},
+    }
+    const groups = [{ id: 'actions', label: 'Commands', items: [openFolder] }]
+
+    it('closes before a slow item has finished, and ignores a second pick meanwhile', async () => {
+        const onSelectItem = vi.fn(() => new Promise<void>(() => {}))
+        const props = renderDialog({ query: '>big', groups, onSelectItem })
+        const option = screen.getByRole('option', { name: /Open Recent Folder: big/ })
+
+        fireEvent.click(option)
+        fireEvent.click(option)
+
+        expect(props.onOpenChange).toHaveBeenCalledWith(false)
+        await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(1))
+        expect(onSelectItem).toHaveBeenCalledWith(openFolder)
+    })
+
+    it('says so when the item fails', async () => {
+        const failure = new Error('boom')
+        renderDialog({ query: '>big', groups, onSelectItem: vi.fn(async () => Promise.reject(failure)) })
+
+        fireEvent.click(screen.getByRole('option', { name: /Open Recent Folder: big/ }))
+
+        await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't run that", failure))
+    })
+
+    it('lets the user pick again once the palette is opened again', async () => {
+        const onSelectItem = vi.fn()
+        const props: DialogProps = {
+            open: true,
+            onOpenChange: vi.fn(),
+            mode: 'all',
+            onModeChange: vi.fn(),
+            query: '>big',
+            onQueryChange: vi.fn(),
+            groups,
+            isSearchingText: false,
+            textCapped: false,
+            textTruncatedFiles: 0,
+            textUnreadableFiles: 0,
+            hasWorkspace: true,
+            onSelectItem,
+        }
+        const view = render(<CommandPaletteDialog {...props} />)
+        fireEvent.click(screen.getByRole('option', { name: /Open Recent Folder: big/ }))
+        await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(1))
+
+        view.rerender(<CommandPaletteDialog {...props} open={false} />)
+        view.rerender(<CommandPaletteDialog {...props} open />)
+        fireEvent.click(await screen.findByRole('option', { name: /Open Recent Folder: big/ }))
+
+        await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(2))
     })
 })

@@ -1,14 +1,17 @@
 'use client'
 
-import { ChevronRight, FileCode2, FileText, Folder } from 'lucide-react'
+import { ChevronRight, FileCode2, FileText, Folder, Link2Off, Lock } from 'lucide-react'
 import { memo, useId, useRef } from 'react'
 import { FileTreeContextMenu, FileTreeRowContextMenu } from '@/components/studio/explorer/file-tree-context-menu'
 import { isMarkdownFile, isMermaidFile, isSupportedDocument } from '@/lib/tauri/fs'
+import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { VisibleTreeRow } from '@/lib/workspace/flatten-file-tree'
 import type { FileNode } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
-const UNSUPPORTED_HINT = 'Scrivon supports .md, .mmd and .mermaid files only'
+const UNSUPPORTED_HINT = `Scrivon supports ${supportedExtensionsLabel('and')} files only`
+const UNREADABLE_HINT = "Can't be read. Scrivon may not have permission to open it."
+const LINKS_OUTSIDE_HINT = "Links to a folder outside the open one, which Scrivon can't open yet."
 
 // The row's fields one by one, not the row object, so a row that didn't change isn't drawn again.
 type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
@@ -39,14 +42,19 @@ export const FileTreeNode = memo(function FileTreeNode({
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
     const isMarkdown = node.kind === 'file' && isMarkdownFile(node.name)
     const isUnsupported = node.kind === 'file' && !isSupportedDocument(node.name)
+    // A folder that couldn't be listed opens onto nothing, so its row says why.
+    const isUnreadable = node.kind === 'directory' && node.unreadable === true
+    const linksOutside = node.kind === 'directory' && node.linksOutside === true
+    const hint = isUnsupported ? UNSUPPORTED_HINT : isUnreadable ? (linksOutside ? LINKS_OUTSIDE_HINT : UNREADABLE_HINT) : null
 
     return (
         <FileTreeRowContextMenu node={node}>
             {/* The actions button sits beside the row, not inside it, so its menu clicks never reach the row. */}
             <div
                 className={cn(
-                    'group me-1 flex min-w-0 items-center rounded-md hover:bg-sidebar-accent',
-                    isActive && 'bg-sidebar-accent',
+                    'group me-1 flex min-w-0 items-center rounded-md hover:bg-sidebar-accent/60',
+                    // The open file: full fill (also under the pointer, so it doesn't look hovered) and an accent bar.
+                    isActive && 'bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_var(--ring)] hover:bg-sidebar-accent',
                     isUnsupported && 'hover:bg-transparent'
                 )}
                 style={{ marginLeft: `${(level - 1) * 12 + 4}px` }}
@@ -61,15 +69,16 @@ export const FileTreeNode = memo(function FileTreeNode({
                     aria-expanded={expanded}
                     aria-selected={isActive || undefined}
                     // Not aria-disabled: an unsupported file can still be renamed, duplicated and deleted. It just won't open.
-                    aria-describedby={isUnsupported ? hintId : undefined}
+                    aria-describedby={hint ? hintId : undefined}
                     tabIndex={isTabStop ? 0 : -1}
-                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file won't open.
-                    title={isUnsupported ? `${node.name}\n${UNSUPPORTED_HINT}` : node.name}
+                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file or unreadable folder won't open.
+                    title={hint ? `${node.name}\n${hint}` : node.name}
                     className={cn(
                         `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none select-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,
-                        isActive && 'font-medium',
-                        isUnsupported && 'text-muted-foreground/60'
+                        // Contrast themes drop the fill and the bar, so the open file is marked in the system highlight.
+                        isActive && 'font-medium forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]',
+                        (isUnsupported || isUnreadable) && 'text-muted-foreground'
                     )}
                     onClick={() => onActivate(node, expanded)}
                     onFocus={() => onFocusRow(node.path)}
@@ -86,10 +95,18 @@ export const FileTreeNode = memo(function FileTreeNode({
                     ) : (
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
                     )}
-                    <span className="truncate">{node.name}</span>
-                    {isUnsupported && (
+                    <span dir="auto" className="truncate">
+                        {node.name}
+                    </span>
+                    {isUnreadable &&
+                        (linksOutside ? (
+                            <Link2Off data-mark="links-outside" className="size-3.5 shrink-0" />
+                        ) : (
+                            <Lock data-mark="unreadable" className="size-3.5 shrink-0" />
+                        ))}
+                    {hint && (
                         <span id={hintId} hidden>
-                            {UNSUPPORTED_HINT}
+                            {hint}
                         </span>
                     )}
                 </div>

@@ -6,6 +6,12 @@ import {
     searchWorkspaceContent,
     textHitToPaletteItem,
 } from '@/components/studio/command-palette/search-content'
+import type { FileStamp } from '@/lib/workspace/types'
+
+/** A file's size, and when it was last changed (any fixed time unless a test changes it). */
+function stamp(size: number, mtimeMs: number | null = 1_700_000_000_000): FileStamp {
+    return { size, mtimeMs }
+}
 
 describe('buildPreview', () => {
     it('trims long lines with ellipsis', () => {
@@ -14,6 +20,42 @@ describe('buildPreview', () => {
         expect(preview.startsWith('…')).toBe(true)
         expect(preview.endsWith('…')).toBe(true)
         expect(preview.length).toBeLessThanOrEqual(102)
+    })
+
+    /** True when no half of a surrogate pair is left on its own, which would show as a box. */
+    const wellFormed = (text: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)
+
+    it('never cuts an emoji in half at either end, and still highlights the match', () => {
+        const emoji = '\u{1F600}'.repeat(70)
+        const line = `${emoji}needle${emoji}`
+        const matchIndex = line.indexOf('needle')
+
+        // 'needle' is even, so the plain cut lands on the second half of an emoji at both ends.
+        const { preview, matchStart } = buildPreview(line, matchIndex, 6)
+
+        expect(wellFormed(preview)).toBe(true)
+        expect(preview.startsWith('…')).toBe(true)
+        expect(preview.endsWith('…')).toBe(true)
+        expect(preview.slice(matchStart, matchStart + 6)).toBe('needle')
+    })
+
+    it('keeps joined emoji and flags whole', () => {
+        const family = '\u{1F468}‍\u{1F469}‍\u{1F467}'
+        const flag = '\u{1F1EC}\u{1F1E7}'
+        for (const piece of [family, flag]) {
+            const filler = piece.repeat(30)
+            for (let shift = 0; shift < piece.length; shift++) {
+                const line = `${'x'.repeat(shift)}${filler}needle${filler}`
+                const matchIndex = line.indexOf('needle')
+                const { preview, matchStart } = buildPreview(line, matchIndex, 6)
+
+                const inner = preview.replace(/^…/, '').replace(/…$/, '')
+                const before = inner.slice(0, matchStart - (preview.startsWith('…') ? 1 : 0))
+                expect(before.replace(/^x*/, '').length % piece.length).toBe(0)
+                expect(inner.slice(inner.indexOf('needle') + 6).length % piece.length).toBe(0)
+                expect(preview.slice(matchStart, matchStart + 6)).toBe('needle')
+            }
+        }
     })
 
     it('returns short lines unchanged', () => {
@@ -131,7 +173,7 @@ describe('searchWorkspaceContent', () => {
             paths: ['/large.md'],
             openBuffers: new Map(),
             readFile: async () => 'should not be read',
-            getFileSize: async () => 2_000_000,
+            getFileStamp: async () => stamp(2_000_000),
             signal: new AbortController().signal,
             maxFileBytes: 1_048_576,
         })
@@ -224,9 +266,9 @@ describe('searchWorkspaceContent', () => {
             paths: ['/locked.md', '/ok.md'],
             openBuffers: new Map(),
             readFile: async () => 'oauth',
-            getFileSize: async (path) => {
+            getFileStamp: async (path) => {
                 if (path === '/locked.md') throw new Error('Access is denied. (os error 5)')
-                return 10
+                return stamp(10)
             },
             signal: new AbortController().signal,
         })
@@ -423,13 +465,13 @@ describe('searchWorkspaceContent', () => {
         expect(result.capped).toBe(false)
     })
 
-    it('reads disk when file size is unknown', async () => {
+    it('reads disk when the file size is unknown', async () => {
         const result = await searchWorkspaceContent({
             query: 'token',
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => 'token value',
-            getFileSize: async () => null,
+            getFileStamp: async () => null,
             signal: new AbortController().signal,
         })
 
@@ -477,7 +519,7 @@ describe('searchWorkspaceContent', () => {
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => 'x',
-            getFileSize: async () => 10,
+            getFileStamp: async () => stamp(10),
             signal: controller.signal,
         })
 
@@ -490,7 +532,7 @@ describe('searchWorkspaceContent', () => {
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => 'token value',
-            getFileSize: async () => 128,
+            getFileStamp: async () => stamp(128),
             signal: new AbortController().signal,
         })
 
@@ -506,10 +548,10 @@ describe('searchWorkspaceContent', () => {
             paths: ['/one.md', '/two.md'],
             openBuffers: new Map(),
             readFile: async () => 'x',
-            getFileSize: async () => {
+            getFileStamp: async () => {
                 calls += 1
                 if (calls === 1) controller.abort()
-                return 10
+                return stamp(10)
             },
             signal: controller.signal,
             concurrency: 2,
@@ -522,13 +564,19 @@ describe('searchWorkspaceContent', () => {
 describe('searchWorkspaceContent file cache', () => {
     const files: Record<string, string> = { '/a.md': 'the oauth flow', '/b.md': 'oauth tokens' }
 
-    function search(query: string, cache: ReturnType<typeof createContentCache>, readFile: (path: string) => Promise<string>, sizes = files) {
+    function search(
+        query: string,
+        cache: ReturnType<typeof createContentCache>,
+        readFile: (path: string) => Promise<string>,
+        sizes = files,
+        mtimes: Record<string, number> = {}
+    ) {
         return searchWorkspaceContent({
             query,
             paths: Object.keys(files),
             openBuffers: new Map(),
             readFile,
-            getFileSize: async (path) => sizes[path]!.length,
+            getFileStamp: async (path) => stamp(sizes[path]!.length, mtimes[path]),
             cache,
             signal: new AbortController().signal,
         })
@@ -559,6 +607,28 @@ describe('searchWorkspaceContent file cache', () => {
         expect(result.hits.map((hit) => hit.path)).toEqual(['/a.md', '/b.md'])
     })
 
+    it('reads a file again when it was changed on disk but kept its size', async () => {
+        const cache = createContentCache()
+        await search('oauth', cache, async (path) => files[path]!)
+
+        // Another app swapped 'oauth' for 'login' and saved: same number of bytes, newer time.
+        const changed: Record<string, string> = { ...files, '/a.md': 'the login flow' }
+        const readFile = vi.fn(async (path: string) => changed[path]!)
+        const result = await search('oauth', cache, readFile, changed, { '/a.md': 1_700_000_005_000 })
+
+        expect(readFile).toHaveBeenCalledTimes(1)
+        expect(readFile).toHaveBeenCalledWith('/a.md')
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/b.md'])
+    })
+
+    it('reuses text by size alone when the system gives no modified time', async () => {
+        const cache = createContentCache()
+        cache.set('/a.md', stamp(5, null), 'cache')
+
+        expect(cache.get('/a.md', stamp(5, 1))).toBe('cache')
+        expect(cache.get('/a.md', stamp(6, 1))).toBeUndefined()
+    })
+
     it('does not use the cache when the file size is unknown', async () => {
         const cache = createContentCache()
         const readFile = vi.fn(async () => 'oauth')
@@ -580,12 +650,12 @@ describe('searchWorkspaceContent file cache', () => {
                 controller.abort()
                 return 'the oauth flow'
             },
-            getFileSize: async () => 14,
+            getFileStamp: async () => stamp(14),
             cache,
             signal: controller.signal,
         })
 
-        expect(cache.get('/a.md', 14)).toBe('the oauth flow')
+        expect(cache.get('/a.md', stamp(14))).toBe('the oauth flow')
     })
 })
 
@@ -611,27 +681,27 @@ describe('meetsTextQueryMinimum', () => {
 describe('createContentCache', () => {
     it('stops adding files once its size budget is used up', () => {
         const cache = createContentCache(10)
-        cache.set('/a.md', 6, 'aaaaaa')
-        cache.set('/b.md', 6, 'bbbbbb')
+        cache.set('/a.md', stamp(6), 'aaaaaa')
+        cache.set('/b.md', stamp(6), 'bbbbbb')
 
-        expect(cache.get('/a.md', 6)).toBe('aaaaaa')
-        expect(cache.get('/b.md', 6)).toBeUndefined()
+        expect(cache.get('/a.md', stamp(6))).toBe('aaaaaa')
+        expect(cache.get('/b.md', stamp(6))).toBeUndefined()
     })
 
     it('frees the old text when a file is stored again', () => {
         const cache = createContentCache(10)
-        cache.set('/a.md', 6, 'aaaaaa')
-        cache.set('/a.md', 2, 'aa')
-        cache.set('/b.md', 6, 'bbbbbb')
+        cache.set('/a.md', stamp(6), 'aaaaaa')
+        cache.set('/a.md', stamp(2), 'aa')
+        cache.set('/b.md', stamp(6), 'bbbbbb')
 
-        expect(cache.get('/a.md', 2)).toBe('aa')
-        expect(cache.get('/b.md', 6)).toBe('bbbbbb')
+        expect(cache.get('/a.md', stamp(2))).toBe('aa')
+        expect(cache.get('/b.md', stamp(6))).toBe('bbbbbb')
     })
 
     it('forgets everything when cleared', () => {
         const cache = createContentCache()
-        cache.set('/a.md', 1, 'a')
+        cache.set('/a.md', stamp(1), 'a')
         cache.clear()
-        expect(cache.get('/a.md', 1)).toBeUndefined()
+        expect(cache.get('/a.md', stamp(1))).toBeUndefined()
     })
 })

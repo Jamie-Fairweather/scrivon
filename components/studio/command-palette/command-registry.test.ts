@@ -14,14 +14,17 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         workspaceRoot: '/ws',
         recentWorkspaces: [],
         activeTabId: '/ws/a.md',
+        tabCount: 2,
         hasDirtyTabs: false,
         autosaveEnabled: true,
         explorerOpen: true,
         editorOpen: true,
+        canFitDiagram: true,
         keybinds: createDefaultSettings(false).keybinds,
         pickAndOpenWorkspace: vi.fn(async () => {}),
         openWorkspace: vi.fn(async () => {}),
         closeWorkspace: vi.fn(async () => {}),
+        refreshTree: vi.fn(async () => {}),
         flushSave: vi.fn(async () => true),
         flushAllSaves: vi.fn(async () => true),
         setAutosaveEnabled: vi.fn(),
@@ -82,6 +85,52 @@ describe('buildCommandRegistry recent folders', () => {
             ['Open Recent Folder: docs', 'C:\\work\\docs'],
             ['Open Recent Folder: docs', 'D:\\notes\\docs'],
         ])
+    })
+
+    it('marks the folder that is open now', () => {
+        const recent = byValue(
+            context({ workspaceRoot: 'C:\\work\\docs', recentWorkspaces: ['c:\\work\\docs\\', 'D:\\notes'] }),
+            'action:recent-workspace:'
+        )
+        expect(recent.map((action) => action.detail)).toEqual(['Current folder · c:\\work\\docs\\', 'D:\\notes'])
+    })
+})
+
+describe('buildCommandRegistry Refresh Explorer', () => {
+    it('reads the folder again', () => {
+        const ctx = context()
+        const [refresh] = byValue(ctx, 'action:refresh-explorer')
+        expect(refresh).toMatchObject({ label: 'Refresh Explorer', disabled: false })
+        void refresh!.run()
+        expect(ctx.refreshTree).toHaveBeenCalledTimes(1)
+    })
+
+    it('says why it is off when no folder is open', () => {
+        const [refresh] = byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:refresh-explorer')
+        expect(refresh).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
+    })
+})
+
+describe('buildCommandRegistry commands that would do nothing', () => {
+    it('turns off Close Other Tabs with only one tab open, and says why', () => {
+        expect(byValue(context({ tabCount: 1 }), 'action:close-other-tabs')[0]).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
+        expect(byValue(context({ tabCount: 0, activeTabId: null }), 'action:close-other-tabs')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No tab open',
+        })
+        expect(byValue(context({ tabCount: 2 }), 'action:close-other-tabs')[0]?.disabled).toBe(false)
+    })
+
+    it('turns off Fit Diagram to Screen when no diagram is drawn, and says why', () => {
+        expect(byValue(context({ canFitDiagram: false }), 'action:fit-diagram')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No diagram to fit',
+        })
+        expect(byValue(context({ workspaceRoot: null, canFitDiagram: false }), 'action:fit-diagram')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No folder open',
+        })
+        expect(byValue(context({ canFitDiagram: true }), 'action:fit-diagram')[0]?.disabled).toBe(false)
     })
 })
 

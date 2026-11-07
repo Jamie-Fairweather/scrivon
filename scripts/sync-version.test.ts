@@ -75,10 +75,7 @@ describe('syncVersion', () => {
         writeFileSync(join(root, 'src-tauri', 'Cargo.toml'), CARGO_TOML)
         writeFileSync(join(root, 'src-tauri', 'Cargo.lock'), CARGO_LOCK)
         writeFileSync(join(root, 'src-tauri', 'tauri.conf.json'), JSON.stringify({ productName: 'Scrivon', version: '1.4.1' }))
-        writeFileSync(
-            join(root, 'lib', 'legal', 'third-party-licenses.ts'),
-            'export const APP_NAME = \'Scrivon\'\nexport const APP_VERSION = "1.4.1"\n'
-        )
+        writeFileSync(join(root, 'lib', 'legal', 'app-version.ts'), "// The app's version.\r\nexport const APP_VERSION = '1.4.1'\r\n")
     })
 
     afterEach(() => {
@@ -93,6 +90,12 @@ describe('syncVersion', () => {
         expect(read('src-tauri', 'Cargo.lock')).toContain('name = "scrivon"\r\nversion = "1.5.0"')
         expect(read('src-tauri', 'Cargo.lock')).toContain('name = "scrivo"\r\nversion = "0.3.0"')
         expect(JSON.parse(read('src-tauri', 'tauri.conf.json')).version).toBe('1.5.0')
-        expect(read('lib', 'legal', 'third-party-licenses.ts')).toContain('export const APP_VERSION = "1.5.0"')
+        // The comment and the Windows line endings are kept.
+        expect(read('lib', 'legal', 'app-version.ts')).toBe("// The app's version.\r\nexport const APP_VERSION = '1.5.0'\r\n")
+    })
+
+    it('keeps the version in app-version.ts in step with package.json', () => {
+        const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { version: string }
+        expect(readFileSync(join(repoRoot, 'lib', 'legal', 'app-version.ts'), 'utf8')).toContain(`export const APP_VERSION = '${pkg.version}'`)
     })
 })

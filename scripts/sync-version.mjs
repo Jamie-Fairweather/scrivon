@@ -60,7 +60,22 @@ export function updateCargoLockVersion(contents, packageName, nextVersion) {
     throw new Error(`Could not find the ${packageName} package in src-tauri/Cargo.lock`)
 }
 
-/** Copies package.json's version (set by semantic-release) to the Tauri, Cargo and legal files. */
+/**
+ * Sets APP_VERSION in lib/legal/app-version.ts, keeping the rest of the file and its line endings. In
+ * single quotes, as Prettier writes it.
+ */
+export function updateAppVersionModule(contents, nextVersion) {
+    const eol = contents.includes('\r\n') ? '\r\n' : '\n'
+    const lines = contents.split(/\r?\n/)
+    const index = lines.findIndex((line) => line.startsWith('export const APP_VERSION = '))
+    if (index === -1) {
+        throw new Error('Could not update APP_VERSION in lib/legal/app-version.ts')
+    }
+    lines[index] = `export const APP_VERSION = '${nextVersion}'`
+    return lines.join(eol)
+}
+
+/** Copies package.json's version (set by semantic-release) to the Tauri, Cargo and app version files. */
 export function syncVersion(root) {
     const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
     if (!version) {
@@ -79,14 +94,8 @@ export function syncVersion(root) {
     tauriConf.version = version
     writeFileSync(tauriConfPath, `${JSON.stringify(tauriConf, null, 4)}\n`)
 
-    const licensesPath = join(root, 'lib', 'legal', 'third-party-licenses.ts')
-    const licenseLines = readFileSync(licensesPath, 'utf8').split(/\r?\n/)
-    const appVersionIndex = licenseLines.findIndex((line) => line.startsWith('export const APP_VERSION = '))
-    if (appVersionIndex === -1) {
-        throw new Error('Could not update APP_VERSION in lib/legal/third-party-licenses.ts')
-    }
-    licenseLines[appVersionIndex] = `export const APP_VERSION = ${JSON.stringify(version)}`
-    writeFileSync(licensesPath, licenseLines.join('\n'))
+    const appVersionPath = join(root, 'lib', 'legal', 'app-version.ts')
+    writeFileSync(appVersionPath, updateAppVersionModule(readFileSync(appVersionPath, 'utf8'), version))
 
     return version
 }
@@ -97,5 +106,5 @@ const selfPath = fileURLToPath(import.meta.url)
 const isMain = process.platform === 'win32' ? entryPath.toLowerCase() === selfPath.toLowerCase() : entryPath === selfPath
 if (isMain) {
     const version = syncVersion(join(__dirname, '..'))
-    console.log(`Synced version ${version} to Tauri, Cargo and legal files`)
+    console.log(`Synced version ${version} to Tauri, Cargo and lib/legal/app-version.ts`)
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
+import { memo, useSyncExternalStore } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
 import { FileTree } from '@/components/studio/explorer/file-tree'
@@ -8,6 +8,7 @@ import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root
 import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
+import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
@@ -38,7 +39,8 @@ function setExplorerPanel(value: ExplorerPanel): void {
     }
 }
 
-export function WorkspaceExplorer() {
+/** Memoized: the layout around it draws again on every keystroke, and nothing here depends on the text. */
+export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
     const { workspaceName, tree } = useWorkspaceSession()
     const panel = useSyncExternalStore(subscribeExplorerPanel, getExplorerPanelSnapshot, getExplorerPanelServerSnapshot)
 
@@ -46,26 +48,28 @@ export function WorkspaceExplorer() {
         <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             <div className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-2 py-2">
                 <div className="flex items-center justify-center gap-0.5 px-0.5">
-                    <Button
-                        variant={panel === 'files' ? 'secondary' : 'ghost'}
-                        size="icon-sm"
-                        aria-label="Files"
-                        aria-pressed={panel === 'files'}
-                        title="Files"
-                        onClick={() => setExplorerPanel('files')}
-                    >
-                        <Files className="size-4" />
-                    </Button>
-                    <Button
-                        variant={panel === 'examples' ? 'secondary' : 'ghost'}
-                        size="icon-sm"
-                        aria-label="Examples"
-                        aria-pressed={panel === 'examples'}
-                        title="Examples"
-                        onClick={() => setExplorerPanel('examples')}
-                    >
-                        <BookOpen className="size-4" />
-                    </Button>
+                    <IconTooltip label="Files">
+                        <Button
+                            variant={panel === 'files' ? 'secondary' : 'ghost'}
+                            size="icon-sm"
+                            aria-label="Files"
+                            aria-pressed={panel === 'files'}
+                            onClick={() => setExplorerPanel('files')}
+                        >
+                            <Files className="size-4" />
+                        </Button>
+                    </IconTooltip>
+                    <IconTooltip label="Examples">
+                        <Button
+                            variant={panel === 'examples' ? 'secondary' : 'ghost'}
+                            size="icon-sm"
+                            aria-label="Examples"
+                            aria-pressed={panel === 'examples'}
+                            onClick={() => setExplorerPanel('examples')}
+                        >
+                            <BookOpen className="size-4" />
+                        </Button>
+                    </IconTooltip>
                     <CommandPaletteTriggerButton />
                 </div>
 
@@ -73,7 +77,7 @@ export function WorkspaceExplorer() {
                     <div className="flex flex-row items-center justify-between gap-2 px-1">
                         <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium text-muted-foreground uppercase">Workspace</p>
-                            <p className="truncate text-sm font-medium" title={workspaceName ?? undefined}>
+                            <p dir="auto" className="truncate text-left text-sm font-medium" title={workspaceName ?? undefined}>
                                 {workspaceName}
                             </p>
                         </div>
@@ -99,4 +103,4 @@ export function WorkspaceExplorer() {
             </div>
         </aside>
     )
-}
+})

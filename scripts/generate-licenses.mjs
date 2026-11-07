@@ -24,6 +24,9 @@ const BUNDLED_FONTS = [
 
 // LICENSE, LICENSE.md, LICENSE-MIT, LICENSE_APACHE-2.0, LICENCE, COPYING, NOTICE, UNLICENSE, LICENSE.spdx, ...
 const LICENSE_FILE_RE = /^(?:licen[cs]e|copying|copyright|notice|unlicense)(?:$|[-_.])/i
+// ThirdPartyNotices.txt, THIRD-PARTY-NOTICES.md, ...: the licences of code a package bundles from other projects
+// (monaco-editor ships one). Listed after the package's own licence, which they don't replace.
+const THIRD_PARTY_NOTICES_RE = /^third[-_ ]?party[-_ ]?notices?(?:$|[-_.])/i
 // ...but not code or config that happens to start with the same word (license-checker.config.js).
 const NOT_LICENSE_TEXT_RE = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml|lock|sh|ps1|py|rs|html?|css)$/i
 // A LICENSE.spdx file only describes the licence; it doesn't contain the licence text.
@@ -167,7 +170,12 @@ export function findLicenseFiles(dir) {
     if (!existsSync(dir)) return []
     const rank = (file) => (METADATA_ONLY_RE.test(file) ? 2 : /^licen[cs]e/i.test(file) ? 0 : 1)
     return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && LICENSE_FILE_RE.test(entry.name) && !NOT_LICENSE_TEXT_RE.test(entry.name))
+        .filter(
+            (entry) =>
+                entry.isFile() &&
+                (LICENSE_FILE_RE.test(entry.name) || THIRD_PARTY_NOTICES_RE.test(entry.name)) &&
+                !NOT_LICENSE_TEXT_RE.test(entry.name)
+        )
         .map((entry) => entry.name)
         .sort((a, b) => rank(a) - rank(b) || compareNames(a, b))
 }
@@ -209,24 +217,30 @@ function formatAuthors(authors) {
  */
 export function readLicenseTexts(dirs, { name, license, authors = [] }) {
     const texts = []
+    // Third-party notices go last, after the package's own licence (or the standard text that stands in for it).
+    const notices = []
     let hasLicenseText = false
     for (const dir of dirs) {
         for (const file of findLicenseFiles(dir)) {
             const text = normalizeText(readFileSync(join(dir, file), 'utf8'))
-            if (!text || texts.includes(text)) continue
+            if (!text || texts.includes(text) || notices.includes(text)) continue
+            if (THIRD_PARTY_NOTICES_RE.test(file)) {
+                notices.push(text)
+                continue
+            }
             texts.push(text)
             if (!METADATA_ONLY_RE.test(file)) hasLicenseText = true
         }
     }
-    if (hasLicenseText) return texts
+    if (hasLicenseText) return [...texts, ...notices]
 
     const ids = spdxIds(license)
     const standard = ids.map(standardLicenseText).filter(Boolean)
-    if (standard.length === 0) return texts
+    if (standard.length === 0) return [...texts, ...notices]
 
     const names = formatAuthors(authors)
     const note = `${name} doesn't include its own licence file, so the standard ${ids.join(' / ')} text is shown below.${names.length ? `\nAuthors: ${names.join(', ')}` : ''}`
-    return [...texts, note, ...standard]
+    return [...texts, note, ...standard, ...notices]
 }
 
 function normalizeLicense(license) {
@@ -365,7 +379,7 @@ export function withUniqueNames(entries) {
 }
 
 /** Source of lib/legal/third-party-licenses.ts. Each distinct licence text is written once and shared. */
-export function renderLicensesModule(entries, appVersion) {
+export function renderLicensesModule(entries) {
     const texts = []
     const textIndex = new Map()
     const ref = (text) => {
@@ -403,8 +417,9 @@ export type ThirdPartyPackage = {
     licenseText: string | null
 }
 
-export const APP_NAME = 'Scrivon' // keep in sync with lib/app-branding.ts
-export const APP_VERSION = ${JSON.stringify(appVersion)}
+// The version lives in lib/legal/app-version.ts, so showing it doesn't load this list. Passed on from here only
+// until components/studio/shell/studio-error-boundary.tsx imports it from there.
+export { APP_VERSION } from './app-version'
 
 // Each distinct licence text is stored once; packages that share it point at the same entry.
 const T: string[] = ${JSON.stringify(texts, null, 4)}
@@ -434,8 +449,6 @@ export function updateLicensesModule(path, source, rebuild) {
 }
 
 function main() {
-    const appPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-
     ensureShippedBuild()
 
     const shippedNames = [...collectShippedPackageNames()].sort(compareNames)
@@ -449,7 +462,7 @@ function main() {
     }
 
     const summary = `${npmPackages.length} npm packages, ${rustCrates.length} Rust crates and ${BUNDLED_FONTS.length} fonts`
-    const changed = updateLicensesModule(outPath, renderLicensesModule(entries, appPkg.version), () => {
+    const changed = updateLicensesModule(outPath, renderLicensesModule(entries), () => {
         console.log(`Wrote ${summary} to ${outPath}`)
         console.log('The licence list changed after next build bundled it; building again so the app ships the new list…')
         runProductionBuild({ sourceMaps: false })

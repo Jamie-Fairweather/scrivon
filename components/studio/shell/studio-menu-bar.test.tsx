@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
@@ -17,6 +18,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: vi.fn(),
 }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
+vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
 vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOriginal) => ({
@@ -24,11 +26,20 @@ vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOrigi
     WindowTitlebarControls: () => null,
 }))
 
-function mockContexts({ isDesktop = false, workspaceRoot = null as string | null, keybinds = createDefaultKeybinds(false) as KeybindBindings } = {}) {
+function mockContexts({
+    isDesktop = false,
+    workspaceRoot = null as string | null,
+    openingWorkspace = null as string | null,
+    recentWorkspaces = [] as string[],
+    keybinds = createDefaultKeybinds(false) as KeybindBindings,
+    canFitToView = true,
+} = {}) {
+    vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
         isDesktop,
         workspaceRoot,
-        recentWorkspaces: [],
+        openingWorkspace,
+        recentWorkspaces,
         pickAndOpenWorkspace: vi.fn(),
         openWorkspace: vi.fn(),
         closeWorkspace: vi.fn(),
@@ -114,6 +125,45 @@ describe('StudioMenuBar', () => {
         expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Settings… Ctrl+,' })).toBeInTheDocument()
     })
 
+    it('marks the open folder in Open Recent and turns off the one still being opened', async () => {
+        mockContexts({
+            isDesktop: true,
+            workspaceRoot: 'C:\\work\\diagrams',
+            openingWorkspace: 'C:\\work\\big',
+            recentWorkspaces: ['c:\\work\\diagrams', 'C:\\work\\big', 'C:\\work\\notes'],
+        })
+        render(<StudioMenuBar />)
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'File' }))
+        await user.click(await screen.findByRole('menuitem', { name: 'Open Recent' }))
+        const item = async (name: string) => screen.findByRole('menuitem', { name })
+
+        // Ticked and named as the current folder, without aria-current: Contrast themes would fill that row
+        // like the keyboard's, so two rows would look picked.
+        const current = await item('diagrams (current folder)')
+        expect(current.querySelector('svg')).not.toBeNull()
+        expect(current).not.toHaveAttribute('aria-current')
+        expect(await item('notes')).not.toHaveAttribute('aria-current')
+        expect(await item('big')).toHaveAttribute('aria-disabled', 'true')
+        expect(await item('big')).toHaveAttribute('aria-busy', 'true')
+        expect(await item('notes')).not.toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('keeps Hebrew folder names in order in an Open Recent tooltip', async () => {
+        const LRM = '\u200E'
+        mockContexts({ isDesktop: true, workspaceRoot: null, openingWorkspace: null, recentWorkspaces: ['D:\\מסמכים\\פרויקט'] })
+        render(<StudioMenuBar />)
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'File' }))
+        await user.click(await screen.findByRole('menuitem', { name: 'Open Recent' }))
+
+        const item = await screen.findByRole('menuitem', { name: 'פרויקט' })
+        expect(item).toHaveAttribute('title', `${LRM}D:\\${LRM}מסמכים\\${LRM}פרויקט${LRM}`)
+        expect(within(item).getByText('פרויקט')).toHaveAttribute('dir', 'auto')
+    })
+
     it("follows the user's own key bindings and shows nothing for an unbound action", async () => {
         const keybinds = createDefaultKeybinds(false)
         keybinds['view.toggleExplorer'] = [{ key: 'b', ctrl: true, alt: true }]
@@ -127,5 +177,19 @@ describe('StudioMenuBar', () => {
 
         expect(within(view).getByRole('menuitemcheckbox', { name: 'Explorer Ctrl+Alt+B' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Fit Diagram to Screen' })).toBeInTheDocument()
+    })
+})
+
+describe('StudioMenuBar View menu', () => {
+    beforeEach(() => vi.clearAllMocks())
+
+    it('turns off Fit Diagram to Screen when there is no diagram to fit', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', canFitToView: false })
+        render(<StudioMenuBar />)
+
+        await userEvent.setup().click(screen.getByRole('menuitem', { name: 'View' }))
+
+        const fit = within(await screen.findByRole('menu')).getByRole('menuitem', { name: /^Fit Diagram to Screen/ })
+        expect(fit).toHaveAttribute('aria-disabled', 'true')
     })
 })

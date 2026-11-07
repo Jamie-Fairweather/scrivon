@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { notifyError } from '@/lib/notify'
-import { getBaseName, getWorkspaceFileSize, readWorkspaceFile } from '@/lib/tauri/fs'
+import { getWorkspaceFileStamp } from '@/lib/tauri/file-stamp'
+import { getBaseName, readWorkspaceFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
@@ -22,6 +23,7 @@ import {
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import {
     useCanvasFit,
@@ -33,7 +35,9 @@ import {
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
     // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
-    const foldedQuery = foldText(query)
+    // Each word may match anywhere, in any order ('code scrivon' finds C:\code\scrivon), but as typed rather
+    // than letter by letter, which would match most folders on the letters of their full paths.
+    const terms = foldText(query).split(/\s+/).filter(Boolean)
     const filtered = recentWorkspaces
         .map((path) => ({
             kind: 'workspace' as const,
@@ -42,7 +46,10 @@ function buildWorkspaceItems(recentWorkspaces: string[], query: string): Palette
             path,
             name: getBaseName(path),
         }))
-        .filter((item) => !query || foldText(item.searchText).includes(foldedQuery))
+        .filter((item) => {
+            const text = foldText(item.searchText)
+            return terms.every((term) => text.includes(term))
+        })
 
     if (filtered.length === 0) return null
     return { id: 'workspaces', label: 'Workspaces', items: filtered }
@@ -75,11 +82,13 @@ function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, has
 }
 
 export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
-    const { isDesktop, workspaceRoot, tree, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } = useWorkspaceSession()
+    const { isDesktop, workspaceRoot, tree, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace, refreshTree } =
+        useWorkspaceSession()
     const { tabs, activeTabId, openFile, openExample, setActiveTab, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
+    const { canFitToView } = useCanvasControls()
     const { themeId, isLight, setThemeId } = useAppTheme()
     const { settings, openSettings } = useAppSettings()
 
@@ -151,14 +160,17 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 workspaceRoot,
                 recentWorkspaces,
                 activeTabId,
+                tabCount: tabs.length,
                 hasDirtyTabs,
                 autosaveEnabled,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                canFitDiagram: canFitToView,
                 keybinds: settings.keybinds,
                 pickAndOpenWorkspace,
                 openWorkspace,
                 closeWorkspace,
+                refreshTree,
                 flushSave,
                 flushAllSaves,
                 setAutosaveEnabled,
@@ -179,14 +191,17 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             workspaceRoot,
             recentWorkspaces,
             activeTabId,
+            tabs.length,
             hasDirtyTabs,
             autosaveEnabled,
             layout.explorerOpen,
             layout.editorOpen,
+            canFitToView,
             settings.keybinds,
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,
+            refreshTree,
             flushSave,
             flushAllSaves,
             setAutosaveEnabled,
@@ -295,7 +310,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                         paths: filePaths,
                         openBuffers,
                         readFile: isTauri() ? readWorkspaceFile : async () => '',
-                        getFileSize: isTauri() ? getWorkspaceFileSize : undefined,
+                        getFileStamp: isTauri() ? getWorkspaceFileStamp : undefined,
                         cache: contentCache,
                         signal: controller.signal,
                     })

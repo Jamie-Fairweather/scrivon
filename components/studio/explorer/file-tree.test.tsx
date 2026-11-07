@@ -1,12 +1,21 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { Profiler } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
 
-const { tabs, session, confirmDelete, promptName } = vi.hoisted(() => ({
+const { tabs, tabContent, folders, session, confirmDelete, promptName } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
+    /** The tabs with their text, which change on every keystroke. */
+    tabContent: { text: '', listeners: new Set<() => void>() },
+    /** The session's open or closed folders, which outlive the tree. */
+    folders: { toggles: new Map() as ReadonlyMap<string, boolean>, listeners: new Set<() => void>() },
     session: {
+        setFolderExpanded: vi.fn((path: string, expanded: boolean) => {
+            folders.toggles = new Map(folders.toggles).set(path, expanded)
+            folders.listeners.forEach((l) => l())
+        }),
         openFile: vi.fn(async () => undefined),
         renameEntry: vi.fn(async () => undefined),
         deleteEntry: vi.fn(async () => undefined),
@@ -20,10 +29,19 @@ const { tabs, session, confirmDelete, promptName } = vi.hoisted(() => ({
     promptName: vi.fn(async () => null),
 }))
 
-vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => tabs,
-    useWorkspaceSession: () => session,
-}))
+vi.mock('@/components/studio/workspace/workspace-provider', async () => {
+    const { useSyncExternalStore } = await import('react')
+    const subscribe = (store: { listeners: Set<() => void> }) => (listener: () => void) => {
+        store.listeners.add(listener)
+        return () => store.listeners.delete(listener)
+    }
+    return {
+        useDocumentTabs: () => ({ ...tabs, text: useSyncExternalStore(subscribe(tabContent), () => tabContent.text) }),
+        useActiveTabId: () => tabs.activeTabId,
+        useDocumentTabActions: () => tabs,
+        useWorkspaceSession: () => ({ ...session, folderToggles: useSyncExternalStore(subscribe(folders), () => folders.toggles) }),
+    }
+})
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete }) }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
 // Each file row asks isMermaidFile once as it draws, which shows which rows were drawn again.
@@ -61,6 +79,7 @@ describe('FileTree', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         tabs.activeTabId = null
+        folders.toggles = new Map()
     })
 
     it('exposes a tree with levels, open state and the open file', () => {
@@ -89,6 +108,36 @@ describe('FileTree', () => {
 
         expect(item('flow.mmd')).toHaveAttribute('title', 'flow.mmd')
         expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .mmd and .mermaid files only')
+    })
+
+    it('marks a folder that could not be read, and says why on hover and to screen readers', () => {
+        render(<FileTree tree={[{ kind: 'directory', name: 'private', path: '/ws/private', children: [], unreadable: true }, ...tree]} />)
+
+        const row = item('private')
+        const hint = "Can't be read. Scrivon may not have permission to open it."
+        expect(row).toHaveAccessibleDescription(hint)
+        expect(row).toHaveAttribute('title', `private\n${hint}`)
+        expect(row).toHaveClass('text-muted-foreground')
+        expect(row.querySelector('[data-mark="unreadable"]')).toBeInTheDocument()
+        expect(row.querySelector('[data-mark="links-outside"]')).not.toBeInTheDocument()
+        // A folder that was read normally gets no mark.
+        expect(item('docs')).not.toHaveAttribute('aria-describedby')
+        expect(item('docs').querySelector('[data-mark]')).not.toBeInTheDocument()
+    })
+
+    it('marks a link to a folder outside the open one differently from a folder it could not read', () => {
+        render(
+            <FileTree
+                tree={[{ kind: 'directory', name: 'shared', path: '/ws/shared', children: [], unreadable: true, linksOutside: true }, ...tree]}
+            />
+        )
+
+        const row = item('shared')
+        const hint = "Links to a folder outside the open one, which Scrivon can't open yet."
+        expect(row).toHaveAccessibleDescription(hint)
+        expect(row).toHaveAttribute('title', `shared\n${hint}`)
+        expect(row.querySelector('[data-mark="links-outside"]')).toBeInTheDocument()
+        expect(row.querySelector('[data-mark="unreadable"]')).not.toBeInTheDocument()
     })
 
     it('is a single Tab stop, on the open file', () => {
@@ -154,6 +203,25 @@ describe('FileTree', () => {
         expect(item('docs')).toHaveAttribute('aria-expanded', 'true')
 
         press('docs', 'Enter')
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
+        expect(session.setFolderExpanded).toHaveBeenLastCalledWith('/ws/docs', false)
+    })
+
+    it("keeps a folder closed after the tree is hidden and shown again, through the session's folder state", () => {
+        const first = render(<FileTree tree={tree} />)
+        press('docs', 'ArrowLeft')
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
+        // Ctrl+B, or switching to Examples, takes the tree away.
+        first.unmount()
+
+        render(<FileTree tree={tree} />)
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByRole('treeitem', { name: 'notes.md' })).not.toBeInTheDocument()
+    })
+
+    it('opens folders as the session has them, whatever way their path is written', () => {
+        folders.toggles = new Map([['C:\\ws\\docs', false]])
+        render(<FileTree tree={[{ kind: 'directory', name: 'docs', path: 'C:/ws/docs', children: [] }]} />)
         expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
     })
 
@@ -246,6 +314,23 @@ describe('FileTree', () => {
         tabs.activeTabId = '/ws/flow.mmd'
         rerender(<FileTree tree={tree} />)
         expect(drawnRows()).toEqual(['flow.mmd'])
+    })
+
+    it('does not draw the tree again when the text of a tab changes', () => {
+        const onRender = vi.fn()
+        render(
+            <Profiler id="tree" onRender={onRender}>
+                <FileTree tree={tree} />
+            </Profiler>
+        )
+        onRender.mockClear()
+
+        act(() => {
+            tabContent.text = 'typed'
+            tabContent.listeners.forEach((l) => l())
+        })
+
+        expect(onRender).not.toHaveBeenCalled()
     })
 
     it('keeps the actions button out of the row, so the row is named after the entry only', () => {

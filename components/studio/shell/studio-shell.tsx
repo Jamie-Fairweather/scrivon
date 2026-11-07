@@ -10,6 +10,7 @@ import { StudioRecoveryScreen } from '@/components/studio/shell/studio-recovery-
 import { NativeWindowTitle } from '@/components/studio/shell/use-native-window-title'
 import { WelcomeScreen } from '@/components/studio/shell/welcome-screen'
 import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 function StudioRouter() {
     const { hydrated, workspaceRoot } = useWorkspaceSession()
@@ -48,7 +49,10 @@ export function StudioShell() {
                         <DeleteConfirmProvider>
                             <AppUpdateProvider>
                                 <NativeWindowTitle />
-                                <StudioRouter />
+                                {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
+                                <TooltipProvider delay={400}>
+                                    <StudioRouter />
+                                </TooltipProvider>
                             </AppUpdateProvider>
                         </DeleteConfirmProvider>
                     </NamePromptProvider>
