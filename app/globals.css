@@ -62,9 +62,7 @@
 }
 
 @theme inline {
-    --animate-skeleton: skeleton 2s -1s infinite linear;
     --font-heading: var(--font-sans);
-    --animate-caret-blink: 1s ease-out infinite caret-blink;
     --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
     --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
     --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
@@ -115,22 +113,6 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
-    @keyframes skeleton {
-        to {
-            background-position: -200% 0;
-        }
-    }
-    @keyframes caret-blink {
-        0%,
-        70%,
-        to {
-            opacity: 1;
-        }
-        20%,
-        50% {
-            opacity: 0;
-        }
-    }
     @keyframes toast-success-odd {
         0% {
             scale: 1;
@@ -285,6 +267,31 @@
     }
 }
 
+/* Windows "Animation effects" off: toasts don't shake, slide or bounce, popups and dialogs don't
+   zoom or glide to a new spot, and accordions don't grow or turn their chevrons. Fades and loading
+   spinners (animate-spin) stay. Not a blanket rule, which would stop the spinners too. Unlayered
+   so it beats the utilities. */
+@media (prefers-reduced-motion: reduce) {
+    .animate-toast-error-odd,
+    .animate-toast-error-even,
+    .animate-toast-success-odd,
+    .animate-toast-success-even {
+        animation: none;
+    }
+    [data-slot='toast-viewport'] [data-position],
+    [data-slot$='-popup'] {
+        transition-property: opacity;
+    }
+    /* A positioner only places its popup (it slides when the anchor scrolls or the popup flips side). */
+    [data-slot$='-positioner'],
+    [data-slot='accordion-panel'],
+    [data-slot='accordion-indicator'],
+    [data-slot='collapsible-panel'],
+    [data-slot='collapsible-indicator'] {
+        transition: none;
+    }
+}
+
 /* Windows Contrast Themes (forced colors) remove box-shadow focus rings and author
    backgrounds, so focus, highlighted rows and switch state would all vanish.
    System colours are kept in forced colors mode. Unlayered so it beats `outline-none`. */
@@ -321,14 +328,10 @@
 }
 
 /* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.
-   Every element that clips the editor should carry data-find-overflow-host, and a new clipping
-   wrapper around the editor needs it too. The two class selectors match the editor host
-   (code-editor-panel.tsx) and its row and column (studio-layout.tsx) until those carry the
-   marker; remove them once they do.
+   Every element that clips the editor must carry data-find-overflow-host, including any new
+   clipping wrapper added around it.
    https://github.com/microsoft/monaco-editor/issues/5137 */
-[data-find-overflow-host]:has(.monaco-editor .find-widget.visible),
-.bg-code.overflow-hidden:has(.monaco-editor .find-widget.visible),
-.flex.min-h-0.min-w-0.flex-1.overflow-hidden:has(.monaco-editor .find-widget.visible) {
+[data-find-overflow-host]:has(.monaco-editor .find-widget.visible) {
     overflow: visible;
 }
 

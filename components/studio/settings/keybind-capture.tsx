@@ -85,7 +85,9 @@ export function KeybindCapture({ active, label, onCapture, onCancel, onReject }:
                 type="button"
                 size="sm"
                 variant="outline"
-                className="min-w-36 motion-safe:animate-pulse"
+                // With animations off, a steady ring marks it instead of the pulse.
+                className="min-w-36 motion-safe:animate-pulse motion-reduce:ring-2 motion-reduce:ring-ring motion-reduce:ring-offset-1
+                    motion-reduce:ring-offset-background"
                 onClick={() => onCancel(true)}
                 onBlur={(event) => onCancel(event.relatedTarget === null)}
             >

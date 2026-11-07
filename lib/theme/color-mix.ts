@@ -54,15 +54,19 @@ export function contrastRatio(a: string, b: string): number {
  * Return `color` if it reaches `min` contrast against every background. Otherwise step it
  * toward `toward` (usually the theme's text colour, to keep its hue), then on toward black
  * or white (whichever stands out more from the first background), and return the first
- * colour that passes. Falls back to black or white.
+ * colour that passes. Falls back to black or white. Passing the same colour as `color` and
+ * `toward` goes straight to black or white.
  */
 export function ensureContrast(color: string, toward: string, backgrounds: readonly string[], min: number): string {
     const passes = (candidate: string) => backgrounds.every((bg) => contrastRatio(candidate, bg) >= min)
     if (passes(color)) return color
 
-    for (let percent = 1; percent <= 100; percent++) {
-        const candidate = hexColorMix(toward, color, percent)
-        if (passes(candidate)) return candidate
+    // Mixing a colour with itself only gives the same colour back, which has just failed.
+    if (toward !== color) {
+        for (let percent = 1; percent <= 100; percent++) {
+            const candidate = hexColorMix(toward, color, percent)
+            if (passes(candidate)) return candidate
+        }
     }
 
     const first = backgrounds[0] ?? color

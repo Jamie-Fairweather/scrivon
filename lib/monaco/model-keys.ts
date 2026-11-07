@@ -118,5 +118,5 @@ export function syncModelKeys(prev: ModelKeyState, nextPaths: readonly string[],
 
 /** Monaco normalises line endings and drops a leading BOM, so compare text the same way. */
 export function normalizeEditorText(text: string): string {
-    return text.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
+    return text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
 }

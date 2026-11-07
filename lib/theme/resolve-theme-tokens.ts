@@ -7,7 +7,6 @@ import type { DiagramColors } from '@/lib/theme/types'
 const MIX = {
     textMuted: 40,
     textSecondary: 60,
-    textFaint: 25,
     line: 50,
     arrow: 85,
     nodeFill: 3,
@@ -46,7 +45,6 @@ export type ResolvedThemeTokens = {
     surface: string
     line: string
     textSecondary: string
-    textFaint: string
     /** Fill for hover, selected and pressed states. `surface` (3%) is too faint to see against bg. */
     interactive: string
     /** Secondary UI text (descriptions, hints, placeholders); at least 4.5:1 on bg, surface and interactive. */
@@ -82,7 +80,6 @@ export function resolveThemeTokens(colors: DiagramColors): ResolvedThemeTokens {
         surface,
         line: colors.line ?? hexColorMix(fg, bg, MIX.line),
         textSecondary,
-        textFaint: hexColorMix(fg, bg, MIX.textFaint),
         interactive,
         mutedText,
         lineNumber,

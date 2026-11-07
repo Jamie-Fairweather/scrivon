@@ -1,50 +1,11 @@
 import type { editor } from 'monaco-editor'
-import { hexColorMix, parseHexColor } from '@/lib/theme/color-mix'
+import { ensureContrast, hexColorMix } from '@/lib/theme/color-mix'
 import type { ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
 
 export const MONACO_DIAGRAM_THEME_ID = 'scrivon-diagram'
 
 /** WCAG AA for normal text. The editor's 13px text, bold headings included, is not large text. */
 const MIN_TEXT_CONTRAST = 4.5
-
-/** WCAG 2.x relative luminance (0 = black, 1 = white). */
-function relativeLuminance(hex: string): number {
-    const rgb = parseHexColor(hex)
-    if (!rgb) return 0
-    const linear = (channel: number) => {
-        const c = channel / 255
-        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-    }
-    return 0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
-}
-
-/** WCAG 2.x contrast ratio between two colours (1-21). */
-function contrastRatio(a: string, b: string): number {
-    const la = relativeLuminance(a)
-    const lb = relativeLuminance(b)
-    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
-}
-
-/**
- * `color` if it reaches `min` contrast on every background. Otherwise it is stepped toward
- * `toward` (the text colour, to keep the palette's feel), then on toward black or white, and
- * the first colour that passes is used.
- */
-function ensureContrast(color: string, toward: string, backgrounds: readonly string[], min: number): string {
-    const passes = (candidate: string) => backgrounds.every((bg) => contrastRatio(candidate, bg) >= min)
-    if (passes(color)) return color
-    for (let percent = 1; percent <= 100; percent++) {
-        const candidate = hexColorMix(toward, color, percent)
-        if (passes(candidate)) return candidate
-    }
-    const first = backgrounds[0] ?? color
-    const extreme = contrastRatio('#000000', first) >= contrastRatio('#ffffff', first) ? '#000000' : '#ffffff'
-    for (let percent = 1; percent <= 100; percent++) {
-        const candidate = hexColorMix(extreme, toward, percent)
-        if (passes(candidate)) return candidate
-    }
-    return extreme
-}
 
 function editorSelectionColors(tokens: ResolvedThemeTokens, isLight: boolean) {
     const activeMix = isLight ? 22 : 30
