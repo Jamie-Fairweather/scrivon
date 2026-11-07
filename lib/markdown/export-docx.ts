@@ -313,10 +313,22 @@ const HTML_STRIKE_TAGS = new Set(['del', 's', 'strike'])
 const HTML_CODE_TAGS = new Set(['code', 'kbd', 'samp', 'tt'])
 
 type HtmlMarks = { bold?: boolean; italics?: boolean; strike?: boolean; code?: boolean; href?: string }
-/** A piece of a line of raw HTML: some text, a picture or a line break, with the marks of the tags around it. */
-type HtmlLeaf = { node: Text | InlineCode | Image | Break; marks: HtmlMarks }
+/** A piece of a line of raw HTML: some text, a picture, a line break or an anchor, with the marks of the tags around it. */
+type HtmlLeaf = { node: Text | InlineCode | Image | Break | Html; marks: HtmlMarks }
 /** A line of raw HTML: a block such as `<p>`, `<summary>` or a table row, and the alignment it asks for. */
 type HtmlLine = { align?: string; leaves: HtmlLeaf[] }
+
+/**
+ * The id each anchor from raw HTML (`<a name="setup">`, or any tag's `id`) marks, by the empty `html` node standing in
+ * for it once the rest of the HTML is gone (expandHtml). Word gets a bookmark there, so `#setup` links still land on it.
+ */
+const HTML_ANCHORS = new WeakMap<Html, string>()
+
+function htmlAnchor(id: string): Html {
+    const node: Html = { type: 'html', value: '' }
+    HTML_ANCHORS.set(node, id)
+    return node
+}
 
 function isTableCell(node: HastContent): boolean {
     return node.type === 'element' && (node.tagName === 'td' || node.tagName === 'th')
@@ -357,11 +369,15 @@ function htmlLines(root: HastRoot): HtmlLine[] {
                 else if (description) text(description, marks)
             } else if (node.type === 'element') {
                 const tag = node.tagName
-                const { align: own, href } = node.properties
+                const { align: own, href, id, name } = node.properties
                 const blockAlign = typeof own === 'string' ? own.toLowerCase() : align
                 const block = HTML_BLOCK_TAGS.has(tag)
                 if (block) endLine(blockAlign)
                 if (isTableCell(node) && nodes.slice(0, index).some(isTableCell)) text(' | ', {})
+                // The PDF links to any id, and to an old-style <a name> (resolveLinks).
+                for (const anchor of [id, tag === 'a' ? name : undefined]) {
+                    if (typeof anchor === 'string' && anchor) line.leaves.push({ node: htmlAnchor(xmlSafe(anchor)), marks: {} })
+                }
                 const inner: HtmlMarks = {
                     bold: marks.bold || HTML_BOLD_TAGS.has(tag) || undefined,
                     italics: marks.italics || HTML_ITALIC_TAGS.has(tag) || undefined,
@@ -379,12 +395,15 @@ function htmlLines(root: HastRoot): HtmlLine[] {
     return lines
 }
 
-/** The lines of an HTML block that show something, spaces collapsed across tags. A line of only spaces or breaks is left out. */
+/**
+ * The lines of an HTML block that show something or hold an anchor, spaces collapsed across tags. A line of only
+ * spaces or breaks is left out.
+ */
 function visibleHtmlLines(lines: HtmlLine[]): HtmlLine[] {
     return lines.flatMap(({ align, leaves }) => {
         const kept = trimHtmlLine(leaves)
-        const visible = kept.some(({ node }) => node.type === 'image' || (node.type !== 'break' && node.value.trim() !== ''))
-        return visible ? [{ align, leaves: kept }] : []
+        const shown = kept.some(({ node }) => node.type === 'image' || node.type === 'html' || (node.type !== 'break' && node.value.trim() !== ''))
+        return shown ? [{ align, leaves: kept }] : []
     })
 }
 
@@ -395,18 +414,18 @@ function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
         if (node.type === 'text') {
             if (afterSpace) node.value = node.value.replace(/^ /, '')
             if (node.value) afterSpace = node.value.endsWith(' ')
-        } else {
+        } else if (node.type !== 'html') {
             afterSpace = node.type === 'break'
         }
     }
     const kept = leaves.filter(({ node }) => node.type !== 'text' || node.value !== '')
-    while (kept.length > 0) {
-        const last = kept[kept.length - 1]!.node
-        if (last.type === 'break') kept.pop()
-        else if (last.type === 'text' && last.value.endsWith(' ')) {
-            last.value = last.value.slice(0, -1)
-            if (!last.value) kept.pop()
-        } else break
+    // From the end, past anchors, which take no room.
+    for (let at = kept.length - 1; at >= 0; at -= 1) {
+        const node = kept[at]!.node
+        if (node.type === 'html') continue
+        if (node.type === 'text') node.value = node.value.replace(/ $/, '')
+        if (node.type === 'break' || (node.type === 'text' && !node.value)) kept.splice(at, 1)
+        else break
     }
     return kept
 }
@@ -465,6 +484,7 @@ function expandHtml(tree: Root): void {
                   })
               )
             : lines.flatMap((line) => htmlPhrasing(line.leaves))
+        // The visit goes on after the replacement, so the empty html nodes standing for its anchors stay as they are.
         ;(parent.children as RootContent[]).splice(index, 1, ...replacement)
         return index + replacement.length
     })
@@ -900,8 +920,12 @@ type RenderState = {
     cellPx: number | null
     /** The contents entries, worded as their headings are in the body. */
     toc: PdfExportOutlineItem[]
-    /** Each heading id's bookmark number. See {@link headingBookmarks}. */
+    /** Each heading id's bookmark number, then each id an anchor from raw HTML marks. See {@link headingBookmarks}. */
     bookmarks: Map<string, number>
+    /** The bookmark numbers of anchors from raw HTML not written yet, so each is written once. See {@link anchorBookmarks}. */
+    unwrittenAnchors: Set<number>
+    /** Bookmarks of anchors in a paragraph that shows nothing, for the start of the next one written. */
+    pendingAnchors: Bookmark[]
 }
 
 /**
@@ -918,6 +942,21 @@ function headingBookmarks(tree: ExportDocument['tree']): Map<string, number> {
     return numbers
 }
 
+/**
+ * Numbers each id an anchor from raw HTML marks after the headings' (see {@link HTML_ANCHORS}), so links to it work
+ * as they do in the PDF. A heading with the same id keeps it. Returns the numbers given.
+ */
+function anchorBookmarks(tree: ExportDocument['tree'], numbers: Map<string, number>): Set<number> {
+    const anchors = new Set<number>()
+    visit(tree, 'html', (node: Html) => {
+        const id = HTML_ANCHORS.get(node)
+        if (id === undefined || numbers.has(id)) return
+        numbers.set(id, numbers.size + 1)
+        anchors.add(numbers.size)
+    })
+    return anchors
+}
+
 /** A hidden bookmark name, like the `_Ref` ones Word makes for cross-references: always valid, and kept out of Word's bookmark list. */
 function bookmarkName(number: number): string {
     return `_Ref${number}`
@@ -929,7 +968,7 @@ function anchorFor(state: RenderState, id: string): string {
     return number === undefined ? id : bookmarkName(number)
 }
 
-/** A heading's bookmark. docx gives every Bookmark the number 1, and Word needs each to have its own, so it is set here. */
+/** A heading's or an anchor's bookmark. docx gives every Bookmark the number 1, and Word needs each to have its own, so it is set here. */
 function headingBookmark(number: number, children: ParagraphChild[]): Bookmark {
     const name = bookmarkName(number)
     return Object.assign(new Bookmark({ id: name, children }), { start: new BookmarkStart(name, number), end: new BookmarkEnd(number) })
@@ -967,6 +1006,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     const eastAsianFonts = [bodyEast, headingEast, monoEast].filter(
         (font, index, all): font is EastAsianFont => font !== undefined && all.findIndex((other) => other?.name === font.name) === index
     )
+    const bookmarks = headingBookmarks(document.tree)
     return {
         document,
         prepared,
@@ -993,7 +1033,9 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         inFootnote: false,
         cellPx: null,
         toc: tocEntries(document),
-        bookmarks: headingBookmarks(document.tree),
+        bookmarks,
+        unwrittenAnchors: anchorBookmarks(document.tree, bookmarks),
+        pendingAnchors: [],
     }
 }
 
@@ -1107,12 +1149,15 @@ function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     })
 }
 
-function renderInlines(
-    state: RenderState,
-    nodes: PhrasingContent[],
-    marks: Marks = {}
-): (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] {
-    const children: (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] = []
+type InlineChild = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun | Bookmark
+
+/** The bookmarks of a paragraph that showed nothing, for the start of the block written after it. None in a footnote. */
+function takePendingAnchors(state: RenderState): Bookmark[] {
+    return state.inFootnote ? [] : state.pendingAnchors.splice(0)
+}
+
+function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Marks = {}): InlineChild[] {
+    const children: InlineChild[] = takePendingAnchors(state)
     for (const node of nodes) {
         if (node.type === 'text') {
             children.push(textRun(state, (node as Text).value, marks))
@@ -1135,10 +1180,23 @@ function renderInlines(
         } else if (node.type === 'footnoteReference') {
             // Word has no footnotes inside footnotes.
             if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
+        } else if (node.type === 'html') {
+            // All that is left of raw HTML by now (expandHtml): an anchor, as an empty bookmark where it was.
+            const number = state.bookmarks.get(HTML_ANCHORS.get(node) ?? '')
+            if (number !== undefined && state.unwrittenAnchors.delete(number)) children.push(headingBookmark(number, []))
         }
-        // Raw HTML was swapped for the Markdown it shows before rendering (expandHtml).
     }
     return children
+}
+
+/** Whether a paragraph shows nothing: only anchors from raw HTML (see {@link HTML_ANCHORS}) and spaces, or nothing at all. */
+function showsNothing(nodes: PhrasingContent[]): boolean {
+    return nodes.every(
+        (node) =>
+            node.type === 'html' ||
+            (node.type === 'text' && !node.value.trim()) ||
+            ((node.type === 'emphasis' || node.type === 'strong' || node.type === 'delete') && showsNothing(node.children))
+    )
 }
 
 /** Link and image definitions by label. When a label is defined twice the first one counts, as in CommonMark and the PDF. */
@@ -1168,24 +1226,34 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     if (href.startsWith('#')) {
         const fragment = href.slice(1)
         const anchor = (fragment && anchorFor(state, resolveHeadingAnchor(fragment, state.bookmarks))) || TOP_OF_DOCUMENT
-        return internalLink(anchor, inner)
+        // docx links a picture in a link within the document to a relationship it never writes, which makes Word
+        // call the file unreadable, so pictures sit outside it.
+        return splitLink(
+            inner,
+            (child) => child instanceof ImageRun,
+            (children) => new InternalHyperlink({ anchor, children })
+        )
     }
-    return [new ExternalHyperlink({ link: href, children: inner })]
+    return splitLink(
+        inner,
+        () => false,
+        (children) => new ExternalHyperlink({ link: href, children })
+    )
 }
 
 /**
- * A link within the document. docx links a picture inside one to a relationship it never writes, which makes Word
- * call the file unreadable, so each picture sits just outside the link, between the linked words around it.
+ * A link's words in one or more links, with what can't sit inside one just outside, between the linked words around
+ * it: what `outside` picks, and always a bookmark (an anchor from raw HTML), which docx can't write inside a link.
  */
-function internalLink(anchor: string, inner: ReturnType<typeof renderInlines>): ReturnType<typeof renderInlines> {
-    const written: ReturnType<typeof renderInlines> = []
-    let linked: ReturnType<typeof renderInlines> = []
+function splitLink(inner: InlineChild[], outside: (child: InlineChild) => boolean, link: (children: InlineChild[]) => InlineChild): InlineChild[] {
+    const written: InlineChild[] = []
+    let linked: InlineChild[] = []
     const closeLink = () => {
-        if (linked.length > 0) written.push(new InternalHyperlink({ anchor, children: linked }))
+        if (linked.length > 0) written.push(link(linked))
         linked = []
     }
     for (const child of inner) {
-        if (child instanceof ImageRun) {
+        if (child instanceof Bookmark || outside(child)) {
             closeLink()
             written.push(child)
         } else {
@@ -1543,6 +1611,7 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const fill = codeFill(theme)
     const fallback = codeColor(theme)
     const size = codeHalfPoints(state)
+    const anchors = takePendingAnchors(state)
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
             token.text
@@ -1554,7 +1623,7 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
             indent: contentIndent(state),
             border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
-            children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })],
+            children: [...(index === 0 ? anchors : []), ...(runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })])],
         })
     })
 }
@@ -1577,7 +1646,9 @@ function diagramDisplaySize(
 
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     if (prepared.kind === 'error') {
-        return [new Paragraph({ ...paragraphOptions(state), children: [textRun(state, prepared.message, { code: true })] })]
+        return [
+            new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), textRun(state, prepared.message, { code: true })] }),
+        ]
     }
     if (prepared.kind === 'diagram') {
         const size = diagramDisplaySize(state, prepared)
@@ -1590,6 +1661,7 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
             new Paragraph({
                 ...paragraphOptions(state),
                 children: [
+                    ...takePendingAnchors(state),
                     new ImageRun({
                         type: 'png',
                         data: prepared.png,
@@ -1607,9 +1679,13 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     const blocks: Block[] = []
     for (let index = 0; index < nodes.length; index += 1) {
         const node = nodes[index]!
-        // "First" means nothing has been written yet. Link definitions, footnotes, and HTML comments before it write nothing.
+        // "First" means nothing has been written yet. Link definitions, footnotes, HTML comments and anchors before it write nothing.
         if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && blocks.length === 0))
-        else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
+        else if (node.type === 'paragraph' && showsNothing(node.children) && !state.inFootnote) {
+            // A paragraph that is only an anchor, like `<a name="setup"></a>` above a heading, isn't a blank line, as in
+            // the PDF. Its bookmarks go to the start of the next block written.
+            state.pendingAnchors = renderInlines(state, node.children).filter((child) => child instanceof Bookmark)
+        } else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
         else if (node.type === 'blockquote') blocks.push(...(await renderBlockquote(state, node)))
         else if (node.type === 'code') blocks.push(...renderPrepared(state, state.prepared.get(node)!))
@@ -1620,6 +1696,7 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
                     border: { bottom: GRID_BORDER, ...quoteBorder(state) },
                     indent: contentIndent(state),
                     spacing: { before: 200, after: 200 },
+                    children: takePendingAnchors(state),
                 })
             )
         } else if (node.type === 'footnoteDefinition') {
@@ -2155,7 +2232,7 @@ function measureFlow(
             const id = headingId(node)
             if (id) pages.set(id, cursor.page)
         } else if (node.type === 'paragraph') {
-            placeBlock(cursor, pageHeight, paragraphTwip(state, node, width))
+            if (!showsNothing(node.children)) placeBlock(cursor, pageHeight, paragraphTwip(state, node, width))
         } else if (node.type === 'list') {
             measureList(state, node, 0, width, pages, cursor, pageHeight)
         } else if (node.type === 'blockquote') {
@@ -2448,6 +2525,8 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
     const prepared = new Map(codes.map((node, index) => [node, preparedList[index]!]))
     const state = createState(document, prepared, await convertImages(document))
     const body = await renderBlocks(state, document.tree.children, true)
+    // Anchors after the last words still need somewhere to be.
+    if (state.pendingAnchors.length > 0) body.push(new Paragraph({ spacing: { after: 0 }, children: takePendingAnchors(state) }))
     const groups: { id: FrontGroup; children: Block[] }[] = []
     if (document.profile.frontMatter.titlePage) groups.push({ id: 'title', children: await titleBlocks(state) })
     if (state.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })

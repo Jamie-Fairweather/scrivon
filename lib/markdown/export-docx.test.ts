@@ -1785,6 +1785,58 @@ describe('renderExportDocx', () => {
         expect(tocPage(body, '1. Intro')).toBe(2)
     })
 
+    it('links to <a name> and id anchors from raw HTML, as the PDF does, without a blank line for them (N41)', async () => {
+        const { parts } = await render(
+            [
+                '[a](#install) [b](#usage) [c](#x) [d](#faq) [e](#setup) [f](#in-link) [g](#end) [h](#code)',
+                '',
+                '<a name="install"></a>',
+                '',
+                '## 1. Install',
+                '',
+                'Steps with a <span id="x">target</span> inside.',
+                '',
+                '<h2 id="faq">FAQ</h2>',
+                '',
+                '## Setup',
+                '',
+                '<a name="setup"></a><a id="usage"></a>',
+                '',
+                '- item',
+                '',
+                '<a name="code"></a>',
+                '',
+                fence('js', 'let x = 1'),
+                '',
+                '[<a name="in-link"></a>Back](#install) and [<a id="web"></a>site](https://example.com).',
+                '',
+                '<a name="end"></a>',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const marks = bookmarks(body)
+        const names = new Set(marks.map(({ name }) => name))
+        // Every link lands on a bookmark that is in the file, and each anchor's bookmark is written once.
+        const anchors = [...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1]!)
+        expect(anchors).toHaveLength(9)
+        for (const anchor of anchors) expect(names).toContain(anchor)
+        expect(names.size).toBe(marks.length)
+        // The anchor above the heading is at the heading's start, not on a blank line of its own.
+        const install = anchors[0]!
+        expect(blockWith(body, '1. Install')).toContain(`<w:bookmarkStart w:name="${install}"`)
+        expect(blockWith(body, '1. Install')).toContain('Heading2')
+        expect(blockWith(body, 'target')).toContain(`w:name="${anchors[2]}"`)
+        expect(blockWith(body, 'FAQ')).toContain(`w:name="${anchors[3]}"`)
+        // A heading with the same id keeps it: #setup goes to the heading, whose bookmark is the only one for it.
+        expect(blockWith(body, 'Setup')).toContain(`w:name="${anchors[4]}"`)
+        expect(blockWith(body, 'item')).toContain(`w:name="${anchors[1]}"`)
+        expect(blockWith(body, 'item')).not.toContain(`w:name="${anchors[4]}"`)
+        expect(blockWith(body, 'let x = 1')).toContain(`w:name="${anchors[7]}"`)
+        // Inside a link the bookmark is written before it, and the last one gets a paragraph of its own at the end.
+        expect(blockWith(body, 'Back', '<w:hyperlink ')).not.toContain('bookmark')
+        expect(body.match(/<w:p>/g)).toHaveLength(9)
+    })
+
     it('links only to safe addresses, and finds #heading links however they are written (S10, B55)', async () => {
         const { parts } = await render(
             [
