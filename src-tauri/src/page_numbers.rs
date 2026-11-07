@@ -10,8 +10,9 @@
 //! page-number slot and in each TOC row. After printing we locate the markers on
 //! every page, which tells us both *whether* the footer was drawn on that page
 //! (title/TOC pages hide it) and *exactly where* the number belongs, then draw
-//! the label right-aligned to it, in the marker's own embedded font when that
-//! font has every glyph the label needs. The marker glyphs are then cut out of
+//! the label right-aligned to it, in the markers' own embedded font when that
+//! font has every glyph the labels need (all the footer numbers, or all the TOC
+//! numbers, so they match each other). The marker glyphs are then cut out of
 //! the page content, so the codes don't turn up when the PDF's text is copied,
 //! searched or read by a screen reader.
 
@@ -1520,7 +1521,15 @@ enum LabelGlyphs {
     Helvetica,
 }
 
-/// Picks the font each label is drawn in, and names the embedded fonts it reuses.
+/// A label to stamp, and where: the page's position in the document and the
+/// marker's slot on it.
+struct PlacedLabel {
+    position: usize,
+    text: String,
+    slot: TextSlot,
+}
+
+/// Picks the font labels are drawn in, and names the embedded fonts it reuses.
 struct LabelFonts<'c, 'a> {
     cache: &'c FontCache<'a>,
     names: BTreeMap<ObjectId, String>,
@@ -1534,15 +1543,30 @@ impl<'c, 'a> LabelFonts<'c, 'a> {
         }
     }
 
-    /// The font the marker was drawn in when it can draw the whole label, so the
-    /// number matches the text around it; otherwise Helvetica.
-    fn glyphs(&mut self, slot: TextSlot, label: &str) -> LabelGlyphs {
-        let embedded = slot.font.and_then(|id| {
-            let (codes, width) = embedded_label(self.cache.by_id.get(&id)?, label)?;
-            Some((id, codes, width))
+    /// The fonts one role's labels (every footer number, or every TOC number)
+    /// are drawn in, in order. They all use the font their markers were drawn
+    /// in when it can draw every one of them, so the numbers match the text
+    /// around them; otherwise they all use Helvetica. Choosing per label would
+    /// mix the two on one document's pages and in one TOC column, because a
+    /// subset font only has the glyphs the document drew in it (the 1, say,
+    /// but not the 7).
+    fn role_glyphs(&mut self, labels: &[PlacedLabel]) -> Vec<LabelGlyphs> {
+        let embedded = labels.first().and_then(|first| {
+            let id = first.slot.font?;
+            let font = self.cache.by_id.get(&id)?;
+            let drawn = labels
+                .iter()
+                .map(|label| {
+                    if label.slot.font != Some(id) {
+                        return None;
+                    }
+                    embedded_label(font, &label.text)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some((id, drawn))
         });
-        let Some((font, codes, width)) = embedded else {
-            return LabelGlyphs::Helvetica;
+        let Some((font, drawn)) = embedded else {
+            return labels.iter().map(|_| LabelGlyphs::Helvetica).collect();
         };
         let next = self.names.len() + 1;
         let name = self
@@ -1550,12 +1574,15 @@ impl<'c, 'a> LabelFonts<'c, 'a> {
             .entry(font)
             .or_insert_with(|| format!("{FONT_NAME}{next}"))
             .clone();
-        LabelGlyphs::Embedded {
-            name,
-            font,
-            codes,
-            width,
-        }
+        drawn
+            .into_iter()
+            .map(|(codes, width)| LabelGlyphs::Embedded {
+                name: name.clone(),
+                font,
+                codes,
+                width,
+            })
+            .collect()
     }
 }
 
@@ -1834,8 +1861,9 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
         && options.margin_bottom_mm <= 0.0;
     let warning = footers_lost.then(|| FOOTER_NOT_FOUND.to_string());
 
-    let mut fonts = LabelFonts::new(&cache);
-    let mut labels: Vec<PageLabels> = pages.iter().map(|_| PageLabels::default()).collect();
+    // Each role's labels are all worked out first, so one font can be chosen
+    // for all of them (see `LabelFonts::role_glyphs`).
+    let mut footer_labels = Vec::new();
     if want_footer && !footers_lost {
         for (position, ((page_index, page_id), scan)) in pages.iter().zip(&scans).enumerate() {
             let Some(label) = format_page_label(format, *page_index, total) else {
@@ -1872,8 +1900,11 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
                     }
                 }
             };
-            let glyphs = fonts.glyphs(slot, &label);
-            labels[position].add(&label, slot, glyphs, footer_paint, LabelRole::Footer);
+            footer_labels.push(PlacedLabel {
+                position,
+                text: label,
+                slot,
+            });
         }
     }
     let page_at: HashMap<ObjectId, usize> = pages
@@ -1881,12 +1912,27 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
         .enumerate()
         .map(|(position, (_, id))| (*id, position))
         .collect();
-    for entry in toc {
-        let Some(position) = page_at.get(&entry.page_id).copied() else {
-            continue;
-        };
-        let glyphs = fonts.glyphs(entry.slot, &entry.label);
-        labels[position].add(&entry.label, entry.slot, glyphs, toc_paint, LabelRole::Toc);
+    let toc_labels: Vec<PlacedLabel> = toc
+        .into_iter()
+        .filter_map(|entry| {
+            Some(PlacedLabel {
+                position: page_at.get(&entry.page_id).copied()?,
+                text: entry.label,
+                slot: entry.slot,
+            })
+        })
+        .collect();
+
+    let mut fonts = LabelFonts::new(&cache);
+    let mut labels: Vec<PageLabels> = pages.iter().map(|_| PageLabels::default()).collect();
+    for (role, paint, placed) in [
+        (LabelRole::Footer, footer_paint, footer_labels),
+        (LabelRole::Toc, toc_paint, toc_labels),
+    ] {
+        let glyphs = fonts.role_glyphs(&placed);
+        for (label, glyphs) in placed.iter().zip(glyphs) {
+            labels[label.position].add(&label.text, label.slot, glyphs, paint, role);
+        }
     }
 
     // Cut the markers out first: the overlay below splits each page's content
@@ -3098,8 +3144,30 @@ end";
         doc: &mut Document,
         extra: Vec<Operation>,
     ) -> (ObjectId, ObjectId) {
+        let (pages, font_id) = pages_with_embedded_marker(doc, vec![extra]);
+        (pages[0], font_id)
+    }
+
+    /// One page per entry of `extras`, each built like `page_with_embedded_marker`
+    /// and all sharing one embedded font, the way Chromium shares it.
+    fn pages_with_embedded_marker(
+        doc: &mut Document,
+        extras: Vec<Vec<Operation>>,
+    ) -> (Vec<ObjectId>, ObjectId) {
         let font_id = embedded_type0(doc);
-        let ops = [
+        let pages = extras
+            .into_iter()
+            .map(|extra| {
+                let mut resources = marker_resources();
+                resources.set("Font", dictionary! { "F1" => font_id });
+                (embedded_marker_operations(extra), resources)
+            })
+            .collect();
+        (build_pdf(doc, pages), font_id)
+    }
+
+    fn embedded_marker_operations(extra: Vec<Operation>) -> Vec<Operation> {
+        [
             vec![
                 flip(),
                 Operation::new("q", vec![]),
@@ -3129,11 +3197,7 @@ end";
             extra,
             vec![Operation::new("Q", vec![])],
         ]
-        .concat();
-        let mut resources = marker_resources();
-        resources.set("Font", dictionary! { "F1" => font_id });
-        let ids = build_pdf(doc, vec![(ops, resources)]);
-        (ids[0], font_id)
+        .concat()
     }
 
     /// The font, position and shown string of the last label stamped on the page.
@@ -3219,6 +3283,52 @@ end";
         assert_eq!(font, FONT_NAME.as_bytes());
         assert_eq!(shown, Object::string_literal("1 of 1"));
         assert!(own_fonts(&stamped, 1).has(FONT_NAME.as_bytes()));
+    }
+
+    #[test]
+    fn draws_every_footer_number_in_helvetica_when_the_font_lacks_one_pages_digits() {
+        let mut doc = Document::with_version("1.5");
+        // The subset has the 1 and the 2 but not the 3.
+        pages_with_embedded_marker(&mut doc, vec![vec![], vec![], vec![]]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-embedded-one-role.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        for page in 1..=3 {
+            let (font, _, shown) = last_label(&stamped, page);
+            assert_eq!(font, FONT_NAME.as_bytes(), "page {page}");
+            assert_eq!(shown, Object::string_literal(page.to_string()));
+        }
+    }
+
+    #[test]
+    fn draws_every_footer_number_in_the_embedded_font_when_it_has_them_all() {
+        let mut doc = Document::with_version("1.5");
+        let (_, font_id) = pages_with_embedded_marker(&mut doc, vec![vec![], vec![]]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-embedded-all-pages.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        for (page, glyph) in [(1, 5), (2, 9)] {
+            let (font, _, shown) = last_label(&stamped, page);
+            assert_eq!(
+                own_fonts(&stamped, page)
+                    .get(&font)
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+                font_id,
+                "page {page}"
+            );
+            assert_eq!(
+                shown,
+                Object::String(glyph_codes(&[glyph]), StringFormat::Hexadecimal)
+            );
+        }
     }
 
     #[test]
