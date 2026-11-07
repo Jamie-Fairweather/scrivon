@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    changeAltersTree,
     childrenOf,
     collectFileNames,
     collectFilePaths,
@@ -193,6 +194,34 @@ describe('keepUnchangedNodes', () => {
         const locked = copy(sampleTree)
         locked[0] = { kind: 'directory', name: 'docs', path: '/ws/docs', children: [], unreadable: true }
         expect(keepUnchangedNodes(sampleTree, locked)[0]).toEqual(locked[0])
+    })
+})
+
+describe('changeAltersTree', () => {
+    const none: string[] = []
+
+    it('reads the folder again for a new entry in a folder the tree lists, or a listed entry that went', () => {
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/new.md'], removed: none })).toBe(true)
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/docs/new.md'], removed: none })).toBe(true)
+        expect(changeAltersTree(sampleTree, '/ws', { added: none, removed: ['/ws/docs/readme.md'] })).toBe(true)
+    })
+
+    it("doesn't for a file saved where it already was, or for paths the tree doesn't show", () => {
+        // A save replaces the file: it 'appears' where it already was.
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/root.mmd'], removed: none })).toBe(false)
+        // Inside a folder the tree leaves out (build output next to its project file, say).
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/dist/app.js'], removed: ['/ws/dist/old.js'] })).toBe(false)
+        expect(changeAltersTree(sampleTree, '/ws', { added: none, removed: none })).toBe(false)
+    })
+
+    it('ignores letter case in Windows paths, and changes inside a folder that could not be read', () => {
+        const tree: FileNode[] = [
+            { kind: 'file', name: 'Notes.md', path: 'C:\\ws\\Notes.md' },
+            { kind: 'directory', name: 'locked', path: 'C:\\ws\\locked', children: [], unreadable: true },
+        ]
+        expect(changeAltersTree(tree, 'C:\\ws', { added: ['c:\\WS\\notes.md'], removed: none })).toBe(false)
+        expect(changeAltersTree(tree, 'C:\\ws', { added: ['C:\\ws\\locked\\a.md'], removed: none })).toBe(false)
+        expect(changeAltersTree(tree, 'C:\\ws', { added: none, removed: ['c:\\ws\\NOTES.md'] })).toBe(true)
     })
 })
 

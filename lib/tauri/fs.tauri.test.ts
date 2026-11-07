@@ -14,6 +14,7 @@ const {
     statMock,
     lstatMock,
     existsMock,
+    watchMock,
 } = vi.hoisted(() => ({
     isTauriMock: vi.fn(),
     readDirMock: vi.fn(),
@@ -28,6 +29,7 @@ const {
     statMock: vi.fn(),
     lstatMock: vi.fn(),
     existsMock: vi.fn(),
+    watchMock: vi.fn(),
 }))
 
 vi.mock('@/lib/tauri/platform', () => ({
@@ -47,9 +49,11 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     stat: statMock,
     lstat: lstatMock,
     exists: existsMock,
+    watch: watchMock,
 }))
 
 import {
+    classifyWatchEvent,
     createWorkspaceDirectory,
     createWorkspaceFile,
     DiskChangedError,
@@ -65,6 +69,7 @@ import {
     removeWorkspacePath,
     renameWorkspacePath,
     stampChanged,
+    watchWorkspace,
     writeWorkspaceFile,
 } from './fs'
 
@@ -618,5 +623,77 @@ describe('workspace fs (Tauri)', () => {
         expect(removeMock).not.toHaveBeenCalled()
         expect(copyFileMock).not.toHaveBeenCalled()
         expect(statMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('watching the opened folder', () => {
+    type Event = Parameters<typeof classifyWatchEvent>[1]
+    const event = (type: Event['type'], ...paths: string[]): Event => ({ type, paths, attrs: null })
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('sorts what was added, removed and changed', () => {
+        const root = 'C:\\ws'
+        expect(classifyWatchEvent(root, event({ create: { kind: 'any' } }, 'C:\\ws\\a.md'))).toEqual({
+            added: ['C:\\ws\\a.md'],
+            removed: [],
+            changed: [],
+        })
+        expect(classifyWatchEvent(root, event({ remove: { kind: 'any' } }, 'C:\\ws\\a.md'))).toEqual({
+            added: [],
+            removed: ['C:\\ws\\a.md'],
+            changed: [],
+        })
+        expect(classifyWatchEvent(root, event({ modify: { kind: 'any' } }, 'C:\\ws\\a.md'))).toEqual({
+            added: [],
+            removed: [],
+            changed: ['C:\\ws\\a.md'],
+        })
+        expect(classifyWatchEvent(root, event({ modify: { kind: 'rename', mode: 'both' } }, 'C:\\ws\\a.md', 'C:\\ws\\b.md'))).toEqual({
+            added: ['C:\\ws\\b.md'],
+            removed: ['C:\\ws\\a.md'],
+            changed: [],
+        })
+        expect(classifyWatchEvent(root, event('any', 'C:\\ws\\a.md'))).toEqual({ added: ['C:\\ws\\a.md'], removed: ['C:\\ws\\a.md'], changed: [] })
+    })
+
+    it('leaves out reads, save temporary files and tool folders', () => {
+        const root = 'C:\\ws'
+        expect(classifyWatchEvent(root, event({ access: { kind: 'open', mode: 'read' } }, 'C:\\ws\\a.md'))).toBeNull()
+        expect(classifyWatchEvent(root, event({ create: { kind: 'any' } }, 'C:\\ws\\.scrivon-save-ab12cd34.tmp'))).toBeNull()
+        expect(classifyWatchEvent(root, event({ modify: { kind: 'any' } }, 'C:\\ws\\.git\\index', 'C:\\ws\\node_modules\\x\\y.js'))).toBeNull()
+        // A save renames its temporary file over the real one: only the real one is left.
+        expect(
+            classifyWatchEvent(root, event({ modify: { kind: 'rename', mode: 'both' } }, 'C:\\ws\\.scrivon-save-ab12cd34.tmp', 'C:\\ws\\a.md'))
+        ).toEqual({
+            added: ['C:\\ws\\a.md'],
+            removed: [],
+            changed: [],
+        })
+    })
+
+    it('watches the whole folder and passes on only what is left', async () => {
+        const unwatch = vi.fn()
+        watchMock.mockResolvedValue(unwatch)
+        const onChange = vi.fn()
+
+        await expect(watchWorkspace('/ws/', onChange)).resolves.toBe(unwatch)
+
+        expect(watchMock).toHaveBeenCalledWith('/ws', expect.any(Function), { recursive: true, delayMs: 500 })
+        const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+        report(event({ modify: { kind: 'any' } }, '/ws/.git/HEAD'))
+        expect(onChange).not.toHaveBeenCalled()
+        report(event({ create: { kind: 'file' } }, '/ws/new.md'))
+        expect(onChange).toHaveBeenCalledWith({ added: ['/ws/new.md'], removed: [], changed: [] })
+    })
+
+    it('does nothing outside Tauri', async () => {
+        isTauriMock.mockReturnValue(false)
+        const stop = await watchWorkspace('/ws', vi.fn())
+        stop()
+        expect(watchMock).not.toHaveBeenCalled()
     })
 })

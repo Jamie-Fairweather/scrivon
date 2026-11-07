@@ -10,7 +10,9 @@ import {
     lstat,
     exists,
     copyFile,
+    watch,
     type DirEntry,
+    type WatchEvent,
 } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
@@ -489,6 +491,82 @@ export async function findHiddenFolders(dirPath: string, max = 4): Promise<strin
     }
     await walk(root, '')
     return found
+}
+
+/** What a change another app made inside the opened folder did, as far as the watcher can tell. */
+export type WorkspaceChange = {
+    /** May be new: created, or renamed to. */
+    added: string[]
+    /** May be gone: deleted, or renamed from. */
+    removed: string[]
+    /** Their content or details changed. */
+    changed: string[]
+}
+
+/** A path the file list leaves out: a save's temporary file, or anything inside a tool or cache folder (.git, node_modules). */
+function isUnlistedPath(root: string, path: string): boolean {
+    const rest = pathInside(path, root)
+    if (rest === null) return false
+    const parts = rest.split(/[\\/]/)
+    return isSaveTempFile(parts.at(-1)!) || parts.some((part) => isHiddenFolder(part, []))
+}
+
+/**
+ * Sorts out one event from the watcher of `root`. Reads (Scrivon's own too) and paths the file list
+ * leaves out are dropped, since git and build tools change those all the time; null when nothing is left.
+ */
+export function classifyWatchEvent(root: string, event: WatchEvent): WorkspaceChange | null {
+    const keep = (paths: string[]) => paths.map(normalizePath).filter((path) => !isUnlistedPath(root, path))
+    const change: WorkspaceChange = { added: [], removed: [], changed: [] }
+    const type = event.type
+    if (typeof type !== 'object') {
+        // 'any' or 'other': it could be any of them.
+        change.added = keep(event.paths)
+        change.removed = change.added
+    } else if ('access' in type) {
+        return null
+    } else if ('create' in type) {
+        change.added = keep(event.paths)
+    } else if ('remove' in type) {
+        change.removed = keep(event.paths)
+    } else if (type.modify.kind === 'rename') {
+        const mode = type.modify.mode
+        if (mode === 'from') change.removed = keep(event.paths)
+        else if (mode === 'to') change.added = keep(event.paths)
+        else if (mode === 'both') {
+            change.removed = keep(event.paths.slice(0, 1))
+            change.added = keep(event.paths.slice(1))
+        } else {
+            change.added = keep(event.paths)
+            change.removed = change.added
+        }
+    } else if (type.modify.kind === 'metadata' && type.modify.mode === 'access-time') {
+        return null
+    } else {
+        change.changed = keep(event.paths)
+    }
+    return change.added.length + change.removed.length + change.changed.length > 0 ? change : null
+}
+
+/** How long the watcher lets changes settle (a git checkout touches many files at once) before reporting them. */
+const WATCH_DELAY_MS = 500
+
+/**
+ * Tells `onChange` about files and folders that change inside `root`, everything in it included, leaving
+ * out what classifyWatchEvent drops. Resolves to a function that stops watching; rejects where the folder
+ * can't be watched (some network drives).
+ */
+export async function watchWorkspace(root: string, onChange: (change: WorkspaceChange) => void): Promise<() => void> {
+    if (!isTauri()) return () => {}
+    const base = normalizePath(root)
+    return watch(
+        base,
+        (event) => {
+            const change = classifyWatchEvent(base, event)
+            if (change) onChange(change)
+        },
+        { recursive: true, delayMs: WATCH_DELAY_MS }
+    )
 }
 
 /** The names of everything directly inside a folder, read from disk rather than the cached tree. */

@@ -20,6 +20,8 @@
         "fs:read-all",
         "fs:write-all",
         "fs:read-meta",
+        "fs:allow-watch",
+        "fs:allow-unwatch",
         "store:allow-get-store",
         "store:allow-set",
         "store:allow-get",

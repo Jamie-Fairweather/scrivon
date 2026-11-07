@@ -1,7 +1,21 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import {
+    exists,
+    lstat,
+    mkdir,
+    readDir,
+    readFile,
+    readTextFile,
+    remove,
+    rename,
+    stat,
+    watch,
+    writeFile,
+    writeTextFile,
+    type WatchEvent,
+} from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import {
     confirmCloseAfterSaveFailure,
@@ -1080,6 +1094,89 @@ describe('changes made outside Scrivon', () => {
         act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'pulled by git, then edited'))
         await expect(save()).resolves.toBe(true)
         expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    describe('while the window stays focused', () => {
+        let report: ((event: WatchEvent) => void) | undefined
+        const unwatch = vi.fn()
+
+        beforeEach(() => {
+            report = undefined
+            vi.mocked(watch).mockImplementation(async (_path, cb) => {
+                report = cb
+                return unwatch
+            })
+        })
+
+        afterEach(() => {
+            vi.mocked(watch).mockReset()
+        })
+
+        async function openWatched(result: { current: ReturnType<typeof useHarness> }) {
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(report).toBeDefined())
+        }
+
+        it('shows files another app adds, and stops watching when the folder closes', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            expect(watch).toHaveBeenCalledWith('C:\\ws', expect.any(Function), { recursive: true, delayMs: 500 })
+
+            await disk.write('C:\\ws\\from-sync.md', '# new')
+            await act(async () => {
+                report!({ type: { create: { kind: 'any' } }, paths: ['C:\\ws\\from-sync.md'], attrs: null })
+            })
+            await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-sync.md', 'notes.md']))
+
+            await act(async () => {
+                await result.current.session.closeWorkspace()
+            })
+            expect(unwatch).toHaveBeenCalled()
+        })
+
+        it('shows the new text of an open file another app saved, without reading the folder again, and ignores .git', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            const readsBefore = vi.mocked(readDir).mock.calls.length
+
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\.git\\index'], attrs: null })
+            })
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+            // Saved the way Scrivon saves: a temporary file renamed over it.
+            await act(async () => {
+                report!({
+                    type: { modify: { kind: 'rename', mode: 'both' } },
+                    paths: ['C:\\ws\\.scrivon-save-x1.tmp', 'C:\\ws\\notes.md'],
+                    attrs: null,
+                })
+            })
+
+            await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
+            expect(readDir).toHaveBeenCalledTimes(readsBefore)
+        })
+
+        it('still reads the folder on focus where it cannot be watched', async () => {
+            vi.mocked(watch).mockRejectedValue('Access is denied. (os error 5)')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            await disk.write('C:\\ws\\from-git.md', '# new')
+
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+
+            await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
+            expect(notifyError).not.toHaveBeenCalled()
+        })
     })
 
     it('leaves an open file without edits as it is when another app deleted it', async () => {

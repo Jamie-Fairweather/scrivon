@@ -1,4 +1,4 @@
-import { getBaseName, getParentPath, samePath } from '@/lib/tauri/fs'
+import { getBaseName, getParentPath, isWindowsPath, normalizePath, samePath } from '@/lib/tauri/fs'
 import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -149,6 +149,40 @@ export function keepUnchangedNodes(prev: FileNode[], next: FileNode[]): FileNode
         return kept
     })
     return same ? prev : merged
+}
+
+/**
+ * True when changes another app made (see watchWorkspace) may add something to the file tree of `rootPath`
+ * or take something away: a new path in a folder the tree lists, or a gone path the tree has. A save of a
+ * file already listed, or a change in a folder the tree leaves out, doesn't need the folder read again.
+ */
+export function changeAltersTree(
+    tree: FileNode[],
+    rootPath: string,
+    change: { readonly added: readonly string[]; readonly removed: readonly string[] }
+): boolean {
+    if (change.added.length === 0 && change.removed.length === 0) return false
+    // Windows paths ignore letter case, like samePath.
+    const key = (path: string) => {
+        const normalized = normalizePath(path)
+        return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized
+    }
+    const listed = new Set<string>()
+    const listedFolders = new Set<string>([key(rootPath)])
+    const walk = (nodes: FileNode[]) => {
+        for (const node of nodes) {
+            listed.add(key(node.path))
+            if (node.kind !== 'directory') continue
+            // An unreadable folder shows nothing inside it, however often it is read.
+            if (!node.unreadable) listedFolders.add(key(node.path))
+            walk(node.children)
+        }
+    }
+    walk(tree)
+    return (
+        change.removed.some((path) => listed.has(key(path))) ||
+        change.added.some((path) => !listed.has(key(path)) && listedFolders.has(key(getParentPath(path))))
+    )
 }
 
 export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {

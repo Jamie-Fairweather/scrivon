@@ -23,6 +23,8 @@ import {
     removeWorkspacePath,
     renameWorkspacePath,
     samePath,
+    watchWorkspace,
+    type WorkspaceChange,
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
@@ -39,7 +41,15 @@ import {
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
-import { childrenOf, collectUnreadableFolders, entryNameError, keepUnchangedNodes, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
+import {
+    changeAltersTree,
+    childrenOf,
+    collectUnreadableFolders,
+    entryNameError,
+    keepUnchangedNodes,
+    uniqueFileName,
+    uniqueNewName,
+} from '@/lib/workspace/paths'
 import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -88,8 +98,10 @@ const RECOVERED_CHANGES_NOTICE_ID = 'recovered-changes'
 const OPENING_NOTICE_ID = 'opening-folder'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
-/** The least time between two reads of the folder when the window gets focus. */
+/** The least time between two reads of the folder when the window gets focus or another app changes it. */
 const FOCUS_RELOAD_GAP_MS = 5_000
+/** Past this many changed paths waiting to be looked at, the folder is simply read again. */
+const MAX_SEEN_CHANGES = 1_000
 
 /** The copies of unsaved text kept from earlier; none when they can't be read (they are only a safety net). */
 async function listBackupsSafely(): Promise<UnsavedBackup[]> {
@@ -235,17 +247,29 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
     }, [workspaceRoot])
 
-    // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up when the user comes
-    // back to the window, and open files without edits that they changed show the new text. A failed read is
-    // left quiet here; the next action that changes the disk reports it.
+    // The tree shown now, for telling whether a change seen by the watcher alters it.
+    const treeRef = useRef(tree)
+    useEffect(() => {
+        treeRef.current = tree
+    }, [tree])
+
+    // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up, and open files
+    // without edits that they changed show the new text: as the watcher sees the change, and again when the
+    // user comes back to the window (some drives can't be watched). A failed read is left quiet here; the next
+    // action that changes the disk reports it.
     useEffect(() => {
         if (!isDesktop || !workspaceRoot) return
         const root = workspaceRoot
         let disposed = false
         let unlisten: (() => void) | undefined
+        let unwatch: (() => void) | undefined
         let reloading = false
+        let again = false
         let lastReloadEnd = 0
         let planned: ReturnType<typeof setTimeout> | undefined
+        // What the next reload reads: the whole tree after a focus, otherwise only if what the watcher saw alters it.
+        let treeWanted = false
+        let seen: { added: string[]; removed: string[] } = { added: [], removed: [] }
         const readTree = async () => {
             const read = ++treeRead.current
             try {
@@ -264,18 +288,30 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
         }
         const reload = async () => {
-            if (reloading) return
             reloading = true
+            const withTree = treeWanted || changeAltersTree(treeRef.current, root, seen)
+            treeWanted = false
+            seen = { added: [], removed: [] }
             try {
-                await Promise.all([readTree(), reloadTabs()])
+                await Promise.all([withTree ? readTree() : undefined, reloadTabs()])
             } finally {
                 reloading = false
                 lastReloadEnd = Date.now()
             }
+            // Something changed while that ran: it is read too, once the gap is over.
+            if (again && !disposed) {
+                again = false
+                request()
+            }
         }
-        // Alt-tabbing back and forth, or each native dialog closing, mustn't read a big folder again every time: at
-        // most once every few seconds. A focus inside that gap is read once the gap is over, so a change still shows.
-        const onFocus = () => {
+        // Alt-tabbing back and forth, each native dialog closing, or a sync tool busy in the folder mustn't read a
+        // big folder again every time: at most once every few seconds. A focus or change inside that gap is read
+        // once the gap is over, so it still shows.
+        const request = () => {
+            if (reloading) {
+                again = true
+                return
+            }
             if (planned !== undefined) return
             const wait = lastReloadEnd + FOCUS_RELOAD_GAP_MS - Date.now()
             if (wait <= 0) {
@@ -287,6 +323,26 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (!disposed) void reload()
             }, wait)
         }
+        const onFocus = () => {
+            treeWanted = true
+            request()
+        }
+        const onDiskChange = (change: WorkspaceChange) => {
+            // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
+            if (!treeWanted) {
+                seen.added.push(...change.added)
+                seen.removed.push(...change.removed)
+                if (seen.added.length + seen.removed.length > MAX_SEEN_CHANGES) treeWanted = true
+            }
+            request()
+        }
+        // Where the folder can't be watched (some network drives), coming back to the window still reads it.
+        void watchWorkspace(root, onDiskChange)
+            .then((fn) => {
+                if (disposed) fn()
+                else unwatch = fn
+            })
+            .catch((err: unknown) => console.warn(`Can't watch ${root} for changes`, err))
         try {
             void getCurrentWindow()
                 .onFocusChanged(({ payload: focused }) => {
@@ -305,6 +361,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             disposed = true
             clearTimeout(planned)
             unlisten?.()
+            unwatch?.()
         }
     }, [isDesktop, workspaceRoot, coordinator])
 
