@@ -115,6 +115,35 @@ export function pdfTocMark(index: number, kind: 'slot' | 'heading'): string {
     return kind === 'slot' ? `SFT${id}` : `SFH${id}`
 }
 
+/** Class of the glyph sample that goes first inside a page-number or TOC marker. */
+export const PDF_STAMP_GLYPHS_CLASS = 'pdf-stamp-glyphs'
+
+/** The text around the number in each preset page-number format, as `format_page_label` in `page_numbers.rs` draws it. */
+const PRESET_FIXED_TEXT = new Map([
+    ['number', ''],
+    ['page-n', 'Page '],
+    ['n-of-total', ' / '],
+])
+
+/**
+ * Every character a stamped label in this page-number format can use, each once: the
+ * format's fixed text (`Page `, ` / `, a custom counter's words) and the digits. Use
+ * `'number'` for TOC numbers. The export draws it, tiny and practically invisible, as
+ * the first thing inside the marker (`<span class="pdf-stamp-glyphs">`), so Chromium
+ * embeds those glyphs in the marker's font. The stamper then draws the label in that
+ * font, matching the text around it, and cuts the sample out of the PDF's text. A
+ * label with a character the font lacks is drawn in Helvetica instead.
+ */
+export function pdfStampGlyphText(format: string): string {
+    const fixed = format.startsWith('custom:')
+        ? format.slice('custom:'.length).replace(/\{\{\s*(page|total)\s*\}\}/g, '')
+        : PRESET_FIXED_TEXT.get(format)
+    if (fixed === undefined) return ''
+    const others = [...new Set(fixed.replace(/[\s0-9]/g, ''))].join('')
+    // A space goes between digits, never at an end, where layout could drop it.
+    return `01234${/\s/.test(fixed) ? ' ' : ''}56789${others}`
+}
+
 function pageSizeCss(profile: PdfExportProfile): string {
     const size = profile.page.size === 'letter' ? 'letter' : 'A4'
     return profile.page.orientation === 'landscape' ? `${size} landscape` : size
@@ -658,6 +687,15 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-heading-mark {
     font-size: 1px;
     line-height: 0;
+  }
+  /* Drawn, so its glyphs are embedded for the stamped numbers, but tiny, see-through and taking no room. Not clipped: a clipped sample may not be drawn at all. */
+  .${PDF_STAMP_GLYPHS_CLASS} {
+    display: inline-block;
+    width: 0;
+    white-space: pre;
+    font-size: 1px;
+    line-height: 0;
+    color: rgba(64, 64, 64, 0.01);
   }
   /* Fixed layout: wide content can't stretch the section past the page and shrink the whole PDF. */
   .pdf-chrome-table {

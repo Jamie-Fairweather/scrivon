@@ -29,6 +29,9 @@ const FALLBACK_BASELINE_OFFSET_PT: f32 = 8.0;
 const MAX_XOBJECT_DEPTH: usize = 4;
 /// The export CSS draws markers at 1% opacity; anything more opaque is document text.
 const MARKER_MAX_ALPHA: f32 = 0.05;
+/// The export draws its glyph samples (`.pdf-stamp-glyphs`) at 1px, which is 0.75pt.
+/// Text this small and nearly transparent is a sample, never document text.
+const SAMPLE_MAX_FONT_SIZE: f32 = 1.0;
 /// Why the footer numbers were left out when no page drew its footer.
 const FOOTER_NOT_FOUND: &str = "Scrivon couldn't find the footer on any page, so it left the \
      page numbers out. Content wider than the page can push the footer off.";
@@ -514,6 +517,8 @@ pub struct TextSlot {
     pub baseline: f32,
     /// Font size the marker was rendered at.
     pub font_size: f32,
+    /// The embedded font the marker was drawn in, so the label can match it.
+    pub font: Option<ObjectId>,
 }
 
 /// Which content stream an operation lives in, so marker text can be cut out of it.
@@ -612,10 +617,46 @@ fn marker_hit(
             right: last.end.0,
             baseline: first.start.1,
             font_size: first.font_size,
+            font: match first.font {
+                FontSlot::Cached(id) => Some(id),
+                // A font written inline in the resources has no object to point the label at.
+                FontSlot::Inline(_) => None,
+            },
         },
         translucent,
         covers,
     })
+}
+
+/// The export's glyph samples in one text block: text drawn so small and so
+/// nearly transparent that it is never document text. They only put glyphs
+/// into the PDF's fonts for the stamped labels, so they are cut out with the
+/// markers. Each one covers its whole text operation.
+fn find_glyph_samples(runs: &[Run], source: Option<Source>) -> Vec<Hit> {
+    let Some(source) = source else {
+        return Vec::new();
+    };
+    runs.iter()
+        .filter(|run| {
+            !run.text.is_empty()
+                && run.alpha < MARKER_MAX_ALPHA
+                && run.font_size < SAMPLE_MAX_FONT_SIZE
+        })
+        .map(|run| Hit {
+            slot: TextSlot {
+                right: run.end.0,
+                baseline: run.start.1,
+                font_size: run.font_size,
+                font: None,
+            },
+            translucent: true,
+            covers: vec![Cover {
+                source,
+                op: run.op,
+                range: 0..run.text.len(),
+            }],
+        })
+        .collect()
 }
 
 fn find_footer_marks(runs: &[Run], source: Option<Source>) -> Vec<Hit> {
@@ -773,6 +814,8 @@ fn push_gap(parts: &mut Vec<Object>, gap: &mut f32) {
 struct Walked {
     footers: Vec<Hit>,
     marks: Vec<(String, Hit)>,
+    /// Glyph samples: only cut out, never numbered.
+    samples: Vec<Hit>,
     /// The operations the markers were drawn by, split into glyphs. Only these
     /// are kept: holding every page's decoded content would take far more memory.
     glyphs: HashMap<(Source, usize), OpGlyphs>,
@@ -783,6 +826,11 @@ impl Walked {
         self.footers
             .iter()
             .chain(self.marks.iter().map(|(_, hit)| hit))
+    }
+
+    /// Everything to cut out of the page text: the markers and the glyph samples.
+    fn cuts(&self) -> impl Iterator<Item = &Hit> {
+        self.hits().chain(&self.samples)
     }
 }
 
@@ -919,9 +967,11 @@ fn walk_content(
             "ET" => {
                 let footers = find_footer_marks(&runs, source);
                 let marks = find_toc_tokens(&runs, source);
+                let samples = find_glyph_samples(&runs, source);
                 let covers = footers
                     .iter()
                     .chain(marks.iter().map(|(_, hit)| hit))
+                    .chain(&samples)
                     .flat_map(|hit| &hit.covers);
                 for cover in covers {
                     let Entry::Vacant(entry) = found.glyphs.entry((cover.source, cover.op)) else {
@@ -937,6 +987,7 @@ fn walk_content(
                 }
                 found.footers.extend(footers);
                 found.marks.extend(marks);
+                found.samples.extend(samples);
                 runs.clear();
             }
             "Tf" => {
@@ -998,6 +1049,7 @@ fn walk_content(
                 let inner = walk_xobject(doc, cache, op, gfx, resources, depth);
                 found.footers.extend(inner.footers);
                 found.marks.extend(inner.marks);
+                found.samples.extend(inner.samples);
                 found.glyphs.extend(inner.glyphs);
             }
             _ => {}
@@ -1115,7 +1167,7 @@ fn blank_markers(doc: &mut Document, scans: Vec<Walked>) {
     let mut covers: HashMap<Source, BTreeMap<usize, Vec<Range<usize>>>> = HashMap::new();
     let mut glyphs: HashMap<(Source, usize), OpGlyphs> = HashMap::new();
     for scan in scans {
-        for cover in scan.hits().flat_map(|hit| &hit.covers) {
+        for cover in scan.cuts().flat_map(|hit| &hit.covers) {
             covers
                 .entry(cover.source)
                 .or_default()
@@ -1372,14 +1424,136 @@ enum LabelRole {
     Toc,
 }
 
+/// Characters that only print right after text shaping (joining, reordering,
+/// combining marks) or that set the reading direction. The stamper draws one
+/// glyph per character, left to right, so it leaves these to the Helvetica path.
+fn needs_shaping(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x0300..=0x036F // combining diacritical marks
+            | 0x0483..=0x0489 // combining Cyrillic marks
+            | 0x0590..=0x08FF // Hebrew, Arabic, Syriac, Thaana, NKo and other right-to-left scripts
+            | 0x0900..=0x0DFF // Indic scripts
+            | 0x0E00..=0x0EFF // Thai, Lao
+            | 0x0F00..=0x109F // Tibetan, Myanmar
+            | 0x1780..=0x18AF // Khmer, Mongolian
+            | 0x1A00..=0x1C4F // Buginese to Lepcha, with their combining marks
+            | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF // more combining marks
+            | 0x200B..=0x200F // zero-width joiners and direction marks
+            | 0x202A..=0x202E | 0x2066..=0x2069 // direction embeddings and isolates
+            | 0xA800..=0xABFF // more Indic and South-East Asian scripts
+            | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF // Hebrew and Arabic presentation forms
+            | 0xFE00..=0xFE0F | 0xFE20..=0xFE2F // variation selectors, combining half marks
+            | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF // right-to-left scripts
+            | 0x11000..=0x11FFF // Brahmi and other shaped scripts
+            | 0xE0100..=0xE01EF // variation selectors
+    )
+}
+
+/// The label as 2-byte glyph codes in an embedded Type0 font (the kind Chromium
+/// embeds), with its advance in thousandths of an em. `None` unless the font
+/// has a glyph for every character: its ToUnicode map lists the glyphs its
+/// subset holds.
+fn embedded_label(font: &FontInfo<'_>, label: &str) -> Option<(Vec<u8>, f32)> {
+    if !font.two_byte || label.is_empty() || label.chars().any(needs_shaping) {
+        return None;
+    }
+    let Some(Encoding::UnicodeMapEncoding(cmap)) = font.encoding.as_ref() else {
+        return None;
+    };
+    let mut codes = Vec::with_capacity(label.len() * 2);
+    let mut width = 0.0;
+    let mut units = [0_u16; 2];
+    for ch in label.chars() {
+        // Several glyphs can stand for one character (a tabular digit, say):
+        // the lowest id is usually the font's default form.
+        let code = cmap
+            .get_source_codes_for_unicode(ch.encode_utf16(&mut units))?
+            .iter()
+            .filter(|entry| entry.code_len == 2)
+            .map(|entry| entry.source_code)
+            .min()?;
+        codes.extend_from_slice(&(code as u16).to_be_bytes());
+        width += font.width(code);
+    }
+    Some((codes, width))
+}
+
+/// What a stamped label is drawn with.
+enum LabelGlyphs {
+    /// Glyph codes in a font the PDF already embeds, registered on the page as
+    /// `name`, with their advance in thousandths of an em.
+    Embedded {
+        name: String,
+        font: ObjectId,
+        codes: Vec<u8>,
+        width: f32,
+    },
+    /// The stamper's own Helvetica, for a label the embedded font can't draw.
+    Helvetica,
+}
+
+/// Picks the font each label is drawn in, and names the embedded fonts it reuses.
+struct LabelFonts<'c, 'a> {
+    cache: &'c FontCache<'a>,
+    names: BTreeMap<ObjectId, String>,
+}
+
+impl<'c, 'a> LabelFonts<'c, 'a> {
+    fn new(cache: &'c FontCache<'a>) -> Self {
+        Self {
+            cache,
+            names: BTreeMap::new(),
+        }
+    }
+
+    /// The font the marker was drawn in when it can draw the whole label, so the
+    /// number matches the text around it; otherwise Helvetica.
+    fn glyphs(&mut self, slot: TextSlot, label: &str) -> LabelGlyphs {
+        let embedded = slot.font.and_then(|id| {
+            let (codes, width) = embedded_label(self.cache.by_id.get(&id)?, label)?;
+            Some((id, codes, width))
+        });
+        let Some((font, codes, width)) = embedded else {
+            return LabelGlyphs::Helvetica;
+        };
+        let next = self.names.len() + 1;
+        let name = self
+            .names
+            .entry(font)
+            .or_insert_with(|| format!("{FONT_NAME}{next}"))
+            .clone();
+        LabelGlyphs::Embedded {
+            name,
+            font,
+            codes,
+            width,
+        }
+    }
+}
+
 fn label_operations(
     label: &str,
     slot: TextSlot,
+    glyphs: &LabelGlyphs,
     paint: LabelPaint,
     role: LabelRole,
 ) -> Vec<Operation> {
     let font_size = slot.font_size.clamp(6.0, 24.0);
-    let x = slot.right - label_width(label, font_size);
+    let (font_name, x, shown) = match glyphs {
+        LabelGlyphs::Embedded {
+            name, codes, width, ..
+        } => (
+            name.as_str(),
+            slot.right - width / 1000.0 * font_size,
+            Object::String(codes.clone(), StringFormat::Hexadecimal),
+        ),
+        LabelGlyphs::Helvetica => (
+            FONT_NAME,
+            slot.right - label_width(label, font_size),
+            Object::String(win_ansi_bytes(label), StringFormat::Literal),
+        ),
+    };
     let mut ops = Vec::with_capacity(11);
     // Each label gets its own graphics state, so a translucent footer's alpha
     // doesn't carry over to the TOC labels stamped after it on the same page.
@@ -1399,21 +1573,48 @@ fn label_operations(
     }
     ops.extend([
         Operation::new("BT", vec![]),
-        Operation::new("Tf", vec![FONT_NAME.into(), font_size.into()]),
+        Operation::new("Tf", vec![font_name.into(), font_size.into()]),
         Operation::new(
             "rg",
             vec![paint.rgb.0.into(), paint.rgb.1.into(), paint.rgb.2.into()],
         ),
         Operation::new("Td", vec![x.into(), slot.baseline.into()]),
-        Operation::new(
-            "Tj",
-            vec![Object::String(win_ansi_bytes(label), StringFormat::Literal)],
-        ),
+        Operation::new("Tj", vec![shown]),
         Operation::new("ET", vec![]),
         Operation::new("EMC", vec![]),
         Operation::new("Q", vec![]),
     ]);
     ops
+}
+
+/// The labels stamped onto one page, and the fonts they are drawn in.
+#[derive(Default)]
+struct PageLabels {
+    operations: Vec<Operation>,
+    /// Embedded fonts the labels reuse, by the resource name they're drawn with.
+    embedded: BTreeMap<String, ObjectId>,
+    /// Whether any label is drawn in the stamper's Helvetica.
+    helvetica: bool,
+}
+
+impl PageLabels {
+    fn add(
+        &mut self,
+        label: &str,
+        slot: TextSlot,
+        glyphs: LabelGlyphs,
+        paint: LabelPaint,
+        role: LabelRole,
+    ) {
+        self.operations
+            .extend(label_operations(label, slot, &glyphs, paint, role));
+        match glyphs {
+            LabelGlyphs::Embedded { name, font, .. } => {
+                self.embedded.insert(name, font);
+            }
+            LabelGlyphs::Helvetica => self.helvetica = true,
+        }
+    }
 }
 
 struct TocEntry {
@@ -1606,21 +1807,8 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
         && options.margin_bottom_mm <= 0.0;
     let warning = footers_lost.then(|| FOOTER_NOT_FOUND.to_string());
 
-    let font_id = doc.add_object(dictionary! {
-        "Type" => "Font",
-        "Subtype" => "Type1",
-        "BaseFont" => "Helvetica",
-        "Encoding" => "WinAnsiEncoding",
-    });
-    let alpha_gs_id = footer_paint.translucent.then(|| {
-        doc.add_object(dictionary! {
-            "Type" => "ExtGState",
-            "ca" => footer_alpha,
-            "CA" => footer_alpha,
-        })
-    });
-
-    let mut operations = vec![Vec::new(); pages.len()];
+    let mut fonts = LabelFonts::new(&cache);
+    let mut labels: Vec<PageLabels> = pages.iter().map(|_| PageLabels::default()).collect();
     if want_footer && !footers_lost {
         for (position, ((page_index, page_id), scan)) in pages.iter().zip(&scans).enumerate() {
             let Some(label) = format_page_label(format, *page_index, total) else {
@@ -1651,17 +1839,14 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
                                 baseline: mm_to_pt(options.margin_bottom_mm)
                                     + FALLBACK_BASELINE_OFFSET_PT,
                                 font_size: FALLBACK_FONT_SIZE,
+                                font: None,
                             }
                         }
                     }
                 }
             };
-            operations[position].extend(label_operations(
-                &label,
-                slot,
-                footer_paint,
-                LabelRole::Footer,
-            ));
+            let glyphs = fonts.glyphs(slot, &label);
+            labels[position].add(&label, slot, glyphs, footer_paint, LabelRole::Footer);
         }
     }
     let page_at: HashMap<ObjectId, usize> = pages
@@ -1673,12 +1858,8 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
         let Some(position) = page_at.get(&entry.page_id).copied() else {
             continue;
         };
-        operations[position].extend(label_operations(
-            &entry.label,
-            entry.slot,
-            toc_paint,
-            LabelRole::Toc,
-        ));
+        let glyphs = fonts.glyphs(entry.slot, &entry.label);
+        labels[position].add(&entry.label, entry.slot, glyphs, toc_paint, LabelRole::Toc);
     }
 
     // Cut the markers out first: the overlay below splits each page's content
@@ -1687,19 +1868,40 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
         blank_markers(doc, scans);
     }
 
+    let helvetica_id = labels.iter().any(|page| page.helvetica).then(|| {
+        doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+            "Encoding" => "WinAnsiEncoding",
+        })
+    });
+    let alpha_gs_id = footer_paint.translucent.then(|| {
+        doc.add_object(dictionary! {
+            "Type" => "ExtGState",
+            "ca" => footer_alpha,
+            "CA" => footer_alpha,
+        })
+    });
+
     let mut changed = real_markers;
-    for (position, page_ops) in operations.into_iter().enumerate() {
-        if page_ops.is_empty() {
+    for (position, page) in labels.into_iter().enumerate() {
+        if page.operations.is_empty() {
             continue;
         }
         changed = true;
         let page_id = pages[position].1;
-        ensure_page_resource(doc, page_id, "Font", FONT_NAME, font_id)?;
+        if let Some(font_id) = helvetica_id.filter(|_| page.helvetica) {
+            ensure_page_resource(doc, page_id, "Font", FONT_NAME, font_id)?;
+        }
+        for (name, font_id) in &page.embedded {
+            ensure_page_resource(doc, page_id, "Font", name, *font_id)?;
+        }
         if let Some(gs_id) = alpha_gs_id {
             ensure_page_resource(doc, page_id, "ExtGState", ALPHA_GS_NAME, gs_id)?;
         }
         let content = Content {
-            operations: page_ops,
+            operations: page.operations,
         };
         overlay_page_content(doc, page_id, content.encode().map_err(|e| e.to_string())?)?;
     }
@@ -2798,6 +3000,255 @@ end";
             .iter()
             .any(|s| s.as_slice() == [0, 1, 0, 2, 0, 3, 0, 4]));
         assert!(strings.contains(&b"1".to_vec()), "page is still numbered");
+    }
+
+    /// Glyphs of the embedded test font: id, the character it draws, advance width.
+    const EMBEDDED_GLYPHS: [(u16, char, i64); 10] = [
+        (1, 'S', 600),
+        (2, 'F', 500),
+        (3, 'P', 700),
+        (4, 'N', 800),
+        (5, '1', 550),
+        (6, ' ', 250),
+        (7, 'и', 520),
+        (8, 'з', 480),
+        (9, '2', 550),
+        (10, 'ע', 600),
+    ];
+
+    /// A Type0 font object the way Chromium embeds one: a subset whose ToUnicode
+    /// map lists the glyphs it holds, Cyrillic and Hebrew among them.
+    fn embedded_type0(doc: &mut Document) -> ObjectId {
+        let chars: String = EMBEDDED_GLYPHS
+            .iter()
+            .map(|(id, ch, _)| format!("<{id:04X}> <{:04X}>\n", *ch as u32))
+            .collect();
+        let cmap = format!(
+            "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+             /CMapName /Adobe-Identity-UCS def\n1 begincodespacerange\n<0000> <FFFF>\n\
+             endcodespacerange\n{} beginbfchar\n{chars}endbfchar\nendcmap\n\
+             CMapName currentdict /CMap defineresource pop\nend\nend",
+            EMBEDDED_GLYPHS.len()
+        );
+        let cmap_id = doc.add_object(Stream::new(dictionary! {}, cmap.into_bytes()));
+        let widths: Vec<Object> = EMBEDDED_GLYPHS
+            .iter()
+            .map(|(_, _, width)| Object::Integer(*width))
+            .collect();
+        let descendant_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "CIDFontType2",
+            "BaseFont" => "AAAAAA+SegoeUI",
+            "DW" => 1000_i64,
+            "W" => vec![1.into(), widths.into()],
+        });
+        doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type0",
+            "BaseFont" => "AAAAAA+SegoeUI",
+            "Encoding" => "Identity-H",
+            "DescendantFonts" => vec![descendant_id.into()],
+            "ToUnicode" => cmap_id,
+        })
+    }
+
+    /// Glyph ids as the 2-byte codes an Identity-H font shows.
+    fn glyph_codes(ids: &[u16]) -> Vec<u8> {
+        ids.iter().flat_map(|id| id.to_be_bytes()).collect()
+    }
+
+    /// One page whose footer marker is drawn the way Chromium draws it: in an
+    /// embedded font (`F1`), at 9px through Skia's text matrix, nearly transparent.
+    /// `extra` is drawn after it.
+    fn page_with_embedded_marker(
+        doc: &mut Document,
+        extra: Vec<Operation>,
+    ) -> (ObjectId, ObjectId) {
+        let font_id = embedded_type0(doc);
+        let ops = [
+            vec![
+                flip(),
+                Operation::new("q", vec![]),
+                Operation::new("gs", vec!["G1".into()]),
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec!["F1".into(), 1.into()]),
+                Operation::new(
+                    "Tm",
+                    vec![
+                        9.into(),
+                        0.into(),
+                        0.into(),
+                        (-9).into(),
+                        700.into(),
+                        1060.into(),
+                    ],
+                ),
+                Operation::new(
+                    "Tj",
+                    vec![Object::String(
+                        glyph_codes(&[1, 2, 3, 4]),
+                        StringFormat::Hexadecimal,
+                    )],
+                ),
+                Operation::new("ET", vec![]),
+            ],
+            extra,
+            vec![Operation::new("Q", vec![])],
+        ]
+        .concat();
+        let mut resources = marker_resources();
+        resources.set("Font", dictionary! { "F1" => font_id });
+        let ids = build_pdf(doc, vec![(ops, resources)]);
+        (ids[0], font_id)
+    }
+
+    /// The font, position and shown string of the last label stamped on the page.
+    fn last_label(doc: &Document, page: u32) -> (Vec<u8>, f32, Object) {
+        let operations = page_operations(doc, page);
+        let tf = operations
+            .iter()
+            .rposition(|op| op.operator == "Tf")
+            .unwrap();
+        let td = &operations[tf..]
+            .iter()
+            .find(|op| op.operator == "Td")
+            .unwrap()
+            .operands;
+        let tj = operations[tf..]
+            .iter()
+            .find(|op| op.operator == "Tj")
+            .unwrap();
+        (
+            operations[tf].operands[0].as_name().unwrap().to_vec(),
+            operand_f32(&td[0]),
+            tj.operands[0].clone(),
+        )
+    }
+
+    #[test]
+    fn draws_the_label_in_the_markers_embedded_font() {
+        let mut doc = Document::with_version("1.5");
+        let (_, font_id) = page_with_embedded_marker(&mut doc, vec![]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-embedded-font.pdf");
+
+        stamp_page_numbers(
+            path.to_str().unwrap(),
+            &options("custom:{{page}} из {{total}}", ""),
+        )
+        .unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let (font, x, shown) = last_label(&stamped, 1);
+        // Glyph ids for "1 из 1", not '?' in Helvetica.
+        assert_eq!(
+            shown,
+            Object::String(glyph_codes(&[5, 6, 7, 8, 6, 5]), StringFormat::Hexadecimal)
+        );
+        let fonts = own_fonts(&stamped, 1);
+        assert_eq!(
+            fonts.get(&font).unwrap().as_reference().unwrap(),
+            font_id,
+            "the label reuses the marker's font"
+        );
+        assert!(
+            !fonts.has(FONT_NAME.as_bytes()),
+            "no Helvetica when nothing uses it"
+        );
+        // The marker ends at (700 + 2.6 × 9) × 0.75 = 542.55 and is 6.75pt tall.
+        // "1 из 1" is 2600 units wide: 2.6 × 6.75 = 17.55.
+        assert!((x - 525.0).abs() < 0.01, "x was {x}");
+        let text = stamped.extract_text(&[1]).unwrap();
+        assert!(text.contains("1 из 1"), "{text:?}");
+        assert!(
+            !text.contains('?') && !text.contains(FOOTER_MARK),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_helvetica_when_the_embedded_font_lacks_a_glyph() {
+        let mut doc = Document::with_version("1.5");
+        page_with_embedded_marker(&mut doc, vec![]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-embedded-missing.pdf");
+
+        // The subset has no 'o' or 'f'.
+        stamp_page_numbers(
+            path.to_str().unwrap(),
+            &options("custom:{{page}} of {{total}}", ""),
+        )
+        .unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let (font, _, shown) = last_label(&stamped, 1);
+        assert_eq!(font, FONT_NAME.as_bytes());
+        assert_eq!(shown, Object::string_literal("1 of 1"));
+        assert!(own_fonts(&stamped, 1).has(FONT_NAME.as_bytes()));
+    }
+
+    #[test]
+    fn leaves_text_that_needs_shaping_to_the_helvetica_path() {
+        let mut doc = Document::with_version("1.5");
+        let font_id = embedded_type0(&mut doc);
+        let font = font_info(&doc, doc.get_dictionary(font_id).unwrap());
+        let (codes, width) = embedded_label(&font, "12 из 21").unwrap();
+        assert_eq!(codes, glyph_codes(&[5, 9, 6, 7, 8, 6, 9, 5]));
+        assert!((width - 3700.0).abs() < 0.01, "width was {width}");
+        // The font has the Hebrew letter, but one glyph per character, left to
+        // right, would print the words backwards.
+        assert_eq!(embedded_label(&font, "1 ע 2"), None);
+        assert_eq!(embedded_label(&font, ""), None);
+    }
+
+    #[test]
+    fn cuts_the_glyph_samples_out_of_the_page_text() {
+        let mut doc = Document::with_version("1.5");
+        // The export's hidden sample: the label's characters at 1px, nearly transparent.
+        let sample = vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 1.into()]),
+            Operation::new(
+                "Tm",
+                vec![
+                    1.into(),
+                    0.into(),
+                    0.into(),
+                    (-1).into(),
+                    690.into(),
+                    1060.into(),
+                ],
+            ),
+            Operation::new(
+                "Tj",
+                vec![Object::String(
+                    glyph_codes(&[5, 9, 6, 7, 8]),
+                    StringFormat::Hexadecimal,
+                )],
+            ),
+            Operation::new("ET", vec![]),
+        ];
+        page_with_embedded_marker(&mut doc, sample);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-glyph-sample.pdf");
+
+        stamp_page_numbers(path.to_str().unwrap(), &options("number", "")).unwrap();
+
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let strings = shown_strings(&page_operations(&stamped, 1));
+        assert!(
+            !strings
+                .iter()
+                .any(|s| s.as_slice() == glyph_codes(&[5, 9, 6, 7, 8])),
+            "{strings:?}"
+        );
+        let text = stamped.extract_text(&[1]).unwrap();
+        assert!(!text.contains("из"), "{text:?}");
+        let (_, _, shown) = last_label(&stamped, 1);
+        assert_eq!(
+            shown,
+            Object::String(glyph_codes(&[5]), StringFormat::Hexadecimal)
+        );
     }
 
     #[test]

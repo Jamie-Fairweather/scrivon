@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
     applyPdfFooterSwitch,
     buildPdfExportCss,
+    PDF_STAMP_GLYPHS_CLASS,
     pdfPageSizeMm,
     pdfPrintMarginsMm,
+    pdfStampGlyphText,
     resolvePdfExportLayout,
     resolvePdfPrintOptions,
 } from '@/lib/markdown/export-html-css'
@@ -467,5 +469,35 @@ describe('buildPdfExportCss', () => {
             expect(css).toContain('.pdf-title-table .pdf-footer-bar { display: none !important; }')
             expect(css).not.toContain('.pdf-toc-table .pdf-footer-bar')
         }
+    })
+})
+
+describe('glyph samples for the stamper', () => {
+    it('lists every character a label can use, each once, with any space between digits', () => {
+        expect(pdfStampGlyphText('number')).toBe('0123456789')
+        expect(pdfStampGlyphText('page-n')).toBe('01234 56789Page')
+        expect(pdfStampGlyphText('n-of-total')).toBe('01234 56789/')
+        expect(pdfStampGlyphText('custom:{{page}} из {{ total }}')).toBe('01234 56789из')
+        expect(pdfStampGlyphText('custom:{{page}}/{{total}}页')).toBe('0123456789/页')
+        expect(pdfStampGlyphText('custom:Seite {{page}} von {{total}}, Seite 2')).toBe('01234 56789Seitvon,')
+        expect(pdfStampGlyphText('custom:{{page}}')).toBe('0123456789')
+    })
+
+    it('has nothing to sample when no label is drawn', () => {
+        expect(pdfStampGlyphText('none')).toBe('')
+        expect(pdfStampGlyphText('constructor')).toBe('')
+    })
+
+    it('draws the sample tiny and see-through, taking no room and not clipped', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const start = css.indexOf(`.${PDF_STAMP_GLYPHS_CLASS} {`)
+        expect(start).toBeGreaterThan(-1)
+        const rule = css.slice(start, css.indexOf('}', start))
+        expect(rule).toContain('width: 0;')
+        expect(rule).toContain('white-space: pre;')
+        // Under 1pt and nearly transparent: page_numbers.rs cuts such text back out (SAMPLE_MAX_FONT_SIZE).
+        expect(rule).toContain('font-size: 1px;')
+        expect(rule).toContain('color: rgba(64, 64, 64, 0.01);')
+        expect(rule).not.toContain('overflow: hidden')
     })
 })
