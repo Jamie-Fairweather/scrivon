@@ -42,6 +42,53 @@ describe('WelcomeScreen recent folders', () => {
         expect(session.removeRecent).toHaveBeenCalledWith('/home/me/notes')
     })
 
+    it('moves focus to the next remove button after a folder is removed', async () => {
+        const session = mockSession({ recentWorkspaces: ['C:\\work\\a', 'C:\\work\\b', 'C:\\work\\c'] })
+        const { rerender } = render(<WelcomeScreen />)
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Remove b from recent folders' }))
+        expect(session.removeRecent).toHaveBeenCalledWith('C:\\work\\b')
+        mockSession({ ...session, recentWorkspaces: ['C:\\work\\a', 'C:\\work\\c'] })
+        rerender(<WelcomeScreen />)
+
+        expect(screen.getByRole('button', { name: 'Remove c from recent folders' })).toHaveFocus()
+    })
+
+    it('moves focus to the new last remove button after the last folder is removed', async () => {
+        const session = mockSession({ recentWorkspaces: ['C:\\work\\a', 'C:\\work\\b'] })
+        const { rerender } = render(<WelcomeScreen />)
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Remove b from recent folders' }))
+        mockSession({ ...session, recentWorkspaces: ['C:\\work\\a'] })
+        rerender(<WelcomeScreen />)
+
+        expect(screen.getByRole('button', { name: 'Remove a from recent folders' })).toHaveFocus()
+    })
+
+    it('moves focus to Open Folder after the only folder is removed', async () => {
+        const session = mockSession({ recentWorkspaces: ['C:\\work\\a'] })
+        const { rerender } = render(<WelcomeScreen />)
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Remove a from recent folders' }))
+        mockSession({ ...session, recentWorkspaces: [] })
+        rerender(<WelcomeScreen />)
+
+        expect(screen.getByRole('button', { name: 'Open Folder' })).toHaveFocus()
+    })
+
+    it('leaves focus alone when it has already moved on', async () => {
+        const session = mockSession({ recentWorkspaces: ['C:\\work\\a', 'C:\\work\\b'] })
+        const { rerender } = render(<WelcomeScreen />)
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Remove a from recent folders' }))
+        const openB = screen.getByRole('button', { name: /^b/ })
+        openB.focus()
+        mockSession({ ...session, recentWorkspaces: ['C:\\work\\b'] })
+        rerender(<WelcomeScreen />)
+
+        expect(openB).toHaveFocus()
+    })
+
     it('names a drive root by its path instead of leaving the row blank', () => {
         mockSession({ recentWorkspaces: ['D:\\'] })
 

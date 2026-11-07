@@ -1,6 +1,7 @@
 'use client'
 
 import { FolderOpen, FolderX, Loader2, Monitor } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { APP_NAME, APP_TAGLINE } from '@/lib/app-branding'
 import { Button } from '@/components/ui/button'
@@ -16,6 +17,22 @@ export function WelcomeScreen() {
     // dialog) shows that it is busy. The other rows stay clickable: the folder clicked last is the one that opens.
     const isOpening = (path: string) => openingWorkspace !== null && samePath(path, openingWorkspace)
     const openingFromPicker = openingWorkspace !== null && !recentWorkspaces.some(isOpening)
+
+    // Removing a folder unmounts its row, and the focused remove button with it. Put focus on the
+    // remove button now in that slot (or the new last one), or on Open Folder when the list is empty.
+    const openFolderRef = useRef<HTMLButtonElement>(null)
+    const listRef = useRef<HTMLUListElement>(null)
+    const refocusIndexRef = useRef<number | null>(null)
+    useEffect(() => {
+        const index = refocusIndexRef.current
+        if (index === null) return
+        refocusIndexRef.current = null
+        // A failed remove leaves the list as it was, and the button still has focus.
+        if (document.activeElement !== null && document.activeElement !== document.body) return
+        const buttons = listRef.current?.querySelectorAll<HTMLElement>('[data-recent-remove]')
+        if (buttons && buttons.length > 0) buttons[Math.min(index, buttons.length - 1)]!.focus()
+        else openFolderRef.current?.focus()
+    }, [recentWorkspaces])
 
     // The column scrolls when it is taller than the window; my-auto keeps it centred when it fits.
     return (
@@ -43,7 +60,13 @@ export function WelcomeScreen() {
                     </div>
                 )}
 
-                <Button size="lg" onClick={() => void pickAndOpenWorkspace()} disabled={!isDesktop} aria-busy={openingFromPicker || undefined}>
+                <Button
+                    ref={openFolderRef}
+                    size="lg"
+                    onClick={() => void pickAndOpenWorkspace()}
+                    disabled={!isDesktop}
+                    aria-busy={openingFromPicker || undefined}
+                >
                     {openingFromPicker ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <FolderOpen className="size-4" />}
                     Open Folder
                 </Button>
@@ -51,8 +74,8 @@ export function WelcomeScreen() {
                 {recentWorkspaces.length > 0 && (
                     <div className="w-full max-w-lg">
                         <h2 className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Recent folders</h2>
-                        <ul className="flex flex-col gap-1">
-                            {recentWorkspaces.map((path) => {
+                        <ul ref={listRef} className="flex flex-col gap-1">
+                            {recentWorkspaces.map((path, index) => {
                                 const name = getBaseName(path)
                                 const opening = isOpening(path)
                                 return (
@@ -92,7 +115,11 @@ export function WelcomeScreen() {
                                                 )}
                                                 aria-label={`Remove ${name} from recent folders`}
                                                 title="Remove from recent folders"
-                                                onClick={() => void removeRecent(path)}
+                                                data-recent-remove
+                                                onClick={() => {
+                                                    refocusIndexRef.current = index
+                                                    void removeRecent(path)
+                                                }}
                                             >
                                                 <FolderX className="size-4" />
                                             </Button>
