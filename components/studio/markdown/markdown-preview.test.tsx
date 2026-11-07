@@ -85,6 +85,12 @@ describe('MarkdownPreview', () => {
         })
     })
 
+    it('shows bold next to Japanese punctuation as bold, as export does (B76)', () => {
+        const { container } = preview('**「重要」**です。これは**テスト。**です。')
+        expect(Array.from(container.querySelectorAll('strong')).map((node) => node.textContent)).toEqual(['「重要」', 'テスト。'])
+        expect(container).not.toHaveTextContent('**')
+    })
+
     describe('raw HTML (B29)', () => {
         it('hides comments instead of showing them as text', () => {
             const { container } = preview('## Comments (HTML, hidden in output)\n\n<!-- a hidden note -->\n\nVisible <!-- inline note --> text')

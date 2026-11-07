@@ -1,11 +1,11 @@
 import type { Root, Text } from 'mdast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 import { applyPdfFooterSwitch } from '@/lib/markdown/export-html-css'
 import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { guessDocumentLanguage, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
@@ -66,7 +66,7 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     // Only leading blank lines go: trimming the first line's indent would turn an opening indented code block into a paragraph.
     const tree = unified()
         .use(remarkParse)
-        .use(remarkGfm)
+        .use(markdownRemarkPlugins)
         .parse(body.replace(/^(?:[ \t]*\r?\n)+/, '')) as Root
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []

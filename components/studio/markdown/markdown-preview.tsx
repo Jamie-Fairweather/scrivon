@@ -6,7 +6,6 @@ import { ImageOff } from 'lucide-react'
 import type { Root } from 'mdast'
 import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import type { PluggableList } from 'unified'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
@@ -21,6 +20,7 @@ import { isWebImageUrl, markdownUrlTransform } from '@/components/studio/markdow
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
@@ -62,7 +62,7 @@ function remarkHeadingIds() {
     }
 }
 
-const remarkPlugins = [remarkGfm, remarkHeadingIds]
+const remarkPlugins: PluggableList = [...markdownRemarkPlugins, remarkHeadingIds]
 
 /** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
 function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {

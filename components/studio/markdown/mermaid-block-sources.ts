@@ -1,5 +1,4 @@
 import type { Element, Root as HastRoot } from 'hast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
@@ -7,11 +6,12 @@ import { visit } from 'unist-util-visit'
 import { mermaidBlockOrdinal, mermaidBlockText, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 
 /** MarkdownPreview's chain, so a diagram written as raw HTML (`<pre><code class="language-mermaid">`) counts here too. */
 const processor = unified()
     .use(remarkParse)
-    .use(remarkGfm)
+    .use(markdownRemarkPlugins)
     .use(remarkRehype, previewRemarkRehypeOptions)
     .use(previewHtmlPlugins)
     .use(rehypeFencedBlockOrdinals)

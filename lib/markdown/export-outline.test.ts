@@ -1,12 +1,12 @@
 import type { Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { describe, expect, it } from 'vitest'
 import { collectPdfExportOutline, filterPdfExportOutline } from '@/lib/markdown/export-outline'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 
 function parse(body: string): Root {
-    return unified().use(remarkParse).use(remarkGfm).parse(body) as Root
+    return unified().use(remarkParse).use(markdownRemarkPlugins).parse(body) as Root
 }
 
 describe('collectPdfExportOutline', () => {

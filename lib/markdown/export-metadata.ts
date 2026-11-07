@@ -1,8 +1,8 @@
 import type { Heading, Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { nodeText } from '@/lib/markdown/export-outline'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
 const FRONT_MATTER_KEYS = new Set(['title', 'subtitle', 'author', 'date'])
@@ -234,7 +234,7 @@ export function guessDocumentLanguage(text: string, languages: readonly string[]
  * tree, so a `# comment` in fenced code never wins and inline markup drops out.
  */
 function firstHeadingText(body: string): string {
-    const tree = unified().use(remarkParse).use(remarkGfm).parse(body) as Root
+    const tree = unified().use(remarkParse).use(markdownRemarkPlugins).parse(body) as Root
     const heading = tree.children.find((node): node is Heading => node.type === 'heading' && node.depth === 1)
     return heading ? nodeText(heading).replace(/\s+/g, ' ').trim() : ''
 }

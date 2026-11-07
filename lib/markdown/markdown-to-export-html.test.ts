@@ -532,6 +532,12 @@ SHIKI_FAIL
         expect(html).toContain('<title>Pricing</title>')
     })
 
+    it('prints bold next to Japanese punctuation as bold (B76)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('**「重要」**です。これは**テスト。**です。')
+        expect(html).toContain('<strong>「重要」</strong>です。これは<strong>テスト。</strong>です。')
+    })
+
     it('prints safe raw HTML as the preview shows it, and drops comments, scripts and handlers (B29)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(
