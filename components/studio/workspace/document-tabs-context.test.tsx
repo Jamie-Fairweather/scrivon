@@ -1384,7 +1384,8 @@ describe('closing tabs with unsaved changes', () => {
             vi.useRealTimers()
         }
 
-        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Saving is taking too long.' }])
+        // Saves of one tab wait their turn, so the question says it is still saving rather than offering a new try.
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', stillSaving: true }])
         expect(result.current.tabs).toHaveLength(2)
     })
 
@@ -1420,18 +1421,18 @@ describe('closing tabs with unsaved changes', () => {
         expect(result.current.tabs).toHaveLength(2)
     })
 
-    it('ignores a second close request while the first is still being answered', async () => {
+    it('gives a second close request the answer to the first instead of asking twice or ignoring it', async () => {
         let answer!: (choice: 'discard') => void
         vi.mocked(confirmUnsavedChanges).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
-        const { result } = setup({ autosave: false })
+        const { result, coordinator } = setup({ autosave: false })
         await waitFor(() => expect(result.current.tabs).toHaveLength(3))
 
         let first!: Promise<void>
+        let second!: Promise<boolean>
         act(() => {
             first = result.current.closeTab('/ws/a.mmd')
-        })
-        await act(async () => {
-            await result.current.closeTab('/ws/a.mmd')
+            // Like a second click on the window's X while the first question is still open.
+            second = coordinator.confirmCloseTabs.current(['/ws/a.mmd'])
         })
         expect(confirmUnsavedChanges).toHaveBeenCalledTimes(1)
 
@@ -1439,7 +1440,49 @@ describe('closing tabs with unsaved changes', () => {
             answer('discard')
             await first
         })
+        await expect(second).resolves.toBe(true)
+        expect(confirmUnsavedChanges).toHaveBeenCalledTimes(1)
         expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('asks about the other tabs once the first question is answered, when the second request is about more', async () => {
+        let answer!: (choice: 'discard') => void
+        vi.mocked(confirmUnsavedChanges)
+            .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+            .mockResolvedValueOnce('cancel')
+        const { result, coordinator } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        let first!: Promise<void>
+        let all!: Promise<boolean>
+        act(() => {
+            first = result.current.closeTab('/ws/a.mmd')
+            all = coordinator.confirmCloseTabs.current()
+        })
+        await act(async () => {
+            answer('discard')
+            await first
+        })
+
+        await expect(all).resolves.toBe(false)
+        // a.mmd is closed by then, so only b.mmd is left to ask about.
+        expect(confirmUnsavedChanges).toHaveBeenLastCalledWith(['b.mmd'])
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
+    })
+
+    it('leaves the tabs as they are until they really close', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const { result, coordinator, cancelScheduledSave } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        // A folder switch asks first, but may then not happen (another folder was picked meanwhile).
+        await act(async () => {
+            await expect(coordinator.confirmCloseTabs.current()).resolves.toBe(true)
+        })
+        expect(cancelScheduledSave).not.toHaveBeenCalled()
+
+        act(() => coordinator.clearTabs.current())
+        expect(cancelScheduledSave.mock.calls.map(([id]) => id)).toEqual(['/ws/a.mmd', '/ws/b.mmd', '/ws/c.mmd'])
     })
 })
 

@@ -19,9 +19,13 @@ export function useWindowCloseHandler() {
             .onCloseRequested(async (event) => {
                 // Saves every tab, or asks the user what to do with changes that can't be saved
                 // (Try Again / Close Without Saving / Cancel). A second click on X while this
-                // is still running is turned away by confirmCloseTabs, so it never runs twice.
+                // is still running gets the same answer from confirmCloseTabs, so it never asks twice.
                 const canClose = await coordinator.confirmCloseTabs.current()
-                if (!canClose) event.preventDefault()
+                if (!canClose) {
+                    event.preventDefault()
+                    return
+                }
+                await coordinator.releaseAllTabs.current()
             })
             .then((fn) => {
                 // The effect may have been cleaned up while the listener was still being added.

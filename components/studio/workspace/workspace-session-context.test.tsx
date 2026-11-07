@@ -1192,6 +1192,42 @@ describe('opening folders one after another', () => {
         expect(result.current.session.openingWorkspace).toBeNull()
     })
 
+    it('opens the folder clicked last when it is picked while a slow save holds up leaving the open one', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'edited'))
+        let finishSave!: () => void
+        const saveGate = new Promise<void>((resolve) => (finishSave = resolve))
+        vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+            await saveGate
+            return disk.writeBytes(path, data as Uint8Array, options)
+        })
+
+        let openingBig!: Promise<void>
+        let openingSmall!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        // Leaving C:\ws waits for notes.md to save; meanwhile the user picks another folder.
+        await waitFor(() => expect(writeFile).toHaveBeenCalled())
+        act(() => {
+            openingSmall = result.current.session.openWorkspace('C:\\small')
+        })
+        await act(async () => {
+            finishSave()
+            await Promise.all([openingBig, openingSmall])
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited')
+        expect(writeFile).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the open folder when it is picked again while another one is still being read', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await act(async () => {

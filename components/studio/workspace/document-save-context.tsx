@@ -286,8 +286,15 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                 clearTimeout(timer)
                 saveTimers.current.delete(id)
             }
-            // The tab is closing: its edits were saved, or the user chose to close without saving them.
-            clearBackup(id, tabsRef.current.find((t) => t.id === id)?.path ?? id)
+            // The tab is closing: its edits were saved, or the user chose to close without saving them. A clean
+            // tab's copy already went when it was saved, so closing it doesn't queue a write of the copies.
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (!tab || tab.isDirty) {
+                clearBackup(id, tab?.path ?? id)
+            } else {
+                clearTimeout(backupTimers.current.get(id))
+                backupTimers.current.delete(id)
+            }
             // The tab is closing, so its "couldn't save" notice no longer applies.
             if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
         },

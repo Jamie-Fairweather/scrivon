@@ -10,7 +10,7 @@ export type WorkspaceCoordinatorRefs = {
     scheduleSave: MutableRefObject<(id: string) => void>
     /** Keeps a copy of the tab's unsaved text shortly after the user stops typing, so a crash can't lose it. */
     scheduleBackup: MutableRefObject<(id: string) => void>
-    /** For a tab that is closing: drops its pending autosave, its copy of unsaved text and its "couldn't save" notice. */
+    /** For a tab that is closing: drops its pending autosave, its copy of unsaved text (if it has edits) and its "couldn't save" notice. */
     cancelScheduledSave: MutableRefObject<(id: string) => void>
     /** Tabs whose file was renamed or moved: their pending saves and copies of unsaved text follow them. */
     tabsMoved: MutableRefObject<(moves: ReadonlyArray<{ from: string; to: string }>) => void>
@@ -29,12 +29,21 @@ export type WorkspaceCoordinatorRefs = {
     getUnsavedContent: MutableRefObject<(path: string) => UnsavedText | undefined>
     /**
      * Gets tabs ready to close (all tabs when `ids` is left out): saves them, or asks the user
-     * about unsaved or unsavable changes. Resolves false when the tabs must stay open.
+     * about unsaved or unsavable changes. Resolves false when the tabs must stay open. It changes nothing
+     * else: the caller that then really closes them drops their leftovers (closing a tab, clearTabs,
+     * releaseAllTabs). A request made while another is running shares its answer or waits for it.
      */
     confirmCloseTabs: MutableRefObject<(ids?: readonly string[]) => Promise<boolean>>
+    /**
+     * For when every tab is going away with the window (or for an app update), after confirmCloseTabs:
+     * drops their pending saves, copies of unsaved text and notices, and waits (at most a second) until
+     * those copies are gone from disk, so discarded or saved text isn't offered back on the next launch.
+     */
+    releaseAllTabs: MutableRefObject<() => Promise<void>>
     remapTabsAfterRename: MutableRefObject<(oldPath: string, newPath: string, newName: string) => void>
     closeTabsForDelete: MutableRefObject<(path: string, isDirectory: boolean) => void>
     requestCanvasFit: MutableRefObject<() => void>
+    /** Closes every tab, dropping its leftovers as closing a tab does; for a folder switch or close after confirmCloseTabs. */
     clearTabs: MutableRefObject<() => void>
     setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => void>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
@@ -58,6 +67,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         isAskingUser: { current: () => false },
         getUnsavedContent: { current: () => undefined },
         confirmCloseTabs: { current: async () => true },
+        releaseAllTabs: { current: async () => {} },
         remapTabsAfterRename: { current: () => {} },
         closeTabsForDelete: { current: () => {} },
         requestCanvasFit: { current: () => {} },

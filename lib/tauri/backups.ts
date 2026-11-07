@@ -136,11 +136,14 @@ export function deleteUnsavedBackup(path: string): Promise<void> {
     return run((s) => change(s, (store) => store.delete(backupKey(path))), undefined)
 }
 
+/** How long closing waits for copies to be removed by default; they are only a safety net. */
+const SETTLE_TIMEOUT_MS = 1_000
+
 /**
  * Waits until every change asked for so far has reached the disk, for at most `timeoutMs`. Closing the
  * window or a folder waits for this, so a copy removed just before can't come back on the next launch.
  */
-export function settleUnsavedBackups(timeoutMs: number): Promise<void> {
+export function settleUnsavedBackups(timeoutMs = SETTLE_TIMEOUT_MS): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<void>((resolve) => (timer = setTimeout(resolve, timeoutMs)))
     return Promise.race([queue.then(() => undefined), timeout]).finally(() => clearTimeout(timer))

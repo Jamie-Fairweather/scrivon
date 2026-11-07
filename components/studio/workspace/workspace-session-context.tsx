@@ -24,7 +24,7 @@ import {
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
-import { deleteUnsavedBackup, listUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
+import { deleteUnsavedBackup, listUnsavedBackups, settleUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
 import {
     addRecentWorkspace,
     clampRecentWorkspaceLimit,
@@ -382,6 +382,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     if (!isCurrent()) return
                     // Leaving the open folder closes its tabs, so unsaved or unsavable edits are dealt with first. That
                     // happens only now, right before switching, so nothing typed while the new folder was read is lost.
+                    // A folder picked while this is still being answered (or saved) gets the same answer, and the
+                    // tabs are only let go once a switch really happens (clearTabs).
                     if (workspaceRootRef.current && !(await coordinator.confirmCloseTabs.current())) return
                     if (!isCurrent()) return
                 } catch (err) {
@@ -464,7 +466,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         // Already remembered for the folder as each was opened or closed.
         updateFolderToggles(null, () => new Map())
         coordinator.clearTabs.current()
-        await leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
+        // With no folder open, closing the window doesn't wait for anything, so the copies of the closed tabs'
+        // unsaved text are removed from disk now; otherwise they could be offered back on the next launch.
+        await Promise.all([
+            leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err)),
+            settleUnsavedBackups(),
+        ])
     }, [coordinator, updateFolderToggles])
 
     const suggestName = useCallback(

@@ -9,7 +9,7 @@ import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { BACKUP_DELAY_MS, DocumentSaveProvider, useDocumentSave } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
-import { createWorkspaceCoordinatorRefs } from './workspace-coordinator'
+import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 
 const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 } }))
 
@@ -40,9 +40,10 @@ function tab(id: string, overrides: Partial<DocumentTab> = {}): DocumentTab {
     return { id, path: id, name: id.split('/').pop()!, content: 'v0', isDirty: false, isSaving: false, ...overrides }
 }
 
-function createWrapper(initialTabs: DocumentTab[]) {
+function createWrapper(initialTabs: DocumentTab[], coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}) {
     return function Wrapper({ children }: { children: ReactNode }) {
         const coordinator = useMemo(() => createWorkspaceCoordinatorRefs(), [])
+        coordinatorOut.current = coordinator
         const tabsState = useDocumentTabsState()
         const seeded = useRef(false)
         useLayoutEffect(() => {
@@ -348,10 +349,39 @@ describe('copies of unsaved text', () => {
         expect(result.current.tabs.tabs).toEqual([])
         expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
         expect(writeFile).not.toHaveBeenCalled()
-        // Closing waits for the removal to reach the disk, so the window can't close before it does.
+        // Only the window or folder going away waits for that to reach the disk; closing a tab doesn't.
+        expect(settleUnsavedBackups).not.toHaveBeenCalled()
+    })
+
+    it('waits for the copies to be removed before the window closes', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')], coordinatorOut) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+        vi.mocked(deleteUnsavedBackup).mockClear()
+
+        await act(async () => {
+            expect(await coordinatorOut.current!.confirmCloseTabs.current()).toBe(true)
+            await coordinatorOut.current!.releaseAllTabs.current()
+        })
+
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
         expect(vi.mocked(settleUnsavedBackups).mock.invocationCallOrder[0]).toBeGreaterThan(
             vi.mocked(deleteUnsavedBackup).mock.invocationCallOrder[0]!
         )
+    })
+
+    it("doesn't rewrite the copies when a tab without edits closes", async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: false })]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        await act(async () => {
+            await result.current.tabs.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
     })
 
     it('never copies text the user did not type, such as a read-only file', async () => {

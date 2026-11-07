@@ -257,6 +257,23 @@ describe('confirmCloseAfterSaveFailure', () => {
         messageMock.mockResolvedValueOnce('Cancel')
         await expect(confirmCloseAfterSaveFailure([{ name: 'a.md' }])).resolves.toBe('cancel')
     })
+
+    it('offers Keep Waiting instead of Try Again when a save is only slow', async () => {
+        messageMock.mockResolvedValueOnce('Keep Waiting')
+        await expect(confirmCloseAfterSaveFailure([{ name: 'a.md', stillSaving: true }])).resolves.toBe('retry')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('Scrivon is still saving a.md. The drive may be slow or offline.')
+        expect(options).toMatchObject({ title: 'Still saving', buttons: { yes: 'Keep Waiting', no: 'Close Without Saving', cancel: 'Cancel' } })
+
+        // With a real failure in the list too, trying again is still the first choice.
+        messageMock.mockResolvedValueOnce('Try Again')
+        await confirmCloseAfterSaveFailure([
+            { name: 'a.md', stillSaving: true },
+            { name: 'b.md', error: 'Disk full' },
+        ])
+        expect(messageMock.mock.calls[1]![0]).toContain('a.md: Still saving. The drive may be slow or offline.')
+        expect(messageMock.mock.calls[1]![1]).toMatchObject({ title: "Couldn't save", buttons: { yes: 'Try Again' } })
+    })
 })
 
 describe('confirmOverwriteDiskChange', () => {

@@ -52,11 +52,8 @@ const DocumentTabActionsContext = createContext<DocumentTabActions | null>(null)
 /** `undefined` only outside the provider; no tab open is `null`. */
 const ActiveTabIdContext = createContext<string | null | undefined>(undefined)
 
-/** How long closing waits for a save before treating it as failed (e.g. an offline network drive). */
+/** How long closing waits for a save before asking the user (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
-
-/** How long closing waits for copies of unsaved text to be removed; they are only a safety net. */
-const BACKUP_SETTLE_TIMEOUT_MS = 1_000
 
 /** Time spent waiting for the user to answer a question during the save doesn't count. */
 function saveWithin(save: Promise<boolean>, ms: number, isAskingUser: () => boolean): Promise<boolean | 'timeout'> {
@@ -217,8 +214,29 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [editAsUtf8, editLargeFile]
     )
 
+    /**
+     * For tabs that are really closing, once their edits were saved or the user chose not to keep them: drops
+     * their pending autosave, their copy of unsaved text and their notices. Never done before the close is
+     * sure, so a folder switch that ends up not happening leaves the tabs exactly as they were.
+     */
+    const releaseTabs = useCallback(
+        (closing: readonly DocumentTab[]) => {
+            for (const tab of closing) {
+                coordinator.cancelScheduledSave.current(tab.id)
+                dismissNotification(readOnlyNoticeId(tab.id))
+            }
+        },
+        [coordinator]
+    )
+
     useEffect(() => {
         registerCoordinatorRefs(coordinator, {
+            releaseAllTabs: async () => {
+                releaseTabs(tabsRef.current)
+                // The copies are gone from disk before the window closes, so text that was saved, or that the
+                // user chose not to save, isn't offered back on the next launch.
+                await settleUnsavedBackups()
+            },
             remapTabsAfterRename: (oldPath, newPath, newName) => {
                 const prevTabs = tabsRef.current
                 const nextTabs = remapTabsAfterRename(prevTabs, oldPath, newPath, newName)
@@ -238,10 +256,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
             closeTabsForDelete: (path, isDirectory) => {
                 const toClose = tabsToCloseOnDelete(tabsRef.current, path, isDirectory)
-                for (const tab of toClose) {
-                    coordinator.cancelScheduledSave.current(tab.id)
-                    dismissNotification(readOnlyNoticeId(tab.id))
-                }
+                releaseTabs(toClose)
                 const closingIds = new Set(toClose.map((t) => t.id))
                 const nextTabs = tabsRef.current.filter((t) => !closingIds.has(t.id))
                 const closingActive = activeTabIdRef.current !== null && closingIds.has(activeTabIdRef.current)
@@ -255,6 +270,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
             clearTabs: () => {
+                releaseTabs(tabsRef.current)
                 // The refs change straight away, so anything that runs before React re-renders sees no tabs.
                 tabsRef.current = []
                 activeTabIdRef.current = null
@@ -276,7 +292,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 for (const tab of restored) explainReadOnlyFile(tab)
             },
         })
-    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile])
+    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs])
 
     // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
     const pendingOpens = useRef(new Map<string, Promise<void>>())
@@ -430,45 +446,50 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 )
                 const failed = results.filter((r) => r.result !== true)
                 if (failed.length === 0) break
+                // A save that timed out is still running, and saves of one tab wait their turn, so another try
+                // can only wait for it: the question says so.
                 const choice = await confirmCloseAfterSaveFailure(
-                    failed.map(({ tab, result }) => ({
-                        name: tab.name,
-                        error: result === 'timeout' ? 'Saving is taking too long.' : coordinator.getSaveError.current(tab.id),
-                    }))
+                    failed.map(({ tab, result }) =>
+                        result === 'timeout'
+                            ? { name: tab.name, stillSaving: true }
+                            : { name: tab.name, error: coordinator.getSaveError.current(tab.id) }
+                    )
                 )
                 if (choice === 'cancel') return false
                 if (choice === 'discard') break
                 toSave = failed.map((r) => r.tab)
             }
-
-            for (const tab of closing) {
-                coordinator.cancelScheduledSave.current(tab.id)
-                dismissNotification(readOnlyNoticeId(tab.id))
-            }
-            // The copies of these tabs' unsaved text are gone from disk before the window or folder closes, so
-            // text that was saved, or that the user chose not to save, isn't offered back on the next launch.
-            await settleUnsavedBackups(BACKUP_SETTLE_TIMEOUT_MS)
             return true
         },
         [coordinator]
     )
 
-    const confirmingCloseRef = useRef(false)
+    // The close question being answered (or the saves it waits for) right now, and the tabs it is about.
+    const runningConfirm = useRef<{ ids: ReadonlySet<string>; done: Promise<boolean> } | null>(null)
 
     const confirmCloseTabs = useCallback(
         async (ids?: readonly string[]): Promise<boolean> => {
-            // One question at a time: a second close request while one is being answered is ignored.
-            if (confirmingCloseRef.current) return false
-            confirmingCloseRef.current = true
-            try {
-                const closing = ids ? tabsRef.current.filter((t) => ids.includes(t.id)) : tabsRef.current
-                return await resolveUnsavedTabs(closing)
-            } catch (err) {
+            const closingNow = () => (ids ? tabsRef.current.filter((t) => ids.includes(t.id)) : tabsRef.current)
+            // One question at a time. A second request while one runs (a second click on X, another folder picked
+            // during a slow save) gets that one's answer when it is about the same tabs or fewer, and otherwise
+            // asks about its own tabs once the first is done, so neither is quietly dropped.
+            while (runningConfirm.current) {
+                const running = runningConfirm.current
+                if (closingNow().every((t) => running.ids.has(t.id))) return running.done
+                await running.done
+                // Lets the request that asked first close its tabs, so only the ones left are asked about.
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            }
+            const closing = closingNow()
+            const done = resolveUnsavedTabs(closing).catch((err: unknown) => {
                 notifyError("Couldn't close the files", err)
                 return false
-            } finally {
-                confirmingCloseRef.current = false
-            }
+            })
+            runningConfirm.current = { ids: new Set(closing.map((t) => t.id)), done }
+            void done.finally(() => {
+                if (runningConfirm.current?.done === done) runningConfirm.current = null
+            })
+            return done
         },
         [resolveUnsavedTabs, tabsRef]
     )
@@ -480,6 +501,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     const closeTab = useCallback(
         async (id: string) => {
             if (!(await confirmCloseTabs([id]))) return
+            releaseTabs(tabsRef.current.filter((t) => t.id === id))
             const prev = tabsRef.current
             const nextTabs = prev.filter((t) => t.id !== id)
             let nextActiveId = activeTabIdRef.current
@@ -495,7 +517,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setTabs((current) => current.filter((t) => t.id !== id))
             void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
         },
-        [confirmCloseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
+        [confirmCloseTabs, releaseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
     )
 
     const closeOtherTabs = useCallback(
@@ -503,6 +525,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             const idsToClose = tabsRef.current.filter((t) => t.id !== keepId).map((t) => t.id)
             if (!(await confirmCloseTabs(idsToClose))) return
             const closing = new Set(idsToClose)
+            releaseTabs(tabsRef.current.filter((t) => closing.has(t.id)))
             const nextTabs = tabsRef.current.filter((t) => !closing.has(t.id))
             tabsRef.current = nextTabs
             setTabs((current) => current.filter((t) => !closing.has(t.id)))
@@ -510,17 +533,18 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setActiveTabId(keepId)
             await persistTabSession({ tabs: nextTabs, activeTabId: keepId })
         },
-        [confirmCloseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
+        [confirmCloseTabs, releaseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
     )
 
     const closeAllTabs = useCallback(async () => {
         if (!(await confirmCloseTabs())) return
+        releaseTabs(tabsRef.current)
         tabsRef.current = []
         activeTabIdRef.current = null
         setTabs([])
         setActiveTabId(null)
         await persistTabSession({ tabs: [], activeTabId: null })
-    }, [confirmCloseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef])
+    }, [confirmCloseTabs, releaseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef])
 
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { openFile })

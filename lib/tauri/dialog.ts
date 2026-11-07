@@ -123,21 +123,39 @@ export async function confirmUnsavedChanges(fileNames: string[]): Promise<Unsave
     return 'cancel'
 }
 
-export type SaveFailure = { name: string; error?: string }
+/** A file that couldn't be saved, or (`stillSaving`) whose save is taking too long and is still running. */
+export type SaveFailure = { name: string; error?: string; stillSaving?: boolean }
 export type SaveFailureChoice = 'retry' | 'discard' | 'cancel'
 
-/** Try Again / Close Without Saving / Cancel when files could not be saved before closing them. */
+const STILL_SAVING = 'Still saving. The drive may be slow or offline.'
+
+/**
+ * Try Again / Close Without Saving / Cancel when files could not be saved before closing them. When every
+ * save is only slow, the first button is Keep Waiting instead: trying again can only wait for the save
+ * that is still running.
+ */
 export async function confirmCloseAfterSaveFailure(failures: SaveFailure[]): Promise<SaveFailureChoice> {
-    const describe = (f: SaveFailure) => (f.error ? `${f.name}: ${f.error}` : f.name)
-    const problem =
-        failures.length === 1
-            ? `Scrivon couldn't save ${failures[0]!.name}.${failures[0]!.error ? `\n\n${failures[0]!.error}` : ''}`
-            : `Scrivon couldn't save ${failures.length} files.\n\n${listFiles(failures.map(describe))}`
-    const choice = await askThreeWay("Couldn't save", `${problem}\n\nIf you close without saving, your changes will be lost.`, {
-        yes: 'Try Again',
-        no: 'Close Without Saving',
-        cancel: 'Cancel',
-    })
+    const errorOf = (f: SaveFailure) => (f.stillSaving ? STILL_SAVING : f.error)
+    const describe = (f: SaveFailure) => (errorOf(f) ? `${f.name}: ${errorOf(f)}` : f.name)
+    const allSlow = failures.every((f) => f.stillSaving)
+    let problem: string
+    if (failures.length === 1) {
+        const error = errorOf(failures[0]!)
+        problem = allSlow
+            ? `Scrivon is still saving ${failures[0]!.name}. The drive may be slow or offline.`
+            : `Scrivon couldn't save ${failures[0]!.name}.${error ? `\n\n${error}` : ''}`
+    } else {
+        problem = `${allSlow ? `Scrivon is still saving ${failures.length} files.` : `Scrivon couldn't save ${failures.length} files.`}\n\n${listFiles(failures.map(describe))}`
+    }
+    const choice = await askThreeWay(
+        allSlow ? 'Still saving' : "Couldn't save",
+        `${problem}\n\nIf you close without saving, your changes will be lost.`,
+        {
+            yes: allSlow ? 'Keep Waiting' : 'Try Again',
+            no: 'Close Without Saving',
+            cancel: 'Cancel',
+        }
+    )
     if (choice === 'yes') return 'retry'
     if (choice === 'no') return 'discard'
     return 'cancel'
