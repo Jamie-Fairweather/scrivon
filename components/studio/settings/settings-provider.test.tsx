@@ -299,7 +299,20 @@ describe('SettingsProvider persistence', () => {
         expect(invoke).toHaveBeenCalledWith('adopt_export_images', { paths: ['C:/brand/cover.png', 'C:/brand/logo.png'] })
     })
 
-    it('writes a burst of changes once, shortly after the last one', () => {
+    it('writes a change on its own at once, so closing the window right after keeps it', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.setThemeId('scrivon-light')
+        })
+
+        expect(settingsWrites).toBe(1)
+        expect(stored().theme.id).toBe('scrivon-light')
+        waitForSave()
+        expect(settingsWrites).toBe(1)
+    })
+
+    it('writes the first of a burst of changes at once, and the rest once, shortly after the last one', () => {
         const { result } = renderSettings()
 
         for (const width of [500, 510, 520, 530]) {
@@ -310,15 +323,35 @@ describe('SettingsProvider persistence', () => {
                 vi.advanceTimersByTime(100)
             })
         }
-        expect(settingsWrites).toBe(0)
+        expect(settingsWrites).toBe(1)
+        expect(stored().layout.editorWidth).toBe(500)
         expect(result.current.settings.layout.editorWidth).toBe(530)
 
         waitForSave()
-        expect(settingsWrites).toBe(1)
+        expect(settingsWrites).toBe(2)
         expect(stored().layout.editorWidth).toBe(530)
         waitForSave()
-        expect(settingsWrites).toBe(1)
+        expect(settingsWrites).toBe(2)
+
+        // Once the burst is over, the next change is written at once again.
+        act(() => {
+            result.current.setEditorWidth(600)
+        })
+        expect(settingsWrites).toBe(3)
+        expect(stored().layout.editorWidth).toBe(600)
     })
+
+    /** Two changes back to back: the first is written at once, the second waits. */
+    function changeWidthTwice(result: { current: ReturnType<typeof useAppSettings> }) {
+        act(() => {
+            result.current.setEditorWidth(600)
+        })
+        act(() => {
+            result.current.setEditorWidth(640)
+        })
+        expect(settingsWrites).toBe(1)
+        expect(stored().layout.editorWidth).toBe(600)
+    }
 
     it.each([
         ['the page is hidden', () => window.dispatchEvent(new Event('pagehide'))],
@@ -332,26 +365,21 @@ describe('SettingsProvider persistence', () => {
         ],
     ])('writes a waiting change at once when %s', (_, leave) => {
         const { result } = renderSettings()
-        act(() => {
-            result.current.setEditorWidth(640)
-        })
-        expect(settingsWrites).toBe(0)
+        changeWidthTwice(result)
 
         leave()
 
-        expect(settingsWrites).toBe(1)
+        expect(settingsWrites).toBe(2)
         expect(stored().layout.editorWidth).toBe(640)
     })
 
     it('writes a waiting change when the provider unmounts', () => {
         const { result, unmount } = renderSettings()
-        act(() => {
-            result.current.setEditorWidth(640)
-        })
+        changeWidthTwice(result)
 
         unmount()
 
-        expect(settingsWrites).toBe(1)
+        expect(settingsWrites).toBe(2)
         expect(stored().layout.editorWidth).toBe(640)
     })
 
@@ -360,15 +388,18 @@ describe('SettingsProvider persistence', () => {
         act(() => {
             result.current.openSettings('editor')
         })
-        act(() => {
-            result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, tabSize: 4 } }))
-        })
+        for (const tabSize of [2, 4]) {
+            act(() => {
+                result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, tabSize } }))
+            })
+        }
+        expect(settingsWrites).toBe(1)
 
         act(() => {
             result.current.closeSettings()
         })
 
-        expect(settingsWrites).toBe(1)
+        expect(settingsWrites).toBe(2)
         expect(stored().editor.tabSize).toBe(4)
     })
 
@@ -382,7 +413,7 @@ describe('SettingsProvider persistence', () => {
             result.current.resetAllSettings()
         })
 
-        expect(settingsWrites).toBe(1)
+        expect(settingsWrites).toBe(2)
         expect(stored().layout.editorWidth).toBe(createDefaultSettings(false).layout.editorWidth)
     })
 

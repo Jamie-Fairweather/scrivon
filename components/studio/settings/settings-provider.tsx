@@ -43,7 +43,7 @@ type AppSettingsContextValue = {
     reassignKeybind: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
     resetAllKeybinds: () => void
     resetAllSettings: () => void
-    /** Writes a change that is still waiting to be saved now (they're saved shortly after the last one). */
+    /** Writes a change that is still waiting to be saved now (the end of a burst is saved shortly after it). */
     flushPendingSettings: () => void
 }
 
@@ -67,7 +67,7 @@ function describeUnusableChords(chords: KeybindChord[]): string | null {
     return null
 }
 
-/** How long after the last change settings are written. Dragging a colour or holding an arrow key changes them many times a second. */
+/** How long after the last of a burst of changes it is written. Dragging a colour or holding an arrow key changes settings many times a second. */
 const SAVE_DELAY_MS = 300
 
 function clampAutosaveDelay(delayMs: number): number {
@@ -82,7 +82,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     // Latest settings, updated straight away so back-to-back updates build on each other.
     // React may defer a state updater until render, so the next value is never read out of one.
     const settingsRef = useRef(settings)
-    // Saving writes every setting (export profiles too), so a burst of changes is written once.
+    // Saving writes every setting (export profiles too), so a burst of changes is written twice:
+    // its first change at once, and its last one shortly after the burst ends.
     const pendingSaveRef = useRef<AppSettings | null>(null)
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -101,8 +102,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         (next: AppSettings) => {
             settingsRef.current = next
             setSettingsState(next)
-            pendingSaveRef.current = next
-            if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current)
+            if (saveTimerRef.current === null) {
+                // A change on its own (a theme or layout shortcut) is written straight away, so
+                // closing the window right after can't lose it. Only the rest of a burst waits.
+                saveSettings(next)
+            } else {
+                pendingSaveRef.current = next
+                clearTimeout(saveTimerRef.current)
+            }
             saveTimerRef.current = setTimeout(flushPendingSettings, SAVE_DELAY_MS)
         },
         [flushPendingSettings]
