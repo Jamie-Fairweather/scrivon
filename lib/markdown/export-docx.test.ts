@@ -1670,7 +1670,7 @@ describe('renderExportDocx', () => {
         )
         // The logo keeps its own 200×50 size; it is drawn at 2x so it stays sharp.
         expect(canvases).toContainEqual({ width: 400, height: 100 })
-        expect(drawingSize(xml, 'Logo')).toEqual({ width: 200, height: 50 })
+        expect(drawingSize(xml, 'Cover image')).toEqual({ width: 200, height: 50 })
         // The header icon is sized from its viewBox, the WebP from its pixels, both fitted into the bar.
         expect(drawingSize(xml, 'header left')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'footer left')).toEqual({ width: 37, height: 28 })
@@ -1693,7 +1693,7 @@ describe('renderExportDocx', () => {
             { logoDataUrl: svgLogo, header: { left: '', right: '' }, footer: { left: '', right: '' } }
         )
         // Stretched to the 793px page width, so it is drawn at twice that, not at twice its own 120px.
-        expect(drawingSize(xml, 'Logo')).toEqual({ width: 793, height: 264 })
+        expect(drawingSize(xml, 'Cover image')).toEqual({ width: 793, height: 264 })
         expect(canvases).toContainEqual({ width: 1586, height: 529 })
         // A logo inside the margins keeps its own size, drawn at 2x.
         const inside = stubImageDecoding()
@@ -1704,7 +1704,7 @@ describe('renderExportDocx', () => {
             },
             { logoDataUrl: svgLogo, header: { left: '', right: '' }, footer: { left: '', right: '' } }
         )
-        expect(drawingSize(small.xml, 'Logo')).toEqual({ width: 120, height: 40 })
+        expect(drawingSize(small.xml, 'Cover image')).toEqual({ width: 120, height: 40 })
         expect(inside).toEqual([{ width: 240, height: 80 }])
     })
 
@@ -1722,11 +1722,11 @@ describe('renderExportDocx', () => {
         )
         expect(notifyWarning).toHaveBeenCalledTimes(1)
         expect(notifyWarning).toHaveBeenCalledWith("Some images aren't in the Word file", {
-            description: "Couldn't add the title-page logo and header image. Try a PNG or JPEG file instead.",
+            description: "Couldn't add the cover image and header image. Try a PNG or JPEG file instead.",
         })
         // No cover image to run to the edge, so the title page keeps its margins and is centred.
         expect(xml).toContain('<w:vAlign w:val="center"/>')
-        expect(xml).not.toContain('descr="Logo"')
+        expect(xml).not.toContain('descr="Cover image"')
 
         stubImageDecoding()
         await render(
@@ -1743,7 +1743,7 @@ describe('renderExportDocx', () => {
             }
         )
         expect(notifyWarning).toHaveBeenLastCalledWith("Some images aren't in the Word file", {
-            description: "Couldn't add the title-page logo and footer image. Try a PNG or JPEG file instead.",
+            description: "Couldn't add the cover image and footer image. Try a PNG or JPEG file instead.",
         })
     })
 
@@ -1758,7 +1758,7 @@ describe('renderExportDocx', () => {
             draft.header.hideOnFirstPages = 'title'
         })
         expect(inline.xml).toContain('Alpha')
-        expect(inline.xml).toContain('descr="Logo"')
+        expect(inline.xml).toContain('descr="Cover image"')
 
         const underHeader = await cover('# Alpha', (draft) => {
             draft.frontMatter.titlePage = true
@@ -1798,7 +1798,7 @@ describe('renderExportDocx', () => {
             },
             WIDE_PNG_URL
         )
-        expect(wide.xml).toContain('descr="Logo"')
+        expect(wide.xml).toContain('descr="Cover image"')
 
         const unknown = await cover(
             '# Alpha',
@@ -1834,7 +1834,7 @@ describe('renderExportDocx', () => {
             })
             expect(xml).toContain('Alpha')
             // The square picture is page-wide (793px), so it is cut down to the 150mm (567px) cover cap.
-            expect(drawingSize(xml, 'Logo'), mode).toEqual({ width: 793, height: 567 })
+            expect(drawingSize(xml, 'Cover image'), mode).toEqual({ width: 793, height: 567 })
             // A cropped cover is a new PNG. When the canvas can't crop, the original picture is kept as it is.
             const media = mediaFiles(names)
             expect(media, mode).toHaveLength(1)

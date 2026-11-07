@@ -36,7 +36,7 @@ describe('resolvePdfExportAssets', () => {
         profile.brand.logoPath = 'logo.png'
         await expect(resolvePdfExportAssets(profile)).resolves.toEqual({
             assets: EMPTY,
-            missing: [{ slot: 'Logo', path: 'logo.png', reason: 'Images can only be read in the desktop app.' }],
+            missing: [{ slot: 'Cover image', path: 'logo.png', reason: 'Images can only be read in the desktop app.' }],
         })
         expect(invoke).not.toHaveBeenCalled()
     })

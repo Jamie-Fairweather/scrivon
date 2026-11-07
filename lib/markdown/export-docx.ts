@@ -530,7 +530,7 @@ function warnAboutDroppedImages(state: RenderState) {
     const { profile, assets } = state.document
     const layout = resolvePdfExportLayout(profile)
     const slots: [used: boolean, dataUrl: string, label: string][] = [
-        [profile.frontMatter.titlePage, assets.logoDataUrl, 'title-page logo'],
+        [profile.frontMatter.titlePage, assets.logoDataUrl, 'cover image'],
         [layout.showHeader, assets.header.left, 'header image'],
         [layout.showHeader, assets.header.right, 'header image'],
         [layout.showFooter, assets.footer.left, 'footer image'],
@@ -1694,7 +1694,7 @@ async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx:
                           zIndex: 1,
                       }
                     : undefined,
-            altText: { name: 'Logo', description: 'Logo' },
+            altText: { name: 'Cover image', description: 'Cover image' },
         }),
     }
 }
