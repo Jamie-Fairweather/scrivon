@@ -267,7 +267,23 @@ describe('MarkdownPreview', () => {
             )
             expect(container.querySelector('source')).toBeNull()
             expect(container.innerHTML).not.toContain('tracker.example')
-            expect(container.querySelectorAll('picture > img')).toHaveLength(2)
+            const images = Array.from(container.querySelectorAll('picture > img'))
+            expect(images.map((img) => img.getAttribute('src'))).toEqual(['a.png', 'data:image/gif;base64,R0lGOD'])
+        })
+
+        it('shows inline data: images, as the PDF does, and still blanks other data: URLs (N21)', () => {
+            preview(
+                [
+                    '![chart](data:image/png;base64,AAAA)',
+                    '',
+                    '<img src="data:image/gif;base64,R0lGOD" alt="raw">',
+                    '',
+                    '[page](data:text/html;base64,PHNjcmlwdD4=)',
+                ].join('\n')
+            )
+            expect(screen.getByRole('img', { name: 'chart' })).toHaveAttribute('src', 'data:image/png;base64,AAAA')
+            expect(screen.getByRole('img', { name: 'raw' })).toHaveAttribute('src', 'data:image/gif;base64,R0lGOD')
+            expect(screen.getByText('page').closest('a')?.getAttribute('href') ?? '').toBe('')
         })
 
         it('keeps the document from taking over the app’s ids, document methods, shortcuts and Tab order', () => {

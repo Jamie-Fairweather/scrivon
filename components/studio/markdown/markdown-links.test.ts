@@ -1,3 +1,4 @@
+import type { Element } from 'hast'
 import { describe, expect, it } from 'vitest'
 import type { FileNode } from '@/lib/workspace/types'
 import {
@@ -199,5 +200,16 @@ describe('markdownUrlTransform', () => {
         expect(markdownUrlTransform('javascript:alert(1)')).toBe('')
         expect(markdownUrlTransform('notes/a.md')).toBe('notes/a.md')
         expect(markdownUrlTransform('https://example.com')).toBe('https://example.com')
+    })
+
+    it('keeps an image’s inline data: picture, as the PDF does, but no other data: URL (N21)', () => {
+        const element = (tagName: string): Element => ({ type: 'element', tagName, properties: {}, children: [] })
+        const png = 'data:image/png;base64,iVBORw0KGgo='
+        expect(markdownUrlTransform(png, 'src', element('img'))).toBe(png)
+        expect(markdownUrlTransform('DATA:image/gif;base64,R0lGOD', 'src', element('img'))).toBe('DATA:image/gif;base64,R0lGOD')
+        expect(markdownUrlTransform(png, 'href', element('a'))).toBe('')
+        expect(markdownUrlTransform(png, 'src', element('video'))).toBe('')
+        expect(markdownUrlTransform('data:text/html;base64,PHNjcmlwdD4=', 'src', element('img'))).toBe('')
+        expect(markdownUrlTransform(png)).toBe('')
     })
 })

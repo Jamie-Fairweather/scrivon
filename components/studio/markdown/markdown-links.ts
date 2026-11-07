@@ -1,3 +1,4 @@
+import type { Element } from 'hast'
 import { defaultUrlTransform } from 'react-markdown'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -38,6 +39,7 @@ const WINDOWS_ABSOLUTE_HREF = /^[a-zA-Z]:([\\/]|%5c)/i
 const NETWORK_PATH = /^[\\/]{2}/
 const NETWORK_SHARE = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/
 const URL_SCHEME = /^[a-zA-Z][a-zA-Z\d+.-]*:/
+const DATA_IMAGE = /^\s*data:image\//i
 
 function decode(text: string): string {
     try {
@@ -65,10 +67,13 @@ export function anchorKey(text: string): string {
 
 /**
  * Keeps Windows paths such as `C:\docs\a.md` (react-markdown's default would blank them, reading `C:` as an
- * unsafe URL scheme) and otherwise applies react-markdown's safe default.
+ * unsafe URL scheme) and an `<img>`'s inline `data:image/…` picture (which can't run scripts there, and which the
+ * PDF shows too), and otherwise applies react-markdown's safe default. `key` and `node` are the attribute and
+ * element react-markdown passes.
  */
-export function markdownUrlTransform(url: string): string {
+export function markdownUrlTransform(url: string, key?: string, node?: Readonly<Element>): string {
     if (WINDOWS_ABSOLUTE_HREF.test(url)) return url
+    if (key === 'src' && node?.tagName === 'img' && DATA_IMAGE.test(url)) return url
     return defaultUrlTransform(url)
 }
 
