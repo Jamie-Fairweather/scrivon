@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
 import { writeWorkspaceFile } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
@@ -17,6 +18,10 @@ type DocumentSaveContextValue = {
 }
 
 const DocumentSaveContext = createContext<DocumentSaveContextValue | null>(null)
+
+function saveErrorToastId(tabId: string): string {
+    return `save-error:${tabId}`
+}
 
 export function useDocumentSave(): DocumentSaveContextValue {
     const ctx = useContext(DocumentSaveContext)
@@ -36,6 +41,9 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
     const autosaveEnabled = settings.autosave.enabled
     const autosaveDelayMs = settings.autosave.delayMs
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+    const inFlightSaves = useRef<Map<string, Promise<boolean>>>(new Map())
+    // Read right after a failed save, before React has put the error on the tab.
+    const saveErrors = useRef<Map<string, string>>(new Map())
     const autosaveEnabledRef = useRef(autosaveEnabled)
     const autosaveDelayMsRef = useRef(autosaveDelayMs)
 
@@ -53,37 +61,74 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
         saveTimers.current.clear()
     }, [autosaveEnabled])
 
+    const writeTab = useCallback(
+        async (id: string, silent: boolean): Promise<boolean> => {
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (!tab || tab.readOnly || !tab.isDirty) return true
+
+            const content = tab.content
+            if (!silent) {
+                // Any earlier save error stays on the tab until a save actually works.
+                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: true } : t)))
+            }
+
+            try {
+                await writeWorkspaceFile(tab.path, content)
+                if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
+                // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
+                setTabs((prev) =>
+                    prev.map((t) => (t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t))
+                )
+                return true
+            } catch (err) {
+                const message = errorMessage(err, 'Failed to save file')
+                // Tell the user once per run of failures; autosave would otherwise repeat it after every pause in typing.
+                if (!saveErrors.current.has(id)) {
+                    notifyError(`Couldn't save ${tab.name}`, err, {
+                        id: saveErrorToastId(id),
+                        description: message,
+                        timeout: 0,
+                        action: {
+                            label: 'Try Again',
+                            onClick: () => {
+                                dismissNotification(saveErrorToastId(id))
+                                saveErrors.current.delete(id)
+                                void coordinator.flushSave.current(id)
+                            },
+                        },
+                    })
+                }
+                saveErrors.current.set(id, message)
+                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: false, saveError: message } : t)))
+                return false
+            }
+        },
+        [coordinator, setTabs, tabsRef]
+    )
+
     const flushSave = useCallback(
-        async (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
+        (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
             const timer = saveTimers.current.get(id)
             if (timer) {
                 clearTimeout(timer)
                 saveTimers.current.delete(id)
             }
 
-            const tab = tabsRef.current.find((t) => t.id === id)
-            if (!tab || tab.readOnly || !tab.isDirty) return true
-
-            if (!silent) {
-                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: true, saveError: undefined } : t)))
-            }
-
-            try {
-                await writeWorkspaceFile(tab.path, tab.content)
-                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isDirty: false, isSaving: false, saveError: undefined } : t)))
-                return true
-            } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to save file'
-                setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, isSaving: false, saveError: message } : t)))
-                return false
-            }
+            // Saves for one tab run one after another, so an older write can never land after a newer one.
+            const previous = inFlightSaves.current.get(id)
+            const run = previous ? previous.then(() => writeTab(id, silent)) : writeTab(id, silent)
+            inFlightSaves.current.set(id, run)
+            void run.finally(() => {
+                if (inFlightSaves.current.get(id) === run) inFlightSaves.current.delete(id)
+            })
+            return run
         },
-        [setTabs, tabsRef]
+        [writeTab]
     )
 
     const flushAllSaves = useCallback(async (): Promise<boolean> => {
-        const dirtyIds = tabsRef.current.filter((t) => t.isDirty).map((t) => t.id)
-        const results = await Promise.all(dirtyIds.map((id) => flushSave(id)))
+        const ids = new Set([...tabsRef.current.filter((t) => t.isDirty).map((t) => t.id), ...inFlightSaves.current.keys()])
+        const results = await Promise.all([...ids].map((id) => flushSave(id)))
         return results.every(Boolean)
     }, [flushSave, tabsRef])
 
@@ -112,6 +157,8 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             clearTimeout(timer)
             saveTimers.current.delete(id)
         }
+        // The tab is closing, so its "couldn't save" notice no longer applies.
+        if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
     }, [])
 
     const flushSaveOnTabLeave = useCallback(
@@ -130,6 +177,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs }
             scheduleSave,
             cancelScheduledSave,
             getAutosaveEnabled: () => autosaveEnabledRef.current,
+            getSaveError: (id) => saveErrors.current.get(id),
         })
     }, [coordinator, flushAllSaves, flushSave, flushSaveOnTabLeave, scheduleSave, cancelScheduledSave])
 

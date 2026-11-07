@@ -1,6 +1,17 @@
-import { readDir, readTextFile, writeTextFile, mkdir, rename, remove, copyFile, stat, type DirEntry } from '@tauri-apps/plugin-fs'
+import { readDir, readFile, readTextFile, writeFile, writeTextFile, mkdir, rename, remove, stat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import type { FileNode } from '@/lib/workspace/types'
+
+/** Thrown instead of replacing a file or folder that is already there. */
+export class PathExistsError extends Error {
+    readonly path: string
+
+    constructor(path: string) {
+        super(`A file or folder named "${getBaseName(path)}" already exists here.`)
+        this.name = 'PathExistsError'
+        this.path = path
+    }
+}
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'target', 'dist', 'build'])
 
@@ -17,7 +28,7 @@ async function readDirTree(dirPath: string): Promise<FileNode[]> {
     const nodes: FileNode[] = []
 
     for (const entry of entries) {
-        const fullPath = `${dirPath.replace(/[/\\]+$/, '')}/${entry.name}`
+        const fullPath = joinPath(dirPath, entry.name)
         if (entry.isDirectory) {
             if (SKIP_DIRS.has(entry.name)) continue
             const children = await readDirTree(fullPath)
@@ -41,7 +52,7 @@ async function readDirTree(dirPath: string): Promise<FileNode[]> {
 
 export async function listWorkspaceTree(rootPath: string): Promise<FileNode[]> {
     if (!isTauri()) return []
-    return readDirTree(rootPath)
+    return readDirTree(normalizePath(rootPath))
 }
 
 export async function readWorkspaceFile(path: string): Promise<string> {
@@ -64,18 +75,40 @@ export async function writeWorkspaceFile(path: string, content: string): Promise
     await writeTextFile(path, content)
 }
 
+/** Creates a new folder. Throws PathExistsError if something with that name is already there. */
 export async function createWorkspaceDirectory(path: string): Promise<void> {
     if (!isTauri()) return
-    await mkdir(path, { recursive: true })
+    if (await exists(path)) throw new PathExistsError(path)
+    // Not recursive: that quietly succeeds for an existing folder and recreates a parent deleted elsewhere.
+    await mkdir(path)
 }
 
+/** Creates a new file. Never replaces an existing one: throws PathExistsError instead. */
 export async function createWorkspaceFile(path: string, content: string): Promise<void> {
     if (!isTauri()) return
-    await writeTextFile(path, content)
+    if (await exists(path)) throw new PathExistsError(path)
+    // createNew also refuses a file that turns up between the check and the write (and ignores letter case on Windows).
+    await writeTextFile(path, content, { createNew: true })
 }
 
+/**
+ * Renames a file or folder. The plugin's rename replaces a file already at the target, so this throws
+ * PathExistsError instead. A change of letter case only (`a.md` -> `A.md`) is one entry on Windows and
+ * macOS, so it is allowed unless the folder holds another entry with exactly the new name (Linux).
+ */
 export async function renameWorkspacePath(oldPath: string, newPath: string): Promise<void> {
     if (!isTauri()) return
+    const oldName = getBaseName(oldPath)
+    const newName = getBaseName(newPath)
+    const parent = getParentPath(newPath)
+    const caseOnly = samePath(getParentPath(oldPath), parent) && oldName.toLowerCase() === newName.toLowerCase()
+    if (caseOnly) {
+        if (oldName === newName) return
+        const entries = await readDir(parent)
+        if (entries.some((entry) => entry.name === newName)) throw new PathExistsError(newPath)
+    } else if (await exists(newPath)) {
+        throw new PathExistsError(newPath)
+    }
     await rename(oldPath, newPath)
 }
 
@@ -84,18 +117,91 @@ export async function removeWorkspacePath(path: string): Promise<void> {
     await remove(path)
 }
 
-export async function duplicateWorkspaceFile(sourcePath: string, destPath: string): Promise<void> {
+/** The names of everything directly inside a folder, read from disk rather than the cached tree. */
+export async function listFolderNames(dirPath: string): Promise<string[]> {
+    if (!isTauri()) return []
+    return (await readDir(dirPath)).map((entry) => entry.name)
+}
+
+/**
+ * Copies a file to a new name. Never replaces an existing file (plain copy does): throws PathExistsError
+ * instead. With `content`, such as a tab's unsaved edits, the copy holds that text instead of the disk version.
+ */
+export async function duplicateWorkspaceFile(sourcePath: string, destPath: string, content?: string): Promise<void> {
     if (!isTauri()) return
-    await copyFile(sourcePath, destPath)
+    if (await exists(destPath)) throw new PathExistsError(destPath)
+    // createNew also refuses a file that turns up between the check and the write.
+    if (content !== undefined) {
+        await writeTextFile(destPath, content, { createNew: true })
+        return
+    }
+    // Copying the bytes keeps the file's encoding exactly as it is.
+    await writeFile(destPath, await readFile(sourcePath), { createNew: true })
 }
 
 export function compareFileNodes(a: FileNode, b: FileNode): number {
     return compareEntries(a, b)
 }
 
+const DRIVE_PREFIX = /^[a-zA-Z]:(?:[\\/]|$)/
+const DRIVE_ROOT = /^[a-zA-Z]:\\?$/
+
+/** True for Windows paths: a drive letter (`C:\…`) or a network share (`\\server\share`). */
+export function isWindowsPath(path: string): boolean {
+    return DRIVE_PREFIX.test(path) || path.startsWith('\\\\')
+}
+
+function separatorFor(path: string): '\\' | '/' {
+    return isWindowsPath(path) ? '\\' : '/'
+}
+
+/**
+ * Puts a path in the one form the app uses everywhere (tab ids, tree nodes, sessions).
+ * Windows paths use `\` only; other paths use `/`. Repeated and trailing separators are
+ * removed, except for a root such as `C:\` or `/`.
+ */
+export function normalizePath(path: string): string {
+    if (isWindowsPath(path)) {
+        const isShare = path.startsWith('\\\\')
+        let result = path.replace(/[\\/]+/g, '\\')
+        if (isShare) result = `\\${result}`
+        result = result.replace(/\\+$/, '')
+        return DRIVE_ROOT.test(result) ? `${result.slice(0, 2)}\\` : result
+    }
+    const result = path.replace(/\/+/g, '/')
+    return result === '/' ? result : result.replace(/\/+$/, '')
+}
+
+function comparablePath(path: string): string {
+    const normalized = normalizePath(path)
+    // Windows file names ignore case, so `C:\Notes\A.md` and `c:\notes\a.md` are one file.
+    return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized
+}
+
+/** True when both paths point at the same file, whatever separators they use. */
+export function samePath(a: string, b: string): boolean {
+    return comparablePath(a) === comparablePath(b)
+}
+
+/** If `child` is inside the folder `parent`, returns the rest of its path; otherwise null. */
+export function pathInside(child: string, parent: string): string | null {
+    const normalizedChild = normalizePath(child)
+    const normalizedParent = normalizePath(parent)
+    const sep = separatorFor(normalizedParent)
+    const prefix = normalizedParent.endsWith(sep) ? normalizedParent : `${normalizedParent}${sep}`
+    if (normalizedChild.length <= prefix.length) return null
+    if (!samePath(normalizedChild.slice(0, prefix.length), prefix)) return null
+    return normalizedChild.slice(prefix.length)
+}
+
+export function isPathInside(child: string, parent: string): boolean {
+    return pathInside(child, parent) !== null
+}
+
 export function joinPath(parent: string, name: string): string {
-    const sep = parent.includes('\\') ? '\\' : '/'
-    return `${parent.replace(/[/\\]+$/, '')}${sep}${name}`
+    const base = normalizePath(parent)
+    const sep = separatorFor(base)
+    return normalizePath(base.endsWith(sep) ? `${base}${name}` : `${base}${sep}${name}`)
 }
 
 export function getBaseName(path: string): string {
@@ -104,9 +210,13 @@ export function getBaseName(path: string): string {
 }
 
 export function getParentPath(path: string): string {
-    const parts = path.split(/[/\\]/)
-    parts.pop()
-    return parts.join(path.includes('\\') ? '\\' : '/')
+    const normalized = normalizePath(path)
+    const sep = separatorFor(normalized)
+    const index = normalized.lastIndexOf(sep)
+    if (index < 0) return ''
+    const parent = normalized.slice(0, index)
+    if (sep === '/') return index === 0 ? '/' : parent
+    return DRIVE_ROOT.test(parent) ? `${parent}\\` : parent
 }
 
 export { isMarkdownFile, isMermaidFile, isSupportedDocument, documentKind } from '@/lib/workspace/file-types'

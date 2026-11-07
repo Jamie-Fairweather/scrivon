@@ -29,7 +29,16 @@ vi.mock('@/lib/tauri/scope', () => ({
     allowWorkspacePath: allowWorkspacePathMock,
 }))
 
-import { pickOpenFile, pickSavePath, pickWorkspaceFolder, showError, writeBinaryFile, writeTextFileAtPath } from './dialog'
+import {
+    confirmCloseAfterSaveFailure,
+    confirmUnsavedChanges,
+    pickOpenFile,
+    pickSavePath,
+    pickWorkspaceFolder,
+    showError,
+    writeBinaryFile,
+    writeTextFileAtPath,
+} from './dialog'
 
 describe('pickSavePath', () => {
     beforeEach(() => {
@@ -173,5 +182,76 @@ describe('showError', () => {
         isTauriMock.mockReturnValue(true)
         await showError('Title', 'Body')
         expect(messageMock).toHaveBeenCalledWith('Body', { title: 'Title', kind: 'error' })
+    })
+})
+
+describe('confirmUnsavedChanges', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('asks with Save, Don’t Save and Cancel and maps the button that was picked', async () => {
+        messageMock.mockResolvedValueOnce('Save')
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('save')
+        expect(messageMock).toHaveBeenCalledWith(expect.stringContaining('save the changes you made to a.md?'), {
+            title: 'Unsaved changes',
+            kind: 'warning',
+            buttons: { yes: 'Save', no: "Don't Save", cancel: 'Cancel' },
+        })
+
+        messageMock.mockResolvedValueOnce("Don't Save")
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('discard')
+        messageMock.mockResolvedValueOnce('No')
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('discard')
+        messageMock.mockResolvedValueOnce('Yes')
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('save')
+    })
+
+    it('treats closing the dialog or an unknown answer as cancel', async () => {
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('cancel')
+        messageMock.mockResolvedValueOnce('something else')
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('cancel')
+    })
+
+    it('lists several files, up to a limit', async () => {
+        messageMock.mockResolvedValueOnce('Cancel')
+        const names = Array.from({ length: 12 }, (_, i) => `file-${i + 1}.md`)
+        await confirmUnsavedChanges(names)
+        const body = messageMock.mock.calls[0]![0] as string
+        expect(body).toContain('12 files')
+        expect(body).toContain('file-10.md')
+        expect(body).not.toContain('file-11.md')
+        expect(body).toContain('…and 2 more')
+    })
+
+    it('never discards outside Tauri', async () => {
+        isTauriMock.mockReturnValue(false)
+        await expect(confirmUnsavedChanges(['a.md'])).resolves.toBe('cancel')
+        expect(messageMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('confirmCloseAfterSaveFailure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('shows the reason and maps Try Again, Close Without Saving and Cancel', async () => {
+        messageMock.mockResolvedValueOnce('Try Again')
+        await expect(confirmCloseAfterSaveFailure([{ name: 'a.md', error: 'Access is denied.' }])).resolves.toBe('retry')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain("couldn't save a.md")
+        expect(body).toContain('Access is denied.')
+        expect(options).toMatchObject({ title: "Couldn't save", buttons: { yes: 'Try Again', no: 'Close Without Saving', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Close Without Saving')
+        await expect(confirmCloseAfterSaveFailure([{ name: 'a.md' }, { name: 'b.md', error: 'Disk full' }])).resolves.toBe('discard')
+        expect(messageMock.mock.calls[1]![0]).toContain('b.md: Disk full')
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmCloseAfterSaveFailure([{ name: 'a.md' }])).resolves.toBe('cancel')
     })
 })

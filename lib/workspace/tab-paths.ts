@@ -1,17 +1,15 @@
+import { isPathInside, joinPath, normalizePath, pathInside, samePath } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
-
-function isUnderPath(filePath: string, parentPath: string): boolean {
-    return filePath.startsWith(parentPath + '/') || filePath.startsWith(parentPath + '\\')
-}
 
 export function remapTabsAfterRename(tabs: DocumentTab[], oldPath: string, newPath: string, newName: string): DocumentTab[] {
     return tabs.map((t) => {
-        if (t.path === oldPath) {
-            return { ...t, id: newPath, path: newPath, name: newName }
+        if (samePath(t.path, oldPath)) {
+            const updated = normalizePath(newPath)
+            return { ...t, id: updated, path: updated, name: newName }
         }
-        if (isUnderPath(t.path, oldPath)) {
-            const suffix = t.path.slice(oldPath.length)
-            const updated = newPath + suffix
+        const rest = pathInside(t.path, oldPath)
+        if (rest !== null) {
+            const updated = joinPath(newPath, rest)
             return { ...t, id: updated, path: updated }
         }
         return t
@@ -19,5 +17,5 @@ export function remapTabsAfterRename(tabs: DocumentTab[], oldPath: string, newPa
 }
 
 export function tabsToCloseOnDelete(tabs: DocumentTab[], deletedPath: string, isDirectory: boolean): DocumentTab[] {
-    return tabs.filter((t) => t.path === deletedPath || (isDirectory && isUnderPath(t.path, deletedPath)))
+    return tabs.filter((t) => samePath(t.path, deletedPath) || (isDirectory && isPathInside(t.path, deletedPath)))
 }

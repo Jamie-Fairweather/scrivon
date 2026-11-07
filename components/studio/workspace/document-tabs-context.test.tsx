@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readTextFile } from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
-import { showError } from '@/lib/tauri/dialog'
+import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -14,6 +14,8 @@ vi.mock('@/lib/tauri/dialog', async (importOriginal) => {
     return {
         ...actual,
         showError: vi.fn(actual.showError),
+        confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
+        confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
     }
 })
 
@@ -303,7 +305,7 @@ describe('DocumentTabsProvider', () => {
             await result.current.openFile('/ws/image.png')
         })
 
-        expect(showError).toHaveBeenCalledWith('Unsupported file', 'Scrivon supports .md and .mmd files only.')
+        expect(showError).toHaveBeenCalledWith('Unsupported file', 'Scrivon supports .md, .mmd and .mermaid files only.')
         expect(result.current.tabs).toHaveLength(0)
     })
 
@@ -1044,5 +1046,168 @@ describe('DocumentTabsProvider', () => {
 
         expect(flushSave).toHaveBeenCalledWith('/ws/a.mmd')
         expect(flushSave).toHaveBeenCalledWith('/ws/b.mmd')
+    })
+})
+
+describe('closing tabs with unsaved changes', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    function setup({ autosave, flushResult = true }: { autosave: boolean; flushResult?: boolean | (() => boolean) }) {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd', { isDirty: true }), tab('/ws/b.mmd', 'b.mmd', { isDirty: true }), tab('/ws/c.mmd', 'c.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const flushSave = vi.fn(async () => (typeof flushResult === 'function' ? flushResult() : flushResult))
+        const cancelScheduledSave = vi.fn()
+        coordinator.flushSave.current = flushSave
+        coordinator.cancelScheduledSave.current = cancelScheduledSave
+        coordinator.getAutosaveEnabled.current = () => autosave
+        coordinator.getSaveError.current = () => 'Access is denied. (os error 5)'
+        const rendered = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+        return { ...rendered, coordinator, flushSave, cancelScheduledSave }
+    }
+
+    it('keeps the tab open when the user cancels the unsaved-changes prompt', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('cancel')
+        const { result, flushSave } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(confirmUnsavedChanges).toHaveBeenCalledWith(['a.mmd'])
+        expect(flushSave).not.toHaveBeenCalled()
+        expect(result.current.tabs).toHaveLength(3)
+    })
+
+    it("closes without writing when the user picks Don't Save", async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const { result, flushSave, cancelScheduledSave } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(flushSave).not.toHaveBeenCalled()
+        expect(cancelScheduledSave).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
+    })
+
+    it('saves and then closes when the user picks Save', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('save')
+        const { result, flushSave } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(flushSave).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('asks once for every unsaved tab when closing all', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('cancel')
+        const { result } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => {
+            await result.current.closeAllTabs()
+        })
+        await act(async () => {
+            await result.current.closeOtherTabs('/ws/c.mmd')
+        })
+
+        expect(confirmUnsavedChanges).toHaveBeenNthCalledWith(1, ['a.mmd', 'b.mmd'])
+        expect(confirmUnsavedChanges).toHaveBeenNthCalledWith(2, ['a.mmd', 'b.mmd'])
+        expect(result.current.tabs).toHaveLength(3)
+    })
+
+    it('keeps a tab whose save failed open unless the user chooses to close without saving', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('cancel').mockResolvedValueOnce('discard')
+        const { result, flushSave } = setup({ autosave: true, flushResult: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Access is denied. (os error 5)' }])
+        expect(result.current.tabs).toHaveLength(3)
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        expect(flushSave).toHaveBeenCalledTimes(2)
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('tries the failed save again when the user picks Try Again', async () => {
+        let attempts = 0
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('save')
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('retry')
+        const { result, flushSave } = setup({ autosave: false, flushResult: () => ++attempts > 1 })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(flushSave).toHaveBeenCalledTimes(2)
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledTimes(1)
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('treats a save that hangs for 10 seconds as failed so closing is never stuck', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
+        const { result, coordinator } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        coordinator.flushSave.current = vi.fn(() => new Promise<boolean>(() => {}))
+
+        vi.useFakeTimers()
+        try {
+            let closing!: Promise<void>
+            act(() => {
+                closing = result.current.closeTab('/ws/a.mmd')
+            })
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(10_000)
+                await closing
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Saving is taking too long.' }])
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('ignores a second close request while the first is still being answered', async () => {
+        let answer!: (choice: 'discard') => void
+        vi.mocked(confirmUnsavedChanges).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+        const { result } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        let first!: Promise<void>
+        act(() => {
+            first = result.current.closeTab('/ws/a.mmd')
+        })
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        expect(confirmUnsavedChanges).toHaveBeenCalledTimes(1)
+
+        await act(async () => {
+            answer('discard')
+            await first
+        })
+        expect(result.current.tabs).toHaveLength(2)
     })
 })

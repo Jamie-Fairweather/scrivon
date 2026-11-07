@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { collectFileNames, collectFilePaths, findNodeByPath, uniqueFileName, uniqueUntitledName, validateFileName } from './paths'
+import {
+    childrenOf,
+    collectFileNames,
+    collectFilePaths,
+    entryNameError,
+    findNameClash,
+    findNodeByPath,
+    nameTakenMessage,
+    uniqueFileName,
+    uniqueNewName,
+    validateFileName,
+} from './paths'
 import type { FileNode } from './types'
 
 const sampleTree: FileNode[] = [
@@ -33,6 +44,26 @@ describe('validateFileName', () => {
         expect(validateFileName('folder\\file.mmd')).toBe('Name cannot contain path separators')
     })
 
+    it('rejects names Windows reserves for devices, with or without an extension', () => {
+        expect(validateFileName('con')).toBe('"con" is a reserved name on Windows')
+        expect(validateFileName('AUX')).toBe('"AUX" is a reserved name on Windows')
+        expect(validateFileName('nul.md')).toBe('"nul" is a reserved name on Windows')
+        expect(validateFileName('COM1.mmd')).toBe('"COM1" is a reserved name on Windows')
+        expect(validateFileName('lpt9')).toBe('"lpt9" is a reserved name on Windows')
+        expect(validateFileName('console.md')).toBeNull()
+        expect(validateFileName('com10.md')).toBeNull()
+    })
+
+    it('rejects a trailing dot, which Windows would drop', () => {
+        expect(validateFileName('drafts.')).toBe('Name cannot end with a dot')
+        expect(validateFileName('...')).toBe('Name cannot end with a dot')
+    })
+
+    it('rejects names longer than Windows allows', () => {
+        expect(validateFileName(`${'a'.repeat(252)}.md`)).toBeNull()
+        expect(validateFileName(`${'a'.repeat(253)}.md`)).toBe('Name is too long (255 characters at most)')
+    })
+
     it('accepts valid names', () => {
         expect(validateFileName('diagram.mmd')).toBeNull()
         expect(validateFileName('  notes.md  ')).toBeNull()
@@ -49,20 +80,27 @@ describe('uniqueFileName', () => {
         expect(uniqueFileName('doc.mmd', existing)).toBe('doc copy 2.mmd')
     })
 
+    it('ignores letter case, so it never picks a name Windows sees as taken', () => {
+        expect(uniqueFileName('notes.md', ['notes.md', 'Notes Copy.md'])).toBe('notes copy 2.md')
+    })
+
     it('handles names without extension', () => {
         const existing = new Set(['README'])
         expect(uniqueFileName('README', existing)).toBe('README copy')
     })
 })
 
-describe('uniqueUntitledName', () => {
-    it('returns untitled.mmd when free', () => {
-        expect(uniqueUntitledName(new Set())).toBe('untitled.mmd')
+describe('uniqueNewName', () => {
+    it('keeps the name when nothing uses it', () => {
+        expect(uniqueNewName('diagram.mmd', ['notes.md'])).toBe('diagram.mmd')
     })
 
-    it('increments untitled-N when taken', () => {
-        const existing = new Set(['untitled.mmd', 'untitled-2.mmd'])
-        expect(uniqueUntitledName(existing)).toBe('untitled-3.mmd')
+    it('numbers the name past every taken one, ignoring letter case', () => {
+        expect(uniqueNewName('diagram.mmd', ['Diagram.mmd', 'diagram 2.MMD'])).toBe('diagram 3.mmd')
+    })
+
+    it('numbers names without an extension', () => {
+        expect(uniqueNewName('diagrams', ['diagrams'])).toBe('diagrams 2')
     })
 })
 
@@ -98,5 +136,48 @@ describe('findNodeByPath', () => {
             },
         ]
         expect(findNodeByPath(nested, '/ws/projects/deep.mmd')?.name).toBe('deep.mmd')
+    })
+})
+
+describe('childrenOf', () => {
+    it('gives the root entries for the workspace root and a folder’s entries for that folder', () => {
+        expect(childrenOf(sampleTree, '/ws', '/ws/')).toBe(sampleTree)
+        expect(childrenOf(sampleTree, '/ws', '/ws/docs').map((n) => n.name)).toEqual(['readme.md', 'diagram.mmd'])
+        expect(childrenOf(sampleTree, '/ws', '/ws/missing')).toEqual([])
+    })
+})
+
+describe('findNameClash', () => {
+    const docs = childrenOf(sampleTree, '/ws', '/ws/docs')
+
+    it('finds a sibling with the same name, ignoring letter case', () => {
+        expect(findNameClash(docs, 'README.md')?.path).toBe('/ws/docs/readme.md')
+        expect(findNameClash(docs, 'other.md')).toBeNull()
+    })
+
+    it('leaves out the entry being renamed, so a case-only rename is allowed', () => {
+        expect(findNameClash(docs, 'Readme.md', '/ws/docs/readme.md')).toBeNull()
+        expect(findNameClash(docs, 'Diagram.mmd', '/ws/docs/readme.md')?.name).toBe('diagram.mmd')
+    })
+
+    it('says whether the clash is a file or a folder', () => {
+        expect(nameTakenMessage(sampleTree[0]!)).toBe('A folder named "docs" already exists here.')
+        expect(nameTakenMessage(sampleTree[1]!)).toBe('A file named "root.mmd" already exists here.')
+    })
+})
+
+describe('entryNameError', () => {
+    const docs = childrenOf(sampleTree, '/ws', '/ws/docs')
+
+    it('checks the characters, then the file extension, then the siblings', () => {
+        expect(entryNameError('my:flow.mmd', 'file', docs)).toBe('Name contains invalid characters')
+        expect(entryNameError('notes.txt', 'file', docs)).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(entryNameError('notes.txt', 'directory', docs)).toBeNull()
+        expect(entryNameError('flow.mermaid', 'file', docs)).toBeNull()
+        expect(entryNameError('Diagram.MMD', 'file', docs)).toBe('A file named "diagram.mmd" already exists here.')
+    })
+
+    it('lets a renamed entry keep its own name in another letter case', () => {
+        expect(entryNameError('Diagram.mmd', 'file', docs, '/ws/docs/diagram.mmd')).toBeNull()
     })
 })

@@ -1,6 +1,7 @@
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
 import { loadSettings } from '@/lib/settings/storage'
+import { normalizePath, samePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 
 const STORE_PATH = 'workspace.json'
@@ -110,15 +111,24 @@ export async function getRecentFiles(workspaceRoot: string): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
     const value = await s.get<string[]>(`${RECENT_FILES_PREFIX}${workspaceRoot}`)
-    return Array.isArray(value) ? value : []
+    if (!Array.isArray(value)) return []
+    // Older entries can name the same file with different separators; keep one of each.
+    const paths: string[] = []
+    for (const entry of value) {
+        if (typeof entry !== 'string') continue
+        const normalized = normalizePath(entry)
+        if (!paths.some((p) => samePath(p, normalized))) paths.push(normalized)
+    }
+    return paths
 }
 
 export async function addRecentFile(workspaceRoot: string, filePath: string): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
 
+    const path = normalizePath(filePath)
     const current = await getRecentFiles(workspaceRoot)
-    const next = [filePath, ...current.filter((p) => p !== filePath)].slice(0, MAX_RECENT_FILES)
+    const next = [path, ...current.filter((p) => !samePath(p, path))].slice(0, MAX_RECENT_FILES)
     await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
     await s.save()
     return next

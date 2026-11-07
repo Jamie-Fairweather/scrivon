@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
-import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
+import { FileTree } from '@/components/studio/explorer/file-tree'
 import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root-actions'
 import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
@@ -90,7 +90,7 @@ export function WorkspaceExplorer() {
                         {tree.length === 0 ? (
                             <p className="px-3 py-2 text-xs text-muted-foreground">No files in this folder.</p>
                         ) : (
-                            tree.map((node) => <FileTreeNode key={node.path} node={node} />)
+                            <FileTree tree={tree} />
                         )}
                     </ScrollArea>
                 ) : (
