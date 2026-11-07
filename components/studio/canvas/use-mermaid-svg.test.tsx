@@ -268,6 +268,40 @@ describe('useMermaidSvg', () => {
         expect(views.result.current.exportMenu.currentError).toBe(views.result.current.canvas.currentError)
     })
 
+    it('lays an edit out once when an expanded Markdown diagram and its block show the same text (N18)', async () => {
+        const views = renderHook(
+            ({ source }) => ({ block: useMermaidSvg(source, 'notes.md:block:1'), expanded: useMermaidSvg(source, 'notes.md:expanded:1') }),
+            { initialProps: { source: V1 } }
+        )
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(1)
+
+        views.rerender({ source: V2 })
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        expect(views.result.current.block.svgForDisplay).toBe(expectedSvg(V2))
+        expect(views.result.current.expanded.svgForDisplay).toBe(expectedSvg(V2))
+    })
+
+    it('reuses a picture another document finished while this one waited for typing to pause (N18)', async () => {
+        const block = renderEditor(V1, 'notes.md:block:1')
+        await waitForRender()
+        const expanded = renderEditor(V1, 'notes.md:expanded:1')
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(1)
+
+        // The expanded view gets each edit a moment after its block.
+        block.rerender({ source: V2 })
+        await waitForRender(50)
+        expanded.rerender({ source: V2 })
+        await waitForRender(150)
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        await waitForRender(100)
+
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        expect(expanded.result.current.svgForDisplay).toBe(expectedSvg(V2))
+    })
+
     it('renders a document shown for the first time without waiting, then waits between keystrokes (U38)', async () => {
         const { result, rerender } = renderEditor(V1)
         await waitForRender(0)

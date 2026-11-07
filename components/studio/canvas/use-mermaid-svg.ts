@@ -80,6 +80,13 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 showError(cachedError)
                 return
             }
+            // Another document drew this text while this one waited (the block under an expanded diagram, say).
+            const shared = readSvgForSource(themeId, trimmedSource)
+            if (shared !== null) {
+                storeSvg(themeId, documentKey, trimmedSource, shared)
+                showSvg(shared)
+                return
+            }
 
             // Layout runs in a worker, so a big diagram doesn't freeze typing. A result is kept even
             // when the text has moved on by the time it arrives: going back to that text needs no

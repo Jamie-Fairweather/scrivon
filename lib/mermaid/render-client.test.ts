@@ -125,6 +125,40 @@ describe('renderMermaidDiagramAsync', () => {
         await expect(exportMenu).resolves.toBe('<svg/>')
     })
 
+    it('shares one render between documents showing the same text, like an expanded diagram and its block (N18)', async () => {
+        const { renderMermaidDiagramAsync } = await loadClient()
+
+        const block = renderMermaidDiagramAsync('graph TD', 'scrivon-light', 'notes.md:block:1')
+        const expanded = renderMermaidDiagramAsync('graph TD', 'scrivon-light', 'notes.md:expanded:1')
+        const worker = onlyWorker()
+        expect(worker.posted).toHaveLength(1)
+
+        worker.answer(worker.posted[0], { svg: '<svg/>' })
+
+        await expect(block).resolves.toBe('<svg/>')
+        await expect(expanded).resolves.toBe('<svg/>')
+    })
+
+    it('keeps a waiting render that another document still wants when one moves on to newer text (N18)', async () => {
+        const { renderMermaidDiagramAsync } = await loadClient()
+
+        const busy = renderMermaidDiagramAsync('busy', 'scrivon-light', 'a.mmd')
+        const block = renderMermaidDiagramAsync('v1', 'scrivon-light', 'notes.md:block:1')
+        const expanded = renderMermaidDiagramAsync('v1', 'scrivon-light', 'notes.md:expanded:1')
+        const blockNext = renderMermaidDiagramAsync('v2', 'scrivon-light', 'notes.md:block:1')
+        const worker = onlyWorker()
+
+        worker.answer(worker.posted[0], { svg: '<svg>busy</svg>' })
+        await expect(busy).resolves.toBe('<svg>busy</svg>')
+        expect(worker.posted.map((request) => request.source)).toEqual(['busy', 'v1'])
+
+        worker.answer(worker.posted[1], { svg: '<svg>v1</svg>' })
+        await expect(expanded).resolves.toBe('<svg>v1</svg>')
+        await expect(block).resolves.toBe('<svg>v1</svg>')
+        worker.answer(worker.posted[2], { svg: '<svg>v2</svg>' })
+        await expect(blockNext).resolves.toBe('<svg>v2</svg>')
+    })
+
     it('runs one render at a time and drops a waiting one when newer text comes in', async () => {
         const { renderMermaidDiagramAsync, SupersededRenderError } = await loadClient()
 

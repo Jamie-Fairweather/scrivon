@@ -5,6 +5,7 @@ import type { AppThemeId } from '@/lib/theme/catalog'
 /**
  * Lays diagrams out in a Web Worker so a big diagram doesn't freeze typing and the window.
  * One render runs at a time; a newer text for the same document replaces one still waiting.
+ * Views showing the same text in the same theme share one render, whichever document they belong to.
  * If the worker can't start or can't render, everything quietly runs on the main thread as before.
  */
 
@@ -22,9 +23,14 @@ export class SupersededRenderError extends Error {
     }
 }
 
+/** One view waiting for a render. */
+type Caller = { documentKey: string }
+
 type Job = RenderRequest & {
-    documentKey: string
+    /** Theme and text: all that decides the picture. */
     requestKey: string
+    /** Views still waiting for it. A job that hasn't started is dropped once none are left. */
+    callers: Set<Caller>
     promise: Promise<string>
     resolve: (svg: string) => void
     reject: (err: Error) => void
@@ -38,8 +44,11 @@ let active: Job | null = null
 let activeTimer: ReturnType<typeof setTimeout> | null = null
 let nextId = 1
 const queue: Job[] = []
-/** Identical requests (the canvas and the export menu, say) share one render. */
-const pending = new Map<string, Promise<string>>()
+/**
+ * Requests for the same text in the same theme share one render: the canvas and the export menu, say, or
+ * an expanded Markdown diagram and its block in the preview underneath.
+ */
+const pending = new Map<string, Job>()
 
 function settle(job: Job, result: { svg: string } | { error: Error }): void {
     if ('svg' in result) job.resolve(result.svg)
@@ -155,20 +164,37 @@ function pump(): void {
     }
 }
 
+/** Drops a job that hasn't started. One already running is left to finish, so its picture still lands in the cache. */
+function dropIfWaiting(job: Job): void {
+    const index = queue.indexOf(job)
+    if (index === -1) return
+    queue.splice(index, 1)
+    if (pending.get(job.requestKey) === job) pending.delete(job.requestKey)
+    settle(job, { error: new SupersededRenderError() })
+}
+
 /**
  * Renders a diagram for the live preview. Rejects with the parser's error for invalid text, with
  * RENDER_TIMEOUT_MESSAGE when it takes too long, and with SupersededRenderError when a newer text
- * for the same document replaced it before it started.
+ * for the same document replaced it before it started (and no other view still wanted it).
  */
 export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, documentKey: string): Promise<string> {
-    const requestKey = `${themeId}\0${documentKey}\0${source}`
-    const shared = pending.get(requestKey)
-    if (shared) return shared
+    const requestKey = `${themeId}\0${source}`
 
-    for (let i = queue.length - 1; i >= 0; i--) {
-        if (queue[i].documentKey !== documentKey) continue
-        const [replaced] = queue.splice(i, 1)
-        settle(replaced, { error: new SupersededRenderError() })
+    // This document has moved on from any older text still waiting, so it no longer needs those renders.
+    for (const job of [...queue]) {
+        if (job.requestKey === requestKey) continue
+        for (const caller of job.callers) {
+            if (caller.documentKey === documentKey) job.callers.delete(caller)
+        }
+        if (job.callers.size === 0) dropIfWaiting(job)
+    }
+
+    const caller: Caller = { documentKey }
+    const shared = pending.get(requestKey)
+    if (shared) {
+        shared.callers.add(caller)
+        return shared.promise
     }
 
     let resolve!: (svg: string) => void
@@ -177,14 +203,15 @@ export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, d
         resolve = res
         reject = rej
     })
+    const job: Job = { id: nextId++, source, themeId, requestKey, callers: new Set([caller]), promise, resolve, reject }
     // Keep sharing the result until callers have had it, so a second view that asks in the same
     // tick (even when the render ran synchronously on the main thread) reuses it.
-    pending.set(requestKey, promise)
+    pending.set(requestKey, job)
     const forget = () => {
-        if (pending.get(requestKey) === promise) pending.delete(requestKey)
+        if (pending.get(requestKey) === job) pending.delete(requestKey)
     }
     promise.then(forget, forget)
-    queue.push({ id: nextId++, source, themeId, documentKey, requestKey, promise, resolve, reject })
+    queue.push(job)
     pump()
     return promise
 }
