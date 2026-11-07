@@ -23,6 +23,7 @@ import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-link
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
+import { blockDirection } from '@/lib/markdown/text-direction'
 import { isExportWebImageUrl } from '@/lib/markdown/web-images'
 import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
@@ -134,12 +135,15 @@ function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
 
 /** The text blocks that take their direction from their own first letters, as in the preview. */
 const AUTO_DIRECTION_TAGS = new Set([...HEADING_TAGS, 'p', 'li', 'blockquote', 'th', 'td'])
+/** Blocks whose words can sit in child paragraphs, which dir="auto" can't see into. See {@link blockDirection}. */
+const CONTAINER_DIRECTION_TAGS = new Set(['li', 'blockquote'])
 
 /**
  * Gives each text block dir="auto", so an Arabic or Hebrew paragraph prints right to left with its full stop and
- * bullet on the correct side. A dir the document's HTML set wins. Code is left alone, and so are the paragraphs
- * standing in for code blocks and diagrams, which are swapped for their HTML by exact match. The title page,
- * Contents page and header and footer are built separately, so the stamper still finds their marks.
+ * bullet on the correct side. A quote or list item that starts right to left gets dir="rtl" instead, so its bar
+ * or bullet moves to the right too. A dir the document's HTML set wins. Code is left alone, and so are the
+ * paragraphs standing in for code blocks and diagrams, which are swapped for their HTML by exact match. The title
+ * page, Contents page and header and footer are built separately, so the stamper still finds their marks.
  */
 function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>): void {
     visit(hast, 'element', (node: Element) => {
@@ -147,7 +151,7 @@ function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>):
         if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
         const only = node.children.length === 1 ? node.children[0] : undefined
         if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
-        node.properties.dir = 'auto'
+        node.properties.dir = CONTAINER_DIRECTION_TAGS.has(node.tagName) ? blockDirection(node, placeholderKeys) : 'auto'
     })
 }
 

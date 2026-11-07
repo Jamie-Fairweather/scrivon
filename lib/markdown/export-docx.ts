@@ -74,6 +74,7 @@ import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/mar
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
+import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
@@ -662,15 +663,6 @@ function plainText(node: TextNode): string {
     if (typeof node.value === 'string') return node.value
     if (!Array.isArray(node.children)) return ''
     return node.children.map((child) => plainText(child as TextNode)).join('')
-}
-
-/** Letters of right-to-left scripts: Hebrew, Arabic, Syriac, Thaana, N'Ko and the rest, with their presentation forms. */
-const RTL_LETTER = /[֐-ࣿיִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u
-
-/** Whether a block reads right to left. Like the browser's `dir="auto"`, its first letter decides. */
-function isRtl(text: string): boolean {
-    const first = /\p{L}/u.exec(text)?.[0]
-    return first !== undefined && RTL_LETTER.test(first)
 }
 
 /**

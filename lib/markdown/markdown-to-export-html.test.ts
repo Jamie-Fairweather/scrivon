@@ -602,8 +602,8 @@ SHIKI_FAIL
             { profile }
         )
         expect(html).toContain('<p dir="auto">مرحبا بالعالم.</p>')
-        expect(html).toContain('<li dir="auto">שלום</li>')
-        expect(html).toMatch(/<blockquote dir="auto">\s*<p dir="auto">ציטוט<\/p>/)
+        expect(html).toContain('<li dir="rtl">שלום</li>')
+        expect(html).toMatch(/<blockquote dir="rtl">\s*<p dir="auto">ציטוט<\/p>/)
         expect(html).toContain('<th dir="auto">עמודה</th>')
         expect(html).toContain('<td dir="auto">ערך</td>')
         expect(html).toContain('<p dir="ltr">Set by the document</p>')
@@ -613,6 +613,38 @@ SHIKI_FAIL
         expect(html).not.toMatch(/<p[^>]*>\s*<div class="code-block/)
         expect(html).toContain('<div class="code-block')
         expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
+    })
+
+    it('turns a quote or list item right to left from its first letter, as dir="auto" can’t see into its paragraphs', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '> ## ציטוט',
+                '>',
+                '> Second line',
+                '',
+                '> Plain quote',
+                '',
+                '- مرحبا',
+                '',
+                '- second item',
+                '',
+                '1. ```js',
+                '   const a = 1',
+                '   ```',
+                '',
+                '   שלום',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        // The heading and paragraph keep dir="auto"; only the quote and list items, which hold them, are set.
+        expect(html).toMatch(/<blockquote dir="rtl">\s*<h2 id="[^"]*" dir="auto">/)
+        expect(html).toMatch(/<blockquote dir="auto">\s*<p dir="auto">Plain quote<\/p>/)
+        // A loose list's words sit in paragraphs: the first item reads right to left, the second left to right.
+        expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">مرحبا<\/p>/)
+        expect(html).toMatch(/<li dir="auto">\s*<p dir="auto">second item<\/p>/)
+        // A code block's letters don't count, so the Hebrew after it decides.
+        expect(html).toMatch(/<li dir="rtl">\s*<div class="code-block/)
     })
 
     it('prints bold next to Japanese punctuation as bold (B76)', async () => {
