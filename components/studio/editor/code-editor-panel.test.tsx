@@ -55,6 +55,8 @@ class FakeEditor {
     private readonly contentListeners = new Set<Listener>()
     private readonly modelListeners = new Set<Listener>()
     private readonly disposeListeners = new Set<Listener>()
+    private readonly focusTextListeners = new Set<Listener>()
+    private readonly blurTextListeners = new Set<Listener>()
     constructor(
         public model: FakeModel | null,
         options: Record<string, unknown>
@@ -121,6 +123,21 @@ class FakeEditor {
         this.disposeListeners.add(listener)
         return { dispose: () => this.disposeListeners.delete(listener) }
     }
+    onDidFocusEditorText(listener: Listener) {
+        this.focusTextListeners.add(listener)
+        return { dispose: () => this.focusTextListeners.delete(listener) }
+    }
+    onDidBlurEditorText(listener: Listener) {
+        this.blurTextListeners.add(listener)
+        return { dispose: () => this.blurTextListeners.delete(listener) }
+    }
+    /** What clicking into the text, or tabbing to it, does. */
+    focusText() {
+        this.focusTextListeners.forEach((l) => l())
+    }
+    blurText() {
+        this.blurTextListeners.forEach((l) => l())
+    }
     dispose() {
         this.setModel(null)
         this.disposeListeners.forEach((l) => l())
@@ -165,6 +182,22 @@ const fakeMonaco = {
 // Skip loading the real bundled Monaco; the fake above stands in for it.
 vi.mock('@/lib/monaco/setup-monaco', () => ({}))
 
+/** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
+const tabFocus = {
+    mode: false,
+    listeners: new Set<(mode: boolean) => void>(),
+    getTabFocusMode: () => tabFocus.mode,
+    setTabFocusMode: vi.fn((mode: boolean) => {
+        tabFocus.mode = mode
+        tabFocus.listeners.forEach((l) => l(mode))
+    }),
+    onDidChangeTabFocus: (listener: (mode: boolean) => void) => {
+        tabFocus.listeners.add(listener)
+        return { dispose: () => tabFocus.listeners.delete(listener) }
+    },
+}
+vi.mock('@/lib/monaco/tab-focus', () => ({ TabFocus: tabFocus }))
+
 vi.mock('next/dynamic', () => ({
     default: (load: () => Promise<ComponentType<Record<string, unknown>> | { default: ComponentType<Record<string, unknown>> }>) => {
         const Lazy = lazy(async () => {
@@ -207,7 +240,7 @@ const defineMonacoDiagramTheme = vi.fn()
 
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => theme }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme }))
-const DEFAULT_EDITOR_SETTINGS = { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false }
+const DEFAULT_EDITOR_SETTINGS = { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false, tabMovesFocus: false }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings } }),
@@ -244,6 +277,8 @@ beforeEach(() => {
     theme = LIGHT_THEME
     editorSettings = DEFAULT_EDITOR_SETTINGS
     tabsState = { tabs: [], activeTabId: null }
+    tabFocus.mode = false
+    tabFocus.setTabFocusMode.mockClear()
 })
 
 describe('CodeEditorPanel models', () => {
@@ -355,6 +390,54 @@ describe('CodeEditorPanel accessibility', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.ariaLabel).toMatch(/^b\.mmd, Mermaid editor\./)
+    })
+})
+
+describe('CodeEditorPanel Tab key', () => {
+    const hint = (view: ReturnType<typeof render>) => view.container.querySelector('[data-slot="editor-tab-focus-hint"]')
+
+    it("turns on Monaco's Tab moves focus mode from the setting, and follows Ctrl+M after that", async () => {
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, tabMovesFocus: true }
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenLastCalledWith(true))
+        await waitFor(() => expect(editor.options.ariaLabel).toMatch(/The Tab key moves focus\. Press Control\+M to make it indent again\.$/))
+
+        // Ctrl+M in the editor: Tab indents again until the next switch, and the setting stays.
+        act(() => tabFocus.setTabFocusMode(false))
+        expect(editor.options.ariaLabel).toMatch(/Press Control\+M to make the Tab key move focus instead of indenting\.$/)
+        expect(tabFocus.setTabFocusMode).toHaveBeenCalledTimes(2)
+
+        // Turning the setting off sets the mode again.
+        act(() => tabFocus.setTabFocusMode(true))
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, tabMovesFocus: false }
+        view.rerender(<Panel />)
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenLastCalledWith(false))
+        expect(tabFocus.mode).toBe(false)
+    })
+
+    it('leaves Tab indenting by default', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenLastCalledWith(false))
+    })
+
+    it('says on screen how to leave the editor while it has focus', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenCalled())
+        expect(hint(view)).toBeNull()
+
+        act(() => editor.focusText())
+        expect(hint(view)?.textContent).toBe('Ctrl+M: Tab moves focus')
+        // Screen readers get this from the editor's name instead.
+        expect(hint(view)?.getAttribute('aria-hidden')).toBe('true')
+
+        act(() => tabFocus.setTabFocusMode(true))
+        expect(hint(view)?.textContent).toBe('Tab moves focus · Ctrl+M to indent')
+
+        act(() => editor.blurText())
+        expect(hint(view)).toBeNull()
     })
 })
 

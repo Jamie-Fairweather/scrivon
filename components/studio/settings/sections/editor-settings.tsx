@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
+import { tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap } from '@/lib/settings/types'
 
 const WORD_WRAP_OPTIONS: SelectOption<EditorWordWrap>[] = [
@@ -72,6 +74,13 @@ export function EditorSettings() {
                 description="Show a code minimap in the editor gutter."
                 checked={settings.editor.minimap}
                 onChange={(minimap) => setEditor({ minimap })}
+            />
+
+            <SwitchSetting
+                label="Tab key moves focus"
+                description={`Tab and Shift+Tab move to the next part of the window instead of indenting. ${tabFocusToggleKeyLabel(isMacPlatform())} switches this while you type.`}
+                checked={settings.editor.tabMovesFocus}
+                onChange={(tabMovesFocus) => setEditor({ tabMovesFocus })}
             />
 
             <Field>

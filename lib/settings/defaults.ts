@@ -67,6 +67,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             wordWrap: 'on',
             lineNumbers: 'on',
             minimap: false,
+            tabMovesFocus: false,
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,

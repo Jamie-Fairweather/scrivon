@@ -41,6 +41,17 @@ declare module 'monaco-editor/esm/vs/platform/opener/common/opener.js' {
     export const IOpenerService: { readonly type: IOpenerService }
 }
 
+// Monaco's global "Tab moves focus" mode, used by lib/monaco/tab-focus.ts. Setting it this way
+// (not with the tabFocusMode editor option) leaves Ctrl+M able to switch it off again.
+declare module 'monaco-editor/esm/vs/editor/browser/config/tabFocus.js' {
+    import type { IDisposable } from 'monaco-editor'
+    export const TabFocus: {
+        getTabFocusMode(): boolean
+        setTabFocusMode(tabFocusMode: boolean): void
+        onDidChangeTabFocus(listener: (tabFocusMode: boolean) => void): IDisposable
+    }
+}
+
 declare module 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js' {
     export namespace StandaloneServices {
         function get<T>(serviceId: { readonly type: T }): T
