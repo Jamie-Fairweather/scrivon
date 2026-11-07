@@ -818,8 +818,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     width: auto;
     height: auto;
   }
-  /* Stands in for an image in an unseen copy of a bar that fits its content: as tall as an image can be there. */
-  .pdf-chrome-img-room { display: block; height: 28px; }
+  /*
+   * Stands in for an image in an unseen copy of a bar that fits its content: as wide and tall as an
+   * image can be there, so the copy's text wraps no later than the drawn bar's and the copy is never
+   * shorter than it. Taller only leaves a little more gap.
+   */
+  .pdf-chrome-img-room { display: block; flex: none; width: 160px; height: 28px; }
   ${chromeImageCss('header', profile.header)}
   ${chromeImageCss('footer', profile.footer)}
   .pdf-header-bar {

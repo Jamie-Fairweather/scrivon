@@ -389,7 +389,8 @@ type ChromeSection = 'title' | 'toc' | 'body'
  * end is always the outermost item, nearest the page edge. A `copy` is never
  * seen and only takes up the bar's room, so its images are left out rather than
  * embedded again for nothing: a bar of fixed height keeps its height without
- * them, and otherwise an empty box as tall as an image can be stands in.
+ * them, and otherwise an empty box as big as an image can be stands in, so the
+ * copy is never shorter than the drawn bar.
  */
 function renderChromeBar(
     kind: 'header' | 'footer',
