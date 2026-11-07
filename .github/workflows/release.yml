@@ -65,10 +65,15 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
                   HUSKY: 0
 
+    # The outputs are only written in semantic-release's success phase, after the tag and the
+    # draft exist. A later success step (commenting on and labelling pull requests and issues)
+    # can still fail the release job, so the installers are built whenever the outputs say a
+    # release was made, not only when that job passed. Re-running a failed release job finds
+    # the tag and makes no new release, so it would never build them.
     build-windows:
         name: Build Windows installers
         needs: release
-        if: needs.release.outputs.published == 'true'
+        if: ${{ !cancelled() && needs.release.outputs.published == 'true' }}
         runs-on: windows-latest
         permissions:
             contents: write
