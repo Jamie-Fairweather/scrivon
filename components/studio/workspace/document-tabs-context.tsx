@@ -263,7 +263,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
             getUnsavedContent: (path) => {
                 const tab = tabsRef.current.find((t) => samePath(t.path, path))
-                return tab?.isDirty ? tab.content : undefined
+                return tab?.isDirty ? { content: tab.content, format: tab.format } : undefined
             },
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
                 // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.

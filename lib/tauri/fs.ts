@@ -1,4 +1,17 @@
-import { readDir, readFile, writeFile, writeTextFile, mkdir, rename, remove, stat, lstat, exists, type DirEntry } from '@tauri-apps/plugin-fs'
+import {
+    readDir,
+    readFile,
+    writeFile,
+    writeTextFile,
+    mkdir,
+    rename,
+    remove,
+    stat,
+    lstat,
+    exists,
+    copyFile,
+    type DirEntry,
+} from '@tauri-apps/plugin-fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { decodeText, DEFAULT_TEXT_FORMAT, encodeText, type DecodedText, type TextFileFormat } from '@/lib/workspace/text-encoding'
 import type { FileNode, FileStamp } from '@/lib/workspace/types'
@@ -414,16 +427,31 @@ export async function listFolderNames(dirPath: string): Promise<string[]> {
     return (await readDir(dirPath)).map((entry) => entry.name)
 }
 
+/** A tab's edits that aren't saved yet, and how its file is stored. */
+export type UnsavedText = { content: string; format?: TextFileFormat }
+
+/**
+ * Files up to this size are copied through the app, which can refuse to replace a file that turns up
+ * meanwhile. Bigger ones (videos, archives) are copied on disk, as holding them in the app could run it out of memory.
+ */
+const MAX_APP_COPY_BYTES = 32 * 1024 * 1024
+
 /**
  * Copies a file to a new name. Never replaces an existing file (plain copy does): throws PathExistsError
- * instead. With `content`, such as a tab's unsaved edits, the copy holds that text instead of the disk version.
+ * instead. With `unsaved`, a tab's edits, the copy holds that text instead of the disk version, stored
+ * the way the file is (UTF-16, a byte-order mark) as saving it would.
  */
-export async function duplicateWorkspaceFile(sourcePath: string, destPath: string, content?: string): Promise<void> {
+export async function duplicateWorkspaceFile(sourcePath: string, destPath: string, unsaved?: UnsavedText): Promise<void> {
     if (!isTauri()) return
     if (await exists(destPath)) throw new PathExistsError(destPath)
     // createNew also refuses a file that turns up between the check and the write.
-    if (content !== undefined) {
-        await writeTextFile(destPath, content, { createNew: true })
+    if (unsaved) {
+        await writeFile(destPath, encodeText(unsaved.content, unsaved.format ?? DEFAULT_TEXT_FORMAT), { createNew: true })
+        return
+    }
+    if ((await stat(sourcePath)).size > MAX_APP_COPY_BYTES) {
+        // Only a file made under the same name in the moment since the check above could be replaced.
+        await copyFile(sourcePath, destPath)
         return
     }
     // Copying the bytes keeps the file's encoding exactly as it is.

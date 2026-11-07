@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react'
 
+import type { UnsavedText } from '@/lib/tauri/fs'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 export type WorkspaceCoordinatorRefs = {
@@ -24,8 +25,8 @@ export type WorkspaceCoordinatorRefs = {
     getSaveError: MutableRefObject<(id: string) => string | undefined>
     /** True while a save is waiting for the user to answer a question (such as overwriting a file changed elsewhere). */
     isAskingUser: MutableRefObject<() => boolean>
-    /** The text of the open tab for `path` when it has edits that aren't saved yet, otherwise undefined. */
-    getUnsavedContent: MutableRefObject<(path: string) => string | undefined>
+    /** The text (and how its file is stored) of the open tab for `path` when it has edits that aren't saved yet, otherwise undefined. */
+    getUnsavedContent: MutableRefObject<(path: string) => UnsavedText | undefined>
     /**
      * Gets tabs ready to close (all tabs when `ids` is left out): saves them, or asks the user
      * about unsaved or unsavable changes. Resolves false when the tabs must stay open.

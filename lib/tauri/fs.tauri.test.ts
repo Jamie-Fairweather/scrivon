@@ -248,6 +248,7 @@ describe('workspace fs (Tauri)', () => {
     it('renames, removes, and duplicates paths', async () => {
         const bytes = new Uint8Array([0xff, 0xfe, 0x41, 0x00])
         readFileMock.mockResolvedValue(bytes)
+        statMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: bytes.length, mtime: null })
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
         await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
@@ -265,13 +266,30 @@ describe('workspace fs (Tauri)', () => {
     })
 
     it('duplicates unsaved text when given, and never over an existing file', async () => {
-        await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd', 'UNSAVED')
-        expect(writeTextFileMock).toHaveBeenCalledWith('/ws/copy.mmd', 'UNSAVED', { createNew: true })
+        await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd', { content: 'UNSAVED' })
+        expect(writeFileMock).toHaveBeenCalledWith('/ws/copy.mmd', new TextEncoder().encode('UNSAVED'), { createNew: true })
         expect(readFileMock).not.toHaveBeenCalled()
+        writeFileMock.mockClear()
 
         existsMock.mockResolvedValue(true)
         await expect(duplicateWorkspaceFile('/ws/source.mmd', '/ws/taken.mmd')).rejects.toBeInstanceOf(PathExistsError)
         expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('stores duplicated unsaved text the way the file is stored', async () => {
+        await duplicateWorkspaceFile('C:\\ws\\notes.md', 'C:\\ws\\notes copy.md', { content: 'A', format: { encoding: 'utf-16le', bom: true } })
+        expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\notes copy.md', new Uint8Array([0xff, 0xfe, 0x41, 0x00]), { createNew: true })
+    })
+
+    it('lets the disk copy a very large file instead of reading it into the app', async () => {
+        statMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 4 * 1024 ** 3, mtime: null })
+        await duplicateWorkspaceFile('C:\\ws\\film.mp4', 'C:\\ws\\film copy.mp4')
+        expect(copyFileMock).toHaveBeenCalledWith('C:\\ws\\film.mp4', 'C:\\ws\\film copy.mp4')
+        expect(readFileMock).not.toHaveBeenCalled()
+
+        existsMock.mockResolvedValue(true)
+        await expect(duplicateWorkspaceFile('C:\\ws\\film.mp4', 'C:\\ws\\film copy.mp4')).rejects.toBeInstanceOf(PathExistsError)
+        expect(copyFileMock).toHaveBeenCalledTimes(1)
     })
 
     it('lists the names in a folder straight from disk', async () => {
