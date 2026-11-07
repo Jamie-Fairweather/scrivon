@@ -319,8 +319,43 @@ export function printDialogPageNumberCss(profile: PdfExportProfile, metadata: Pd
   ${skip}`
 }
 
-/** Rough height a header or footer bar takes up when it has no fixed height. */
-const AUTO_BAR_HEIGHT_MM = 12
+/** Rough height of a header or footer bar left at "0 fits the content". */
+export const PDF_AUTO_BAR_HEIGHT_MM = 12
+
+/**
+ * How far a page's text starts from the top or bottom edge: the margin, plus a shown bar's
+ * height (PDF_AUTO_BAR_HEIGHT_MM when it fits its content) and gap. A bar that ignores
+ * margins sits inside the margin band, so it only takes more room once it outgrows the margin.
+ */
+function edgeBandMm(margin: number, bar: PdfExportProfile['header'], shown: boolean, bleeds: boolean): number {
+    if (!shown) return margin
+    const barMm = (bar.heightMm > 0 ? bar.heightMm : PDF_AUTO_BAR_HEIGHT_MM) + bar.gapMm
+    return bleeds ? Math.max(margin, barMm) : margin + barMm
+}
+
+/** Height of the sheet the way it is turned. */
+function sheetHeightMm(profile: PdfExportProfile): number {
+    const { width, height } = pdfPageSizeMm(profile)
+    return profile.page.orientation === 'landscape' ? width : height
+}
+
+/**
+ * Page height left for the document text once the top and bottom margins and any shown
+ * header/footer are taken off (see edgeBandMm). With the Footer switch off, page numbers
+ * still print, but on their own: the export drops the footer's height, gap and edge-to-edge
+ * band (applyPdfFooterSwitch), so only a bare content-sized row counts.
+ * Negative when they add up to more than the page.
+ */
+export function pdfBodyHeightMm(profile: PdfExportProfile): number {
+    const drawn = applyPdfFooterSwitch(profile)
+    const layout = resolvePdfExportLayout(drawn)
+    const { top, bottom } = drawn.page.marginsMm
+    return (
+        sheetHeightMm(drawn) -
+        edgeBandMm(top, drawn.header, layout.showHeader, layout.headerBleeds) -
+        edgeBandMm(bottom, drawn.footer, layout.showFooter, layout.footerBleeds)
+    )
+}
 
 /** Slack for table-cell padding and rounding, so the cover never tips onto a second page. */
 const TITLE_PAGE_SLACK_MM = 4
@@ -331,20 +366,13 @@ const TITLE_PAGE_SLACK_MM = 4
  * sits inside the margin band, so only the part that outgrows the margin counts.
  */
 function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
-    const { width, height } = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? width : height
     const { top, bottom } = profile.page.marginsMm
-    const band = (margin: number, chrome: PdfExportProfile['header'], onCover: boolean, bleeds: boolean) => {
-        if (!onCover) return margin
-        const bar = (chrome.heightMm > 0 ? chrome.heightMm : AUTO_BAR_HEIGHT_MM) + chrome.gapMm
-        return bleeds ? Math.max(margin, bar) : margin + bar
-    }
     const headerOnCover = layout.showHeader && profile.header.hideOnFirstPages === 'none'
     const footerOnCover = layout.showFooter && profile.footer.hideOnFirstPages === 'none'
     // An edge-to-edge cover image with no header above it starts at the very top of the sheet.
-    const topRoom = layout.logoBleeds && !headerOnCover ? 0 : band(top, profile.header, headerOnCover, layout.headerBleeds)
-    const bottomRoom = band(bottom, profile.footer, footerOnCover, layout.footerBleeds)
-    return Math.max(40, Math.floor(pageHeight - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
+    const topRoom = layout.logoBleeds && !headerOnCover ? 0 : edgeBandMm(top, profile.header, headerOnCover, layout.headerBleeds)
+    const bottomRoom = edgeBandMm(bottom, profile.footer, footerOnCover, layout.footerBleeds)
+    return Math.max(40, Math.floor(sheetHeightMm(profile) - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
 }
 
 /**
@@ -352,22 +380,15 @@ function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): nu
  * printable height less 40mm, and at most the room it has, where the logo starts to shrink.
  */
 function titlePageHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): { min: number; max: number } {
-    const { width, height } = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? width : height
     const { top, bottom } = profile.page.marginsMm
     const max = titlePageRoomMm(profile, layout)
-    return { min: Math.min(Math.max(100, Math.round(pageHeight - top - bottom - 40)), max), max }
+    return { min: Math.min(Math.max(100, Math.round(sheetHeightMm(profile) - top - bottom - 40)), max), max }
 }
 
-/** Tallest a body image can print and still fit on one page beside the header/footer bars. */
-function bodyImageMaxHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
-    const { width, height } = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? width : height
-    const { top, bottom } = profile.page.marginsMm
-    const bar = (chrome: PdfExportProfile['header']) => (chrome.heightMm > 0 ? chrome.heightMm : AUTO_BAR_HEIGHT_MM) + chrome.gapMm
-    const chrome = (layout.showHeader ? bar(profile.header) : 0) + (layout.showFooter ? bar(profile.footer) : 0)
+/** Tallest a body image can print and still fit on one page: the room the settings warning reports. */
+function bodyImageMaxHeightMm(profile: PdfExportProfile): number {
     // A little slack for the line box the image sits in.
-    return Math.max(40, Math.floor(pageHeight - top - bottom - chrome - 6))
+    return Math.max(40, Math.floor(pdfBodyHeightMm(profile) - 6))
 }
 
 /** Room the diagram box's padding and border take around its SVG. */
@@ -550,7 +571,7 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .mermaid-export svg {
     display: block;
     max-width: 100%;
-    max-height: ${Math.max(40, bodyImageMaxHeightMm(profile, layout) - MERMAID_BOX_MM)}mm;
+    max-height: ${Math.max(40, bodyImageMaxHeightMm(profile) - MERMAID_BOX_MM)}mm;
     width: auto;
     height: auto;
     margin: 0 auto;
@@ -558,7 +579,7 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   /* Body images shrink (keeping their shape) to the text width and to what fits on one page. */
   .pdf-body img {
     max-width: 100%;
-    max-height: ${bodyImageMaxHeightMm(profile, layout)}mm;
+    max-height: ${bodyImageMaxHeightMm(profile)}mm;
     width: auto;
     height: auto;
   }

@@ -1,6 +1,5 @@
-import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type { PdfExportChrome, PdfExportProfile, PdfExportSettings } from '@/lib/settings/pdf-export-types'
+import type { PdfExportProfile, PdfExportSettings } from '@/lib/settings/pdf-export-types'
 
 function newProfileId(): string {
     return crypto.randomUUID()
@@ -111,35 +110,5 @@ export function deletePdfExportProfile(settings: PdfExportSettings, profileId: s
 /** Below this much page height for the text, the settings warn that the page is nearly full. */
 export const PDF_MIN_BODY_HEIGHT_MM = 40
 
-/**
- * Rough height of a header or footer bar left at "0 fits the content". The PDF export sizes
- * body images with the same estimate (AUTO_BAR_HEIGHT_MM in lib/markdown/export-html-css.ts),
- * so the warning and the export agree on how much room is left.
- */
-export const PDF_AUTO_BAR_HEIGHT_MM = 12
-
-/**
- * Page height left for the document text once the top and bottom margins and any shown
- * header/footer (its height, or PDF_AUTO_BAR_HEIGHT_MM when it fits its content, plus its
- * gap) are taken off. A bar that ignores margins sits inside the margin band, so it only
- * takes more room once it is taller than the margin.
- * With the Footer switch off, page numbers still print, but on their own: the export drops
- * the footer's height, gap and edge-to-edge band (applyPdfFooterSwitch), so only a bare
- * content-sized row counts.
- * Negative when they add up to more than the page.
- */
-export function pdfBodyHeightMm(profile: PdfExportProfile): number {
-    const sheet = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? sheet.width : sheet.height
-    const footer = profile.footer.enabled ? profile.footer : { ...profile.footer, heightMm: 0, gapMm: 0, ignoreMargins: false }
-    const layout = resolvePdfExportLayout({ ...profile, footer })
-    const band = (margin: number, bar: PdfExportChrome, shown: boolean, bleeds: boolean) => {
-        if (!shown) return margin
-        const barMm = (bar.heightMm > 0 ? bar.heightMm : PDF_AUTO_BAR_HEIGHT_MM) + bar.gapMm
-        return bleeds ? Math.max(margin, barMm) : margin + barMm
-    }
-    const { top, bottom } = profile.page.marginsMm
-    return (
-        pageHeight - band(top, profile.header, layout.showHeader, layout.headerBleeds) - band(bottom, footer, layout.showFooter, layout.footerBleeds)
-    )
-}
+// One copy, shared with the export, so the warning and the export agree on how much room is left.
+export { PDF_AUTO_BAR_HEIGHT_MM, pdfBodyHeightMm } from '@/lib/markdown/export-html-css'

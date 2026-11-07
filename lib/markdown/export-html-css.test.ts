@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     applyPdfFooterSwitch,
     buildPdfExportCss,
+    pdfBodyHeightMm,
     PDF_STAMP_GLYPHS_CLASS,
     pdfPageSizeMm,
     pdfPrintMarginsMm,
@@ -63,6 +64,17 @@ describe('buildPdfExportCss', () => {
 
         profile.page.orientation = 'landscape'
         expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
+    })
+
+    it('gives body images the room the settings report when a bar ignores the margins', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, enabled: true, heightMm: 0, gapMm: 0, ignoreMargins: true }
+        profile.footer = { ...profile.footer, enabled: true, heightMm: 20, gapMm: 0, ignoreMargins: true }
+        // Each bar sits in its 10mm margin band and only pushes the text past it: 297 - 12 - 20.
+        expect(pdfBodyHeightMm(profile)).toBe(265)
+        const css = buildPdfExportCss(profile)
+        expect(css).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 259mm;/)
+        expect(css).toMatch(/\.mermaid-export svg \{[^}]*max-height: 251mm;/)
     })
 
     it('shrinks a diagram taller than a page to fit on one page', () => {
