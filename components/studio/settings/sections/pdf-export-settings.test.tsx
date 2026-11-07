@@ -303,7 +303,7 @@ describe('PdfExportSettings labels', () => {
         const hint = await group('Footer').findByText(
             /^Use \{\{page\}\}, \{\{total\}\}, \{\{title\}\}, \{\{subtitle\}\}, \{\{author\}\} or \{\{date\}\}\./
         )
-        expect(hint).toHaveTextContent('Between {{page}} and {{total}}, Arabic, Hebrew, Hindi and letters the footer font lacks print as ?.')
+        expect(hint).toHaveTextContent('Text between {{page}} and {{total}} must use Latin letters; other scripts print as ?.')
     })
 
     it('says which page numbers may be lost outside the Windows app, and only there', () => {
