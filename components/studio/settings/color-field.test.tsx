@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColorField } from '@/components/studio/settings/color-field'
@@ -113,7 +113,7 @@ describe('ColorField', () => {
         expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('saves typed text that was not committed when the popover closes', () => {
+    it('saves typed text that was not committed when the popover closes', async () => {
         const { onChange, trigger } = renderField()
         const input = open(trigger)
 
@@ -121,7 +121,7 @@ describe('ColorField', () => {
         expect(onChange).not.toHaveBeenCalled()
         fireEvent.keyDown(input, { key: 'Escape' })
 
-        expect(screen.queryByRole('textbox')).toBeNull()
+        await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
         expect(onChange).toHaveBeenLastCalledWith('#00ff00')
         expect(trigger).toHaveAccessibleDescription('#00ff00')
     })
