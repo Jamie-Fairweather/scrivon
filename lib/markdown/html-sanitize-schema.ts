@@ -1,6 +1,23 @@
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize'
 import type { PluggableList } from 'unified'
+import { EXIT, visit } from 'unist-util-visit'
+
+/**
+ * rehype-raw, but only for a document that has raw HTML. It parses the whole tree again, which more than doubles
+ * the HTML step of every preview update on a long document, and without raw HTML it has nothing to do.
+ */
+export function rehypeRawWhenNeeded(): ReturnType<typeof rehypeRaw> {
+    const transform = rehypeRaw()
+    return (tree, file) => {
+        let found = false
+        visit(tree, 'raw', () => {
+            found = true
+            return EXIT
+        })
+        return found ? transform(tree, file) : tree
+    }
+}
 
 /** Windows drive letters, so `C:\docs\a.md` isn't read as an unknown `c:` scheme (markdownUrlTransform keeps them too). */
 const DRIVE_LETTERS = [...'abcdefghijklmnopqrstuvwxyz'].flatMap((letter) => [letter, letter.toUpperCase()])
@@ -73,7 +90,7 @@ export const exportSanitizeSchema: SanitizeSchema = {
  * (remark-rehype's clobberPrefix: '') because the sanitizer adds the prefix to every id, footnotes included.
  * The same chain numbers diagram blocks for MarkdownDocumentViewer, so both count raw-HTML code blocks alike.
  */
-export const previewHtmlPlugins: PluggableList = [rehypeRaw, [rehypeSanitize, previewSanitizeSchema]]
+export const previewHtmlPlugins: PluggableList = [rehypeRawWhenNeeded, [rehypeSanitize, previewSanitizeSchema]]
 
 /** remark-rehype options for the preview; see {@link previewHtmlPlugins}. */
 export const previewRemarkRehypeOptions = { allowDangerousHtml: true, clobberPrefix: '' } as const

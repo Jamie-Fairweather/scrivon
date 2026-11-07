@@ -1,7 +1,6 @@
 import type { Element, Root as HastRoot, Text as HastText } from 'hast'
 import { toHtml } from 'hast-util-to-html'
 import type { Code, Parent, Root, Text } from 'mdast'
-import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
@@ -20,7 +19,7 @@ import {
 import { pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
-import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
+import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { isExportWebImageUrl } from '@/lib/markdown/web-images'
 import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
@@ -462,7 +461,7 @@ export async function renderExportPdf(
     // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
     const hast = unified()
         .use(remarkRehype, { allowDangerousHtml: true })
-        .use(rehypeRaw)
+        .use(rehypeRawWhenNeeded)
         .use(rehypeSanitize, exportSanitizeSchema)
         .runSync(tree) as HastRoot
     openDetails(hast)
