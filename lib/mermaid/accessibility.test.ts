@@ -35,6 +35,26 @@ describe('diagram accessibility lines (A27)', () => {
         expect(readDiagramAccessibility(source).description).toBeNull()
     })
 
+    it('blanks a description block over several lines, or on one line', () => {
+        expect(withoutAccessibilityLines('flowchart TD\n  accDescr {\n    multi\n    line }\n  A --> B')).toBe('flowchart TD\n\n\n\n  A --> B')
+        expect(withoutAccessibilityLines('stateDiagram-v2\n  accTitle: States\n  accDescr { one line }\n  [*] --> Idle')).toBe(
+            'stateDiagram-v2\n\n\n  [*] --> Idle'
+        )
+    })
+
+    it('keeps diagram text written after the closing brace', () => {
+        const source = 'graph TD\n  accDescr { note } A --> B'
+        expect(withoutAccessibilityLines(source)).toBe('graph TD\n A --> B')
+        expect(readDiagramAccessibility(source).description).toBe('note')
+        expect(withoutAccessibilityLines('graph TD\n  accDescr {\n    two\n  lines } B --> C\n  A --> B')).toBe('graph TD\n\n\n B --> C\n  A --> B')
+    })
+
+    it('matches the keywords only as Mermaid writes them, and leaves comments and labels alone', () => {
+        const source = '%%{init: {"theme": "dark"}}%%\nstateDiagram-v2\n  %% accTitle: in a comment\n  ACCTITLE : States\n  A[accTitle] --> B\n'
+        expect(withoutAccessibilityLines(source)).toBe(source)
+        expect(readDiagramAccessibility(source)).toEqual({ title: null, description: null })
+    })
+
     it('returns the same text when there is nothing to blank', () => {
         const source = 'graph TD\n  account --> access'
         expect(withoutAccessibilityLines(source)).toBe(source)

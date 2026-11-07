@@ -1,7 +1,11 @@
 /**
  * Mermaid's accessibility lines: `accTitle: …`, `accDescr: …`, and `accDescr { … }` over several
  * lines. beautiful-mermaid doesn't know them and draws them as stray nodes, so they are blanked out
- * before rendering, and used instead to name the diagram for screen readers.
+ * before rendering, and used instead to name the diagram for screen readers. This is the one parser
+ * for them: the canvas, the preview, the PDF and the Word export all read them the same way.
+ *
+ * The keywords are matched as Mermaid documents them (`accTitle`, `accDescr`), so a state or node
+ * that happens to be called `ACCTITLE` is still drawn.
  */
 
 export type DiagramAccessibility = { title: string | null; description: string | null }
@@ -48,7 +52,10 @@ function scan(source: string): Scan {
                 .filter(Boolean)
                 .join(' ') || null
         // Blank the lines rather than remove them, so parse errors still point at the right line.
-        for (let blank = i; blank <= end; blank++) lines[blank] = ''
+        // Anything after the closing brace is diagram again, so it stays on its line.
+        const after = rest.slice(close + 1)
+        for (let blank = i; blank < end; blank++) lines[blank] = ''
+        lines[end] = after.trim() ? after : ''
         result.found = true
         i = end
     }

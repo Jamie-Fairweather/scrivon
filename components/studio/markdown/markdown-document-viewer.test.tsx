@@ -123,6 +123,34 @@ describe('MarkdownDocumentViewer', () => {
         expect(container.querySelector('h1')).toHaveTextContent('Beta')
     })
 
+    describe('empty document (U81)', () => {
+        const EMPTY_MESSAGE = 'Start writing Markdown to see a preview.'
+
+        it('says how to get a preview instead of showing a blank page', () => {
+            for (const source of ['', '  \n\t\r\n  ', '---\ntitle: Draft\n---\n\n']) {
+                const { container, unmount } = render(viewer(DOC_A, source))
+                expect({ source, shown: screen.queryByText(EMPTY_MESSAGE) !== null }).toEqual({ source, shown: true })
+                expect(container.querySelector('article')).toBeNull()
+                unmount()
+            }
+        })
+
+        it('shows the document in its place once it has content, and the message again when it is cleared', async () => {
+            const { container, rerender } = render(viewer(DOC_A, ''))
+            expect(screen.getByText(EMPTY_MESSAGE)).toBeInTheDocument()
+
+            rerender(viewer(DOC_A, '# Hello'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toHaveTextContent('Hello')
+            expect(screen.queryByText(EMPTY_MESSAGE)).toBeNull()
+
+            rerender(viewer(DOC_A, ' \n'))
+            await nextFrame()
+            expect(container.querySelector('h1')).toBeNull()
+            expect(screen.getByText(EMPTY_MESSAGE)).toBeInTheDocument()
+        })
+    })
+
     it('parses the document once per edit, not again for the text it is about to replace', async () => {
         const { container, rerender } = render(viewer(DOC_A, '# One'))
         await nextFrame()
@@ -350,11 +378,12 @@ describe('MarkdownDocumentViewer', () => {
             '[^1]: A note.',
         ].join('\n')
 
-        it('keeps heading and footnote ids and never uses target=_blank', () => {
+        it('keeps heading and footnote ids, with GitHub’s prefix, and never uses target=_blank', () => {
             const { container } = render(viewer(DOC_A, source))
-            expect(container.querySelector('h1')).toHaveAttribute('id', 'install-steps')
+            expect(container.querySelector('h1')).toHaveAttribute('id', 'user-content-install-steps')
             expect(container.querySelector('#user-content-fn-1')).not.toBeNull()
-            expect(container.querySelector('#footnote-label')).toHaveClass('sr-only')
+            expect(container.querySelector('#user-content-footnote-label')).toHaveClass('sr-only')
+            expect(container.querySelector('a[data-footnote-ref]')).toHaveAttribute('aria-describedby', 'user-content-footnote-label')
             expect(container.querySelector('a[target]')).toBeNull()
         })
 
@@ -418,6 +447,39 @@ describe('MarkdownDocumentViewer', () => {
             expect(scrollIntoView.mock.contexts).toEqual(headings)
         })
 
+        it('keeps a heading from taking an id the app uses, and #links still reach it (B05 review)', () => {
+            const { container } = render(
+                viewer(DOC_A, '# Export title\n\nSee [x](#export-title), [y](#Export-Title) and [z](#user-content-export-title).')
+            )
+            // The export dialog's title field, which opens after the preview (a portal at the end of the page). Its
+            // <label htmlFor> and getElementById must find it, not the heading that comes first.
+            const field = document.createElement('input')
+            field.id = 'export-title'
+            document.body.append(field)
+            try {
+                const heading = container.querySelector('h1')
+                expect(heading).toHaveAttribute('id', 'user-content-export-title')
+                expect(document.getElementById('export-title')).toBe(field)
+
+                for (const name of ['x', 'y', 'z']) fireEvent.click(screen.getByRole('link', { name }))
+                expect(notifyInfo).not.toHaveBeenCalled()
+                expect(scrollIntoView.mock.contexts).toEqual([heading, heading, heading])
+            } finally {
+                field.remove()
+            }
+        })
+
+        it('reaches an old-style <a name> anchor, as the PDF does (review)', () => {
+            const { container } = render(
+                viewer(DOC_A, '<a name="install"></a>\n\nInstall it.\n\n<a name="Set_Up">Set up</a>\n\n[x](#install) [y](#Install) [z](#set_up)')
+            )
+            const [install, setUp] = Array.from(container.querySelectorAll('a[name]'))
+            expect(install).toHaveAttribute('name', 'user-content-install')
+            for (const name of ['x', 'y', 'z']) fireEvent.click(screen.getByRole('link', { name }))
+            expect(notifyInfo).not.toHaveBeenCalled()
+            expect(scrollIntoView.mock.contexts).toEqual([install, install, setUp])
+        })
+
         it('tells the user when an anchor has no target', () => {
             render(viewer(DOC_A, '[missing](#nowhere)'))
             fireEvent.click(screen.getByRole('link', { name: 'missing' }))
@@ -434,7 +496,7 @@ describe('MarkdownDocumentViewer', () => {
             workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
             rerender(viewer(DOC_OTHER, '# Intro\n\n## Part'))
             expect(scrollIntoView).toHaveBeenCalledTimes(1)
-            expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#part'))
+            expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
         })
 
         it('reuses the open tab for a linked document written with other separators', () => {

@@ -1,19 +1,20 @@
-import type { Element, ElementContent, Root as HastRoot } from 'hast'
-import remarkGfm from 'remark-gfm'
+import type { Element, Root as HastRoot } from 'hast'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
-import { mermaidBlockOrdinal, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
+import { mermaidBlockOrdinal, mermaidBlockText, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
+import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 
-const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype, { allowDangerousHtml: true }).use(rehypeFencedBlockOrdinals)
-
-function textOf(node: Element | ElementContent): string {
-    if (node.type === 'text') return node.value
-    if (node.type === 'element') return node.children.map(textOf).join('')
-    return ''
-}
+/** MarkdownPreview's chain, so a diagram written as raw HTML (`<pre><code class="language-mermaid">`) counts here too. */
+const processor = unified()
+    .use(remarkParse)
+    .use(markdownRemarkPlugins)
+    .use(remarkRehype, previewRemarkRehypeOptions)
+    .use(previewHtmlPlugins)
+    .use(rehypeFencedBlockOrdinals)
 
 /**
  * The source of every Mermaid block in the document, by the ordinal MarkdownPreview gives it. Both number the
@@ -25,7 +26,7 @@ export function extractMermaidBlockSources(markdown: string): string[] {
     const sources: string[] = []
     visit(tree, 'element', (node: Element) => {
         const ordinal = mermaidBlockOrdinal(node)
-        if (ordinal !== null) sources[ordinal] = textOf(node).replace(/\n$/, '')
+        if (ordinal !== null) sources[ordinal] = mermaidBlockText(node)
     })
     return sources
 }

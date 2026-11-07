@@ -5,16 +5,19 @@ import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
-import { MarkdownPreview, mermaidBlockId } from '@/components/studio/markdown/markdown-preview'
+import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
+import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { Button } from '@/components/ui/button'
+import { Card, CardPanel } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
+import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
 import { cn } from '@/lib/utils'
 
@@ -35,22 +38,39 @@ function scrollViewport(root: HTMLElement | null): HTMLElement | null {
     return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
 }
 
+/** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
+const DOCUMENT_ID_PREFIX = 'user-content-'
+
 /**
- * The heading or footnote a `#fragment` points at: an exact id match first, then one that differs only in case,
- * then one that matches once both are reduced to export's id rules (GitHub-style links such as `#foo--bar`).
+ * An element's id as the document wrote it, without the preview's prefix. For an old-style `<a name="install">`
+ * anchor with no id, its name, which the sanitizer prefixes the same way.
+ */
+function documentId(element: HTMLElement): string {
+    const id = element.id || element.getAttribute('name') || ''
+    return id.startsWith(DOCUMENT_ID_PREFIX) ? id.slice(DOCUMENT_ID_PREFIX.length) : id
+}
+
+/**
+ * The heading, footnote or `<a name>` anchor a `#fragment` points at: an exact id match first (with or without the
+ * preview's `user-content-` prefix), then one that differs only in case, then one that matches once both are
+ * reduced to export's id rules (GitHub-style links such as `#foo--bar`).
  */
 function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | null {
     if (!root) return null
     const lower = id.toLowerCase()
     const key = anchorKey(id)
+    let exactMatch: HTMLElement | null = null
     let caseMatch: HTMLElement | null = null
     let keyMatch: HTMLElement | null = null
-    for (const element of root.querySelectorAll<HTMLElement>('[id]')) {
-        if (element.id === id) return element
-        if (!caseMatch && element.id.toLowerCase() === lower) caseMatch = element
-        if (!keyMatch && key && anchorKey(element.id) === key) keyMatch = element
+    for (const element of root.querySelectorAll<HTMLElement>('[id], a[name]')) {
+        if (element.id && element.id === id) return element
+        const written = documentId(element)
+        if (!written) continue
+        if (!exactMatch && written === id) exactMatch = element
+        if (!caseMatch && written.toLowerCase() === lower) caseMatch = element
+        if (!keyMatch && key && anchorKey(written) === key) keyMatch = element
     }
-    return caseMatch ?? keyMatch
+    return exactMatch ?? caseMatch ?? keyMatch
 }
 
 /** The Expand button of a block, found again if the element that had focus was replaced. */
@@ -60,6 +80,19 @@ function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElemen
         if (block.dataset.mermaidBlockId === blockId) return block.querySelector<HTMLElement>('button')
     }
     return null
+}
+
+/** What the preview shows while the document has nothing to show yet, like the diagram canvas's empty state. */
+function PreviewEmpty() {
+    return (
+        <div className="flex min-h-full items-center justify-center p-4">
+            <Card className="w-full max-w-md">
+                <CardPanel className="p-4">
+                    <p className="text-center text-sm text-muted-foreground">Start writing Markdown to see a preview.</p>
+                </CardPanel>
+            </Card>
+        </div>
+    )
 }
 
 function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocumentViewerProps) {
@@ -158,10 +191,10 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         }
         if (located.ordinal === expanded.ordinal && located.source === expanded.source) return
 
-        const blockId = located.ordinal === expanded.ordinal ? expanded.blockId : mermaidBlockId(tabId, located.ordinal)
-        if (blockId !== expanded.blockId && returnFocusRef.current) returnFocusRef.current = { blockId, element: null }
-        setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source, blockId })
-    }, [expanded, liveMermaidSources, setExpanded, tabId])
+        // The block id (and the canvas key made from it) stays: the preview's ids move with their blocks, so the
+        // Expand button to return focus to, and the expanded view's pan and zoom, still belong to this block.
+        setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source })
+    }, [expanded, liveMermaidSources, setExpanded])
 
     const onOverlayKeyDown = useCallback(
         (event: KeyboardEvent<HTMLDivElement>) => {
@@ -238,6 +271,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     })
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
+
+    /** Nothing but spaces, or only front matter, which the preview leaves out. */
+    const previewIsEmpty = useMemo(() => markdownPreviewBody(previewSource).trim() === '', [previewSource])
 
     useEffect(() => {
         if (!expandedKey) return
@@ -320,14 +356,18 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     </div>
                 ) : null}
                 <ScrollArea className="min-h-0 w-full flex-1" scrollbarGutter>
-                    <MarkdownPreview
-                        source={previewSource}
-                        tabId={tabId}
-                        onExpandBlock={onExpandBlock}
-                        onLinkClick={onLinkClick}
-                        loadRemoteImages={loadRemoteImages}
-                        onRemoteImageBlocked={onRemoteImageBlocked}
-                    />
+                    {previewIsEmpty ? (
+                        <PreviewEmpty />
+                    ) : (
+                        <MarkdownPreview
+                            source={previewSource}
+                            tabId={tabId}
+                            onExpandBlock={onExpandBlock}
+                            onLinkClick={onLinkClick}
+                            loadRemoteImages={loadRemoteImages}
+                            onRemoteImageBlocked={onRemoteImageBlocked}
+                        />
+                    )}
                 </ScrollArea>
             </div>
             {expanded ? (
@@ -342,9 +382,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     <div className="absolute top-2 right-2 z-20">
                         <Button
                             type="button"
-                            variant="secondary"
+                            variant="outline"
                             size="sm"
-                            className="h-8 gap-1.5 shadow-sm"
+                            className={cn('h-8 gap-1.5', overlayButtonClassName)}
                             onClick={onCloseExpanded}
                             aria-label="Back to document preview"
                             title="Back to preview (Esc)"

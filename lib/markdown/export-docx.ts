@@ -71,13 +71,15 @@ import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
-import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
+import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
-import { diagramAltText, stripAccessibilityLines, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
-import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
+import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { AppThemeId } from '@/lib/theme/catalog'
+import { familyName, splitFontStack } from '@/lib/settings/font-stack'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
 type Block = Paragraph | Table
@@ -107,8 +109,12 @@ const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 const GRID_BORDER = { style: BorderStyle.SINGLE, size: 4, color: 'E5E5E5' }
 /** Same cap the PDF cover uses (`max-height: 150mm`). */
 const LOGO_MAX_HEIGHT_MM = 150
-/** CSS heading sizes: 1.5rem, 1.25rem, 1.125rem, 1rem, then the two smaller steps. */
-const HEADING_HALF_POINTS = [36, 30, 27, 24, 22, 20] as const
+/** The PDF's heading sizes, h1 to h6, in em of the body text, so headings grow and shrink with the Body size. */
+const HEADING_EM = [1.64, 1.36, 1.23, 1.09, 1, 0.9] as const
+/** The PDF's code block, cover title and Contents title sizes, in em of the body text. */
+const CODE_EM = 0.82
+const TITLE_EM = 2.18
+const CONTENTS_TITLE_EM = 1.8
 /** CSS heading margins, in twips. 1rem = 240. */
 const HEADING_SPACING = [
     { before: 0, after: 240 },
@@ -133,11 +139,13 @@ const HEADING_LEVELS = [
     HeadingLevel.HEADING_6,
 ] as const
 
-/** The font families a CSS stack names, in order, without generic families and browser-only names. */
+/**
+ * The font families a CSS stack names, in order, without generic families and browser-only names. Quoted names
+ * lose their quotes and escapes, and a comma inside one doesn't split it.
+ */
 function fontNames(stack: string): string[] {
-    return stack
-        .split(',')
-        .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+    return splitFontStack(stack)
+        .map(familyName)
         .filter((name) => name && !name.startsWith('-') && !GENERIC_FONTS.has(name.toLowerCase()) && !SKIP_FONTS.has(name.toLowerCase()))
 }
 
@@ -155,8 +163,9 @@ type EastAsianFont = { name: string; charset?: string }
 const EAST_ASIAN_FONTS = {
     japanese: { name: 'Yu Gothic', charset: '80' },
     korean: { name: 'Malgun Gothic', charset: '81' },
-    // There is no language setting to tell Traditional from Simplified; YaHei has the characters of both.
+    // Simplified glyph shapes. A Traditional Chinese language tag (zh-TW, zh-HK, zh-Hant) gets JhengHei instead.
     chinese: { name: 'Microsoft YaHei', charset: '86' },
+    traditional: { name: 'Microsoft JhengHei', charset: '88' },
 } as const satisfies Record<string, EastAsianFont>
 
 /** Word's four font slots. Word draws Chinese, Japanese and Korean characters with `eastAsia` and everything else with the rest. */
@@ -165,12 +174,29 @@ type WordFont = { ascii: string; hAnsi: string; cs: string; eastAsia?: string }
 const KANA = /[぀-ヿㇰ-ㇿｦ-ﾟ]/g
 const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힯]/g
 const HAN = /[㐀-䶿一-鿿豈-﫿\u{20000}-\u{3FFFD}]/u
+const HAN_ALL = new RegExp(HAN.source, 'gu')
+
+/** Language tags Word reads with its East Asian and right-to-left language settings. */
+const CJK_LANGUAGE = /^(?:ja|ko|zh)(?:-|$)/i
+const RTL_LANGUAGE = /^(?:ar|fa|he|ps|ur|yi)(?:-|$)/i
+
+/** The East Asian font a language tag asks for. Undefined when it isn't Chinese, Japanese or Korean. */
+function languageEastAsianFont(lang: string): EastAsianFont | undefined {
+    if (/^ja(?:-|$)/i.test(lang)) return EAST_ASIAN_FONTS.japanese
+    if (/^ko(?:-|$)/i.test(lang)) return EAST_ASIAN_FONTS.korean
+    if (/^zh(?:-|$)/i.test(lang)) return hanScriptOfTag(lang) === 'Hant' ? EAST_ASIAN_FONTS.traditional : EAST_ASIAN_FONTS.chinese
+    return undefined
+}
 
 /**
- * The East Asian font for the document, from the script its text is in: kana means Japanese, Hangul Korean,
- * and Chinese characters alone Chinese. Undefined with no such text, so Word keeps its own choice.
+ * The East Asian font for the document. Its language decides first (the front matter's `lang:`, or the guess from
+ * its text). A document in another language that still has some such text gets one from the script that leads, as
+ * the language guess weighs them: Hangul leading means Korean, kana in its Chinese characters Japanese, else Chinese.
+ * Undefined with no such text, so Word keeps its own choice.
  */
 function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
+    const fromLanguage = languageEastAsianFont(document.lang)
+    if (fromLanguage) return fromLanguage
     const { metadata, profile, tree } = document
     const parts = [metadata.title, metadata.subtitle, metadata.author, metadata.date, profile.content.watermark]
     for (const chrome of [profile.header, profile.footer]) parts.push(chrome.left.text, chrome.right.text)
@@ -182,8 +208,21 @@ function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
     const text = parts.join('\n')
     const kana = text.match(KANA)?.length ?? 0
     const hangul = text.match(HANGUL)?.length ?? 0
-    if (kana > 0 || hangul > 0) return kana >= hangul ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.korean
-    return HAN.test(text) ? EAST_ASIAN_FONTS.chinese : undefined
+    const han = text.match(HAN_ALL)?.length ?? 0
+    if (kana + hangul + han === 0) return undefined
+    if (hangul >= kana + han) return EAST_ASIAN_FONTS.korean
+    // Japanese mixes kana into its kanji, so one stray kana ('ツ', '・') doesn't make Chinese text Japanese.
+    return kana * 10 >= han ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.chinese
+}
+
+/**
+ * The document's language for Word's spelling and line breaking, with its East Asian and right-to-left parts.
+ * Undefined, leaving Word to use the reader's own language, when it is only the `en` the guess falls back to:
+ * a German or French document would otherwise be spell-checked as English.
+ */
+function wordLanguage({ lang, langGuessed }: ExportDocument): { value: string; eastAsia?: string; bidirectional?: string } | undefined {
+    if (langGuessed && lang === 'en') return undefined
+    return { value: lang, eastAsia: CJK_LANGUAGE.test(lang) ? lang : undefined, bidirectional: RTL_LANGUAGE.test(lang) ? lang : undefined }
 }
 
 /** Fonts made for Chinese, Japanese or Korean, by name, with their script's charset. Null where the name doesn't say which script. */
@@ -386,7 +425,7 @@ function decodeDataUrl(dataUrl: string): Uint8Array | null {
 /** Image bytes Word can embed, and the size the PDF shows the picture at (null when the file doesn't say). */
 type DecodedImage = { kind: ImageKind; bytes: Uint8Array; size: { width: number; height: number } | null }
 
-/** A data URL as Word-ready bytes: as is for PNG/JPEG/GIF/BMP, else the PNG {@link convertImages} made from it. */
+/** A data URL as Word-ready bytes: as is for PNG/JPEG/GIF/BMP, else the PNG or JPEG {@link convertImages} made from it. */
 function decodeImage(converted: Map<string, DecodedImage>, dataUrl: string): DecodedImage | null {
     const redrawn = converted.get(dataUrl.trim())
     if (redrawn) return redrawn
@@ -436,11 +475,29 @@ function svgSize(markup: string): { width: number; height: number } | null {
 
 const SVG_DATA_URL = /^data:image\/svg\+xml[;,]/i
 
+/** Rows of pixels read at a time when a redrawn picture is checked for see-through parts, so a big one isn't copied whole. */
+const ALPHA_BAND_ROWS = 256
+
+/** Whether every pixel on the canvas is fully opaque. False when the pixels can't be read, so the picture stays a PNG. */
+function canvasIsOpaque(ctx: CanvasRenderingContext2D, width: number, height: number): boolean {
+    try {
+        for (let top = 0; top < height; top += ALPHA_BAND_ROWS) {
+            const { data } = ctx.getImageData(0, top, width, Math.min(ALPHA_BAND_ROWS, height - top))
+            for (let index = 3; index < data.length; index += 4) if (data[index]! < 255) return false
+        }
+        return true
+    } catch {
+        return false
+    }
+}
+
 /**
- * Draws an image Word can't take (SVG, WebP…) as a PNG, the way the PDF's `<img>` shows it. Null where that fails.
+ * Draws an image Word can't take (SVG, WebP…) the way the PDF's `<img>` shows it. Null where that fails.
+ * A picture with no see-through parts becomes a JPEG, since a photo as a lossless PNG can be many megabytes;
+ * SVG art and pictures with transparency become a PNG.
  * `size` stays the image's own size; `shownWidth` is a wider size it will be stretched to, so vector art is drawn for that.
  */
-async function redrawAsPng(dataUrl: string, shownWidth = 0): Promise<DecodedImage | null> {
+async function redrawForWord(dataUrl: string, shownWidth = 0): Promise<DecodedImage | null> {
     if (typeof document === 'undefined' || typeof globalThis.Image === 'undefined') return null
     const bytes = decodeDataUrl(dataUrl)
     if (!bytes || imageKind(bytes)) return null
@@ -458,9 +515,15 @@ async function redrawAsPng(dataUrl: string, shownWidth = 0): Promise<DecodedImag
         const ctx = canvas.getContext('2d')
         if (!ctx) return null
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/png'))
+        const jpeg = !svg && canvasIsOpaque(ctx, canvas.width, canvas.height)
+        const blob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob((value) => resolve(value), jpeg ? 'image/jpeg' : 'image/png', jpeg ? 0.9 : undefined)
+        )
         if (!blob) return null
-        return { kind: 'png', bytes: new Uint8Array(await blob.arrayBuffer()), size }
+        const redrawn = new Uint8Array(await blob.arrayBuffer())
+        // A browser that can't write JPEG hands back a PNG instead, so the bytes say which it is.
+        const kind = imageKind(redrawn)
+        return kind ? { kind, bytes: redrawn, size } : null
     } catch {
         return null
     }
@@ -485,7 +548,7 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
         [...urls]
             .filter((url) => url.startsWith('data:'))
             .map(async (url) => {
-                const image = await redrawAsPng(url)
+                const image = await redrawForWord(url)
                 if (image) converted.set(url, image)
             })
     )
@@ -497,7 +560,7 @@ function warnAboutDroppedImages(state: RenderState) {
     const { profile, assets } = state.document
     const layout = resolvePdfExportLayout(profile)
     const slots: [used: boolean, dataUrl: string, label: string][] = [
-        [profile.frontMatter.titlePage, assets.logoDataUrl, 'title-page logo'],
+        [profile.frontMatter.titlePage, assets.logoDataUrl, 'cover image'],
         [layout.showHeader, assets.header.left, 'header image'],
         [layout.showHeader, assets.header.right, 'header image'],
         [layout.showFooter, assets.footer.left, 'footer image'],
@@ -653,7 +716,6 @@ type RenderState = {
     bodyHalfPoints: number
     contentPx: number
     contentTwip: number
-    pageWidthPx: number
     pageWidthTwip: number
     /** Extra left indent, in twips, for blocks nested in list items and quotes. */
     extraLeft: number
@@ -752,7 +814,6 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         bodyHalfPoints: Math.round(profile.typography.bodySizePt * 2),
         contentPx: mmToPx(widthMm - profile.page.marginsMm.left - profile.page.marginsMm.right),
         contentTwip: widthTwip - marginLeft - marginRight,
-        pageWidthPx: mmToPx(widthMm),
         pageWidthTwip: widthTwip,
         extraLeft: 0,
         quoteDepth: 0,
@@ -821,6 +882,21 @@ function footnoteId(state: RenderState, identifier: string): number {
     const id = state.footnoteIds.size + 1
     state.footnoteIds.set(identifier, id)
     return id
+}
+
+/** A size `em` times the body text's, in half-points, as the PDF's em sizes work. */
+function emHalfPoints(state: RenderState, em: number): number {
+    return Math.round(state.bodyHalfPoints * em)
+}
+
+/** A heading's size, in half-points. At the 11pt default that is 36, 30, 27, 24, 22 and 20. */
+function headingHalfPoints(state: RenderState, depth: number): number {
+    return emHalfPoints(state, HEADING_EM[Math.min(Math.max(depth, 1), 6) - 1]!)
+}
+
+/** Code block text, in half-points: 9pt with the 11pt default body. */
+function codeHalfPoints(state: RenderState): number {
+    return emHalfPoints(state, CODE_EM)
 }
 
 /** Footnote text is set a little smaller than the body, as Word does. */
@@ -893,12 +969,19 @@ function collectDefinitions(tree: ExportDocument['tree']): Map<string, string> {
     return urls
 }
 
+/**
+ * A link: to a heading's bookmark for `#heading` (matched as {@link resolveHeadingAnchor} does), else to its web,
+ * email or relative address. A link the preview would leave dead (`javascript:`, `file:`…) keeps its words as plain text.
+ */
 function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks) {
+    const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
+    const href = url.startsWith('#') ? url : safeExportHref(url)
+    if (href === null) return renderInlines(state, node.children, marks)
     const inner = renderInlines(state, node.children, { ...marks, link: true })
     if (inner.length === 0) return []
-    const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
-    if (url.startsWith('#')) return [new InternalHyperlink({ anchor: anchorFor(state, url.slice(1)), children: inner })]
-    return [new ExternalHyperlink({ link: url, children: inner })]
+    if (href.startsWith('#'))
+        return [new InternalHyperlink({ anchor: anchorFor(state, resolveHeadingAnchor(href.slice(1), state.bookmarks)), children: inner })]
+    return [new ExternalHyperlink({ link: href, children: inner })]
 }
 
 /**
@@ -975,7 +1058,8 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     const level = state.document.profile.flow.newPageFromHeading
     const bookmark = state.bookmarks.get(headingId(node))
     // A heading in a quote keeps its colour and is italic, as in the PDF.
-    const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1], italics: state.quoteDepth > 0 || undefined })
+    const size = headingHalfPoints(state, depth)
+    const inlines = renderInlines(state, node.children, { headingSize: size, italics: state.quoteDepth > 0 || undefined })
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
@@ -983,7 +1067,7 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
         bidirectional: bidi(plainText(node)),
         spacing: {
             ...HEADING_SPACING[depth - 1],
-            line: lineBoxTwip(HEADING_HALF_POINTS[depth - 1]!, state.document.profile.typography.lineHeight),
+            line: lineBoxTwip(size, state.document.profile.typography.lineHeight),
             lineRule: LineRuleType.AT_LEAST,
         },
         indent: contentIndent(state),
@@ -1001,8 +1085,8 @@ const BULLETS = ['•', '◦', '▪'] as const
 
 /**
  * The numbering a list's items use. Each numbered list gets its own, so it starts at its own number. Bullet lists
- * at the same depth and indent share one: docx rewrites the whole document once per numbering, so one per list
- * made long documents take seconds to export.
+ * at the same depth and indent share one, since bullets never restart. (docx 9.12 fills in every list's number in
+ * one pass over the document, so many numbered lists stay quick to export.)
  */
 function listNumbering(state: RenderState, ordered: boolean, depth: number, start: number): string {
     const bulletKey = ordered ? null : `${depth}:${state.extraLeft}`
@@ -1230,10 +1314,11 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const theme = state.document.profile.content.codeTheme
     const fill = codeFill(theme)
     const fallback = codeColor(theme)
+    const size = codeHalfPoints(state)
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
             token.text
-                ? [new TextRun({ text: token.text, font: state.monoFont, size: 18, color: hexColor(token.color ?? fallback, fallback, fill) })]
+                ? [new TextRun({ text: token.text, font: state.monoFont, size, color: hexColor(token.color ?? fallback, fallback, fill) })]
                 : []
         )
         return new Paragraph({
@@ -1241,7 +1326,7 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
             indent: contentIndent(state),
             border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
-            children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size: 18 })],
+            children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })],
         })
     })
 }
@@ -1601,7 +1686,7 @@ async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx:
     const maxWidth = bleed ? Math.max(1, Math.floor(state.pageWidthTwip / 15)) : state.contentPx
     // A logo that ignores margins is stretched to the page width, so an SVG one is drawn again for that width, not its own small size.
     const logoUrl = assets.logoDataUrl.trim()
-    const stretched = bleed && SVG_DATA_URL.test(logoUrl) ? await redrawAsPng(logoUrl, maxWidth) : null
+    const stretched = bleed && SVG_DATA_URL.test(logoUrl) ? await redrawForWord(logoUrl, maxWidth) : null
     const { bytes, kind, size: intrinsic } = stretched ?? state.logo
     const maxHeight = mmToPx(LOGO_MAX_HEIGHT_MM)
     let width = maxWidth
@@ -1646,7 +1731,7 @@ async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx:
                           zIndex: 1,
                       }
                     : undefined,
-            altText: { name: 'Logo', description: 'Logo' },
+            altText: { name: 'Cover image', description: 'Cover image' },
         }),
     }
 }
@@ -1679,17 +1764,18 @@ async function titleBlocks(state: RenderState): Promise<Block[]> {
               ? convertMillimetersToTwip(10)
               : 0
     const indent = titleIndent(state, edge)
+    const titleSize = emHalfPoints(state, TITLE_EM)
     blocks.push(
         new Paragraph({
             indent,
-            spacing: { before, after: 200, line: lineBoxTwip(48, profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST },
+            spacing: { before, after: 200, line: lineBoxTwip(titleSize, profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST },
             bidirectional: bidi(metadata.title),
             children: [
                 new TextRun({
                     text: metadata.title,
                     bold: true,
                     font: state.headingFont,
-                    size: 48,
+                    size: titleSize,
                     color: state.accent,
                     rightToLeft: runIsRtl(metadata.title) || undefined,
                 }),
@@ -1820,7 +1906,8 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
     if (diagram) return pxToTwip(diagram.height) + 120
     if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, width, 0, 120)
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
-    return 160 + lines * 276
+    // A code line is about 276 twips with the default 9pt code, and grows with it.
+    return 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)
 }
 
 function measureFlow(
@@ -1844,7 +1931,7 @@ function measureFlow(
             placeBlock(
                 cursor,
                 pageHeight,
-                textBlockTwip(state, plainText(node), HEADING_HALF_POINTS[depth - 1]!, width, spacing.before, spacing.after),
+                textBlockTwip(state, plainText(node), headingHalfPoints(state, depth), width, spacing.before, spacing.after),
                 breakBefore
             )
             const id = headingId(node)
@@ -1902,8 +1989,15 @@ function measureList(
     }
 }
 
-/** The "Contents" title: a 20pt line, its 200-twip space after, and the rule under it. */
-const TOC_TITLE_TWIP = 840
+/** The "Contents" title's size, in half-points: 20pt with the 11pt default body. */
+function contentsTitleHalfPoints(state: RenderState): number {
+    return emHalfPoints(state, CONTENTS_TITLE_EM)
+}
+
+/** Height of the "Contents" title: its line (about 1.3x its size), its 200-twip space after, and the rule under it. 840 at 20pt. */
+function tocTitleTwip(state: RenderState): number {
+    return Math.round(contentsTitleHalfPoints(state) * 13) + 320
+}
 
 /**
  * Height of one contents row. Its line spacing is "auto 260": 260/240 of the font's own single line,
@@ -1925,7 +2019,7 @@ function headingPages(state: RenderState): Map<string, number> {
     const { profile, tree } = state.document
     let page = (profile.frontMatter.titlePage ? 1 : 0) + 1
     const tocHeight = pageContentTwip(state, 'toc')
-    let used = TOC_TITLE_TWIP
+    let used = tocTitleTwip(state)
     let first = true
     for (const item of state.toc) {
         const height = tocRowTwip(state, item, first)
@@ -2008,7 +2102,9 @@ function tocBlocks(state: RenderState): Paragraph[] {
             indent: contentIndent(state),
             border: { bottom: { style: BorderStyle.SINGLE, size: 16, color: state.accent, space: 4 } },
             spacing: { after: 200 },
-            children: [new TextRun({ text: 'Contents', bold: true, font: state.headingFont, size: 40, color: state.accent })],
+            children: [
+                new TextRun({ text: 'Contents', bold: true, font: state.headingFont, size: contentsTitleHalfPoints(state), color: state.accent }),
+            ],
         }),
         ...entries,
     ]
@@ -2098,12 +2194,15 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     const text = node.value.replace(/\n$/, '')
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         try {
-            // The alt text comes from the accTitle and accDescr lines, which the renderer would draw as stray boxes.
-            const svg = renderMermaidDiagramForExport(stripAccessibilityLines(text), profile.content.mermaidThemeId)
+            // The renderer leaves out the accTitle and accDescr lines; the alt text reads them.
+            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
+            // Nothing to draw yet renders a 0×0 picture, which can't be drawn. Say so, as the PDF does, not print the source.
+            const size = getSvgDimensions(svg)
+            if (!size) return { kind: 'error', message: EMPTY_DIAGRAM_MESSAGE }
             return {
                 kind: 'diagram',
                 png: await diagramPng(svg, profile.content.mermaidThemeId),
-                size: getSvgDimensions(svg),
+                size,
                 source: text,
                 alt: diagramAltText(text),
             }
@@ -2135,6 +2234,9 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
     if (state.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
     groups.push({ id: 'body', children: body })
     const watermark = await createWatermarkPng(document.profile.content.watermark, document.profile.typography.bodyFont, state.contentPx)
+    const headingStyle = (depth: number) => ({
+        run: { font: state.headingFont, size: headingHalfPoints(state, depth), bold: true, color: state.accent },
+    })
 
     const doc = new Document({
         title: document.metadata.title,
@@ -2147,15 +2249,15 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         styles: {
             default: {
                 document: {
-                    run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626' },
+                    run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626', language: wordLanguage(document) },
                     paragraph: { spacing: bodyLineSpacing(state) },
                 },
-                heading1: { run: { font: state.headingFont, size: 36, bold: true, color: state.accent } },
-                heading2: { run: { font: state.headingFont, size: 30, bold: true, color: state.accent } },
-                heading3: { run: { font: state.headingFont, size: 27, bold: true, color: state.accent } },
-                heading4: { run: { font: state.headingFont, size: 24, bold: true, color: state.accent } },
-                heading5: { run: { font: state.headingFont, size: 22, bold: true, color: state.accent } },
-                heading6: { run: { font: state.headingFont, size: 20, bold: true, color: state.accent } },
+                heading1: headingStyle(1),
+                heading2: headingStyle(2),
+                heading3: headingStyle(3),
+                heading4: headingStyle(4),
+                heading5: headingStyle(5),
+                heading6: headingStyle(6),
                 hyperlink: { run: { color: state.link, underline: { type: UnderlineType.SINGLE, color: state.link } } },
             },
         },

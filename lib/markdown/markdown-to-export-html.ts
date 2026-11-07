@@ -1,9 +1,10 @@
 import type { Element, Root as HastRoot, Text as HastText } from 'hast'
 import { toHtml } from 'hast-util-to-html'
 import type { Code, Parent, Root, Text } from 'mdast'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
+import { SKIP, visit } from 'unist-util-visit'
 import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
 import {
     buildPdfExportCss,
@@ -16,9 +17,14 @@ import {
     resolvePdfPrintOptions,
 } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
+import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
+import { isExportWebImageUrl } from '@/lib/markdown/web-images'
+import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
+import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
 export type PdfRenderOptions = {
@@ -28,6 +34,12 @@ export type PdfRenderOptions = {
      * has no page column, and footer numbers come from CSS page counters where the engine draws them.
      */
     stamped?: boolean
+    /**
+     * Whether web images are fetched and printed. Off by default: as in the preview, which shows them only once the
+     * user loads them, each one prints as its alt text, so exporting a README fires no tracking pixels and doesn't
+     * wait on a slow site.
+     */
+    allowRemoteImages?: boolean
 }
 
 export type MarkdownToExportHtmlOptions = BuildExportDocumentOptions & PdfRenderOptions
@@ -42,6 +54,64 @@ function normalizeShikiPre(html: string): string {
 
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
 
+/** A page can't be clicked open, so every <details> prints open: what it holds would otherwise be missing from the PDF. */
+function openDetails(hast: HastRoot): void {
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName === 'details') node.properties.open = true
+    })
+}
+
+/**
+ * Points each `#heading` link at the id it means, the way Word's bookmarks are matched ({@link resolveHeadingAnchor}),
+ * so `#Résumé` or a percent-encoded fragment reaches the heading. A link the preview would leave dead (`javascript:`,
+ * `file:`, a Windows path or network share), or one with no address, prints as its words alone, as in Word: the
+ * stylesheet colours and underlines every <a>, so it would look clickable. The Contents page is built separately.
+ * An old-style `<a name="install">` anchor gets its name as its id, the only one the page may keep (see
+ * exportSanitizeSchema), so `#install` links still reach it.
+ */
+function resolveLinks(hast: HastRoot): void {
+    const ids = new Set<string>()
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName === 'a' && node.properties.name !== undefined) {
+            if (node.properties.id === undefined) node.properties.id = node.properties.name
+            delete node.properties.name
+        }
+        if (typeof node.properties.id === 'string') ids.add(node.properties.id)
+    })
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName !== 'a') return
+        const href = node.properties.href
+        if (typeof href === 'string' && href.startsWith('#')) {
+            node.properties.href = `#${resolveHeadingAnchor(href.slice(1), ids)}`
+            return
+        }
+        if (typeof href === 'string' && safeExportHref(href) !== null) return
+        // Its id, if any, stays, so a link to it still lands here.
+        node.tagName = 'span'
+        delete node.properties.href
+        delete node.properties.hrefLang
+    })
+}
+
+/**
+ * Swaps each web image for its alt text (or `[image]`), unless the user chose to load web images. Markdown images,
+ * reference-style ones and raw HTML `<img>` are all <img> elements by now. A web image that is kept is fetched
+ * without telling its site which page asked, as in the preview.
+ */
+function handleWebImages(hast: HastRoot, allowRemoteImages: boolean): void {
+    visit(hast, 'element', (node: Element, index, parent) => {
+        const src = node.properties.src
+        if (node.tagName !== 'img' || typeof src !== 'string' || !isExportWebImageUrl(src)) return
+        if (allowRemoteImages) {
+            node.properties.referrerPolicy = 'no-referrer'
+            return
+        }
+        if (!parent || index === undefined) return
+        const alt = typeof node.properties.alt === 'string' ? node.properties.alt.trim() : ''
+        parent.children[index] = { type: 'text', value: alt || '[image]' }
+    })
+}
+
 /** Hidden mark inside each TOC-listed heading so the PDF stamper can read which page it landed on. */
 function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
     if (items.length === 0) return
@@ -53,9 +123,29 @@ function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
         node.children.unshift({
             type: 'element',
             tagName: 'span',
-            properties: { className: ['pdf-heading-mark'] },
+            // Its own direction, so dir="auto" on the heading skips the mark's Latin letters and reads the heading's.
+            properties: { className: ['pdf-heading-mark'], dir: 'ltr' },
             children: [{ type: 'text', value: mark }],
         })
+    })
+}
+
+/** The text blocks that take their direction from their own first letters, as in the preview. */
+const AUTO_DIRECTION_TAGS = new Set([...HEADING_TAGS, 'p', 'li', 'blockquote', 'th', 'td'])
+
+/**
+ * Gives each text block dir="auto", so an Arabic or Hebrew paragraph prints right to left with its full stop and
+ * bullet on the correct side. A dir the document's HTML set wins. Code is left alone, and so are the paragraphs
+ * standing in for code blocks and diagrams, which are swapped for their HTML by exact match. The title page,
+ * Contents page and header and footer are built separately, so the stamper still finds their marks.
+ */
+function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>): void {
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName === 'pre') return SKIP
+        if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
+        const only = node.children.length === 1 ? node.children[0] : undefined
+        if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
+        node.properties.dir = 'auto'
     })
 }
 
@@ -164,7 +254,11 @@ async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<s
     if (lang === 'mermaid') {
         try {
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
-            return `<div class="mermaid-export pdf-avoid-break">${svg}</div>`
+            // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
+            if (!getSvgDimensions(svg)) return `<pre class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
+            // One named picture, as in Word, so a screen reader doesn't read every node label in turn.
+            const label = escapeHtml(diagramAltText(text).description)
+            return `<div class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             return `<pre class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
@@ -352,17 +446,29 @@ function wrapWithChrome(
  * when the body is empty after front matter is removed.
  */
 export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<PdfExportDocument> {
-    const { stamped, ...build } = options
-    return renderExportPdf(buildExportDocument(source, build), { stamped })
+    const { stamped, allowRemoteImages, ...build } = options
+    return renderExportPdf(buildExportDocument(source, build), { stamped, allowRemoteImages })
 }
 
 /** PDF renderer for an {@link ExportDocument}. Replaces fenced code in `tree` with HTML placeholders. */
-export async function renderExportPdf(document: ExportDocument, { stamped = true }: PdfRenderOptions = {}): Promise<PdfExportDocument> {
+export async function renderExportPdf(
+    document: ExportDocument,
+    { stamped = true, allowRemoteImages = false }: PdfRenderOptions = {}
+): Promise<PdfExportDocument> {
     const { profile, assets, metadata, lang, tree, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
-    const hast = unified().use(remarkRehype, { allowDangerousHtml: false }).runSync(tree) as HastRoot
+    // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
+    const hast = unified()
+        .use(remarkRehype, { allowDangerousHtml: true })
+        .use(rehypeRawWhenNeeded)
+        .use(rehypeSanitize, exportSanitizeSchema)
+        .runSync(tree) as HastRoot
+    openDetails(hast)
+    handleWebImages(hast, allowRemoteImages)
+    resolveLinks(hast)
     markTables(hast, profile)
+    setTextDirection(hast, new Set(placeholders.keys()))
     if (stamped) addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 

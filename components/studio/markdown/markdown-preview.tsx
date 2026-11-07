@@ -1,18 +1,29 @@
 'use client'
 
-import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type MouseEvent } from 'react'
 import type { Element } from 'hast'
 import { ImageOff } from 'lucide-react'
 import type { Root } from 'mdast'
 import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { PluggableList } from 'unified'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
-import { fencedCodeBlockOrdinal, mermaidBlockOrdinal, rehypeFencedBlockOrdinals } from '@/components/studio/markdown/markdown-block-ordinals'
-import { isWebImageUrl, markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
-import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
+import {
+    codeBlockText,
+    fencedCodeBlockOrdinal,
+    mermaidBlockKey,
+    mermaidBlockOrdinal,
+    mermaidBlockText,
+    rehypeFencedBlockOrdinals,
+    rehypeMermaidBlockIds,
+} from '@/components/studio/markdown/markdown-block-ordinals'
+import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
+import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
+import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import { isWebImageUrl } from '@/lib/markdown/web-images'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
@@ -38,21 +49,17 @@ function codeLanguage(className: string | undefined): string | undefined {
     return /language-([^\s]+)/i.exec(className ?? '')?.[1]?.toLowerCase()
 }
 
-function extractText(children: ReactNode): string {
-    if (typeof children === 'string') return children
-    if (Array.isArray(children)) return children.map(extractText).join('')
-    return String(children ?? '')
-}
-
-/** Gives headings the same ids PDF and Word export use, so `#section` links have something to jump to. */
+/**
+ * Gives headings the same ids PDF and Word export use, so `#section` links have something to jump to. In the
+ * preview the sanitizer then adds GitHub's `user-content-` prefix (see previewSanitizeSchema).
+ */
 function remarkHeadingIds() {
     return (tree: Root) => {
         collectPdfExportOutline(tree)
     }
 }
 
-const remarkPlugins = [remarkGfm, remarkHeadingIds]
-const rehypePlugins = [rehypeFencedBlockOrdinals]
+const remarkPlugins: PluggableList = [...markdownRemarkPlugins, remarkHeadingIds]
 
 /** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
 function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
@@ -67,16 +74,6 @@ function hasClass(className: string | undefined, name: string): boolean {
 
 /** Hides the bullet and moves the checkbox into its place (the list's start padding). */
 const TASK_LIST_ITEM_CLASS = 'list-none [&_input]:-ms-5 [&_input]:me-1 [&_input]:align-middle'
-
-type TableCellProps = {
-    children?: ReactNode
-    node?: { properties?: { align?: string | null } }
-}
-
-function cellAlignStyle(align: string | null | undefined): CSSProperties | undefined {
-    if (align === 'center' || align === 'right' || align === 'left') return { textAlign: align }
-    return undefined
-}
 
 /** Whether loading this image would contact another site. Without a page to read it against, assume so. */
 function isRemoteImage(src: unknown): src is string {
@@ -93,10 +90,14 @@ type BlockedRemoteImageProps = {
 /** Stands in for a web image, so opening a document doesn't tell the image's site that it was opened. */
 function BlockedRemoteImage({ src, alt, onBlocked }: BlockedRemoteImageProps) {
     useEffect(() => onBlocked(), [onBlocked])
-    const label = alt?.trim() || 'Image'
+    const ownAlt = alt?.trim()
+    const label = ownAlt || 'Image'
     return (
         <span
             role="img"
+            // All Scrivon's English words when the image has no alt text, so a screen reader reads them in an English
+            // voice inside a document in another language; with the document's own alt text, the document's language.
+            lang={ownAlt ? undefined : 'en'}
             aria-label={`Blocked web image: ${label}`}
             title={src}
             className="inline-flex max-w-full items-center gap-1 rounded-md border border-dashed border-border px-1.5 py-0.5 align-middle text-xs
@@ -138,46 +139,61 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
     )
 }
 
-export function mermaidBlockId(tabId: string | null, fallbackIndex: number): string {
-    return `${tabId ?? 'none'}:${fallbackIndex}:mermaid`
+/** A diagram's block id: its tab, and the lasting id rehypeMermaidBlockIds gave it, which moves with the block. */
+function mermaidBlockId(tabId: string | null, key: string): string {
+    return `${tabId ?? 'none'}:${key}:mermaid`
 }
 
 function fencedCodeBlockId(tabId: string | null, fallbackIndex: number, lang?: string): string {
     return `${tabId ?? 'none'}:${fallbackIndex}:code${lang ? `:${lang}` : ''}`
 }
 
+/**
+ * Text blocks take their direction from their own first letters (dir="auto", before any dir the HTML sets), so an
+ * Arabic or Hebrew paragraph reads right to left with its full stop and bullet on the correct side.
+ */
 const staticMarkdownComponents: Components = {
     h1: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h1 {...rest} className={cn('mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0', className)} />
+        return <h1 dir="auto" {...rest} className={cn('mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0', className)} />
     },
     h2: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h2 {...rest} className={cn('mt-6 mb-3 text-xl font-semibold text-foreground', className)} />
+        return <h2 dir="auto" {...rest} className={cn('mt-6 mb-3 text-xl font-semibold text-foreground', className)} />
     },
     h3: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h3 {...rest} className={cn('mt-4 mb-2 text-lg font-semibold text-foreground', className)} />
+        return <h3 dir="auto" {...rest} className={cn('mt-4 mb-2 text-lg font-semibold text-foreground', className)} />
     },
     h4: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h4 {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
+        return <h4 dir="auto" {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
     },
     h5: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h5 {...rest} className={cn('mt-3 mb-2 text-sm font-semibold text-foreground', className)} />
+        return <h5 dir="auto" {...rest} className={cn('mt-3 mb-2 text-sm font-semibold text-foreground', className)} />
     },
     h6: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h6 {...rest} className={cn('mt-3 mb-2 text-xs font-semibold text-muted-foreground', className)} />
+        return <h6 dir="auto" {...rest} className={cn('mt-3 mb-2 text-xs font-semibold text-muted-foreground', className)} />
     },
     p: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <p {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
+        return <p dir="auto" {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
     },
     ul: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <ul {...rest} className={cn('mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90', className)} />
+        // Disc, then circle inside one list, then square inside two, counting numbered lists too, as the PDF (the
+        // browser's own rule) and Word show them. The ancestor selectors outrank the list's own list-disc.
+        return (
+            <ul
+                {...rest}
+                className={cn(
+                    'mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90 [:is(ul,ol)_&]:list-[circle] [:is(ul,ol)_:is(ul,ol)_&]:list-[square]',
+                    className
+                )}
+            />
+        )
     },
     // `start` comes through, so a list that resumes at 3 is numbered from 3.
     ol: (props) => {
@@ -187,13 +203,30 @@ const staticMarkdownComponents: Components = {
     li: (props) => {
         const { className, ...rest } = withoutNode(props)
         // A task item shows its checkbox where the bullet would be, not as well as it.
-        return <li {...rest} className={cn('break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)} />
+        return <li dir="auto" {...rest} className={cn('break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)} />
     },
     blockquote: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <blockquote {...rest} className={cn('mb-3 border-l-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
+        return (
+            <blockquote dir="auto" {...rest} className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
+        )
     },
     hr: () => <hr className="my-6 border-border" />,
+    // Raw HTML the sanitizer lets through (see previewSanitizeSchema).
+    kbd: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return (
+            <kbd {...rest} className={cn('rounded border border-border bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground', className)} />
+        )
+    },
+    details: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <details {...rest} className={cn('mb-3 rounded-md border border-border px-3 py-2 text-sm text-foreground/90', className)} />
+    },
+    summary: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <summary {...rest} className={cn('cursor-pointer font-medium text-foreground', className)} />
+    },
     table: ({ children }) => (
         <div className="mb-4 overflow-x-auto rounded-lg border border-border">
             <table className="w-full border-collapse text-sm">{children}</table>
@@ -202,18 +235,28 @@ const staticMarkdownComponents: Components = {
     thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
     tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
     tr: ({ children }) => <tr className="border-border">{children}</tr>,
-    th: ({ children, node }: TableCellProps) => (
-        <th className="px-3 py-2 font-medium text-foreground" style={cellAlignStyle(node?.properties?.align)}>
-            {children}
-        </th>
-    ),
-    td: ({ children, node }: TableCellProps) => (
-        <td className="px-3 py-2 text-foreground/90" style={cellAlignStyle(node?.properties?.align)}>
-            {children}
-        </td>
-    ),
-    // Each fenced block draws its own frame (the code override), so the <pre> adds nothing.
-    pre: ({ children }) => <>{children}</>,
+    // A raw-HTML table's colspan, rowspan and dir reach the cell. A column's alignment arrives as its text-align style.
+    th: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <th dir="auto" {...rest} className={cn('px-3 py-2 font-medium text-foreground', className)} />
+    },
+    td: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <td dir="auto" {...rest} className={cn('px-3 py-2 text-foreground/90', className)} />
+    },
+    pre: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        const first = props.node?.children[0]
+        // A fenced block draws its own frame (the code override), so its <pre> adds nothing.
+        if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) return <>{rest.children}</>
+        // A raw-HTML <pre> of plain text, such as ASCII art, keeps its spaces and line breaks.
+        return (
+            <pre
+                {...rest}
+                className={cn('mb-3 overflow-x-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs whitespace-pre', className)}
+            />
+        )
+    },
     img: PreviewImage,
 }
 
@@ -251,19 +294,20 @@ export const MarkdownPreview = memo(function MarkdownPreview({
             },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children, node } = props
-                const text = extractText(children)
                 // Numbered on the syntax tree (rehypeFencedBlockOrdinals): every fenced block, even an empty one, has
                 // a number and inline code has none. Counting here would go wrong when React renders a block twice.
                 const ordinal = mermaidBlockOrdinal(node)
 
-                if (ordinal !== null) {
-                    const blockId = mermaidBlockId(tabId, ordinal)
+                if (node && ordinal !== null) {
+                    // Keyed by an id that stays with the block, not its position, so a block never shows the picture
+                    // of the one that was in its place before a block above it was added or removed.
+                    const blockId = mermaidBlockId(tabId, mermaidBlockKey(node) ?? `at-${ordinal}`)
                     return (
                         <EmbeddedMermaidBlock
                             key={blockId}
                             blockId={blockId}
                             ordinal={ordinal}
-                            source={text.replace(/\n$/, '')}
+                            source={mermaidBlockText(node)}
                             tabId={tabId}
                             onExpand={onExpandBlock}
                         />
@@ -271,28 +315,42 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 }
 
                 const codeOrdinal = fencedCodeBlockOrdinal(node)
-                if (codeOrdinal === null) {
+                if (!node || codeOrdinal === null) {
                     return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
                 }
 
                 const lang = codeLanguage(codeClassName)
                 const blockId = fencedCodeBlockId(tabId, codeOrdinal, lang)
-                return <FencedCodeBlock key={blockId} code={text.replace(/\n$/, '')} language={lang} />
+                return <FencedCodeBlock key={blockId} code={codeBlockText(node)} language={lang} />
             },
         }
     }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
+    // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
+    const lang = useMemo(() => markdownPreviewLang(source), [source])
+    // Safe raw HTML first, then the numbering, so the sanitizer can't strip the blocks' data properties. Per
+    // document, so each block's id is matched against the blocks this document showed last time.
+    const rehypePlugins = useMemo(
+        (): PluggableList => [...previewHtmlPlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')],
+        [tabId]
+    )
 
     // Kept as one element so that loading web images (a context change) redraws only the images, without parsing
     // the document again.
     const markdown = useMemo(
         () => (
-            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components} urlTransform={markdownUrlTransform}>
+            <ReactMarkdown
+                remarkPlugins={remarkPlugins}
+                remarkRehypeOptions={previewRemarkRehypeOptions}
+                rehypePlugins={rehypePlugins}
+                components={components}
+                urlTransform={markdownUrlTransform}
+            >
                 {body}
             </ReactMarkdown>
         ),
-        [body, components]
+        [body, components, rehypePlugins]
     )
 
     const remoteImages = useMemo(() => ({ load: loadRemoteImages, onBlocked: onRemoteImageBlocked }), [loadRemoteImages, onRemoteImageBlocked])
@@ -300,7 +358,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
-            <article className="w-full max-w-3xl min-w-0 break-words">
+            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words">
                 <RemoteImagesContext.Provider value={remoteImages}>{markdown}</RemoteImagesContext.Provider>
             </article>
         </div>

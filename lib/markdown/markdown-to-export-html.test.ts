@@ -8,7 +8,9 @@ vi.mock('@/lib/mermaid/render', () => ({
     renderMermaidDiagramForExport: vi.fn((source: string) => {
         if (source.includes('FAIL_STRING')) throw 'mermaid string boom'
         if (source.includes('FAIL')) throw new Error('mermaid boom')
-        return `<svg data-mermaid="${source.trim()}"></svg>`
+        // A diagram with nothing to draw yet renders without error to a 0×0 picture.
+        if (source.includes('EMPTY')) return '<svg viewBox="0 0 0 0" width="0" height="0"></svg>'
+        return `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`
     }),
 }))
 
@@ -118,7 +120,7 @@ SHIKI_FAIL
         expect(html).toContain('class="pdf-toc-leader"')
         expect(html).toContain('href="#section"')
         expect(html).toContain('>SFT0001<')
-        expect(html).toContain('<h2 id="section"><span class="pdf-heading-mark">SFH0001</span>')
+        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
@@ -155,7 +157,7 @@ SHIKI_FAIL
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         // The stylesheet names the classes too, so look for them on a tag.
         const WIDE_TABLE = /<table class="[^"]*pdf-wide-table/
-        const LONG_WORD_CELL = /<t[hd][^>]*class="pdf-long-word">/g
+        const LONG_WORD_CELL = /<t[hd][^>]*class="pdf-long-word"[^>]*>/g
         const table = (columns: number, cell: (column: number) => string) =>
             [
                 `| ${Array.from({ length: columns }, (_, i) => `H${i}`).join(' | ')} |`,
@@ -175,7 +177,7 @@ SHIKI_FAIL
         // So may a long URL in an otherwise narrow table, while its `I/D` cells keep whole.
         const url = await render(table(3, (i) => (i === 1 ? `https://example.com/${'a'.repeat(100)}` : 'I/D')))
         expect(url.match(LONG_WORD_CELL)).toHaveLength(1)
-        expect(url).toContain('<td class="pdf-long-word"><a href="https://example.com/')
+        expect(url).toContain('<td class="pdf-long-word" dir="auto"><a href="https://example.com/')
         // Too many columns of short words to fit: every cell may break.
         const columns = await render(table(16, () => 'abcdefgh'))
         expect(columns).toContain('<table class="pdf-avoid-break pdf-wide-table">')
@@ -201,8 +203,8 @@ SHIKI_FAIL
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
-        expect(html).toContain('<div class="mermaid-export pdf-avoid-break"><svg')
-        expect(html).toContain('<li><div class="code-block pdf-avoid-break">')
+        expect(html).toMatch(/<div class="mermaid-export pdf-avoid-break" role="img" aria-label="[^"]*"><svg/)
+        expect(html).toContain('<li dir="auto"><div class="code-block pdf-avoid-break">')
         expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
         expect(html).not.toContain('<p></p>')
         expect(html).not.toContain('__SCRIVON_')
@@ -403,7 +405,7 @@ SHIKI_FAIL
                 '<div class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
             )
             expect(html).not.toContain('<p>const a = 1')
-            expect(html).toContain('<p>After</p>')
+            expect(html).toContain('<p dir="auto">After</p>')
         }
     })
 
@@ -499,7 +501,7 @@ SHIKI_FAIL
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
         const { html } = await markdownToExportHtml('# Title\n\n## ![diagram](pic.png)', { profile })
-        expect(html).toContain('<h1 id="title">')
+        expect(html).toContain('<h1 id="title" dir="auto">')
         expect(html).toContain('pdf-heading-mark')
         expect(html).toContain('<img')
         expect(html).not.toMatch(/<h2[^>]*pdf-heading-mark/)
@@ -511,20 +513,254 @@ SHIKI_FAIL
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
         const { html } = await markdownToExportHtml('Setext\n======\n\n```bash\n# install deps\n```\n\n## Still', { profile })
-        expect(html).toContain('<h1 id="setext">')
-        expect(html).toContain('<h2 id="still">')
+        expect(html).toContain('<h1 id="setext" dir="auto">')
+        expect(html).toContain('<h2 id="still" dir="auto">')
         expect(html).toContain('href="#setext"')
         expect(html).toContain('href="#still"')
         expect(html).not.toContain('install-deps')
         expect(html).not.toContain('SFT0003')
     })
 
+    it('keeps a comment in a heading off the Contents page, and its id the one GitHub gives (S03)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        const { html } = await markdownToExportHtml('# Pricing <!-- internal: 40% margin -->\n\nSee [the prices](#pricing).', { profile })
+        expect(html).not.toContain('<!--')
+        expect(html).not.toContain('internal')
+        expect(html).toContain('<h1 id="pricing" dir="auto">')
+        expect(html).toContain('<span class="pdf-toc-title">Pricing</span>')
+        expect(html).toContain('<title>Pricing</title>')
+    })
+
+    it('lets Arabic and Hebrew text blocks take their own direction, but not code or the Contents page (B97)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        const { html } = await markdownToExportHtml(
+            [
+                '# Title',
+                '',
+                '## مقدمة',
+                '',
+                'مرحبا بالعالم.',
+                '',
+                '- שלום',
+                '',
+                '> ציטוט',
+                '',
+                '| עמודה |',
+                '| --- |',
+                '| ערך |',
+                '',
+                '<p dir="ltr">Set by the document</p>',
+                '',
+                '```js',
+                'const a = 1',
+                '```',
+            ].join('\n'),
+            { profile }
+        )
+        expect(html).toContain('<p dir="auto">مرحبا بالعالم.</p>')
+        expect(html).toContain('<li dir="auto">שלום</li>')
+        expect(html).toMatch(/<blockquote dir="auto">\s*<p dir="auto">ציטוט<\/p>/)
+        expect(html).toContain('<th dir="auto">עמודה</th>')
+        expect(html).toContain('<td dir="auto">ערך</td>')
+        expect(html).toContain('<p dir="ltr">Set by the document</p>')
+        // The heading's hidden page mark has its own direction, so dir="auto" reads the Arabic, not the mark.
+        expect(html).toMatch(/<h2 id="مقدمة" dir="auto"><span class="pdf-heading-mark" dir="ltr">/)
+        // The code block still replaces its whole paragraph, and the Contents rows get no direction.
+        expect(html).not.toMatch(/<p[^>]*>\s*<div class="code-block/)
+        expect(html).toContain('<div class="code-block')
+        expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
+    })
+
+    it('prints bold next to Japanese punctuation as bold (B76)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('**「重要」**です。これは**テスト。**です。')
+        expect(html).toContain('<strong>「重要」</strong>です。これは<strong>テスト。</strong>です。')
+    })
+
+    it('prints safe raw HTML as the preview shows it, and drops comments, scripts and handlers (B29)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '# Title',
+                '',
+                'a<br>b, <kbd>Ctrl</kbd>, H<sub>2</sub>O <!-- secret note -->',
+                '',
+                '| Notes |',
+                '| --- |',
+                '| first<br>second |',
+                '',
+                '<details>',
+                '<summary>More</summary>',
+                '',
+                'Hidden until opened.',
+                '',
+                '</details>',
+                '',
+                '<script>alert(1)</script>',
+                '',
+                '<img src="pic.png" onerror="alert(2)" alt="pic"> <a href="javascript:alert(3)">bad</a>',
+            ].join('\n')
+        )
+        expect(html).toContain('a<br>b')
+        expect(html).toContain('first<br>second')
+        expect(html).toContain('<kbd>Ctrl</kbd>')
+        expect(html).toContain('<sub>2</sub>')
+        expect(html).not.toContain('secret note')
+        expect(html).not.toContain('<script')
+        expect(html).not.toContain('alert(')
+        expect(html).toContain('<img src="pic.png" alt="pic">')
+        expect(html).toContain('<span>bad</span>')
+        // A page can't be clicked open, so details print open.
+        expect(html).toMatch(/<details open>\s*<summary>More<\/summary>\s*<p dir="auto">Hidden until opened\.<\/p>/)
+        // Ids stay as written, so the PDF's own links and Contents page still reach them.
+        expect(html).toContain('<h1 id="title" dir="auto">')
+    })
+
+    it('keeps only safe links live, and points #heading links at the heading however they are written (S10, B55)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '# Résumé',
+                '',
+                '[a](#r%C3%A9sum%C3%A9) [b](#résumé) [c](#Résumé) [d](#%E0%A4%A) [e](#missing) [note][^1]',
+                '',
+                '[run](javascript:alert(1)) [open](file:///C:/Windows/notepad.exe) [find](search-ms:query=x) [path](C:\\docs\\a.md)',
+                '',
+                '[share](//host/share/x.docx) [unc](\\\\\\\\host\\\\share\\\\x.docx) <a href="\\\\host\\share">raw</a>',
+                '',
+                '[web](https://example.com/safe) [mail](mailto:me@example.com) [doc](other.md) <a id="spot">Spot</a> [to spot](#spot)',
+                '',
+                '[^1]: A note.',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        // A dead link prints as its words, not blue and underlined as if it could be clicked, as in Word (review).
+        expect(html).toContain('<p dir="auto"><span>run</span>')
+        // An anchor with no address is plain text too, and links to it still land on it.
+        expect(html).toContain('<span id="spot">Spot</span> <a href="#spot">to spot</a>')
+        for (const words of ['a', 'b', 'c']) expect(html).toContain(`<a href="#résumé">${words}</a>`)
+        expect(html).toContain('<a href="#%E0%A4%25A">d</a>')
+        expect(html).toContain('<a href="#missing">e</a>')
+        // Footnote links reach their notes as before.
+        expect(html).toMatch(/<a href="#user-content-fn-1" id="user-content-fnref-1"/)
+        for (const words of ['run', 'open', 'find', 'path', 'share', 'unc', 'raw']) expect(html).toContain(`<span>${words}</span>`)
+        expect(html).not.toMatch(/javascript:|file:|search-ms:|docs|href="[^"]*host/)
+        expect(html).toContain('<a href="https://example.com/safe">web</a>')
+        expect(html).toContain('<a href="mailto:me@example.com">mail</a>')
+        expect(html).toContain('<a href="other.md">doc</a>')
+    })
+
+    it('lets no raw HTML stand in for what Scrivon’s own scripts read on the export page (review)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '# Install',
+                '',
+                '<img name="readyState" src="a.png" alt="a"> <img name="fonts" id="querySelector" src="b.png" alt="b">',
+                '',
+                '<span id="__scrivonExportFonts">c</span> <a name="__scrivonExportWritten">d</a> <span id="__SCRIVONx">e</span>',
+                '',
+                '<a name="old-anchor"></a>Old. <a name="named" id="kept">f</a> [to old](#old-anchor) [to Old](#Old-Anchor) [top](#install)',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        const body = html.slice(html.indexOf('<body>'))
+        // No element has a name, so none can replace document.readyState, document.fonts or document.querySelector.
+        expect(body).not.toMatch(/\sname="/)
+        expect(body).toContain('<img src="a.png" alt="a">')
+        expect(body).toContain('<img id="querySelector" src="b.png" alt="b">')
+        // Nor an id that would stand in for the exporter's own window values.
+        expect(body).not.toMatch(/__scrivon/i)
+        expect(body).toContain('<span>c</span> <span>d</span> <span>e</span>')
+        // Old-style <a name> anchors become ids, so links still reach them; an id the anchor already has wins.
+        expect(body).toContain('<span id="old-anchor"></span>Old. <span id="kept">f</span>')
+        expect(body).toContain('<a href="#old-anchor">to old</a> <a href="#old-anchor">to Old</a> <a href="#install">top</a>')
+    })
+
+    it('says a diagram with nothing to draw yet is empty, as Word does, instead of printing an empty box (U39)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(['Before.', '', '```mermaid', 'graph TD EMPTY', '```', '', 'After.'].join('\n'))
+        expect(html).toContain('<pre class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
+        expect(html).not.toContain('<div class="mermaid-export')
+        expect(html).not.toContain('<svg')
+    })
+
+    it('names each diagram picture the way Word does, from accTitle or its kind and nodes (A26)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const diagram = (lines: string[]) => ['```mermaid', ...lines, '```'].join('\n')
+        const source = [
+            diagram(['flowchart TD', '  accTitle: Login flow', '  A[Sign in] --> B[Home]']),
+            diagram(['flowchart TD', '  A[Start] --> B[End]']),
+            diagram(['flowchart TD', '  accTitle: Say "hi" & <wave>', '  A --> B']),
+        ].join('\n\n')
+        const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Login flow"><svg')
+        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Flowchart: Start, End"><svg')
+        // The label can't end the attribute or start markup.
+        expect(html).toContain('aria-label="Say &quot;hi&quot; &amp;"><svg')
+    })
+
+    describe('web images (S08)', () => {
+        const source = [
+            'Badge ![Build](https://ci.example/badge.svg) and ![](https:bare.example/x.png).',
+            '',
+            '![Logo](//cdn.example/logo.png) ![Pixel](http:evil.example/p.gif)',
+            '',
+            '![Ref][r] and <img src="https://raw.example/raw.png" alt="Raw"> and <img src="https://raw.example/no-alt.png">',
+            '',
+            '![Inline](data:image/png;base64,AAAA) ![Local](img/a.png)',
+            '',
+            '[r]: https://ref.example/r.png',
+        ].join('\n')
+
+        it('prints each web image as its alt text unless the user loaded them, so exporting fetches nothing', async () => {
+            const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+            const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+            expect(html).not.toMatch(/ci\.example|bare\.example|cdn\.example|evil\.example|ref\.example|raw\.example/)
+            expect(html).toContain('Badge Build and [image].')
+            expect(html).toContain('Logo Pixel')
+            expect(html).toContain('Ref and Raw and [image]')
+            // Pictures in the document itself still print.
+            expect(html).toContain('<img src="data:image/png;base64,AAAA" alt="Inline">')
+            expect(html).toContain('<img src="img/a.png" alt="Local">')
+        })
+
+        it('keeps web images when the user chose to load them, without telling their sites which page asked', async () => {
+            const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+            const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS, allowRemoteImages: true })
+            expect(html).toContain('<img src="https://ci.example/badge.svg" alt="Build" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="//cdn.example/logo.png" alt="Logo" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="https://ref.example/r.png" alt="Ref" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="https://raw.example/raw.png" alt="Raw" referrerpolicy="no-referrer">')
+            expect(html).toContain('<img src="img/a.png" alt="Local">')
+        })
+
+        it('drops a <picture>’s <source>, so its srcset can’t load a web image beside a local <img> (review)', async () => {
+            const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+            const picture = (img: string) =>
+                `<picture><source srcset="https://tracker.example/p.png"><source srcset="https://tracker.example/q.png 2x">${img}</picture>`
+            const source = [picture('<img src="a.png" alt="Local">'), '', picture('<img src="data:image/gif;base64,R0lGOD" alt="Inline">')].join('\n')
+            for (const allowRemoteImages of [false, true]) {
+                const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS, allowRemoteImages })
+                expect(html).not.toContain('tracker.example')
+                expect(html).not.toContain('<source')
+                expect(html).toContain('<picture><img src="a.png" alt="Local"></picture>')
+                expect(html).toContain('<picture><img src="data:image/gif;base64,R0lGOD" alt="Inline"></picture>')
+            }
+        })
+    })
+
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })
-        expect(html).toContain('<td align="left">1</td>')
-        expect(html).toContain('<td align="center">2</td>')
-        expect(html).toContain('<td align="right">3</td>')
+        expect(html).toContain('<td align="left" dir="auto">1</td>')
+        expect(html).toContain('<td align="center" dir="auto">2</td>')
+        expect(html).toContain('<td align="right" dir="auto">3</td>')
         expect(html).toContain('td[align="right"] { text-align: right; }')
     })
 

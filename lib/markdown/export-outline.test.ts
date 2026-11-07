@@ -1,12 +1,12 @@
 import type { Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { describe, expect, it } from 'vitest'
 import { collectPdfExportOutline, filterPdfExportOutline } from '@/lib/markdown/export-outline'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 
 function parse(body: string): Root {
-    return unified().use(remarkParse).use(remarkGfm).parse(body) as Root
+    return unified().use(remarkParse).use(markdownRemarkPlugins).parse(body) as Root
 }
 
 describe('collectPdfExportOutline', () => {
@@ -68,6 +68,15 @@ describe('collectPdfExportOutline', () => {
         expect(collectPdfExportOutline(tree).map((item) => item.id)).toEqual(['one', 'one-1', 'one-2', 'one-3'])
         const before = parse('## One 1\n\n## One\n\n## One')
         expect(collectPdfExportOutline(before).map((item) => item.id)).toEqual(['one-1', 'one', 'one-2'])
+    })
+
+    it('leaves raw HTML and comments out of the text and the id, keeping text inside tags (S03)', () => {
+        const tree = parse('# Pricing <!-- internal: 40% margin -->\n\n## Keys <kbd>Ctrl</kbd>\n\n## Café <sup>2</sup>')
+        expect(collectPdfExportOutline(tree)).toEqual([
+            { id: 'pricing', level: 1, text: 'Pricing' },
+            { id: 'keys-ctrl', level: 2, text: 'Keys Ctrl' },
+            { id: 'café-2', level: 2, text: 'Café 2' },
+        ])
     })
 
     it('uses the plain text of inline markup and slugifies punctuation-only headings', () => {

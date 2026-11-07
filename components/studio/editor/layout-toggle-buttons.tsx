@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
 import type { KeybindActionId } from '@/lib/settings/types'
+import { toggleButtonClassName } from '@/lib/ui/button-classes'
 
 export function LayoutToggleButtons() {
     const { layout, setExplorerOpen, setEditorOpen } = useStudioLayout()
@@ -23,8 +24,9 @@ export function LayoutToggleButtons() {
         <div className="flex shrink-0 items-center gap-0.5 border-r border-border px-1">
             <IconTooltip label={label('Toggle explorer', 'view.toggleExplorer')}>
                 <Button
-                    variant={layout.explorerOpen ? 'secondary' : 'ghost'}
+                    variant="ghost"
                     size="icon-sm"
+                    className={toggleButtonClassName}
                     aria-label="Toggle explorer"
                     aria-pressed={layout.explorerOpen}
                     onClick={() => setExplorerOpen(!layout.explorerOpen)}
@@ -34,8 +36,9 @@ export function LayoutToggleButtons() {
             </IconTooltip>
             <IconTooltip label={label('Toggle editor', 'view.toggleEditor')}>
                 <Button
-                    variant={layout.editorOpen ? 'secondary' : 'ghost'}
+                    variant="ghost"
                     size="icon-sm"
+                    className={toggleButtonClassName}
                     aria-label="Toggle editor"
                     aria-pressed={layout.editorOpen}
                     onClick={() => setEditorOpen(!layout.editorOpen)}

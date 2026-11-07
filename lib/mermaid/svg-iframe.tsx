@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
-import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 
 export function svgIframeDocument(svg: string): string {
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
@@ -26,12 +25,8 @@ type DiagramIframeProps = {
     label?: string
     /** A longer description screen readers read after the label, e.g. from the diagram's accDescr. */
     description?: string
-    /**
-     * Ignored, like onBoundsMeasured. Tight bounds needed the frame's document, which the sandbox
-     * hides, so they never worked. Kept only until embedded-mermaid-block stops passing them.
-     */
-    bounds?: SvgContentBounds | null
-    onBoundsMeasured?: (bounds: SvgContentBounds, svg: string) => void
+    /** The language of the label and description, when it isn't the page's: 'en' for a name Scrivon made up inside a document in another language. */
+    lang?: string
 }
 
 const DEFAULT_LABEL = 'Mermaid diagram'
@@ -47,7 +42,7 @@ type Frames = { shown: Frame; incoming: Frame | null; nextId: number }
  * loads in a hidden second frame and takes over once it has loaded and painted, so edits never
  * flash a blank frame. Between edits there is only one frame.
  */
-export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description }: DiagramIframeProps) {
+export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description, lang }: DiagramIframeProps) {
     const [frames, setFrames] = useState<Frames>(() => ({ shown: { svg, id: 0 }, incoming: null, nextId: 1 }))
     const paintRequestRef = useRef(0)
     const descriptionId = useId()
@@ -94,6 +89,7 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_
         // hidden from screen readers and kept out of the Tab order, the loading one included.
         <div
             role="img"
+            lang={lang}
             aria-label={label}
             aria-describedby={description ? descriptionId : undefined}
             className="relative overflow-hidden"

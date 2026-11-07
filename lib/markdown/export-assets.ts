@@ -5,7 +5,7 @@ import type { PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/p
 
 /** A profile image the export needed but could not load, so it was left out. */
 export type PdfExportMissingImage = {
-    /** Which setting names the image, e.g. `Logo` or `Footer left image`. */
+    /** Which setting names the image, e.g. `Cover image` or `Footer left image`. */
     slot: string
     path: string
     reason: string
@@ -35,7 +35,7 @@ async function readImageDataUrl(path: string): Promise<ImageRead> {
  */
 export async function resolvePdfExportAssets(profile: PdfExportProfile): Promise<PdfExportLoadedAssets> {
     const slots: { slot: string; path: string; used: boolean }[] = [
-        { slot: 'Logo', path: profile.brand.logoPath, used: profile.frontMatter.titlePage },
+        { slot: 'Cover image', path: profile.brand.logoPath, used: profile.frontMatter.titlePage },
         { slot: 'Header left image', path: profile.header.left.imagePath, used: profile.header.enabled },
         { slot: 'Header right image', path: profile.header.right.imagePath, used: profile.header.enabled },
         // Page numbers alone show a bare footer; its images need the Footer switch on.

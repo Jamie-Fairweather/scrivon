@@ -8,7 +8,8 @@ const renderMermaidDiagramForExport = vi.hoisted(() =>
     vi.fn((source: string) => {
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
-        return `<svg>${source}</svg>`
+        // The size of the 1×1 PNG svgToPngBlob hands back.
+        return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
 )
 const svgToPngBlob = vi.hoisted(() =>
@@ -472,6 +473,18 @@ describe('renderExportDocx', () => {
         expect(tocPage(xml, 'End')).toBe(3)
     })
 
+    it('says a diagram with nothing to draw yet is empty, as the PDF does, instead of printing its source (U39)', async () => {
+        // Just `graph TD` renders without error to a 0×0 picture.
+        renderMermaidDiagramForExport.mockImplementationOnce(() => '<svg viewBox="0 0 0 0" width="0" height="0"></svg>')
+        svgToPngBlob.mockClear()
+        const { parts } = await render(['Before.', '', fence('mermaid', 'graph TD'), '', 'After.'].join('\n'))
+        const body = parts['word/document.xml']!
+        expect(runWith(body, 'Empty diagram: there is nothing to draw yet.')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('graph TD')
+        expect(body).not.toContain('<w:drawing>')
+        expect(svgToPngBlob).not.toHaveBeenCalled()
+    })
+
     it('gives each diagram its own alt text, and leaves a picture with none without a made-up one', async () => {
         const { xml } = await render(
             [
@@ -483,9 +496,12 @@ describe('renderExportDocx', () => {
             ].join('\n')
         )
         expect(xml).toContain('name="Login flow" descr="Login flow. How a user signs in"')
-        // The renderer would draw the accTitle and accDescr lines as boxes, so it gets the diagram without them.
-        expect(renderMermaidDiagramForExport).toHaveBeenCalledWith('flowchart TD\n  A --> B', expect.anything())
-        expect(renderMermaidDiagramForExport.mock.calls.some(([source]) => /acc(Title|Descr)/.test(source))).toBe(false)
+        // The renderer leaves the accTitle and accDescr lines out itself (lib/mermaid/accessibility.test.ts), the same
+        // way for the preview, the PDF and Word, so Word hands it the diagram as written rather than stripping it twice.
+        expect(renderMermaidDiagramForExport).toHaveBeenCalledWith(
+            'flowchart TD\n  accTitle: Login flow\n  accDescr: How a user signs in\n  A --> B',
+            expect.anything()
+        )
         expect(xml).toContain('name="Sequence diagram" descr="Sequence diagram: Alice, Bob"')
         // No alt text in the Markdown means none in Word too, as with the PDF's alt="", not the word 'image'.
         expect(xml).toContain('name="Picture" descr=""')
@@ -536,6 +552,48 @@ describe('renderExportDocx', () => {
         expect(runWith(xml, 'inline')).toContain('<w:sz w:val="19"/>')
     })
 
+    it('scales headings, code, the title and Contents with the Body size, as the PDF em sizes do', async () => {
+        const source = [
+            '---',
+            'title: Report',
+            '---',
+            '',
+            ...[1, 2, 3, 4, 5, 6].flatMap((depth) => [`${'#'.repeat(depth)} H${depth}`, '']),
+            fence('js', 'code line'),
+        ].join('\n')
+        const sizes = async (bodySizePt: number) => {
+            const { parts } = await render(source, (draft) => {
+                draft.typography.bodySizePt = bodySizePt
+                draft.frontMatter.titlePage = true
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocExcludeH1 = false
+            })
+            const body = parts['word/document.xml']!
+            const styles = parts['word/styles.xml']!
+            const size = (xml: string) => Number(/<w:sz w:val="(\d+)"\/>/.exec(xml)?.[1])
+            const headingStyle = (depth: number) =>
+                size(new RegExp(`<w:style [^>]*w:styleId="Heading${depth}"[\\s\\S]*?</w:style>`).exec(styles)?.[0] ?? '')
+            // The body heading is the last run with its words; the first is its Contents entry.
+            const bodyHeading = (depth: number) => {
+                const end = body.lastIndexOf(`>H${depth}</w:t>`)
+                return size(body.slice(body.lastIndexOf('<w:r>', end), end))
+            }
+            return {
+                headings: [1, 2, 3, 4, 5, 6].map((depth) => bodyHeading(depth)),
+                styles: [1, 2, 3, 4, 5, 6].map((depth) => headingStyle(depth)),
+                code: size(runWith(body, 'code line')),
+                title: size(runWith(body, 'Report')),
+                contents: size(runWith(body, 'Contents')),
+            }
+        }
+        // The 11pt default keeps the sizes it always had.
+        expect(await sizes(11)).toEqual({ headings: [36, 30, 27, 24, 22, 20], styles: [36, 30, 27, 24, 22, 20], code: 18, title: 48, contents: 40 })
+        // At 16pt (32 half-points) headings grow with the text, so an h4 is no longer smaller than the paragraphs.
+        const large = await sizes(16)
+        expect(large).toEqual({ headings: [52, 44, 39, 35, 32, 29], styles: [52, 44, 39, 35, 32, 29], code: 26, title: 70, contents: 58 })
+        for (const size of large.headings.slice(0, 4)) expect(size).toBeGreaterThan(32)
+    })
+
     it('picks a code font Windows has and marks it fixed-pitch for Word', async () => {
         const monaco = await render('Some `code`.', (draft) => {
             draft.typography.monoFont = 'Monaco, Consolas, monospace'
@@ -555,6 +613,19 @@ describe('renderExportDocx', () => {
             draft.typography.monoFont = '"A&B Mono"'
         })
         expect(escaped.xml).toContain('<w:font w:name="A&amp;B Mono">')
+
+        // Settings save system font names quoted and escaped: the escapes go, and a comma inside the quotes stays.
+        const quoted = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = String.raw`"Odd \"Quote\" Font", monospace`
+        })
+        expect(runWith(quoted.xml, 'code')).toContain('w:ascii="Odd &quot;Quote&quot; Font"')
+        expect(quoted.parts['word/fontTable.xml']).toContain('<w:font w:name="Odd &quot;Quote&quot; Font">')
+        expect(quoted.xml).not.toContain('\\')
+        const comma = await render('Some `code`.', (draft) => {
+            draft.typography.monoFont = '"A, B Mono", monospace'
+        })
+        expect(runWith(comma.xml, 'code')).toContain('w:ascii="A, B Mono"')
+        expect(comma.parts['word/fontTable.xml']).toContain('<w:font w:name="A, B Mono">')
     })
 
     it('gives Chinese, Japanese and Korean text a font that has their characters', async () => {
@@ -587,6 +658,42 @@ describe('renderExportDocx', () => {
         const latin = await render('Plain words.\n\n<!-- 日本語 -->')
         expect(latin.xml).not.toContain('w:eastAsia')
         expect(latin.parts['word/fontTable.xml']).not.toContain('w:charset')
+    })
+
+    it("tags the document with its language and takes the East Asian font from it, so Traditional Chinese isn't Simplified", async () => {
+        const language = (parts: Record<string, string>) => /<w:docDefaults>[\s\S]*?(<w:lang [^>]*\/>)/.exec(parts['word/styles.xml']!)?.[1]
+
+        const traditional = await render('---\nlang: zh-TW\n---\n\n中文段落。')
+        expect(language(traditional.parts)).toBe('<w:lang w:val="zh-TW" w:eastAsia="zh-TW"/>')
+        expect(runWith(traditional.xml, '中文段落。')).toContain('w:eastAsia="Microsoft JhengHei"')
+        expect(traditional.parts['word/fontTable.xml']).toContain('<w:font w:name="Microsoft JhengHei"><w:charset w:val="88"/>')
+        expect(traditional.xml).not.toContain('Microsoft YaHei')
+        // A Chinese font the profile picks still wins over the language's.
+        const picked = await render('---\nlang: zh-Hant\n---\n\n中文段落。', (draft) => {
+            draft.typography.bodyFont = 'PMingLiU, serif'
+        })
+        expect(runWith(picked.xml, '中文段落。')).toContain('w:eastAsia="PMingLiU"')
+
+        // One katakana in Chinese text no longer makes it Japanese, whether the language is guessed or not.
+        const chinese = await render('这是一个中文段落，里面只有一个片假名ツ。')
+        expect(runWith(chinese.xml, '这是一个中文段落，里面只有一个片假名ツ。')).toContain('w:eastAsia="Microsoft YaHei"')
+        const quoted = 'This English paragraph quotes 这是一个很长的中文句子 once, with a stray ツ in it.'
+        const english = await render(quoted)
+        expect(runWith(english.xml, quoted)).toContain('w:eastAsia="Microsoft YaHei"')
+
+        // A guess of `en` only means no other script leads, so Word keeps the reader's own language: a German
+        // document isn't spell-checked as English. A language the front matter names is always written.
+        expect(language(english.parts)).toBeUndefined()
+        expect(language((await render('Ein deutscher Absatz über Größe.')).parts)).toBeUndefined()
+        expect(language((await render('---\nlang: en\n---\n\nPlain words.')).parts)).toBe('<w:lang w:val="en"/>')
+        expect(language((await render('---\nlang: de-DE\n---\n\nEin Absatz.')).parts)).toBe('<w:lang w:val="de-DE"/>')
+
+        const japanese = await render('---\nlang: ja\n---\n\n日本語の文章です。')
+        expect(language(japanese.parts)).toBe('<w:lang w:val="ja" w:eastAsia="ja"/>')
+        expect(runWith(japanese.xml, '日本語の文章です。')).toContain('w:eastAsia="Yu Gothic"')
+
+        const hebrew = await render('שלום עולם, זה מסמך בעברית.')
+        expect(language(hebrew.parts)).toBe('<w:lang w:val="he" w:bidi="he"/>')
     })
 
     it('keeps a Chinese, Japanese or Korean font the profile picks, as the PDF does', async () => {
@@ -889,8 +996,8 @@ describe('renderExportDocx', () => {
         const { parts } = await render([...lists, '> - quoted dot', '', '1. first', '', 'Gap.', '', '1. second'].join('\n'))
         const body = parts['word/document.xml']!
         const numId = (text: string) => /<w:numId w:val="(\d+)"\/>/.exec(blockWith(body, text))?.[1]
-        // docx rewrites the whole file once per numbering, so one per bullet list made export time grow with the square of the size.
-        // Now there is docx's own default, one each for top-level, nested, and quoted bullets, and one per numbered list.
+        // Bullets never restart, so there is docx's own default, one each for top-level, nested, and quoted bullets,
+        // and one per numbered list.
         expect(parts['word/numbering.xml']!.match(/<w:num w:numId=/g)).toHaveLength(1 + 3 + 2)
         expect(numId('dot 39')).toBe(numId('dot 0'))
         expect(numId('sub 39')).toBe(numId('sub 0'))
@@ -900,6 +1007,23 @@ describe('renderExportDocx', () => {
         expect(blockWith(body, 'quoted dot')).toContain('<w:ind w:left="600" w:hanging="360"/>')
         // Numbered lists still restart.
         expect(numId('second')).not.toBe(numId('first'))
+    })
+
+    it('gives each of hundreds of numbered lists its own numbering, with every placeholder filled in', async () => {
+        const count = 500
+        const lists = Array.from({ length: count }, (_, index) => [`${index + 1}. item ${index}`, '', `Gap ${index}.`, '']).flat()
+        const { parts } = await render(lists.join('\n'))
+        const body = parts['word/document.xml']!
+        const ids = [...body.matchAll(/<w:numId w:val="(\d+)"\/>/g)].map((match) => match[1])
+        // docx 9.12 fills in every list's number in one pass over the document, not one pass per list.
+        expect(ids).toHaveLength(count)
+        expect(new Set(ids).size).toBe(count)
+        expect(parts['word/numbering.xml']!.match(/<w:num w:numId=/g)).toHaveLength(1 + count)
+        expect(body).not.toMatch(/\{list-\d+-\d+\}/)
+        // Each list keeps the number it starts at.
+        const start = (id: string | undefined) =>
+            new RegExp(`<w:num w:numId="${id}">[\\s\\S]*?<w:startOverride w:val="(\\d+)"/>`).exec(parts['word/numbering.xml']!)?.[1]
+        expect(start(/<w:numId w:val="(\d+)"\/>/.exec(blockWith(body, `item ${count - 1}`))?.[1])).toBe(String(count))
     })
 
     it('uses the first of two link definitions, and draws reference-style pictures', async () => {
@@ -1518,6 +1642,37 @@ describe('renderExportDocx', () => {
         expect(tocPage(body, '1. Intro')).toBe(2)
     })
 
+    it('links only to safe addresses, and finds #heading links however they are written (S10, B55)', async () => {
+        const { parts } = await render(
+            [
+                '# Résumé',
+                '',
+                '[a](#r%C3%A9sum%C3%A9) [b](#résumé) [c](#Résumé) [d](#%E0%A4%A)',
+                '',
+                '[run](javascript:alert(1)) [open](file:///C:/Windows/notepad.exe) [find](search-ms:query=x) [path](C:\\docs\\a.md)',
+                '',
+                '[share](//host/share/x.docx) [unc](\\\\\\\\host\\\\share\\\\x.docx)',
+                '',
+                '[web](https://example.com/safe) [doc](other.md)',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const rels = parts['word/_rels/document.xml.rels']!
+        // Copied from a browser (percent-encoded) or written with capitals, each still reaches the heading's bookmark.
+        // A badly encoded one doesn't break the export and is kept as written.
+        expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual(['_Ref1', '_Ref1', '_Ref1', '%E0%A4%A'])
+        // The preview leaves these dead, so Word keeps their words as plain text, not a link that runs or opens something,
+        // or that connects to a network share with the reader's sign-in.
+        expect(rels).not.toMatch(/javascript:|file:|search-ms:|docs|host/)
+        for (const words of ['run', 'open', 'find', 'path', 'share', 'unc']) {
+            expect(runWith(body, words)).toBeTruthy()
+            expect(runWith(body, words)).not.toContain('<w:u ')
+        }
+        expect(body.match(/<w:hyperlink /g)).toHaveLength(4 + 2)
+        expect(rels).toContain('Target="https://example.com/safe" TargetMode="External"')
+        expect(rels).toContain('Target="other.md" TargetMode="External"')
+    })
+
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
         const { xml } = await render('Body text[^1] here.\n\n| a |\n| --- |\n| cell |\n\n[^1]: The note.', (draft) => {
             draft.header.enabled = true
@@ -1582,7 +1737,7 @@ describe('renderExportDocx', () => {
         )
         // The logo keeps its own 200×50 size; it is drawn at 2x so it stays sharp.
         expect(canvases).toContainEqual({ width: 400, height: 100 })
-        expect(drawingSize(xml, 'Logo')).toEqual({ width: 200, height: 50 })
+        expect(drawingSize(xml, 'Cover image')).toEqual({ width: 200, height: 50 })
         // The header icon is sized from its viewBox, the WebP from its pixels, both fitted into the bar.
         expect(drawingSize(xml, 'header left')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'footer left')).toEqual({ width: 37, height: 28 })
@@ -1591,6 +1746,26 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'utf8-base64')).toEqual({ width: 30, height: 10 })
         expect(mediaFiles(names).length).toBeGreaterThanOrEqual(3)
         expect(notifyWarning).not.toHaveBeenCalled()
+    })
+
+    it('redraws an opaque WebP picture as a JPEG, and keeps PNG for see-through pictures and SVG art', async () => {
+        const webp = dataUrl('image/webp', WEBP)
+        const svg = `data:image/svg+xml,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
+        const redraw = async (url: string, lastAlpha: number) => {
+            stubImageDecoding(lastAlpha)
+            const { xml, names } = await render(`![pic](${url})`)
+            return { types: [...encodings], media: mediaFiles(names), size: drawingSize(xml, 'pic') }
+        }
+        // A photo with no see-through pixels would be a lossless PNG of many megabytes.
+        expect(await redraw(webp, 255)).toEqual({
+            types: ['image/jpeg'],
+            media: [expect.stringMatching(/\.jpe?g$/)],
+            size: { width: 640, height: 480 },
+        })
+        // One see-through pixel, in the last rows, keeps it a PNG so the page shows through as in the PDF.
+        expect(await redraw(webp, 254)).toEqual({ types: ['image/png'], media: [expect.stringMatching(/\.png$/)], size: { width: 640, height: 480 } })
+        // Vector art stays a sharp PNG, without its pixels being read.
+        expect(await redraw(svg, 255)).toEqual({ types: ['image/png'], media: [expect.stringMatching(/\.png$/)], size: { width: 40, height: 20 } })
     })
 
     it('draws an SVG logo that runs to the paper edges for the page width, so it stays sharp', async () => {
@@ -1605,7 +1780,7 @@ describe('renderExportDocx', () => {
             { logoDataUrl: svgLogo, header: { left: '', right: '' }, footer: { left: '', right: '' } }
         )
         // Stretched to the 793px page width, so it is drawn at twice that, not at twice its own 120px.
-        expect(drawingSize(xml, 'Logo')).toEqual({ width: 793, height: 264 })
+        expect(drawingSize(xml, 'Cover image')).toEqual({ width: 793, height: 264 })
         expect(canvases).toContainEqual({ width: 1586, height: 529 })
         // A logo inside the margins keeps its own size, drawn at 2x.
         const inside = stubImageDecoding()
@@ -1616,7 +1791,7 @@ describe('renderExportDocx', () => {
             },
             { logoDataUrl: svgLogo, header: { left: '', right: '' }, footer: { left: '', right: '' } }
         )
-        expect(drawingSize(small.xml, 'Logo')).toEqual({ width: 120, height: 40 })
+        expect(drawingSize(small.xml, 'Cover image')).toEqual({ width: 120, height: 40 })
         expect(inside).toEqual([{ width: 240, height: 80 }])
     })
 
@@ -1634,11 +1809,11 @@ describe('renderExportDocx', () => {
         )
         expect(notifyWarning).toHaveBeenCalledTimes(1)
         expect(notifyWarning).toHaveBeenCalledWith("Some images aren't in the Word file", {
-            description: "Couldn't add the title-page logo and header image. Try a PNG or JPEG file instead.",
+            description: "Couldn't add the cover image and header image. Try a PNG or JPEG file instead.",
         })
         // No cover image to run to the edge, so the title page keeps its margins and is centred.
         expect(xml).toContain('<w:vAlign w:val="center"/>')
-        expect(xml).not.toContain('descr="Logo"')
+        expect(xml).not.toContain('descr="Cover image"')
 
         stubImageDecoding()
         await render(
@@ -1655,7 +1830,7 @@ describe('renderExportDocx', () => {
             }
         )
         expect(notifyWarning).toHaveBeenLastCalledWith("Some images aren't in the Word file", {
-            description: "Couldn't add the title-page logo and footer image. Try a PNG or JPEG file instead.",
+            description: "Couldn't add the cover image and footer image. Try a PNG or JPEG file instead.",
         })
     })
 
@@ -1670,7 +1845,7 @@ describe('renderExportDocx', () => {
             draft.header.hideOnFirstPages = 'title'
         })
         expect(inline.xml).toContain('Alpha')
-        expect(inline.xml).toContain('descr="Logo"')
+        expect(inline.xml).toContain('descr="Cover image"')
 
         const underHeader = await cover('# Alpha', (draft) => {
             draft.frontMatter.titlePage = true
@@ -1710,7 +1885,7 @@ describe('renderExportDocx', () => {
             },
             WIDE_PNG_URL
         )
-        expect(wide.xml).toContain('descr="Logo"')
+        expect(wide.xml).toContain('descr="Cover image"')
 
         const unknown = await cover(
             '# Alpha',
@@ -1746,7 +1921,7 @@ describe('renderExportDocx', () => {
             })
             expect(xml).toContain('Alpha')
             // The square picture is page-wide (793px), so it is cut down to the 150mm (567px) cover cap.
-            expect(drawingSize(xml, 'Logo'), mode).toEqual({ width: 793, height: 567 })
+            expect(drawingSize(xml, 'Cover image'), mode).toEqual({ width: 793, height: 567 })
             // A cropped cover is a new PNG. When the canvas can't crop, the original picture is kept as it is.
             const media = mediaFiles(names)
             expect(media, mode).toHaveLength(1)
@@ -1761,9 +1936,17 @@ function svgMarkup(attributes: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}><rect width="10" height="10"/></svg>`
 }
 
-/** Fake `<img>` and canvas. Every picture is 640×480; `broken` data fails to load. Each canvas hands back a PNG of its own size. */
-function stubImageDecoding() {
+/** The file types each canvas from {@link stubImageDecoding} was asked to write, in order. */
+const encodings: string[] = []
+
+/**
+ * Fake `<img>` and canvas. Every picture is 640×480; `broken` data fails to load. Each canvas hands back a PNG of its
+ * own size, or a JPEG when asked for one. Every pixel is opaque but the last, which has `lastAlpha`: see-through unless
+ * a test says otherwise, so only a scan of the whole picture finds it.
+ */
+function stubImageDecoding(lastAlpha = 0) {
     const canvases: { width: number; height: number }[] = []
+    encodings.length = 0
     class FakeImage {
         naturalWidth = 0
         naturalHeight = 0
@@ -1784,10 +1967,19 @@ function stubImageDecoding() {
             const canvas = {
                 width: 0,
                 height: 0,
-                getContext: () => ({ drawImage() {} }),
-                toBlob(callback: (blob: Blob | null) => void) {
+                getContext: () => ({
+                    drawImage() {},
+                    getImageData(_x: number, top: number, width: number, height: number) {
+                        const data = new Uint8ClampedArray(width * height * 4).fill(255)
+                        if (top + height >= canvas.height) data[data.length - 1] = lastAlpha
+                        return { data }
+                    },
+                }),
+                toBlob(callback: (blob: Blob | null) => void, type = 'image/png') {
                     canvases.push({ width: canvas.width, height: canvas.height })
-                    callback(new Blob([Uint8Array.from(sizedPng(canvas.width, canvas.height))]))
+                    encodings.push(type)
+                    const bytes = type === 'image/jpeg' ? jpeg(sof(canvas.height, canvas.width)) : sizedPng(canvas.width, canvas.height)
+                    callback(new Blob([Uint8Array.from(bytes)]))
                 },
             }
             return canvas

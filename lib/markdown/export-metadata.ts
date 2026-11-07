@@ -1,8 +1,8 @@
 import type { Heading, Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { nodeText } from '@/lib/markdown/export-outline'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
 const FRONT_MATTER_KEYS = new Set(['title', 'subtitle', 'author', 'date'])
@@ -177,7 +177,7 @@ const SIMPLIFIED_ONLY =
     /[们这个来时说国会对学为与经过还发开关问题点实现种从动机进长样电话读书写体间应该当头见觉业务区历东车门钱买卖认识兴环档检选单输设计显网页图资讯软价产]/gu
 
 /** Which Han script a Chinese language tag asks for, or '' when it doesn't say (`zh`). */
-function hanScriptOfTag(tag: string): 'Hant' | 'Hans' | '' {
+export function hanScriptOfTag(tag: string): 'Hant' | 'Hans' | '' {
     if (/-(?:hant|tw|hk|mo)(?:-|$)/i.test(tag)) return 'Hant'
     if (/-(?:hans|cn|sg|my)(?:-|$)/i.test(tag)) return 'Hans'
     return ''
@@ -234,7 +234,7 @@ export function guessDocumentLanguage(text: string, languages: readonly string[]
  * tree, so a `# comment` in fenced code never wins and inline markup drops out.
  */
 function firstHeadingText(body: string): string {
-    const tree = unified().use(remarkParse).use(remarkGfm).parse(body) as Root
+    const tree = unified().use(remarkParse).use(markdownRemarkPlugins).parse(body) as Root
     const heading = tree.children.find((node): node is Heading => node.type === 'heading' && node.depth === 1)
     return heading ? nodeText(heading).replace(/\s+/g, ' ').trim() : ''
 }

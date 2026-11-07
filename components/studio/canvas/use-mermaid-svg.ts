@@ -10,6 +10,7 @@ import {
     readCachedSvg,
     readLatestSvg,
     readRenderError,
+    readSvgForSource,
     startRender,
     storeRenderError,
     storeSvg,
@@ -43,6 +44,12 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         if (!canRender || !documentKey) return
         // Already worked out, or already failed: both are read straight from the cache below.
         if (readCachedSvg(themeId, documentKey, trimmedSource) !== null || readRenderError(themeId, documentKey, trimmedSource) !== null) return
+        // Another document drew this exact text (a Markdown block that moved has a new key): keep its picture.
+        const shared = readSvgForSource(themeId, trimmedSource)
+        if (shared !== null) {
+            storeSvg(themeId, documentKey, trimmedSource, shared)
+            return
+        }
 
         // Cleared as soon as the text, theme or document changes, or the view goes away.
         let cancelled = false
@@ -102,7 +109,9 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
 
     const hasDocument = canRender && documentKey !== null
     const displayIsCurrent = display?.documentKey === documentKey && display.themeId === themeId && display.trimmedSource === trimmedSource
-    const currentSvg = hasDocument ? (readCachedSvg(themeId, documentKey, trimmedSource) ?? (displayIsCurrent ? display.svg : null)) : null
+    const currentSvg = hasDocument
+        ? (readCachedSvg(themeId, documentKey, trimmedSource) ?? (displayIsCurrent ? display.svg : null) ?? readSvgForSource(themeId, trimmedSource))
+        : null
 
     useEffect(() => {
         // Whatever the user is looking at (after an undo, or coming back to a tab) is what a later
