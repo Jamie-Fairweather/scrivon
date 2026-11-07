@@ -22,11 +22,11 @@ import {
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
     confirmOpenLargeFile,
-    confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickWorkspaceFolder,
     showError,
 } from '@/lib/tauri/dialog'
+import { confirmOverwriteDiskChange } from '@/components/studio/dialogs/disk-change-dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
@@ -88,10 +88,14 @@ vi.mock('@/lib/tauri/dialog', () => ({
     showError: vi.fn(async () => undefined),
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
-    confirmOverwriteDiskChange: vi.fn(async () => 'keep' as const),
     confirmDeleteHiddenFolders: vi.fn(async () => false),
     confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
     confirmOpenLargeFile: vi.fn(async () => false),
+}))
+
+vi.mock('@/components/studio/dialogs/disk-change-dialog', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/components/studio/dialogs/disk-change-dialog')>()),
+    confirmOverwriteDiskChange: vi.fn(async () => 'keep' as const),
 }))
 
 const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
@@ -1225,6 +1229,54 @@ describe('changes made outside Scrivon', () => {
         act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
         await expect(save()).resolves.toBe(true)
         expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
+    })
+
+    it('never asks from an autosave, as a question popping up while the user types could take a key as its answer', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 20 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'MY EDITS', isDirty: false }))
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]?.saveError).toBe('It was changed outside Scrivon since you opened it.'))
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'MY EDITS 2', isDirty: true, isSaving: false })
+        const notice = vi.mocked(notifyError).mock.calls.find(([title]) => title === "Couldn't save notes.md")
+        expect(notice?.[2]).toMatchObject({ timeout: 0, action: { label: 'Try Again' } })
+
+        // More typing doesn't try again, so nothing is asked later either.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 3'))
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 60))
+        })
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(notifyError).toHaveBeenCalledTimes(1)
+
+        // Try Again on the notice is the user asking, so it asks.
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('overwrite')
+        await act(async () => {
+            ;(notice![2] as NotifyOptions).action!.onClick()
+        })
+        await waitFor(async () => expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS 3'))
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+    })
+
+    it('never asks when the user switches away from a tab whose file changed elsewhere', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+
+        act(() => coordinatorOut.current!.flushSaveOnTabLeave.current('C:\\ws\\notes.md'))
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]?.saveError).toBe('It was changed outside Scrivon since you opened it.'))
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        // Saving it on purpose asks.
+        await expect(save()).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
     })
 
     it('shows the other version and drops the edits when the user picks Reload', async () => {

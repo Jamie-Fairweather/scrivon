@@ -34,7 +34,6 @@ import {
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
     confirmOpenLargeFile,
-    confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickOpenFile,
     pickSavePath,
@@ -278,45 +277,6 @@ describe('confirmCloseAfterSaveFailure', () => {
     })
 })
 
-describe('confirmOverwriteDiskChange', () => {
-    beforeEach(() => {
-        vi.clearAllMocks()
-        isTauriMock.mockReturnValue(true)
-    })
-
-    it('asks before replacing a file changed elsewhere: Overwrite, Reload, or leave it', async () => {
-        messageMock.mockResolvedValueOnce('Overwrite')
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('overwrite')
-        const [body, options] = messageMock.mock.calls[0]!
-        expect(body).toContain('a.md was changed outside Scrivon')
-        expect(body).toContain('Reload opens the other version')
-        expect(options).toMatchObject({ title: 'File changed on disk', buttons: { yes: 'Overwrite', no: 'Reload', cancel: "Don't Save" } })
-
-        messageMock.mockResolvedValueOnce('Reload')
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('reload')
-        messageMock.mockResolvedValueOnce("Don't Save")
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('keep')
-        // Closing the question keeps both versions.
-        messageMock.mockResolvedValueOnce('Cancel')
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('keep')
-    })
-
-    it('offers to save a deleted file again, with nothing to reload', async () => {
-        messageMock.mockResolvedValueOnce('Save Again')
-        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe('overwrite')
-        expect(messageMock.mock.calls[0]![1]).toMatchObject({ title: 'File deleted', buttons: { ok: 'Save Again', cancel: "Don't Save" } })
-        messageMock.mockResolvedValueOnce("Don't Save")
-        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe('keep')
-    })
-
-    it('never overwrites outside Tauri when it cannot ask', async () => {
-        isTauriMock.mockReturnValue(false)
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('keep')
-        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe('keep')
-        expect(messageMock).not.toHaveBeenCalled()
-    })
-})
-
 describe('confirmOpenLargeFile', () => {
     beforeEach(() => {
         vi.clearAllMocks()
@@ -346,11 +306,39 @@ describe('confirmDeleteHiddenFolders', () => {
         await expect(confirmDeleteHiddenFolders('proj', ['.git', 'site\node_modules'])).resolves.toBe(true)
         const [body, options] = messageMock.mock.calls[0]!
         expect(body).toContain("proj also has .git and site\node_modules in it, which Scrivon doesn't show in the file list.")
-        expect(options).toMatchObject({ title: 'Delete hidden folders too?', buttons: { ok: 'Delete All', cancel: 'Cancel' } })
+        expect(options).toMatchObject({ title: 'Delete hidden folders too?', buttons: { yes: 'Keep Folder', no: 'Delete All', cancel: 'Cancel' } })
 
-        messageMock.mockResolvedValueOnce('Cancel')
+        // Enter on the first button, and Esc or closing it (which answers with the last), keep the folder.
+        messageMock.mockResolvedValueOnce('Keep Folder')
         await expect(confirmDeleteHiddenFolders('proj', ['.git', 'a', 'b', 'c'])).resolves.toBe(false)
         expect(messageMock.mock.calls[1]![0]).toContain('proj also has .git, a, b and more in it')
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmDeleteHiddenFolders('proj', ['.git'])).resolves.toBe(false)
+    })
+})
+
+describe('questions that can lose work', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    // The system dialog gives the keyboard to its first button, and Esc answers with the last one.
+    it('never put the choice that loses work first or last, where a stray key or Esc would pick it', async () => {
+        messageMock.mockResolvedValue(null)
+        await confirmUnsavedChanges(['a.md'])
+        await confirmCloseAfterSaveFailure([{ name: 'a.md', error: 'Disk full' }])
+        await confirmCloseAfterSaveFailure([{ name: 'a.md', stillSaving: true }])
+        await confirmKeptChangesWithoutFolder('Notes', ['a.md'])
+        await confirmDeleteHiddenFolders('proj', ['.git'])
+
+        const losesWork = ["Don't Save", 'Close Without Saving', 'Discard', 'Delete All']
+        expect(messageMock).toHaveBeenCalledTimes(5)
+        for (const [, options] of messageMock.mock.calls) {
+            const { yes, ok, no, cancel } = (options as { buttons: Record<string, string | undefined> }).buttons
+            expect(losesWork).toContain(no)
+            for (const label of [yes, ok, cancel]) expect(losesWork).not.toContain(label)
+        }
     })
 })
 
