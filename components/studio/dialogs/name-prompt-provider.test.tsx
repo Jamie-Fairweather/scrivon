@@ -59,6 +59,22 @@ describe('NamePromptProvider', () => {
         expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'diagram 2'.length])
     })
 
+    it('shows the note it is given under the field while the name can be used, and the error instead when not', async () => {
+        const note = (name: string) => (name === 'beach' ? 'Will be named "beach.png".' : null)
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'screenshot.png', validate: noColons, note })
+        expect(input).not.toHaveAttribute('aria-describedby')
+
+        fireEvent.change(input, { target: { value: ' beach ' } })
+        const shown = screen.getByText('Will be named "beach.png".')
+        expect(input).toHaveAttribute('aria-describedby', shown.id)
+        expect(input).not.toHaveAttribute('aria-invalid')
+        expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled()
+
+        fireEvent.change(input, { target: { value: 'beach:' } })
+        expect(screen.queryByText('Will be named "beach.png".')).not.toBeInTheDocument()
+        expect(screen.getByText('Name contains invalid characters')).toBeInTheDocument()
+    })
+
     it('selects a whole folder name, even one with a dot', async () => {
         const { input } = await openPrompt({ title: 'Rename', defaultValue: 'v1.2' })
 

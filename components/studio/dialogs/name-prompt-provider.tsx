@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { documentExtension } from '@/lib/workspace/file-types'
 
 export type NamePromptOptions = {
@@ -25,6 +26,8 @@ export type NamePromptOptions = {
      * the reason shows under the field, and the dialog stays open until the name is fixed or cancelled.
      */
     validate?: (name: string) => string | null
+    /** A line under the field while the name can be used, such as the name the item will really get, or null for none. */
+    note?: (name: string) => string | null
 }
 
 type NamePromptContextValue = {
@@ -54,7 +57,7 @@ export function useNamePrompt(): NamePromptContextValue {
 
 export function NamePromptProvider({ children }: { children: ReactNode }) {
     const inputId = useId()
-    const errorId = useId()
+    const messageId = useId()
     const pendingRef = useRef<((value: string | null) => void) | null>(null)
     // Only the field's first focus after the prompt opens selects the name. Focus comes back to it when the user
     // switches back to the window, and selecting then would let the next key replace what they typed.
@@ -64,10 +67,11 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
     const [request, setRequest] = useState<NamePromptOptions>({ title: '' })
     const [value, setValue] = useState('')
 
-    const { title, description, submitLabel = 'Create', extension, placeholder, validate } = request
+    const { title, description, submitLabel = 'Create', extension, placeholder, validate, note } = request
     const trimmed = value.trim()
     const error = open && validate ? validate(trimmed) : null
     const canSubmit = trimmed.length > 0 && !error
+    const message = error ?? (canSubmit && note ? note(trimmed) : null)
 
     const finish = useCallback((result: string | null) => {
         pendingRef.current?.(result)
@@ -122,7 +126,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                             <Field>
                                 <FieldLabel htmlFor={inputId}>Name</FieldLabel>
                                 <Input
-                                    aria-describedby={error ? errorId : undefined}
+                                    aria-describedby={message ? messageId : undefined}
                                     aria-invalid={error ? true : undefined}
                                     autoFocus
                                     // A Hebrew or Arabic name reads right to left as it is typed.
@@ -138,9 +142,16 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     placeholder={placeholder}
                                     value={value}
                                 />
-                                {/* Errors quote names too ('A file named "…" already exists here.'), so they wrap the same way. */}
-                                <p aria-live="polite" className="min-h-4 w-full text-xs wrap-anywhere text-destructive-foreground" id={errorId}>
-                                    {error}
+                                {/* Errors and notes quote names too ('A file named "…" already exists here.'), so they wrap the same way. */}
+                                <p
+                                    aria-live="polite"
+                                    className={cn(
+                                        'min-h-4 w-full text-xs wrap-anywhere',
+                                        error ? 'text-destructive-foreground' : 'text-muted-foreground'
+                                    )}
+                                    id={messageId}
+                                >
+                                    {message}
                                 </p>
                             </Field>
                         </DialogPanel>

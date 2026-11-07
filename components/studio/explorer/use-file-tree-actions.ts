@@ -86,8 +86,17 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
             const folder = getParentPath(node.path)
             // A file renamed without an extension keeps its current one ('notes.md' -> 'meeting' -> 'meeting.md',
             // 'screenshot.png' -> 'beach' -> 'beach.png'), and the prompt leaves it unselected. A folder has none.
-            const extension = node.kind === 'file' ? (documentExtension(node.name) ?? fileExtension(node.name)) : null
-            const finalName = (value: string) => (extension ? withDocumentExtension(value, extension) : value)
+            const docExtension = node.kind === 'file' ? documentExtension(node.name) : null
+            const extension = node.kind === 'file' ? (docExtension ?? fileExtension(node.name)) : null
+            const finalName = (value: string): string => {
+                if (!extension || !value) return value
+                // A document has to stay one; 'todo.txt' is kept as typed, for the check to refuse.
+                if (docExtension) return withDocumentExtension(value, docExtension)
+                // Any other file keeps whatever extension was typed ('backup.7z', 'plan v1.2'), found the same way as
+                // its own, so that isn't added twice. A dot at the end leaves it off, as in File Explorer.
+                if (value.endsWith('.')) return value.slice(0, -1)
+                return fileExtension(value) ? value : `${value}${extension}`
+            }
             const name = await promptName({
                 title: `Rename "${node.name}"`,
                 description: `Choose a new name for this ${node.kind === 'directory' ? 'folder' : 'file'}.`,
@@ -96,6 +105,13 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
                 extension,
                 placeholder: node.name,
                 validate: (value) => getNameError(folder, finalName(value), node.kind, node.path),
+                // Says what the entry will be called when that isn't what was typed, and how to leave the extension off.
+                note: (value) => {
+                    const final = finalName(value)
+                    if (final === value) return null
+                    const named = `Will be named "${final}".`
+                    return docExtension || value.endsWith('.') ? named : `${named} To leave off "${extension}", end the name with a dot.`
+                },
             })
             if (!name) return null
             const newName = finalName(name)
