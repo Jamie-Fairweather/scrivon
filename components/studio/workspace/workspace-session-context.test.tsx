@@ -7,6 +7,7 @@ import {
     confirmCloseAfterSaveFailure,
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
+    confirmOpenLargeFile,
     confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickWorkspaceFolder,
@@ -71,6 +72,7 @@ vi.mock('@/lib/tauri/dialog', () => ({
     confirmOverwriteDiskChange: vi.fn(async () => false),
     confirmDeleteHiddenFolders: vi.fn(async () => false),
     confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
+    confirmOpenLargeFile: vi.fn(async () => false),
 }))
 
 const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
@@ -1452,6 +1454,28 @@ describe('opening folders one after another', () => {
 
         expect(result.current.session.workspaceRoot).toBeNull()
         expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('asks before reading a very large file again when reopening the tabs, and leaves it closed on Cancel', async () => {
+        await disk.write('C:\\ws\\huge.log.md', 'big')
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue({
+            tabIds: ['C:\\ws\\huge.log.md', 'C:\\ws\\notes.md'],
+            activeTabId: 'C:\\ws\\huge.log.md',
+        })
+        vi.mocked(stat).mockImplementation((async (path: string) => {
+            const info = await disk.stat(path)
+            return String(path).endsWith('huge.log.md') ? { ...info, size: 80 * 1024 * 1024 } : info
+        }) as unknown as typeof stat)
+        vi.mocked(confirmOpenLargeFile).mockResolvedValueOnce(false)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+
+        expect(confirmOpenLargeFile).toHaveBeenCalledWith('huge.log.md', '80 MB')
+        expect(readFile).not.toHaveBeenCalledWith('C:\\ws\\huge.log.md')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md'])
     })
 
     it('keeps a file the user opened while the saved tabs were still loading', async () => {

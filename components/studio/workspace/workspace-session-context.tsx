@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { defaultMarkdownFor } from '@/lib/default-markdown'
-import { confirmDeleteHiddenFolders, confirmKeptChangesWithoutFolder, pickWorkspaceFolder } from '@/lib/tauri/dialog'
+import { confirmDeleteHiddenFolders, confirmKeptChangesWithoutFolder, confirmOpenLargeFile, pickWorkspaceFolder } from '@/lib/tauri/dialog'
 import {
     createWorkspaceDirectory,
     createWorkspaceFile,
@@ -12,6 +12,7 @@ import {
     findHiddenFolders,
     getBaseName,
     getParentPath,
+    getWorkspaceFileSize,
     isHiddenFolder,
     isPathInside,
     joinPath,
@@ -35,7 +36,7 @@ import {
     removeRecentWorkspace,
     setFolderToggles,
 } from '@/lib/tauri/store'
-import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
+import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, keepUnchangedNodes, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
@@ -319,27 +320,41 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
             if (paths.length === 0) return
 
+            // A very large file can make the app stop responding for a while, so, as when it was first opened,
+            // the user decides before it is read again (one question at a time). Kept unsaved text always comes back.
+            const hasBackup = (filePath: string) => backups.some((b) => samePath(b.path, filePath))
+            const sizes = await Promise.all(paths.map((filePath) => (hasBackup(filePath) ? null : getWorkspaceFileSize(filePath))))
+            const skipped = new Set<string>()
+            for (const [i, filePath] of paths.entries()) {
+                const size = sizes[i]
+                if (!isLargeFile(size)) continue
+                if (!isCurrent()) return
+                if (!(await confirmOpenLargeFile(getBaseName(filePath), formatFileSize(size)))) skipped.add(filePath)
+            }
+
             const recovered: string[] = []
             const restoredTabs = (
                 await Promise.all(
-                    paths.map(async (filePath) => {
-                        let tab: DocumentTab | null
-                        try {
-                            tab = tabFromFile(filePath, await readWorkspaceTextFile(filePath))
-                        } catch {
-                            tab = null
-                        }
-                        const backup = backups.find((b) => samePath(b.path, filePath))
-                        if (!backup) return tab
-                        if (tab && tab.content === backup.content) {
-                            // Already on disk: the copy was kept by mistake (its removal failed).
-                            void deleteUnsavedBackup(backup.path).catch(() => undefined)
-                            return tab
-                        }
-                        const recoveredTab = tabWithRecoveredText(tab, backup)
-                        recovered.push(recoveredTab.name)
-                        return recoveredTab
-                    })
+                    paths
+                        .filter((filePath) => !skipped.has(filePath))
+                        .map(async (filePath) => {
+                            let tab: DocumentTab | null
+                            try {
+                                tab = tabFromFile(filePath, await readWorkspaceTextFile(filePath))
+                            } catch {
+                                tab = null
+                            }
+                            const backup = backups.find((b) => samePath(b.path, filePath))
+                            if (!backup) return tab
+                            if (tab && tab.content === backup.content) {
+                                // Already on disk: the copy was kept by mistake (its removal failed).
+                                void deleteUnsavedBackup(backup.path).catch(() => undefined)
+                                return tab
+                            }
+                            const recoveredTab = tabWithRecoveredText(tab, backup)
+                            recovered.push(recoveredTab.name)
+                            return recoveredTab
+                        })
                 )
             ).filter((tab): tab is NonNullable<typeof tab> => tab !== null)
 
