@@ -98,11 +98,13 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
 /**
  * Marker text rendered (practically invisibly) inside the footer's page-number
  * slot. Chromium (WebView2 included) only resolves `counter(page)`/`counter(pages)`
- * inside `@page` margin boxes, and the footer is an in-page bar (repeating table
- * row or fixed element, with images, backgrounds and edge-to-edge bands), so its
- * number is stamped after printing: the Rust side locates this marker in the PDF
- * to learn which pages carry a footer and exactly where the number belongs, then
- * draws the real value right-aligned to it. TOC numbers are always stamped, since
+ * inside `@page` margin boxes, and the footer is an in-page bar (a fixed element,
+ * with images, backgrounds and edge-to-edge bands), so its number is stamped after
+ * printing: the Rust side locates this marker in the PDF to learn where the number
+ * belongs, then draws the real value right-aligned to it. Pages before the first
+ * marker get no number, and later pages without one get it where the others put
+ * theirs, so a footer hidden on the title page or TOC draws its marker only once,
+ * on the first page that shows it. TOC numbers are always stamped, since
  * `target-counter()` is unsupported. The print-dialog path, which has no stamper,
  * uses a margin box instead ({@link printDialogPageNumberCss}).
  * Must match `FOOTER_MARK` in `src-tauri/src/page_numbers.rs`.
@@ -235,7 +237,8 @@ function headingPageBreakCss(level: PdfNewPageFromHeading): string {
 /**
  * Reserves room for the stamped label, which the PDF stage draws right-aligned to
  * this slot and which can therefore only grow leftwards into the bar. Sized from
- * exactly what the stamper draws, the filled-in title included.
+ * exactly what the stamper draws, the filled-in title included. When the title page
+ * or TOC hide the footer, only the anchor copy draws its marker (see wrapWithChrome).
  */
 function pageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
     if (!pdfFooterHasPageText(profile.footer)) return ''
@@ -247,7 +250,9 @@ function pageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): 
           : 'Page 000'
     const widthEm = Math.max(3.5, sample.trim().length * 0.55)
     return `.pdf-page-number { min-width: ${widthEm.toFixed(1)}em; text-align: right; white-space: nowrap; }
-    .pdf-page-number-mark { color: rgba(64, 64, 64, 0.01); }`
+    .pdf-page-number-mark { color: rgba(64, 64, 64, 0.01); }
+    .pdf-footer-anchor .pdf-page-number-mark { visibility: visible; }
+    .pdf-footer-unmarked .pdf-page-number-mark { visibility: hidden; }`
 }
 
 function hiddenChromeSections(firstPages: PdfExportProfile['header']['hideOnFirstPages']): string[] {
@@ -362,16 +367,16 @@ const TITLE_PAGE_SLACK_MM = 4
 
 /**
  * Room the title page has on its sheet, whichever way the sheet is turned: the page less
- * its margins and any header/footer bar shown on the cover. A bar that ignores margins
+ * its margins, any header shown on the cover, and the footer's band, which the footer takes
+ * there or, when the cover hides it, the copy that covers it. A bar that ignores margins
  * sits inside the margin band, so only the part that outgrows the margin counts.
  */
 function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
     const { top, bottom } = profile.page.marginsMm
     const headerOnCover = layout.showHeader && profile.header.hideOnFirstPages === 'none'
-    const footerOnCover = layout.showFooter && profile.footer.hideOnFirstPages === 'none'
     // An edge-to-edge cover image with no header above it starts at the very top of the sheet.
     const topRoom = layout.logoBleeds && !headerOnCover ? 0 : edgeBandMm(top, profile.header, headerOnCover, layout.headerBleeds)
-    const bottomRoom = edgeBandMm(bottom, profile.footer, footerOnCover, layout.footerBleeds)
+    const bottomRoom = edgeBandMm(bottom, profile.footer, layout.showFooter, layout.footerBleeds)
     return Math.max(40, Math.floor(sheetHeightMm(profile) - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
 }
 
@@ -607,9 +612,14 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     break-after: auto;
     page-break-after: auto;
   }
-  /* Print viewport = page area, so this fills the last page of a section and pins its footer row to the bottom. */
+  /*
+   * Print viewport = page area, so a one-page section fills its page: the title page centres on
+   * it and its footer row sits at the page bottom. The table is also the frame the footer anchor
+   * is placed in, from the top of the section's first page.
+   */
   .pdf-chrome-table {
     height: 100vh;
+    position: relative;
   }
   /* The cover is one page tall at most; the logo shrinks to leave the title text room on it. */
   .pdf-title-page {
@@ -728,12 +738,26 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-chrome-table > thead { display: table-header-group; }
   .pdf-chrome-table > tfoot { display: table-footer-group; }
   /*
-   * A footer shown on every page is drawn once, fixed, and Chromium repeats it at the
-   * bottom of each page. A table footer row would float up under the text on the last
-   * page of a section, so it is kept only as an invisible copy that reserves the room.
+   * The footer is drawn once, fixed, and Chromium repeats it at the bottom of each page. A
+   * table footer row would float up under the text on the last page of a section, so each
+   * section's row is only a copy of the bar: unseen where the footer shows, keeping the text
+   * clear of it, and opaque on the title page and TOC when they hide it, covering it.
    */
   .pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }
   .pdf-footer-spacer { visibility: hidden; }
+  .pdf-footer-cover > tr > td { position: relative; z-index: 3; background: #ffffff; }
+  .pdf-footer-cover .pdf-chrome-bar { visibility: hidden; }
+  /* When the title page or TOC hide the footer: the one copy whose page-number marker is drawn, at the foot of the first page showing it. */
+  .pdf-fixed-footer.pdf-footer-anchor {
+    position: absolute;
+    top: 0;
+    bottom: auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    visibility: hidden;
+  }
   /* Slack from a stretched section goes below the content; the title page keeps the cell's centring. */
   .pdf-toc-table > tbody > tr > td,
   .pdf-body-table > tbody > tr > td { vertical-align: top; }
@@ -773,7 +797,6 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   ${bleedLayoutCss(profile, layout, margins)}
   ${pageNumberCss(profile, metadata)}
   ${chromeHideCss(profile.header.hideOnFirstPages, '.pdf-header-bar')}
-  ${chromeHideCss(profile.footer.hideOnFirstPages, '.pdf-footer-bar')}
   ${
       watermark
           ? `.export-article::before {

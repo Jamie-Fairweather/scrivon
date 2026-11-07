@@ -102,8 +102,13 @@ describe('buildPdfExportCss', () => {
         profile.page.orientation = 'landscape'
         expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 150mm;\s*max-height: 186mm;/)
 
-        // Large margins.
+        // A footer hidden on the cover is covered there, by a copy as tall as it: 297 - 10 - (10 + 12) - 4.
         profile.page.orientation = 'portrait'
+        profile.footer.pageNumbers = 'number'
+        expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 237mm;\s*max-height: 261mm;/)
+        profile.footer.pageNumbers = 'none'
+
+        // Large margins.
         profile.page.marginsMm = { top: 50, right: 30, bottom: 50, left: 30 }
         expect(titleRule(buildPdfExportCss(profile))).toMatch(/min-height: 157mm;\s*max-height: 193mm;/)
 
@@ -189,12 +194,28 @@ describe('buildPdfExportCss', () => {
         expect(css).not.toMatch(/\.pdf-toc-l\d a \{[^}]*padding-left/)
     })
 
-    it('fixes an every-page footer to the page bottom and hides its table copy', () => {
-        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+    it('fixes the footer to the page bottom, hides its table copies and covers it where it hides (U04, N29)', () => {
+        const profile = createDefaultPdfExportProfile()
+        const css = buildPdfExportCss(profile)
         expect(css).toContain('.pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }')
         expect(css).toContain('.pdf-footer-spacer { visibility: hidden; }')
+        // The cover is opaque and drawn over the fixed footer (z-index 2), but its copy of the bar isn't.
+        expect(css).toContain('.pdf-footer-cover > tr > td { position: relative; z-index: 3; background: #ffffff; }')
+        expect(css).toContain('.pdf-footer-cover .pdf-chrome-bar { visibility: hidden; }')
+        // The anchor fills the first page of its section, from the top of the section's table, bar at its foot.
+        expect(css).toMatch(/\.pdf-chrome-table \{\s*height: 100vh;\s*position: relative;\s*\}/)
+        expect(css).toMatch(
+            /\.pdf-fixed-footer\.pdf-footer-anchor \{\s*position: absolute;\s*top: 0;\s*bottom: auto;\s*height: 100vh;\s*display: flex;\s*flex-direction: column;\s*justify-content: flex-end;\s*visibility: hidden;\s*\}/
+        )
         // Printer margins already place the page bottom; nothing to emulate.
         expect(css).not.toMatch(/\.pdf-fixed-footer \{ (padding|min-height)/)
+        expect(css).not.toContain('.pdf-page-number-mark')
+
+        // Only the anchor draws its page-number marker once the fixed footer's is switched off.
+        profile.footer.pageNumbers = 'number'
+        const numbered = buildPdfExportCss(profile)
+        expect(numbered).toContain('.pdf-footer-anchor .pdf-page-number-mark { visibility: visible; }')
+        expect(numbered).toContain('.pdf-footer-unmarked .pdf-page-number-mark { visibility: hidden; }')
     })
 
     it('puts the fixed footer in the emulated bottom margin when printing edge to edge', () => {
@@ -254,7 +275,7 @@ describe('buildPdfExportCss', () => {
         expect(css).not.toContain('.pdf-title-table .pdf-footer-bar')
         expect(css).toMatch(/\.pdf-title-table,\s*\.pdf-toc-table \{\s*break-after: page;/)
         expect(css).toMatch(/\.pdf-title-table \.pdf-title-page,\s*\.pdf-toc-table \.pdf-toc-page \{\s*break-after: auto;/)
-        // Every section table fills its (last) page so a short body still pins its footer to the bottom.
+        // A one-page section fills its page, so the title page centres on it with its footer row at the bottom.
         expect(css).toMatch(/\.pdf-chrome-table \{\s*height: 100vh;/)
         expect(css).toContain('.pdf-body-table > tbody > tr > td { vertical-align: top; }')
         // Letter landscape: 215.9 - 10 - 10 - 40
@@ -379,8 +400,8 @@ describe('buildPdfExportCss', () => {
         // and let the section fill the cell so the title centres in the space below the image.
         expect(css).toContain('.pdf-title-table > thead > tr > td { padding: 0; height: auto; }')
         expect(css).toContain('.pdf-title-table > tbody > tr > td { vertical-align: top; }')
-        // The image starts at the sheet's top edge; only the bottom margin (the footer is hidden on the cover) and slack come off.
-        expect(css).toContain('.pdf-title-page { height: 283mm; min-height: 0; max-height: none; padding-top: 0; justify-content: flex-start; }')
+        // The image starts at the sheet's top edge; only the footer's band (covered, as the cover hides the footer) and slack come off.
+        expect(css).toContain('.pdf-title-page { height: 281mm; min-height: 0; max-height: none; padding-top: 0; justify-content: flex-start; }')
         expect(css).toContain('width: calc(100% + 20mm);')
         expect(css).toContain('margin: 0 -10mm 0 -10mm;')
         expect(css).toMatch(/\.pdf-title-page \.pdf-logo \{[^}]*max-width: none;[^}]*object-fit: cover;/)
@@ -493,8 +514,8 @@ describe('buildPdfExportCss', () => {
             }
             expect(css).not.toContain('@bottom-right')
             expect(css).not.toContain('.pdf-title-table .pdf-header-bar { display: none')
-            expect(css).toContain('.pdf-title-table .pdf-footer-bar { display: none !important; }')
-            expect(css).not.toContain('.pdf-toc-table .pdf-footer-bar')
+            // The footer is fixed and covered where it hides, so its copy there keeps its size.
+            expect(css).not.toContain('.pdf-footer-bar { display: none')
         }
     })
 })

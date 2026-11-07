@@ -376,18 +376,15 @@ type ChromeSection = 'title' | 'toc' | 'body'
 
 /**
  * Header/footer bar: `[image][text] … [text][image]`, so an image on either
- * end is always the outermost item, nearest the page edge. Nothing for a section
- * that hides the bar, so its images aren't embedded there for nothing.
+ * end is always the outermost item, nearest the page edge.
  */
-function renderChromeCell(
+function renderChromeBar(
     kind: 'header' | 'footer',
-    section: ChromeSection,
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
     metadata: PdfExportMetadata,
     stamped: boolean
 ): string {
-    if (!pdfChromeShown(profile, kind, section)) return ''
     const chrome = kind === 'header' ? profile.header : profile.footer
     const images = kind === 'header' ? assets.header : assets.footer
     const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata, stamped)
@@ -395,39 +392,19 @@ function renderChromeCell(
 }
 
 /**
- * Whether the footer shows on every page of this document. Then it is drawn once,
- * fixed to the page bottom, which Chromium repeats on every page, the last page of
- * a section included. A fixed element can't skip pages, so when the title page or
- * TOC hide the footer, the repeating table footer row draws it instead.
+ * One table per section (title, TOC, body). The repeating header rows give every page of a
+ * section its header and, in bleed mode, its top margin; a section that hides the header has
+ * none, so its images aren't embedded there for nothing. The footer is drawn once, fixed to
+ * the page bottom (see {@link wrapWithChrome}), and each section's repeating footer row is a
+ * copy of it that is never seen: on a section that shows the footer it keeps the text clear
+ * of it, and on one that hides it (the title page, the TOC) it is opaque and covers it.
  */
-function footerOnEveryPage(profile: PdfExportProfile, hasTitlePage: boolean, hasToc: boolean): boolean {
-    if (!resolvePdfExportLayout(profile).showFooter) return false
-    const hidden = profile.footer.hideOnFirstPages
-    if (hidden === 'none') return true
-    return !hasTitlePage && (hidden === 'title' || !hasToc)
-}
-
-/**
- * One table per section (title, TOC, body). The repeating header/footer rows
- * give every page of a section its chrome and, in bleed mode, its margins,
- * while the CSS hide rules can still switch the bars off per section.
- * With a fixed footer, the footer row is an invisible copy that only keeps
- * the body clear of it.
- */
-function chromeTable(
-    kind: ChromeSection,
-    inner: string,
-    profile: PdfExportProfile,
-    assets: PdfExportResolvedAssets,
-    metadata: PdfExportMetadata,
-    fixedFooter: boolean,
-    stamped: boolean
-): string {
-    const footClass = fixedFooter ? ' class="pdf-footer-spacer" aria-hidden="true"' : ''
+function chromeTable(kind: ChromeSection, inner: string, header: string, footer: string, coversFooter: boolean): string {
+    const foot = footer ? ` class="${coversFooter ? 'pdf-footer-cover' : 'pdf-footer-spacer'}" aria-hidden="true"` : ''
     return `<table class="pdf-chrome-table pdf-${kind}-table">
-    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', kind, profile, assets, metadata, stamped)}</td></tr></thead>
+    <thead class="pdf-chrome-head"><tr><td>${header}</td></tr></thead>
     <tbody><tr><td>${inner}</td></tr></tbody>
-    <tfoot${footClass}><tr><td>${renderChromeCell('footer', kind, profile, assets, metadata, stamped)}</td></tr></tfoot>
+    <tfoot${foot}><tr><td>${footer}</td></tr></tfoot>
   </table>`
 }
 
@@ -448,17 +425,31 @@ function wrapWithChrome(
         return `<article class="export-article">${titlePageHtml}${tocHtml}${body}</article>`
     }
 
-    const fixedFooter = footerOnEveryPage(profile, Boolean(titlePageHtml), Boolean(tocHtml))
-    const sections = [
-        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata, fixedFooter, stamped) : '',
-        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata, fixedFooter, stamped) : '',
-        chromeTable('body', body, profile, assets, metadata, fixedFooter, stamped),
-    ]
-    const footer = fixedFooter
-        ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', 'body', profile, assets, metadata, stamped)}</div>`
-        : ''
+    const sections = (
+        [
+            ['title', titlePageHtml],
+            ['toc', tocHtml],
+            ['body', body],
+        ] as const
+    ).filter(([, html]) => html)
+    // Drawn once, fixed: Chromium repeats it at the bottom of every page, the last page of a section included,
+    // where a table footer row would float up under the text.
+    const footer = layout.showFooter ? renderChromeBar('footer', profile, assets, metadata, stamped) : ''
+    // Only the title page and TOC can hide the footer, and they come first.
+    const firstShown = sections.findIndex(([kind]) => pdfChromeShown(profile, 'footer', kind))
+    // The stamper numbers each page at its footer's page-number marker and leaves the pages before the first
+    // marker unnumbered. The fixed footer would put a marker on the title page and TOC too, so when they hide
+    // the footer its marker isn't drawn. One copy at the foot of the first page that shows the footer carries
+    // the marker instead, and the stamper numbers each later page, which has none, at the same spot.
+    const anchored = firstShown > 0 && stamped && pdfPageNumberFormat(profile, metadata) !== 'none'
+    const tables = sections.map(([kind, html], index) => {
+        const header = pdfChromeShown(profile, 'header', kind) ? renderChromeBar('header', profile, assets, metadata, stamped) : ''
+        const anchor = anchored && index === firstShown ? `<div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true">${footer}</div>` : ''
+        return chromeTable(kind, `${anchor}${html}`, header, footer, index < firstShown)
+    })
+    const fixed = footer ? `\n  <div class="pdf-fixed-footer${anchored ? ' pdf-footer-unmarked' : ''}">${footer}</div>` : ''
     return `<article class="export-article">
-  ${sections.filter(Boolean).join('\n  ')}${footer}
+  ${tables.join('\n  ')}${fixed}
 </article>`
 }
 

@@ -107,10 +107,12 @@ SHIKI_FAIL
         expect(tocTable).toBeLessThan(html.indexOf('class="pdf-toc-page"'))
         expect(html.indexOf('class="pdf-toc-page"')).toBeLessThan(bodyTable)
         expect(bodyTable).toBeLessThan(html.indexOf('class="pdf-body"'))
-        // Both bars hide on the title page (the default), so only the TOC and body tables carry them.
+        // Both bars hide on the title page (the default): only the TOC and body tables carry the header, and the
+        // title page's footer row covers the fixed footer.
         expect(html.match(/class="pdf-chrome-bar pdf-header-bar"/g)).toHaveLength(2)
-        expect(html.match(/class="pdf-chrome-bar pdf-footer-bar"/g)).toHaveLength(2)
-        expect(html.slice(titleTable, tocTable)).not.toContain('pdf-chrome-bar')
+        expect(html.slice(titleTable, tocTable)).not.toContain('pdf-header-bar')
+        expect(html.slice(titleTable, tocTable)).toContain('<tfoot class="pdf-footer-cover" aria-hidden="true">')
+        expect(html.match(/<div class="pdf-fixed-footer pdf-footer-unmarked"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
         expect(html).toContain('pdf-logo')
         expect(html).toContain('Sub')
         expect(html).toContain('Ada')
@@ -227,35 +229,82 @@ SHIKI_FAIL
         expect(html).not.toContain('counter(page)')
     })
 
-    it('pins a footer shown on every page to the page bottom instead of a table row', async () => {
+    it('pins the footer to the page bottom on every page, covering it where the title page or TOC hide it (U04, N29)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
         profile.footer.pageNumbers = 'number'
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
+        const render = async (stamped = true) => (await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS, stamped })).html
+        /** One section's table, found by its class (the stylesheet names the classes too, but never with a quote after). */
+        const table = (html: string, kind: string) => {
+            const start = html.indexOf(`pdf-${kind}-table"`)
+            expect(start, kind).toBeGreaterThan(-1)
+            return html.slice(start, html.indexOf('</table>', start))
+        }
+        const FIXED = /<div class="pdf-fixed-footer[^"]*"><div class="pdf-chrome-bar pdf-footer-bar">/g
+        const SPACER = '<tfoot class="pdf-footer-spacer" aria-hidden="true">'
+        const COVER = '<tfoot class="pdf-footer-cover" aria-hidden="true">'
+        const ANCHOR = '<tbody><tr><td><div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true"><div class="pdf-chrome-bar pdf-footer-bar">'
 
-        // No title page, so the default "hide on title page" hides nothing: one fixed footer for every page.
-        const { html } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
-        expect(html.match(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
-        // The table rows stay as invisible copies so the body never runs under the footer.
-        expect(html.match(/<tfoot class="pdf-footer-spacer" aria-hidden="true">/g)).toHaveLength(2)
-        expect(html.match(/<tfoot>/g)).toBeNull()
+        // No title page, so the default "hide on title page" hides nothing: the fixed footer is the visible one on every
+        // page and carries the page-number marker; the table rows stay as unseen copies so the body never runs under it.
+        const plain = await render()
+        expect(plain.match(FIXED)).toHaveLength(1)
+        expect(plain).toContain('<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(plain.split(SPACER)).toHaveLength(3)
+        expect(plain.match(/<tfoot>/g)).toBeNull()
+        expect(plain).not.toContain('pdf-footer-cover"')
+        expect(plain).not.toContain('pdf-footer-anchor"')
 
-        // A footer hidden on the title page can't be a fixed element, which would repeat there too.
+        // A title page that hides it no longer brings back the table row, which floats up under the text on the last
+        // page of a section. The footer stays fixed, and the title page's row covers it.
         profile.frontMatter.titlePage = true
-        const { html: withTitle } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
-        expect(withTitle).not.toContain('<div class="pdf-fixed-footer">')
-        expect(withTitle).not.toContain('<tfoot class="pdf-footer-spacer"')
-        expect(withTitle.match(/<tfoot>/g)).toHaveLength(3)
+        const titled = await render()
+        expect(titled.match(FIXED)).toHaveLength(1)
+        expect(titled.match(/<tfoot>/g)).toBeNull()
+        expect(table(titled, 'title')).toContain(COVER)
+        expect(table(titled, 'toc')).toContain(SPACER)
+        expect(table(titled, 'body')).toContain(SPACER)
+        // The fixed footer's marker would get the title page a number, so it isn't drawn: one copy at the foot of the
+        // first page that shows the footer, the TOC's, carries the only marker.
+        expect(titled).toContain('<div class="pdf-fixed-footer pdf-footer-unmarked"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(titled.split('pdf-footer-anchor" aria-hidden')).toHaveLength(2)
+        expect(table(titled, 'toc')).toMatch(new RegExp(`${ANCHOR}.*SFPN`))
+        expect(table(titled, 'title')).not.toContain('pdf-footer-anchor"')
 
-        profile.footer.hideOnFirstPages = 'none'
-        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
-
-        profile.frontMatter.titlePage = false
+        // Hidden on the TOC as well: the TOC is covered too, and the marker moves to the first body page.
         profile.footer.hideOnFirstPages = 'title+toc'
-        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).not.toContain('<div class="pdf-fixed-footer">')
-        profile.frontMatter.toc = false
-        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
+        const both = await render()
+        expect(table(both, 'title')).toContain(COVER)
+        expect(table(both, 'toc')).toContain(COVER)
+        expect(table(both, 'toc')).not.toContain('pdf-footer-anchor"')
+        expect(table(both, 'body')).toContain(ANCHOR)
+        expect(table(both, 'body')).toContain(SPACER)
+
+        // With no stamper there is no marker to place: the print dialog counts the pages itself.
+        const dialog = await render(false)
+        expect(dialog).toContain('<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(dialog).not.toContain('pdf-footer-anchor"')
+        expect(table(dialog, 'toc')).toContain(COVER)
+
+        // Nor without page numbers.
+        profile.footer.pageNumbers = 'none'
+        profile.footer.enabled = true
+        profile.footer.left.text = 'Footer'
+        const unnumbered = await render()
+        expect(unnumbered).toContain('<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(unnumbered).not.toContain('pdf-footer-anchor"')
+        expect(table(unnumbered, 'title')).toContain(COVER)
+
+        // Shown everywhere: nothing to cover, and the fixed footer marks every page.
+        profile.footer.pageNumbers = 'number'
+        profile.footer.hideOnFirstPages = 'none'
+        const everywhere = await render()
+        expect(everywhere).not.toContain('pdf-footer-cover"')
+        expect(everywhere).not.toContain('pdf-footer-anchor"')
+        expect(everywhere.split(SPACER)).toHaveLength(4)
+        expect(everywhere).toMatch(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">.*SFPN/)
     })
 
     it('prints only the page number when the footer switch is off', async () => {
