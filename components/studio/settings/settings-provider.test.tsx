@@ -1,0 +1,277 @@
+import { act, renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SettingsProvider, useAppSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
+import { notifyWarning } from '@/lib/notify'
+import { createDefaultSettings } from '@/lib/settings/defaults'
+import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import { loadSettings, SETTINGS_BACKUP_KEY } from '@/lib/settings/storage'
+import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
+
+vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyWarning: vi.fn() }))
+
+function stored(): AppSettings {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    expect(raw).not.toBe('undefined')
+    return JSON.parse(raw ?? 'null') as AppSettings
+}
+
+function renderSettings() {
+    return renderHook(() => useAppSettings(), { wrapper: SettingsProvider })
+}
+
+describe('SettingsProvider persistence', () => {
+    beforeEach(() => {
+        const store = new Map<string, string>()
+        // Like a real browser, coerce values to strings (so undefined becomes "undefined").
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: unknown) => {
+                store.set(key, String(value))
+            },
+            removeItem: (key: string) => {
+                store.delete(key)
+            },
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it('saves both of two updates made back to back', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.setLayoutExplorerOpen(false)
+            result.current.setLayoutEditorOpen(false)
+        })
+
+        expect(stored().layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+        expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+
+    it('keeps saving after the provider has re-rendered', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, fontSize: 20 } }))
+        })
+        act(() => {
+            result.current.setEditorWidth(500)
+        })
+        act(() => {
+            result.current.setEditorWidth(640)
+        })
+
+        expect(stored().editor.fontSize).toBe(20)
+        expect(stored().layout.editorWidth).toBe(640)
+    })
+
+    it('saves changes made while the settings dialog is open', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.openSettings('editor')
+        })
+        act(() => {
+            result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, tabSize: 4 } }))
+        })
+
+        expect(stored().editor.tabSize).toBe(4)
+    })
+
+    it('reopens settings on the last used section', () => {
+        const { result } = renderSettings()
+
+        expect(result.current.activeSection).toBe('general')
+        act(() => {
+            result.current.openSettings('keyboard')
+        })
+        act(() => {
+            result.current.closeSettings()
+        })
+        act(() => {
+            result.current.openSettings()
+        })
+
+        expect(result.current.settingsOpen).toBe(true)
+        expect(result.current.activeSection).toBe('keyboard')
+    })
+
+    it('refuses shortcuts that would break typing, and in-use shortcuts', () => {
+        const { result } = renderSettings()
+        let refusal: KeybindRefusal | null = null
+
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'Tab' }])
+        })
+        expect(refusal).toEqual({ message: expect.stringMatching(/can't be used in shortcuts/) })
+
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+B is already assigned to Toggle explorer', reassign: [{ key: 'b', ctrl: true }] })
+
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'd', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+D is used by the editor' })
+
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('does not reset a shortcut to a default another action now uses', () => {
+        const { result } = renderSettings()
+        let refusal: KeybindRefusal | null = null
+
+        act(() => {
+            result.current.setKeybindChords('document.save', [])
+        })
+        act(() => {
+            result.current.setKeybindChords('settings.open', [{ key: 's', ctrl: true }])
+        })
+        act(() => {
+            refusal = result.current.resetKeybind('document.save')
+        })
+
+        expect(refusal).toEqual({ message: 'Ctrl+S is already assigned to Open settings', reassign: [{ key: 's', ctrl: true }] })
+        expect(result.current.settings.keybinds['document.save']).toEqual([])
+        expect(result.current.settings.keybinds['settings.open']).toEqual([{ key: 's', ctrl: true }])
+
+        act(() => {
+            result.current.resetKeybind('settings.open')
+        })
+        act(() => {
+            refusal = result.current.resetKeybind('document.save')
+        })
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('moves a shortcut from the action that has it when reassigned', () => {
+        const { result } = renderSettings()
+        let refusal: KeybindRefusal | null = null
+
+        act(() => {
+            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'b', ctrl: true }])
+        })
+
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([])
+        expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+        // Not saved as cleared: it loads without Ctrl+B only while another action has it.
+        expect(stored().keybinds).not.toHaveProperty('view.toggleExplorer')
+
+        act(() => {
+            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'c', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+C is used by the editor' })
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+
+        act(() => {
+            result.current.resetKeybind('view.toggleEditor')
+        })
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+    })
+
+    it('gives a default back once its chord is free, instead of saving it as cleared', () => {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'view.toggleExplorer': [{ key: 's', ctrl: true }] } }))
+        const { result, unmount } = renderSettings()
+        expect(result.current.settings.keybinds['document.save']).toEqual([])
+
+        // Any other change saves settings; Save's missing default must not be saved as "cleared".
+        act(() => {
+            result.current.setEditorWidth(500)
+        })
+        expect(stored().keybinds).toEqual({ 'view.toggleExplorer': [{ key: 's', ctrl: true }] })
+
+        act(() => {
+            result.current.resetKeybind('view.toggleExplorer')
+        })
+        expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+        expect(stored().keybinds).toEqual({})
+        unmount()
+
+        expect(loadSettings().keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('keeps a shortcut the user cleared cleared', () => {
+        const { result, unmount } = renderSettings()
+
+        act(() => {
+            result.current.setKeybindChords('document.save', [])
+        })
+        act(() => {
+            result.current.setEditorWidth(500)
+        })
+        unmount()
+
+        expect(stored().keybinds).toEqual({ 'document.save': [] })
+        expect(loadSettings().keybinds['document.save']).toEqual([])
+    })
+
+    it('keeps export profiles when restoring defaults', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.updateSettings((current) => ({
+                ...current,
+                editor: { ...current.editor, fontSize: 20 },
+                pdfExport: createPdfExportProfile(current.pdfExport, 'Company report'),
+            }))
+        })
+        const profiles = result.current.settings.pdfExport
+
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(result.current.settings.editor.fontSize).toBe(createDefaultSettings(false).editor.fontSize)
+        expect(result.current.settings.pdfExport).toEqual(profiles)
+        expect(stored().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
+    })
+
+    it('restores the theme that matches the OS light or dark setting', () => {
+        const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'tokyo-night' } }))
+        const { result } = renderSettings()
+        expect(result.current.settings.theme.id).toBe('tokyo-night')
+
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(result.current.settings.theme.id).toBe('scrivon-light')
+        matchMedia.mockRestore()
+    })
+
+    it('tells the user when unreadable settings were restored from the backup', () => {
+        const backup = createDefaultSettings(false)
+        backup.editor.fontSize = 18
+        localStorage.setItem(SETTINGS_BACKUP_KEY, JSON.stringify(backup))
+        localStorage.setItem(SETTINGS_STORAGE_KEY, 'undefined')
+
+        const { result } = renderSettings()
+
+        expect(result.current.settings.editor.fontSize).toBe(18)
+        expect(notifyWarning).toHaveBeenCalledWith('Settings could not be read', expect.objectContaining({ id: 'settings-recovered' }))
+    })
+
+    it('reloads the latest settings after a restart', () => {
+        const { result, unmount } = renderSettings()
+
+        act(() => {
+            result.current.updateSettings((current) => ({ ...current, editor: { ...current.editor, fontSize: 20 } }))
+        })
+        act(() => {
+            result.current.setLayoutExplorerOpen(false)
+            result.current.setLayoutEditorOpen(false)
+        })
+        unmount()
+
+        const reloaded = loadSettings()
+        expect(reloaded.editor.fontSize).toBe(20)
+        expect(reloaded.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+})

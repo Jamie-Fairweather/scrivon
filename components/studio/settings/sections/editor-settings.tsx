@@ -49,6 +49,7 @@ export function EditorSettings() {
                 <FieldLabel htmlFor="editor-word-wrap">Word wrap</FieldLabel>
                 <OptionSelect
                     id="editor-word-wrap"
+                    className="w-40"
                     value={settings.editor.wordWrap}
                     options={WORD_WRAP_OPTIONS}
                     onChange={(wordWrap) => setEditor({ wordWrap })}
@@ -59,6 +60,7 @@ export function EditorSettings() {
                 <FieldLabel htmlFor="editor-line-numbers">Line numbers</FieldLabel>
                 <OptionSelect
                     id="editor-line-numbers"
+                    className="w-40"
                     value={settings.editor.lineNumbers}
                     options={LINE_NUMBER_OPTIONS}
                     onChange={(lineNumbers) => setEditor({ lineNumbers })}

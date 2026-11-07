@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createDefaultSettings } from '@/lib/settings/defaults'
+import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import {
     dualWriteLegacyAutosave,
     dualWriteLegacyLayout,
     dualWriteLegacyTheme,
+    keybindOverrides,
+    keybindsFromOverrides,
     mergeStoredSettings,
     migrateLegacySettings,
 } from '@/lib/settings/migrate'
@@ -90,6 +92,106 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['settings.open']).toEqual(createDefaultSettings(false).keybinds['settings.open'])
     })
 
+    it('drops stored shortcuts that would break typing or Tab', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.toggleEditor': [{ key: 'Tab' }],
+                    'view.toggleExplorer': [{ key: 'e' }, { key: 'b', ctrl: true }],
+                    'palette.open': [{ key: 'F1' }],
+                },
+            },
+            false
+        )
+
+        // Nothing usable was saved, so the default stays rather than leaving the action unassigned.
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['palette.open']).toEqual([{ key: 'F1' }])
+    })
+
+    it('keeps the default for a shortcut saved as Tab, unless another action now has that chord', () => {
+        const tabOnly = mergeStoredSettings({ keybinds: { 'palette.open': [{ key: 'Tab' }] } }, false)
+        expect(tabOnly.keybinds['palette.open']).toEqual([{ key: 'F1' }])
+        expect(keybindOverrides(tabOnly.keybinds, createDefaultKeybinds(false))).toEqual({})
+
+        const taken = mergeStoredSettings({ keybinds: { 'palette.open': [{ key: 'Tab' }], 'view.fitDiagram': [{ key: 'F1' }] } }, false)
+        expect(taken.keybinds['palette.open']).toEqual([])
+        expect(taken.keybinds['view.fitDiagram']).toEqual([{ key: 'F1' }])
+    })
+
+    it('lets a shortcut the user chose win over a default that uses the same chord', () => {
+        // The user gave Ctrl+R to Toggle editor; Fit diagram (never changed) has Ctrl+R by default.
+        const merged = mergeStoredSettings({ keybinds: { 'view.toggleEditor': [{ key: 'r', ctrl: true }] } }, false)
+
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'r', ctrl: true }])
+        expect(merged.keybinds['view.fitDiagram']).toEqual([])
+        expect(merged.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
+    })
+
+    it('reads entries of a whole stored keymap that match the defaults as unchanged', () => {
+        const stored = createDefaultKeybinds(false)
+        stored['view.toggleEditor'] = [{ key: 'k', ctrl: true, alt: true }]
+
+        const merged = mergeStoredSettings({ keybinds: stored }, false)
+
+        expect(merged.keybinds).toEqual({ ...createDefaultKeybinds(false), 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] })
+        expect(keybindOverrides(merged.keybinds, createDefaultKeybinds(false))).toEqual({
+            'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }],
+        })
+    })
+
+    it('keeps the default when stored chords are unreadable or modifier-only', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.fitDiagram': [{ code: 'KeyR', mods: ['ctrl'] }],
+                    'view.toggleEditor': [{ key: 'Control', ctrl: true }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.fitDiagram']).toEqual([{ key: 'r', ctrl: true }])
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('keeps the default when a stored chord is AltGr or a lock key on its own', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.toggleExplorer': [{ key: 'AltGraph', ctrl: true, alt: true }],
+                    'view.toggleEditor': [{ key: 'CapsLock', ctrl: true }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('keeps the default when a stored chord is an IME or dead key', () => {
+        const merged = mergeStoredSettings(
+            {
+                keybinds: {
+                    'view.toggleExplorer': [{ key: 'Process', ctrl: true }],
+                    'view.toggleEditor': [{ key: 'Dead', ctrl: true, alt: true }],
+                },
+            },
+            false
+        )
+
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('keeps a shortcut the user cleared unassigned', () => {
+        const merged = mergeStoredSettings({ keybinds: { 'document.save': [] } }, false)
+
+        expect(merged.keybinds['document.save']).toEqual([])
+    })
+
     it('clamps numeric settings to allowed ranges', () => {
         const merged = mergeStoredSettings(
             {
@@ -106,6 +208,48 @@ describe('mergeStoredSettings', () => {
         expect(merged.editor.tabSize).toBe(8)
         expect(merged.layout.editorWidth).toBe(2000)
         expect(merged.workspace.maxRecentFolders).toBe(50)
+    })
+
+    it('rounds whole-number settings saved with decimals', () => {
+        const merged = mergeStoredSettings(
+            {
+                autosave: { enabled: true, delayMs: 1234.5 },
+                editor: { fontSize: 13.6, tabSize: 2.5 },
+                workspace: { maxRecentFolders: 7.2 },
+            },
+            false
+        )
+
+        expect(merged.autosave.delayMs).toBe(1235)
+        expect(merged.editor.fontSize).toBe(14)
+        expect(merged.editor.tabSize).toBe(3)
+        expect(merged.workspace.maxRecentFolders).toBe(7)
+    })
+})
+
+describe('keybindOverrides', () => {
+    it('keeps only the shortcuts that differ from the defaults, with [] for cleared ones', () => {
+        const defaults = createDefaultKeybinds(false)
+        const keybinds = { ...defaults, 'document.save': [], 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] }
+
+        expect(keybindOverrides(defaults, defaults)).toEqual({})
+        expect(keybindOverrides(keybinds, defaults)).toEqual({
+            'document.save': [],
+            'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }],
+        })
+    })
+
+    it('leaves out a default dropped because another action has its chord', () => {
+        const defaults = createDefaultKeybinds(false)
+        // Loaded from a save where Toggle explorer was given Ctrl+S.
+        const keybinds = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 's', ctrl: true }] } }, false).keybinds
+        expect(keybinds['document.save']).toEqual([])
+
+        const overrides = keybindOverrides(keybinds, defaults)
+
+        expect(overrides).toEqual({ 'view.toggleExplorer': [{ key: 's', ctrl: true }] })
+        expect(keybindsFromOverrides(overrides, defaults)).toEqual(keybinds)
+        expect(keybindsFromOverrides({}, defaults)['document.save']).toEqual([{ key: 's', ctrl: true }])
     })
 })
 

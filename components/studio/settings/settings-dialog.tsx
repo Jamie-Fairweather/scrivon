@@ -1,5 +1,6 @@
 'use client'
 
+import { useId } from 'react'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -16,10 +17,10 @@ import { EditorSettings } from '@/components/studio/settings/sections/editor-set
 import { GeneralSettings } from '@/components/studio/settings/sections/general-settings'
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
-import { SettingsNav } from '@/components/studio/settings/settings-nav'
+import { getSettingsSectionLabel, SettingsNav } from '@/components/studio/settings/settings-nav'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 function SettingsSectionPanel({ section }: { section: SettingsSection }) {
@@ -41,29 +42,45 @@ function SettingsSectionPanel({ section }: { section: SettingsSection }) {
 
 export function SettingsDialog() {
     const { settingsOpen, closeSettings, activeSection, setActiveSection, resetAllSettings } = useAppSettings()
+    const panelId = useId()
+    const titleId = useId()
 
     return (
         <Dialog open={settingsOpen} onOpenChange={(open) => !open && closeSettings()}>
-            <DialogPopup className="max-w-3xl">
+            {/* The popup takes the height (2rem is the viewport's padding) and only the section content
+                scrolls, so the header and footer always fit and no scroll area sits inside another. */}
+            <DialogPopup className="h-[min(48rem,calc(100dvh-2rem))] max-w-3xl" bottomStickOnMobile={false}>
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
                 </DialogHeader>
-                <DialogPanel className="pt-0" scrollFade={false}>
-                    <div className="flex h-[min(40rem,calc(100dvh-8rem))] min-h-0 gap-4">
-                        <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} />
-                        <ScrollArea className="min-h-0 min-w-0 flex-1" scrollFade scrollbarGutter>
-                            <SettingsSectionPanel section={activeSection} />
-                        </ScrollArea>
-                    </div>
-                </DialogPanel>
-                <DialogFooter variant="bare" className="items-center justify-between">
+                {/* data-slot keeps the header and footer spacing a DialogPanel gets. */}
+                <div data-slot="dialog-panel" className="flex min-h-0 flex-1 gap-4 px-6 py-1">
+                    <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} panelId={panelId} />
+                    {/* Keyed by section, so each one opens at the top. The scrolling element is a named region,
+                        so its tab stop says which section it holds. */}
+                    <ScrollArea
+                        key={activeSection}
+                        className="min-h-0 min-w-0 flex-1"
+                        scrollFade
+                        scrollbarGutter
+                        viewportProps={{ id: panelId, role: 'region', 'aria-labelledby': titleId }}
+                    >
+                        <h3 id={titleId} className="mb-4 text-base font-semibold">
+                            {getSettingsSectionLabel(activeSection)}
+                        </h3>
+                        <SettingsSectionPanel section={activeSection} />
+                    </ScrollArea>
+                </div>
+                {/* sm: so it replaces the footer's own sm:justify-end; narrow windows keep the stacked full-width buttons. */}
+                <DialogFooter variant="bare" className="sm:items-center sm:justify-between">
                     <AlertDialog>
                         <AlertDialogTrigger render={<Button type="button" variant="outline" />}>Restore defaults</AlertDialogTrigger>
                         <AlertDialogPopup>
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Restore all settings?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    This resets preferences and keyboard shortcuts to factory defaults. This cannot be undone.
+                                    Theme, layout, editor, autosave, keyboard shortcut and advanced settings go back to their defaults. Your document
+                                    export profiles are kept. This cannot be undone.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
