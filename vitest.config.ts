@@ -27,10 +27,10 @@ export default defineConfig({
             ],
             // Floor just under the real numbers; raise it as tests are added.
             thresholds: {
-                statements: 40,
-                branches: 49,
-                functions: 33,
-                lines: 39,
+                statements: 92,
+                branches: 89,
+                functions: 89,
+                lines: 93,
             },
         },
         projects: [
