@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use tauri::Manager;
 
@@ -143,8 +143,8 @@ impl ExportImageAccess {
     }
 
     /// Takes on the images that profiles saved before this check name, once:
-    /// only while no list had been saved when the app started. Returns whether
-    /// they were taken on.
+    /// only while no list had been saved when this list was loaded. Returns
+    /// whether they were taken on.
     pub(super) fn adopt(&self, paths: &[String]) -> bool {
         if !self.can_adopt.swap(false, Ordering::SeqCst) {
             return false;
@@ -162,12 +162,17 @@ impl ExportImageAccess {
 }
 
 /// The app's list, loaded the first time an export image command needs it.
-pub(super) fn access(app: &tauri::AppHandle) -> tauri::State<'_, ExportImageAccess> {
-    if app.try_state::<ExportImageAccess>().is_none() {
+/// Nothing else writes the file, so it's as the app found it at startup.
+///
+/// It's loaded exactly once: an export reads several images side by side, and
+/// a second load of a broken list would save an empty one over an image the
+/// first had just recorded.
+pub(super) fn access(app: &tauri::AppHandle) -> &'static ExportImageAccess {
+    static ACCESS: OnceLock<ExportImageAccess> = OnceLock::new();
+    ACCESS.get_or_init(|| {
         let data_dir = app.path().app_data_dir().ok();
-        app.manage(ExportImageAccess::load(data_dir.as_deref()));
-    }
-    app.state::<ExportImageAccess>()
+        ExportImageAccess::load(data_dir.as_deref())
+    })
 }
 
 /// An absolute path with an export image's extension. Anything else is never
