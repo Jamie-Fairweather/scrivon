@@ -298,6 +298,20 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (!isDesktop) return
 
             const path = normalizePath(requestedPath)
+            const openRoot = workspaceRootRef.current
+            if (openRoot && samePath(path, openRoot)) {
+                // The folder that is already open (it tops Open Recent): its tabs, unsaved edits and undo history
+                // stay as they are. A folder still being opened is dropped, so the one clicked last wins.
+                workspaceRequest.current += 1
+                setOpeningWorkspace(null)
+                dismissNotification(OPENING_NOTICE_ID)
+                // Saved under the open folder's own spelling, which its saved tabs are kept under.
+                void addRecentWorkspace(openRoot, maxRecentFolders)
+                    .then(setRecentWorkspaces)
+                    .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
+                await refreshTree()
+                return
+            }
             const request = ++workspaceRequest.current
             const isCurrent = () => request === workspaceRequest.current
             const name = getBaseName(path) || path
@@ -355,7 +369,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 }
             }
         },
-        [isDesktop, recentWorkspaces, maxRecentFolders, removeRecent, restoreTabSession, coordinator]
+        [isDesktop, recentWorkspaces, maxRecentFolders, removeRecent, restoreTabSession, refreshTree, coordinator]
     )
 
     useEffect(() => {

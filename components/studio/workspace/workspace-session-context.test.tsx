@@ -1112,6 +1112,30 @@ describe('opening folders one after another', () => {
         expect(result.current.session.openingWorkspace).toBeNull()
     })
 
+    it('keeps the open folder when it is picked again while another one is still being read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        const finishBig = slowFolder('C:\\big')
+
+        let openingBig!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            finishBig()
+            await openingBig
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['notes.md', 'other.md'])
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
     it('saves what was typed in the open folder while the next one was being read', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await act(async () => {
@@ -1351,5 +1375,34 @@ describe('recent folders', () => {
             await result.current.session.openWorkspace('C:\\ws')
         })
         expect(addRecentWorkspace).toHaveBeenCalledWith('C:\\ws', 3)
+    })
+
+    it('leaves the open folder and its tabs alone when it is opened again, and only reads its files again', async () => {
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => {
+            result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'unsaved edit')
+        })
+        const tabsBefore = result.current.tabs.tabs
+        vi.mocked(readDir).mockClear()
+        vi.mocked(addRecentWorkspace).mockClear()
+
+        await act(async () => {
+            await result.current.session.openWorkspace('c:/WS/')
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.tabs.tabs).toBe(tabsBefore)
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'unsaved edit', isDirty: true })
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+        expect(confirmUnsavedChanges).not.toHaveBeenCalled()
+        expect(readDir).toHaveBeenCalledWith('C:\\ws')
+        expect(addRecentWorkspace).toHaveBeenCalledWith('C:\\ws', 10)
     })
 })
