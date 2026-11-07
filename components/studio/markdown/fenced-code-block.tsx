@@ -156,5 +156,6 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
         }
     }, [code, language, theme])
 
-    return <div ref={containerRef} className={cn(WRAPPER_CLASS, className)} />
+    // Code reads left to right, even in a right-to-left list item or quote.
+    return <div ref={containerRef} dir="ltr" className={cn(WRAPPER_CLASS, className)} />
 }

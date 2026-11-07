@@ -98,11 +98,13 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
 /**
  * Marker text rendered (practically invisibly) inside the footer's page-number
  * slot. Chromium (WebView2 included) only resolves `counter(page)`/`counter(pages)`
- * inside `@page` margin boxes, and the footer is an in-page bar (repeating table
- * row or fixed element, with images, backgrounds and edge-to-edge bands), so its
- * number is stamped after printing: the Rust side locates this marker in the PDF
- * to learn which pages carry a footer and exactly where the number belongs, then
- * draws the real value right-aligned to it. TOC numbers are always stamped, since
+ * inside `@page` margin boxes, and the footer is an in-page bar (a fixed element,
+ * with images, backgrounds and edge-to-edge bands), so its number is stamped after
+ * printing: the Rust side locates this marker in the PDF to learn where the number
+ * belongs, then draws the real value right-aligned to it. Pages before the first
+ * marker get no number, and later pages without one get it where the others put
+ * theirs, so a footer hidden on the title page or TOC draws its marker only once,
+ * on the first page that shows it. TOC numbers are always stamped, since
  * `target-counter()` is unsupported. The print-dialog path, which has no stamper,
  * uses a margin box instead ({@link printDialogPageNumberCss}).
  * Must match `FOOTER_MARK` in `src-tauri/src/page_numbers.rs`.
@@ -235,7 +237,8 @@ function headingPageBreakCss(level: PdfNewPageFromHeading): string {
 /**
  * Reserves room for the stamped label, which the PDF stage draws right-aligned to
  * this slot and which can therefore only grow leftwards into the bar. Sized from
- * exactly what the stamper draws, the filled-in title included.
+ * exactly what the stamper draws, the filled-in title included. When the title page
+ * or TOC hide the footer, only the anchor copy draws its marker (see wrapWithChrome).
  */
 function pageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): string {
     if (!pdfFooterHasPageText(profile.footer)) return ''
@@ -247,7 +250,9 @@ function pageNumberCss(profile: PdfExportProfile, metadata: PdfExportMetadata): 
           : 'Page 000'
     const widthEm = Math.max(3.5, sample.trim().length * 0.55)
     return `.pdf-page-number { min-width: ${widthEm.toFixed(1)}em; text-align: right; white-space: nowrap; }
-    .pdf-page-number-mark { color: rgba(64, 64, 64, 0.01); }`
+    .pdf-page-number-mark { color: rgba(64, 64, 64, 0.01); }
+    .pdf-footer-anchor .pdf-page-number-mark { visibility: visible; }
+    .pdf-footer-unmarked .pdf-page-number-mark { visibility: hidden; }`
 }
 
 function hiddenChromeSections(firstPages: PdfExportProfile['header']['hideOnFirstPages']): string[] {
@@ -362,16 +367,16 @@ const TITLE_PAGE_SLACK_MM = 4
 
 /**
  * Room the title page has on its sheet, whichever way the sheet is turned: the page less
- * its margins and any header/footer bar shown on the cover. A bar that ignores margins
+ * its margins, any header shown on the cover, and the footer's band, which the footer takes
+ * there or, when the cover hides it, the copy that covers it. A bar that ignores margins
  * sits inside the margin band, so only the part that outgrows the margin counts.
  */
 function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
     const { top, bottom } = profile.page.marginsMm
     const headerOnCover = layout.showHeader && profile.header.hideOnFirstPages === 'none'
-    const footerOnCover = layout.showFooter && profile.footer.hideOnFirstPages === 'none'
     // An edge-to-edge cover image with no header above it starts at the very top of the sheet.
     const topRoom = layout.logoBleeds && !headerOnCover ? 0 : edgeBandMm(top, profile.header, headerOnCover, layout.headerBleeds)
-    const bottomRoom = edgeBandMm(bottom, profile.footer, footerOnCover, layout.footerBleeds)
+    const bottomRoom = edgeBandMm(bottom, profile.footer, layout.showFooter, layout.footerBleeds)
     return Math.max(40, Math.floor(sheetHeightMm(profile) - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
 }
 
@@ -464,10 +469,21 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   h5 { margin: 1rem 0 0.5rem; font-size: 1em; font-weight: 600; }
   h6 { margin: 1rem 0 0.5rem; font-size: 0.9em; font-weight: 600; }
   p { margin: 0 0 0.75rem; }
-  ${profile.typography.justify ? '.pdf-body > p { text-align: justify; }' : ''}
+  ${
+      profile.typography.justify
+          ? `/* A paragraph whose HTML aligns it (<p align="center">) keeps that: this rule would override the attribute. */
+  .pdf-body > p:not([align]) { text-align: justify; }`
+          : ''
+  }
   /* Each item steps in from its own start side, so a right-to-left item in a left-to-right list keeps its bullet on the page. */
   ul, ol { margin: 0 0 0.75rem; padding-inline-start: 0; }
   li { margin: 0.25rem 0; margin-inline-start: 1.25rem; word-break: break-word; }
+  /* A bulleted task's checkbox sits where its bullet would, as in the preview and Word; a numbered one keeps its number. */
+  ul > li.task-list-item { list-style: none; }
+  li.task-list-item > input[type="checkbox"],
+  li.task-list-item > p:first-child > input[type="checkbox"] { margin-block: 0; margin-inline: 0 0.25rem; vertical-align: middle; }
+  ul > li.task-list-item > input[type="checkbox"],
+  ul > li.task-list-item > p:first-child > input[type="checkbox"] { margin-inline-start: -1.25rem; }
   blockquote {
     margin: 0 0 0.75rem;
     padding-inline-start: 1rem;
@@ -475,7 +491,14 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     color: #525252;
     font-style: italic;
   }
-  hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; }
+  /* max-width: a raw <hr width="3000"> can't widen the page either. */
+  hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; max-width: 100%; }
+  /*
+   * The footnotes' "Footnotes" heading is for screen readers only, as in the preview: printed, it would be an
+   * English heading in any document, and a new page with 'New page from heading'. A rule sets the notes apart instead.
+   */
+  .pdf-body section.footnotes > #footnote-label { display: none; }
+  .pdf-body section.footnotes { margin-top: 1.5rem; padding-top: 0.75rem; border-top: 1px solid #e5e5e5; font-size: 0.9em; }
   a { color: ${links}; text-decoration: underline; }
   .export-article :not(pre) > code {
     font-family: ${profile.typography.monoFont};
@@ -505,6 +528,8 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   table:not(.pdf-chrome-table) .pdf-long-word,
   table.pdf-wide-table:not(.pdf-chrome-table) th,
   table.pdf-wide-table:not(.pdf-chrome-table) td { overflow-wrap: anywhere; }
+  /* A raw HTML <td nowrap> wraps too: one long unbroken line would make the table wider than the page. */
+  table:not(.pdf-chrome-table) :is(td, th)[nowrap] { white-space: normal; }
   /* Markdown column alignment (:-: and --:) arrives as an align attribute, which any stylesheet rule would override. */
   table:not(.pdf-chrome-table) th[align="left"],
   table:not(.pdf-chrome-table) td[align="left"] { text-align: left; }
@@ -516,6 +541,17 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-avoid-break {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+  /*
+   * A raw HTML <pre> (ASCII art, terminal output) wraps like a code block: one line wider than the
+   * page would make Chromium shrink every page. The code block rules below come later and win.
+   */
+  .pdf-body pre:not([class]) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: ${profile.typography.monoFont};
+    font-size: 0.82em;
+    tab-size: 2;
   }
   .code-block { margin: 0 0 1rem; }
   .code-block pre.shiki {
@@ -577,13 +613,18 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     height: auto;
     margin: 0 auto;
   }
-  /* Body images shrink (keeping their shape) to the text width and to what fits on one page. */
+  /*
+   * Body images shrink (keeping their shape) to the text width and to what fits on one page.
+   * A size the document's HTML gives (<img width="120">) stays: any width or height set here
+   * would override it. Only a height without a width is kept as given; otherwise the height
+   * follows the width.
+   */
   .pdf-body img {
     max-width: 100%;
     max-height: ${bodyImageMaxHeightMm(profile)}mm;
-    width: auto;
-    height: auto;
+    object-fit: contain;
   }
+  .pdf-body img[width], .pdf-body img:not([height]) { height: auto; }
   .export-error {
     margin: 0 0 1rem;
     padding: 12px;
@@ -607,9 +648,14 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     break-after: auto;
     page-break-after: auto;
   }
-  /* Print viewport = page area, so this fills the last page of a section and pins its footer row to the bottom. */
+  /*
+   * Print viewport = page area, so a one-page section fills its page: the title page centres on
+   * it and its footer row sits at the page bottom. The table is also the frame the footer anchor
+   * is placed in, from the top of the section's first page.
+   */
   .pdf-chrome-table {
     height: 100vh;
+    position: relative;
   }
   /* The cover is one page tall at most; the logo shrinks to leave the title text room on it. */
   .pdf-title-page {
@@ -728,12 +774,26 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-chrome-table > thead { display: table-header-group; }
   .pdf-chrome-table > tfoot { display: table-footer-group; }
   /*
-   * A footer shown on every page is drawn once, fixed, and Chromium repeats it at the
-   * bottom of each page. A table footer row would float up under the text on the last
-   * page of a section, so it is kept only as an invisible copy that reserves the room.
+   * The footer is drawn once, fixed, and Chromium repeats it at the bottom of each page. A
+   * table footer row would float up under the text on the last page of a section, so each
+   * section's row is only a copy of the bar: unseen where the footer shows, keeping the text
+   * clear of it, and opaque on the title page and TOC when they hide it, covering it.
    */
   .pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }
   .pdf-footer-spacer { visibility: hidden; }
+  .pdf-footer-cover > tr > td { position: relative; z-index: 3; background: #ffffff; }
+  .pdf-footer-cover .pdf-chrome-bar { visibility: hidden; }
+  /* When the title page or TOC hide the footer: the one copy whose page-number marker is drawn, at the foot of the first page showing it. */
+  .pdf-fixed-footer.pdf-footer-anchor {
+    position: absolute;
+    top: 0;
+    bottom: auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    visibility: hidden;
+  }
   /* Slack from a stretched section goes below the content; the title page keeps the cell's centring. */
   .pdf-toc-table > tbody > tr > td,
   .pdf-body-table > tbody > tr > td { vertical-align: top; }
@@ -760,6 +820,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     width: auto;
     height: auto;
   }
+  /*
+   * Stands in for an image in an unseen copy of a bar that fits its content: as wide and tall as an
+   * image can be there, so the copy's text wraps no later than the drawn bar's and the copy is never
+   * shorter than it. Taller only leaves a little more gap.
+   */
+  .pdf-chrome-img-room { display: block; flex: none; width: 160px; height: 28px; }
   ${chromeImageCss('header', profile.header)}
   ${chromeImageCss('footer', profile.footer)}
   .pdf-header-bar {
@@ -773,7 +839,6 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   ${bleedLayoutCss(profile, layout, margins)}
   ${pageNumberCss(profile, metadata)}
   ${chromeHideCss(profile.header.hideOnFirstPages, '.pdf-header-bar')}
-  ${chromeHideCss(profile.footer.hideOnFirstPages, '.pdf-footer-bar')}
   ${
       watermark
           ? `.export-article::before {
@@ -787,7 +852,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     color: rgba(0, 0, 0, 0.08);
     white-space: nowrap;
     pointer-events: none;
-    z-index: 0;
+    /*
+     * Over the section tables, which are positioned (the footer anchor's frame), so it still shows
+     * across the cover image, header bars and contents; under the body text, which comes later at
+     * the same level, and under the footer and its covers.
+     */
+    z-index: 1;
   }`
           : ''
   }

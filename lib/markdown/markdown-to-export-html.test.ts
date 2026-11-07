@@ -107,10 +107,12 @@ SHIKI_FAIL
         expect(tocTable).toBeLessThan(html.indexOf('class="pdf-toc-page"'))
         expect(html.indexOf('class="pdf-toc-page"')).toBeLessThan(bodyTable)
         expect(bodyTable).toBeLessThan(html.indexOf('class="pdf-body"'))
-        // Both bars hide on the title page (the default), so only the TOC and body tables carry them.
+        // Both bars hide on the title page (the default): only the TOC and body tables carry the header, and the
+        // title page's footer row covers the fixed footer.
         expect(html.match(/class="pdf-chrome-bar pdf-header-bar"/g)).toHaveLength(2)
-        expect(html.match(/class="pdf-chrome-bar pdf-footer-bar"/g)).toHaveLength(2)
-        expect(html.slice(titleTable, tocTable)).not.toContain('pdf-chrome-bar')
+        expect(html.slice(titleTable, tocTable)).not.toContain('pdf-header-bar')
+        expect(html.slice(titleTable, tocTable)).toContain('<tfoot class="pdf-footer-cover" aria-hidden="true">')
+        expect(html.match(/<div class="pdf-fixed-footer pdf-footer-unmarked"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
         expect(html).toContain('pdf-logo')
         expect(html).toContain('Sub')
         expect(html).toContain('Ada')
@@ -124,10 +126,10 @@ SHIKI_FAIL
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
-            '<div class="pdf-chrome-bar pdf-header-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,hl" alt="" /><span>Spec / Today</span></span><span class="pdf-chrome-side pdf-chrome-right"><span>Acme</span><img src="data:image/png;base64,hr" alt="" /></span></div>'
+            '<div class="pdf-chrome-bar pdf-header-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,hl" alt="" /><span dir="auto">Spec / Today</span></span><span class="pdf-chrome-side pdf-chrome-right"><span dir="auto">Acme</span><img src="data:image/png;base64,hr" alt="" /></span></div>'
         )
         expect(html).toContain(
-            '<div class="pdf-chrome-bar pdf-footer-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,fl" alt="" /><span>Footer</span></span><span class="pdf-chrome-side pdf-chrome-right"><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789</span>SFPN</span></span><img src="data:image/png;base64,fr" alt="" /></span></div>'
+            '<div class="pdf-chrome-bar pdf-footer-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,fl" alt="" /><span dir="auto">Footer</span></span><span class="pdf-chrome-side pdf-chrome-right"><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789</span>SFPN</span></span><img src="data:image/png;base64,fr" alt="" /></span></div>'
         )
         expect(html).not.toContain('counter(page)')
         expect(html).toContain('data-theme="github-light"')
@@ -145,11 +147,11 @@ SHIKI_FAIL
 
         const { html } = await markdownToExportHtml(`# A\n\n${code(25)}\n\n${code(26)}\n\n${table(14)}\n\n${table(15)}`, { assets: EMPTY_ASSETS })
         // 25 lines and 15 rows (header row included) still fit on half a page.
-        expect(html.match(/<div class="code-block pdf-avoid-break">/g)).toHaveLength(1)
-        expect(html.match(/<div class="code-block">/g)).toHaveLength(1)
+        expect(html.match(/<div dir="ltr" class="code-block pdf-avoid-break">/g)).toHaveLength(1)
+        expect(html.match(/<div dir="ltr" class="code-block">/g)).toHaveLength(1)
         expect(html.match(/<table class="pdf-avoid-break">/g)).toHaveLength(1)
         expect(html.match(/<table>/g)).toHaveLength(1)
-        expect(html.indexOf('<div class="code-block pdf-avoid-break">')).toBeLessThan(html.indexOf('<div class="code-block">'))
+        expect(html.indexOf('<div dir="ltr" class="code-block pdf-avoid-break">')).toBeLessThan(html.indexOf('<div dir="ltr" class="code-block">'))
         expect(html.indexOf('<table class="pdf-avoid-break">')).toBeLessThan(html.indexOf('<table>'))
     })
 
@@ -203,9 +205,9 @@ SHIKI_FAIL
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
-        expect(html).toMatch(/<div class="mermaid-export pdf-avoid-break" role="img" aria-label="[^"]*"><svg/)
-        expect(html).toContain('<li dir="auto"><div class="code-block pdf-avoid-break">')
-        expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
+        expect(html).toMatch(/<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="[^"]*"><svg/)
+        expect(html).toContain('<li dir="auto"><div dir="ltr" class="code-block pdf-avoid-break">')
+        expect(html).not.toMatch(/<p>\s*<div dir="ltr" class="(mermaid-export|code-block)/)
         expect(html).not.toContain('<p></p>')
         expect(html).not.toContain('__SCRIVON_')
     })
@@ -227,35 +229,82 @@ SHIKI_FAIL
         expect(html).not.toContain('counter(page)')
     })
 
-    it('pins a footer shown on every page to the page bottom instead of a table row', async () => {
+    it('pins the footer to the page bottom on every page, covering it where the title page or TOC hide it (U04, N29)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
         profile.footer.pageNumbers = 'number'
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
+        const render = async (stamped = true) => (await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS, stamped })).html
+        /** One section's table, found by its class (the stylesheet names the classes too, but never with a quote after). */
+        const table = (html: string, kind: string) => {
+            const start = html.indexOf(`pdf-${kind}-table"`)
+            expect(start, kind).toBeGreaterThan(-1)
+            return html.slice(start, html.indexOf('</table>', start))
+        }
+        const FIXED = /<div class="pdf-fixed-footer[^"]*"><div class="pdf-chrome-bar pdf-footer-bar">/g
+        const SPACER = '<tfoot class="pdf-footer-spacer" aria-hidden="true">'
+        const COVER = '<tfoot class="pdf-footer-cover" aria-hidden="true">'
+        const ANCHOR = '<tbody><tr><td><div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true"><div class="pdf-chrome-bar pdf-footer-bar">'
 
-        // No title page, so the default "hide on title page" hides nothing: one fixed footer for every page.
-        const { html } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
-        expect(html.match(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
-        // The table rows stay as invisible copies so the body never runs under the footer.
-        expect(html.match(/<tfoot class="pdf-footer-spacer" aria-hidden="true">/g)).toHaveLength(2)
-        expect(html.match(/<tfoot>/g)).toBeNull()
+        // No title page, so the default "hide on title page" hides nothing: the fixed footer is the visible one on every
+        // page and carries the page-number marker; the table rows stay as unseen copies so the body never runs under it.
+        const plain = await render()
+        expect(plain.match(FIXED)).toHaveLength(1)
+        expect(plain).toContain('<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(plain.split(SPACER)).toHaveLength(3)
+        expect(plain.match(/<tfoot>/g)).toBeNull()
+        expect(plain).not.toContain('pdf-footer-cover"')
+        expect(plain).not.toContain('pdf-footer-anchor"')
 
-        // A footer hidden on the title page can't be a fixed element, which would repeat there too.
+        // A title page that hides it no longer brings back the table row, which floats up under the text on the last
+        // page of a section. The footer stays fixed, and the title page's row covers it.
         profile.frontMatter.titlePage = true
-        const { html: withTitle } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
-        expect(withTitle).not.toContain('<div class="pdf-fixed-footer">')
-        expect(withTitle).not.toContain('<tfoot class="pdf-footer-spacer"')
-        expect(withTitle.match(/<tfoot>/g)).toHaveLength(3)
+        const titled = await render()
+        expect(titled.match(FIXED)).toHaveLength(1)
+        expect(titled.match(/<tfoot>/g)).toBeNull()
+        expect(table(titled, 'title')).toContain(COVER)
+        expect(table(titled, 'toc')).toContain(SPACER)
+        expect(table(titled, 'body')).toContain(SPACER)
+        // The fixed footer's marker would get the title page a number, so it isn't drawn: one copy at the foot of the
+        // first page that shows the footer, the TOC's, carries the only marker.
+        expect(titled).toContain('<div class="pdf-fixed-footer pdf-footer-unmarked"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(titled.split('pdf-footer-anchor" aria-hidden')).toHaveLength(2)
+        expect(table(titled, 'toc')).toMatch(new RegExp(`${ANCHOR}.*SFPN`))
+        expect(table(titled, 'title')).not.toContain('pdf-footer-anchor"')
 
-        profile.footer.hideOnFirstPages = 'none'
-        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
-
-        profile.frontMatter.titlePage = false
+        // Hidden on the TOC as well: the TOC is covered too, and the marker moves to the first body page.
         profile.footer.hideOnFirstPages = 'title+toc'
-        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).not.toContain('<div class="pdf-fixed-footer">')
-        profile.frontMatter.toc = false
-        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
+        const both = await render()
+        expect(table(both, 'title')).toContain(COVER)
+        expect(table(both, 'toc')).toContain(COVER)
+        expect(table(both, 'toc')).not.toContain('pdf-footer-anchor"')
+        expect(table(both, 'body')).toContain(ANCHOR)
+        expect(table(both, 'body')).toContain(SPACER)
+
+        // With no stamper there is no marker to place: the print dialog counts the pages itself.
+        const dialog = await render(false)
+        expect(dialog).toContain('<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(dialog).not.toContain('pdf-footer-anchor"')
+        expect(table(dialog, 'toc')).toContain(COVER)
+
+        // Nor without page numbers.
+        profile.footer.pageNumbers = 'none'
+        profile.footer.enabled = true
+        profile.footer.left.text = 'Footer'
+        const unnumbered = await render()
+        expect(unnumbered).toContain('<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">')
+        expect(unnumbered).not.toContain('pdf-footer-anchor"')
+        expect(table(unnumbered, 'title')).toContain(COVER)
+
+        // Shown everywhere: nothing to cover, and the fixed footer marks every page.
+        profile.footer.pageNumbers = 'number'
+        profile.footer.hideOnFirstPages = 'none'
+        const everywhere = await render()
+        expect(everywhere).not.toContain('pdf-footer-cover"')
+        expect(everywhere).not.toContain('pdf-footer-anchor"')
+        expect(everywhere.split(SPACER)).toHaveLength(4)
+        expect(everywhere).toMatch(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">.*SFPN/)
     })
 
     it('prints only the page number when the footer switch is off', async () => {
@@ -311,6 +360,51 @@ SHIKI_FAIL
         expect(noHeader).toContain('<thead class="pdf-chrome-head"><tr><td></td></tr></thead>')
     })
 
+    it('embeds a footer image only in the footers that are drawn, not in the unseen copies that keep its room (P15)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.footer.enabled = true
+        const assets = { ...EMPTY_ASSETS, footer: { left: 'data:image/png;base64,FOOT', right: 'data:image/png;base64,TOOF' } }
+        const render = async () => (await markdownToExportHtml('# A\n\n## B', { profile, assets })).html
+        const ROOM = '<span class="pdf-chrome-img-room"></span>'
+        /** The images in each copy of the footer: the fixed one, and every table row's. */
+        const copies = (html: string) => ({
+            fixed: html.match(/<div class="pdf-fixed-footer[^"]*">.*?<\/div><\/div>/)![0],
+            rows: [...html.matchAll(/<tfoot class="pdf-footer-(?:spacer|cover)" aria-hidden="true">.*?<\/tfoot>/g)].map(([row]) => row),
+        })
+
+        // The default profile, footer on: once, in the fixed footer. The body row keeps the images' room only.
+        const plain = await render()
+        expect(plain.match(/base64,FOOT/g)).toHaveLength(1)
+        expect(plain.match(/base64,TOOF/g)).toHaveLength(1)
+        const { fixed, rows } = copies(plain)
+        expect(fixed).toContain('base64,FOOT')
+        expect(rows).toHaveLength(2)
+        for (const row of rows) expect(row.split(ROOM)).toHaveLength(3)
+
+        // Shown everywhere with a title page and TOC: still once, where it used to be four times.
+        profile.frontMatter.titlePage = true
+        profile.footer.hideOnFirstPages = 'none'
+        expect((await render()).match(/base64,FOOT/g)).toHaveLength(1)
+
+        // Hidden on the title page: the cover over it needs no image either.
+        profile.footer.hideOnFirstPages = 'title'
+        expect((await render()).match(/base64,FOOT/g)).toHaveLength(1)
+        // With page numbers, the one copy that marks where they go keeps the images, as they move the marker.
+        profile.footer.pageNumbers = 'number'
+        const numbered = await render()
+        expect(numbered.match(/base64,FOOT/g)).toHaveLength(2)
+        expect(numbered).toMatch(/<div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true">.*base64,TOOF/)
+
+        // A bar of fixed height keeps its height without them.
+        profile.footer.heightMm = 15
+        const tall = await render()
+        expect(tall).not.toContain(ROOM)
+        expect(copies(tall).rows.every((row) => !row.includes('base64,'))).toBe(true)
+    })
+
     it('keeps footer rows when only the header shows', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
@@ -333,7 +427,7 @@ SHIKI_FAIL
             assets: EMPTY_ASSETS,
         })
         expect(html).toContain('pdf-footer-bar')
-        expect(html).toContain('<span>Footer</span>')
+        expect(html).toContain('<span dir="auto">Footer</span>')
         expect(html).not.toContain('Ignored')
         expect(html).not.toContain('pdf-page-number')
         expect(html).not.toContain('SFPN')
@@ -347,7 +441,7 @@ SHIKI_FAIL
 
         const source = '---\ntitle: Spec\n---\n# Only'
         const { html: plain } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
-        expect(plain).toContain('<span class="pdf-chrome-side pdf-chrome-right"><span>Spec — confidential</span></span>')
+        expect(plain).toContain('<span class="pdf-chrome-side pdf-chrome-right"><span dir="auto">Spec — confidential</span></span>')
         expect(plain).not.toContain('SFPN')
 
         profile.footer.right.text = 'Page {{page}} of {{total}}'
@@ -388,7 +482,7 @@ SHIKI_FAIL
 
         const { html, print } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(html).toContain(
-            '<span class="pdf-chrome-side pdf-chrome-right"><span>Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789/</span>SFPN</span></span><span>· &lt;b&gt;</span></span>'
+            '<span class="pdf-chrome-side pdf-chrome-right"><span dir="auto">Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789/</span>SFPN</span></span><span dir="auto">· &lt;b&gt;</span></span>'
         )
         // Only the counting part goes to the stamper, which draws in a Latin-only font.
         expect(print.pageNumberFormat).toBe('custom:{{page}}/{{total}}')
@@ -409,7 +503,7 @@ SHIKI_FAIL
         expect(print.pageNumberFormat).toBe('custom:{{page}} из {{total}}')
         // The digits and the counter's own letters, each once, before the marker code the stamper looks for.
         expect(html).toContain(
-            '<span>Страница</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789из</span>SFPN</span></span>'
+            '<span dir="auto">Страница</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789из</span>SFPN</span></span>'
         )
     })
 
@@ -433,7 +527,7 @@ SHIKI_FAIL
         for (const source of [code, `\n  \n${code}`, `---\ntitle: Snippet\n---\n${code}`]) {
             const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
             expect(html).toContain(
-                '<div class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
+                '<div dir="ltr" class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
             )
             expect(html).not.toContain('<p>const a = 1')
             expect(html).toContain('<p dir="auto">After</p>')
@@ -473,7 +567,7 @@ SHIKI_FAIL
             expect(html).not.toContain(mark)
         }
         // The TOC still links each heading, it just has no page column.
-        expect(html).toContain('<a href="#section"><span class="pdf-toc-title">Section</span></a>')
+        expect(html).toContain('<a href="#section"><span class="pdf-toc-title" dir="auto">Section</span></a>')
         expect(html).toContain('content: counter(page) " / " counter(pages);')
         // The sections that hide the footer are a named page without the counter.
         expect(html).toContain('.pdf-title-table, .pdf-toc-table { page: pdf-no-footer; }')
@@ -511,7 +605,9 @@ SHIKI_FAIL
             profile,
             assets: { ...EMPTY_ASSETS, logoDataUrl: 'data:image/png;base64,logo' },
         })
-        expect(html).toContain('<img class="pdf-logo" src="data:image/png;base64,logo" alt="" /><div class="pdf-title-body"><h1>Cover</h1></div>')
+        expect(html).toContain(
+            '<img class="pdf-logo" src="data:image/png;base64,logo" alt="" /><div class="pdf-title-body"><h1 dir="auto">Cover</h1></div>'
+        )
         // No header/footer, but the repeating table rows now carry the emulated page margins.
         expect(html).toContain('class="pdf-chrome-table pdf-title-table"')
         expect(html).not.toContain('class="pdf-chrome-table pdf-toc-table"')
@@ -569,7 +665,7 @@ SHIKI_FAIL
         expect(html).not.toContain('<!--')
         expect(html).not.toContain('internal')
         expect(html).toContain('<h1 id="pricing" dir="auto">')
-        expect(html).toContain('<span class="pdf-toc-title">Pricing</span>')
+        expect(html).toContain('<span class="pdf-toc-title" dir="auto">Pricing</span>')
         expect(html).toContain('<title>Pricing</title>')
     })
 
@@ -610,9 +706,28 @@ SHIKI_FAIL
         // The heading's hidden page mark has its own direction, so dir="auto" reads the Arabic, not the mark.
         expect(html).toMatch(/<h2 id="مقدمة" dir="auto"><span class="pdf-heading-mark" dir="ltr">/)
         // The code block still replaces its whole paragraph, and the Contents rows get no direction.
-        expect(html).not.toMatch(/<p[^>]*>\s*<div class="code-block/)
-        expect(html).toContain('<div class="code-block')
+        expect(html).not.toMatch(/<p[^>]*>\s*<div dir="ltr" class="code-block/)
+        expect(html).toContain('<div dir="ltr" class="code-block')
         expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
+    })
+
+    it('lets the cover, Contents titles and header and footer text take their own direction too (N35)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.header.enabled = true
+        profile.header.left.text = '{{title}}'
+        profile.footer.pageNumbers = 'number'
+        const { html } = await markdownToExportHtml('---\nauthor: דנה\n---\n# דוח רבעוני!\n\n## סיכום', { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain('<h1 dir="auto">דוח רבעוני!</h1><p class="pdf-title-meta" dir="auto">דנה</p>')
+        expect(html).toContain('<span class="pdf-toc-title" dir="auto">סיכום</span>')
+        expect(html).toContain('<span class="pdf-chrome-side pdf-chrome-left"><span dir="auto">דוח רבעוני!</span></span>')
+        // The Contents row itself, and the stamper's marks, keep their direction.
+        expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
+        expect(html).toContain('<span class="pdf-toc-num"><span class="pdf-toc-mark">')
+        expect(html).toContain('<span class="pdf-page-number"><span class="pdf-page-number-mark">')
     })
 
     it('turns a quote or list item right to left from its first letter, as dir="auto" can’t see into its paragraphs', async () => {
@@ -644,7 +759,48 @@ SHIKI_FAIL
         expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">مرحبا<\/p>/)
         expect(html).toMatch(/<li dir="auto">\s*<p dir="auto">second item<\/p>/)
         // A code block's letters don't count, so the Hebrew after it decides.
-        expect(html).toMatch(/<li dir="rtl">\s*<div class="code-block/)
+        expect(html).toMatch(/<li dir="rtl">\s*<div dir="ltr" class="code-block/)
+    })
+
+    it('keeps code, diagrams and their errors left to right inside a right-to-left list item or quote (N31)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const fenced = (indent: string, lang: string, line: string) => [`${indent}\`\`\`${lang}`, `${indent}${line}`, `${indent}\`\`\``]
+        const { html } = await markdownToExportHtml(
+            [
+                // Tight and loose list items, and a quote, each starting right to left.
+                '1. הרץ את הפקודה:',
+                ...fenced('   ', 'bash', 'echo "hi";'),
+                '',
+                '- שלום',
+                '',
+                ...fenced('  ', 'mermaid', 'graph TD; A-->B;'),
+                '',
+                '- مرحبا',
+                ...fenced('  ', 'mermaid', 'graph TD EMPTY'),
+                '',
+                '> שלום',
+                '>',
+                ...fenced('> ', 'js', 'foo();'),
+                '',
+                '- ציטוט',
+                '',
+                '  <pre>ls -la;</pre>',
+                '',
+                '- עוד',
+                '',
+                '  <pre dir="rtl">שורה</pre>',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        expect(html).toMatch(/<li dir="rtl">הרץ את הפקודה:\s*<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>echo "hi";/)
+        expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">שלום<\/p>\s*<div dir="ltr" class="mermaid-export/)
+        expect(html).toMatch(/<li dir="rtl">\s*<p dir="auto">مرحبا<\/p>\s*<pre dir="ltr" class="export-error/)
+        expect(html).toMatch(
+            /<blockquote dir="rtl">\s*<p dir="auto">שלום<\/p>\s*<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>foo\(\);/
+        )
+        // A raw <pre> reads left to right too, unless the document says otherwise.
+        expect(html).toContain('<pre dir="ltr">ls -la;</pre>')
+        expect(html).toContain('<pre dir="rtl">שורה</pre>')
     })
 
     it('prints bold next to Japanese punctuation as bold (B76)', async () => {
@@ -690,6 +846,83 @@ SHIKI_FAIL
         expect(html).toMatch(/<details open>\s*<summary>More<\/summary>\s*<p dir="auto">Hidden until opened\.<\/p>/)
         // Ids stay as written, so the PDF's own links and Contents page still reach them.
         expect(html).toContain('<h1 id="title" dir="auto">')
+    })
+
+    it('keeps the size raw HTML gives an image, and the stylesheet leaves it alone (N30)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('<p align="center"><img src="data:image/png;base64,AAAA" width="120" alt="logo"></p>', {
+            assets: EMPTY_ASSETS,
+        })
+        expect(html).toContain('<img src="data:image/png;base64,AAAA" width="120" alt="logo">')
+        expect(html).not.toMatch(/\.pdf-body img \{[^}]*width: auto/)
+    })
+
+    it('prints a raw HTML <pre> as a plain block the stylesheet wraps, so a long line can’t shrink every page (B08)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const line = 'x'.repeat(200)
+        const { html } = await markdownToExportHtml(`Before.\n\n<pre>${line}</pre>\n\nAfter.`, { assets: EMPTY_ASSETS })
+        // No class, so it gets the raw <pre> rule and not a code block's or an error's.
+        expect(html).toMatch(new RegExp(`<div class="pdf-body">[\\s\\S]*<pre dir="ltr">${line}</pre>`))
+        expect(html).toContain('.pdf-body pre:not([class]) {')
+    })
+
+    it('lets a raw HTML <td nowrap> or <th nowrap> wrap, so a long cell can’t widen the table past the page (B08)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const long = 'a long sentence that would not fit across the page if it never wrapped '.repeat(3).trim()
+        const { html } = await markdownToExportHtml(
+            `Before.\n\n<table><tr><th nowrap>Head</th></tr><tr><td nowrap>${long}</td></tr></table>\n\nAfter.`,
+            { assets: EMPTY_ASSETS }
+        )
+        // The attribute survives the sanitizer and would print as white-space: nowrap without the override.
+        expect(html).toMatch(/<th nowrap[^>]*>Head<\/th>/)
+        expect(html).toMatch(new RegExp(`<td nowrap[^>]*>${long}</td>`))
+        expect(html).toContain('table:not(.pdf-chrome-table) :is(td, th)[nowrap] { white-space: normal; }')
+    })
+
+    it('keeps the screen-reader-only footnotes heading out of the printed page, and off a page of its own (N34)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.flow.newPageFromHeading = 2
+        const { html } = await markdownToExportHtml('# Title\n\nText[^1]\n\n[^1]: Note.', { profile, assets: EMPTY_ASSETS })
+        // The heading stays for the footnote links' aria-describedby, but has no box: it can't print or start a page.
+        expect(html).toMatch(/<section data-footnotes class="footnotes"><h2 class="sr-only" id="footnote-label"[^>]*>Footnotes<\/h2>/)
+        expect(html).toContain('aria-describedby="footnote-label"')
+        expect(html).toContain('.pdf-body section.footnotes > #footnote-label { display: none; }')
+        expect(html).toContain('.pdf-body h1, .pdf-body h2 { break-before: page;')
+    })
+
+    it('keeps a raw HTML paragraph’s own alignment when body text is justified (N33)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.typography.justify = true
+        const { html } = await markdownToExportHtml(
+            [
+                '<p align="center"><img src="data:image/png;base64,AAAA" alt="logo"></p>',
+                '',
+                'Plain text.',
+                '',
+                '<p align="right">Signed, Ada</p>',
+            ].join('\n'),
+            { profile, assets: EMPTY_ASSETS }
+        )
+        expect(html).toContain('<p align="center" dir="auto"><img src="data:image/png;base64,AAAA" alt="logo"></p>')
+        expect(html).toContain('<p align="right" dir="auto">Signed, Ada</p>')
+        // Only paragraphs with no alignment of their own, like the plain one, are justified.
+        expect(html).toContain('<p dir="auto">Plain text.</p>')
+        expect(html).toContain('.pdf-body > p:not([align]) { text-align: justify; }')
+        expect(html).not.toContain('.pdf-body > p {')
+    })
+
+    it('marks task items and keeps their checkboxes, which the stylesheet puts in place of the bullet (N32)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('- [ ] Milk\n- [x] Bread\n\n1. [ ] One\n\nText\n\n- [ ] Loose\n\n- [x] Items', {
+            assets: EMPTY_ASSETS,
+        })
+        expect(html).toContain('<ul class="contains-task-list">\n<li class="task-list-item" dir="auto"><input type="checkbox" disabled> Milk</li>')
+        expect(html).toContain('<li class="task-list-item" dir="auto"><input type="checkbox" checked disabled> Bread</li>')
+        expect(html).toContain('<ol class="contains-task-list">\n<li class="task-list-item" dir="auto"><input type="checkbox" disabled> One</li>')
+        expect(html).toMatch(/<li class="task-list-item" dir="auto">\s*<p dir="auto"><input type="checkbox" disabled> Loose<\/p>/)
+        expect(html).toContain('ul > li.task-list-item { list-style: none; }')
     })
 
     it('keeps only safe links live, and points #heading links at the heading however they are written (S10, B55)', async () => {
@@ -756,8 +989,8 @@ SHIKI_FAIL
     it('says a diagram with nothing to draw yet is empty, as Word does, instead of printing an empty box (U39)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(['Before.', '', '```mermaid', 'graph TD EMPTY', '```', '', 'After.'].join('\n'))
-        expect(html).toContain('<pre class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
-        expect(html).not.toContain('<div class="mermaid-export')
+        expect(html).toContain('<pre dir="ltr" class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
+        expect(html).not.toContain('<div dir="ltr" class="mermaid-export')
         expect(html).not.toContain('<svg')
     })
 
@@ -770,8 +1003,8 @@ SHIKI_FAIL
             diagram(['flowchart TD', '  accTitle: Say "hi" & <wave>', '  A --> B']),
         ].join('\n\n')
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
-        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Login flow"><svg')
-        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Flowchart: Start, End"><svg')
+        expect(html).toContain('<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="Login flow"><svg')
+        expect(html).toContain('<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="Flowchart: Start, End"><svg')
         // The label can't end the attribute or start markup.
         expect(html).toContain('aria-label="Say &quot;hi&quot; &amp;"><svg')
     })

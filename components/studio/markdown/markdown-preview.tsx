@@ -262,9 +262,11 @@ const staticMarkdownComponents: Components = {
         const first = props.node?.children[0]
         // A fenced block draws its own frame (the code override), so its <pre> adds nothing.
         if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) return <>{rest.children}</>
-        // A raw-HTML <pre> of plain text, such as ASCII art, keeps its spaces and line breaks.
+        // A raw-HTML <pre> of plain text, such as ASCII art, keeps its spaces and line breaks, and reads left to
+        // right unless the document says otherwise.
         return (
             <pre
+                dir="ltr"
                 {...rest}
                 className={cn('mb-3 overflow-x-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs whitespace-pre', className)}
             />

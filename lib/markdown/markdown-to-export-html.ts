@@ -141,13 +141,17 @@ const CONTAINER_DIRECTION_TAGS = new Set(['li', 'blockquote'])
 /**
  * Gives each text block dir="auto", so an Arabic or Hebrew paragraph prints right to left with its full stop and
  * bullet on the correct side. A quote or list item that starts right to left gets dir="rtl" instead, so its bar
- * or bullet moves to the right too. A dir the document's HTML set wins. Code is left alone, and so are the
- * paragraphs standing in for code blocks and diagrams, which are swapped for their HTML by exact match. The title
- * page, Contents page and header and footer are built separately, so the stamper still finds their marks.
+ * or bullet moves to the right too. A dir the document's HTML set wins. Code reads left to right: a raw <pre>
+ * gets dir="ltr", and code blocks and diagrams get theirs where they are built, so the paragraphs standing in for
+ * them, which are swapped for their HTML by exact match, are left alone. The title page, Contents page and header
+ * and footer are built separately, and their text gets dir="auto" there, kept apart from the stamper's marks.
  */
 function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>): void {
     visit(hast, 'element', (node: Element) => {
-        if (node.tagName === 'pre') return SKIP
+        if (node.tagName === 'pre') {
+            node.properties.dir ??= 'ltr'
+            return SKIP
+        }
         if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
         const only = node.children.length === 1 ? node.children[0] : undefined
         if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
@@ -252,6 +256,11 @@ function markTables(hast: HastRoot, profile: PdfExportProfile): void {
     })
 }
 
+/**
+ * A fenced block's HTML. Code, diagrams and their errors read left to right whatever the text
+ * around them does, so each gets dir="ltr": in a right-to-left list item or quote they would
+ * otherwise take its direction, and `foo();` would print as `;()foo`.
+ */
 async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<string> {
     const text = node.value.replace(/\n$/, '')
     const lang = node.lang?.toLowerCase()
@@ -261,21 +270,21 @@ async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<s
         try {
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
             // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
-            if (!getSvgDimensions(svg)) return `<pre class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
+            if (!getSvgDimensions(svg)) return `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
             // One named picture, as in Word, so a screen reader doesn't read every node label in turn.
             const label = escapeHtml(diagramAltText(text).description)
-            return `<div class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
+            return `<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
-            return `<pre class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
+            return `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
         }
     }
 
     try {
         const highlighted = normalizeShikiPre(await highlightFencedCode(text, lang, profile.content.codeTheme))
-        return `<div class="${blockClass}">${highlighted}</div>`
+        return `<div dir="ltr" class="${blockClass}">${highlighted}</div>`
     } catch {
-        return `<div class="${blockClass}"><pre><code>${escapeHtml(text)}</code></pre></div>`
+        return `<div dir="ltr" class="${blockClass}"><pre><code>${escapeHtml(text)}</code></pre></div>`
     }
 }
 
@@ -305,12 +314,11 @@ async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promi
     return placeholders
 }
 
+/** The cover. Each line takes its own direction from its first letters, as the body's blocks do. */
 function renderTitlePage(metadata: PdfExportMetadata, assets: PdfExportResolvedAssets): string {
     const logo = assets.logoDataUrl ? `<img class="pdf-logo" src="${escapeHtml(assets.logoDataUrl)}" alt="" />` : ''
-    const subtitle = metadata.subtitle ? `<p class="pdf-title-meta">${escapeHtml(metadata.subtitle)}</p>` : ''
-    const author = metadata.author ? `<p class="pdf-title-meta">${escapeHtml(metadata.author)}</p>` : ''
-    const date = metadata.date ? `<p class="pdf-title-meta">${escapeHtml(metadata.date)}</p>` : ''
-    return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1>${escapeHtml(metadata.title)}</h1>${subtitle}${author}${date}</div></section>`
+    const meta = (text: string) => (text ? `<p class="pdf-title-meta" dir="auto">${escapeHtml(text)}</p>` : '')
+    return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1 dir="auto">${escapeHtml(metadata.title)}</h1>${meta(metadata.subtitle)}${meta(metadata.author)}${meta(metadata.date)}</div></section>`
 }
 
 /**
@@ -335,7 +343,9 @@ function renderToc(items: PdfExportOutlineItem[], stamped: boolean): string {
             const page = stamped
                 ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${mark}</span></span>`
                 : ''
-            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title">${escapeHtml(item.text)}</span>${page}</a></li>`
+            // Only the title takes its own direction, so a right-to-left one ends and is cut short on the correct side;
+            // the row, with its leader and page number, stays as it is.
+            return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title" dir="auto">${escapeHtml(item.text)}</span>${page}</a></li>`
         })
         .join('')
     return `<section class="pdf-toc-page"><h1>Contents</h1><ol class="pdf-toc-list">${list}</ol></section>`
@@ -346,12 +356,12 @@ function chromeImage(dataUrl: string): string {
 }
 
 function chromeLabel(text: string, metadata: PdfExportMetadata): string {
-    const resolved = resolvePdfChromeText(text, metadata)
-    return resolved ? `<span>${escapeHtml(resolved)}</span>` : ''
+    return plainLabel(resolvePdfChromeText(text, metadata))
 }
 
+/** Header or footer text, which takes its own direction from its first letters, as the body's blocks do. */
 function plainLabel(text: string): string {
-    return text ? `<span>${escapeHtml(text)}</span>` : ''
+    return text ? `<span dir="auto">${escapeHtml(text)}</span>` : ''
 }
 
 /**
@@ -376,58 +386,50 @@ type ChromeSection = 'title' | 'toc' | 'body'
 
 /**
  * Header/footer bar: `[image][text] … [text][image]`, so an image on either
- * end is always the outermost item, nearest the page edge. Nothing for a section
- * that hides the bar, so its images aren't embedded there for nothing.
+ * end is always the outermost item, nearest the page edge. A `copy` is never
+ * seen and only takes up the bar's room, so its images are left out rather than
+ * embedded again for nothing: a bar of fixed height keeps its height without
+ * them, and otherwise an empty box as big as an image can be stands in, so the
+ * copy is never shorter than the drawn bar.
  */
-function renderChromeCell(
+function renderChromeBar(
     kind: 'header' | 'footer',
-    section: ChromeSection,
     profile: PdfExportProfile,
     assets: PdfExportResolvedAssets,
     metadata: PdfExportMetadata,
-    stamped: boolean
+    stamped: boolean,
+    copy = false
 ): string {
-    if (!pdfChromeShown(profile, kind, section)) return ''
     const chrome = kind === 'header' ? profile.header : profile.footer
     const images = kind === 'header' ? assets.header : assets.footer
+    const image = (dataUrl: string) => {
+        if (!copy) return chromeImage(dataUrl)
+        return dataUrl && chrome.heightMm <= 0 ? '<span class="pdf-chrome-img-room"></span>' : ''
+    }
     const rightText = kind === 'header' ? chromeLabel(chrome.right.text, metadata) : footerRightText(profile, metadata, stamped)
-    return `<div class="pdf-chrome-bar pdf-${kind}-bar"><span class="pdf-chrome-side pdf-chrome-left">${chromeImage(images.left)}${chromeLabel(chrome.left.text, metadata)}</span><span class="pdf-chrome-side pdf-chrome-right">${rightText}${chromeImage(images.right)}</span></div>`
+    return `<div class="pdf-chrome-bar pdf-${kind}-bar"><span class="pdf-chrome-side pdf-chrome-left">${image(images.left)}${chromeLabel(chrome.left.text, metadata)}</span><span class="pdf-chrome-side pdf-chrome-right">${rightText}${image(images.right)}</span></div>`
 }
 
 /**
- * Whether the footer shows on every page of this document. Then it is drawn once,
- * fixed to the page bottom, which Chromium repeats on every page, the last page of
- * a section included. A fixed element can't skip pages, so when the title page or
- * TOC hide the footer, the repeating table footer row draws it instead.
+ * One table per section (title, TOC, body). The repeating header rows give every page of a
+ * section its header and, in bleed mode, its top margin; a section that hides the header has
+ * none, so its images aren't embedded there for nothing. The footer is drawn once, fixed to
+ * the page bottom (see {@link wrapWithChrome}), and each section's repeating footer row is a
+ * copy of it that is never seen: on a section that shows the footer it keeps the text clear
+ * of it, and on one that hides it (the title page, the TOC) it is opaque and covers it.
+ *
+ * Known gaps, which only the stamper could close by cutting the fixed footer out of those
+ * pages: a cover is a table row, so it reaches the page bottom only on a page the section
+ * fills. With 'Title page + TOC' and contents longer than a page, the last contents page
+ * ends early and the footer bar (with no number) shows below its cover. And a covered
+ * footer's text stays in the PDF's text layer, so search and copy can still find it there.
  */
-function footerOnEveryPage(profile: PdfExportProfile, hasTitlePage: boolean, hasToc: boolean): boolean {
-    if (!resolvePdfExportLayout(profile).showFooter) return false
-    const hidden = profile.footer.hideOnFirstPages
-    if (hidden === 'none') return true
-    return !hasTitlePage && (hidden === 'title' || !hasToc)
-}
-
-/**
- * One table per section (title, TOC, body). The repeating header/footer rows
- * give every page of a section its chrome and, in bleed mode, its margins,
- * while the CSS hide rules can still switch the bars off per section.
- * With a fixed footer, the footer row is an invisible copy that only keeps
- * the body clear of it.
- */
-function chromeTable(
-    kind: ChromeSection,
-    inner: string,
-    profile: PdfExportProfile,
-    assets: PdfExportResolvedAssets,
-    metadata: PdfExportMetadata,
-    fixedFooter: boolean,
-    stamped: boolean
-): string {
-    const footClass = fixedFooter ? ' class="pdf-footer-spacer" aria-hidden="true"' : ''
+function chromeTable(kind: ChromeSection, inner: string, header: string, footer: string, coversFooter: boolean): string {
+    const foot = footer ? ` class="${coversFooter ? 'pdf-footer-cover' : 'pdf-footer-spacer'}" aria-hidden="true"` : ''
     return `<table class="pdf-chrome-table pdf-${kind}-table">
-    <thead class="pdf-chrome-head"><tr><td>${renderChromeCell('header', kind, profile, assets, metadata, stamped)}</td></tr></thead>
+    <thead class="pdf-chrome-head"><tr><td>${header}</td></tr></thead>
     <tbody><tr><td>${inner}</td></tr></tbody>
-    <tfoot${footClass}><tr><td>${renderChromeCell('footer', kind, profile, assets, metadata, stamped)}</td></tr></tfoot>
+    <tfoot${foot}><tr><td>${footer}</td></tr></tfoot>
   </table>`
 }
 
@@ -448,17 +450,33 @@ function wrapWithChrome(
         return `<article class="export-article">${titlePageHtml}${tocHtml}${body}</article>`
     }
 
-    const fixedFooter = footerOnEveryPage(profile, Boolean(titlePageHtml), Boolean(tocHtml))
-    const sections = [
-        titlePageHtml ? chromeTable('title', titlePageHtml, profile, assets, metadata, fixedFooter, stamped) : '',
-        tocHtml ? chromeTable('toc', tocHtml, profile, assets, metadata, fixedFooter, stamped) : '',
-        chromeTable('body', body, profile, assets, metadata, fixedFooter, stamped),
-    ]
-    const footer = fixedFooter
-        ? `\n  <div class="pdf-fixed-footer">${renderChromeCell('footer', 'body', profile, assets, metadata, stamped)}</div>`
-        : ''
+    const sections = (
+        [
+            ['title', titlePageHtml],
+            ['toc', tocHtml],
+            ['body', body],
+        ] as const
+    ).filter(([, html]) => html)
+    // Drawn once, fixed: Chromium repeats it at the bottom of every page, the last page of a section included,
+    // where a table footer row would float up under the text.
+    const footer = layout.showFooter ? renderChromeBar('footer', profile, assets, metadata, stamped) : ''
+    const footerCopy = layout.showFooter ? renderChromeBar('footer', profile, assets, metadata, stamped, true) : ''
+    // Only the title page and TOC can hide the footer, and they come first.
+    const firstShown = sections.findIndex(([kind]) => pdfChromeShown(profile, 'footer', kind))
+    // The stamper numbers each page at its footer's page-number marker and leaves the pages before the first
+    // marker unnumbered. The fixed footer would put a marker on the title page and TOC too, so when they hide
+    // the footer its marker isn't drawn. One copy at the foot of the first page that shows the footer carries
+    // the marker instead, and the stamper numbers each later page, which has none, at the same spot. That copy
+    // keeps the footer's images, as their size decides where the marker sits.
+    const anchored = firstShown > 0 && stamped && pdfPageNumberFormat(profile, metadata) !== 'none'
+    const tables = sections.map(([kind, html], index) => {
+        const header = pdfChromeShown(profile, 'header', kind) ? renderChromeBar('header', profile, assets, metadata, stamped) : ''
+        const anchor = anchored && index === firstShown ? `<div class="pdf-fixed-footer pdf-footer-anchor" aria-hidden="true">${footer}</div>` : ''
+        return chromeTable(kind, `${anchor}${html}`, header, footerCopy, index < firstShown)
+    })
+    const fixed = footer ? `\n  <div class="pdf-fixed-footer${anchored ? ' pdf-footer-unmarked' : ''}">${footer}</div>` : ''
     return `<article class="export-article">
-  ${sections.filter(Boolean).join('\n  ')}${footer}
+  ${tables.join('\n  ')}${fixed}
 </article>`
 }
 
