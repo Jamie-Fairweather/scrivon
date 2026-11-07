@@ -6,7 +6,7 @@ import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/no
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
+import { DocumentTabsProvider, useActiveTabId, useDocumentTabActions, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -709,6 +709,49 @@ describe('DocumentTabsProvider', () => {
 
     it('throws when useDocumentTabs is used outside the provider', () => {
         expect(() => renderHook(() => useDocumentTabs())).toThrow('useDocumentTabs must be used within WorkspaceProvider')
+        expect(() => renderHook(() => useDocumentTabActions())).toThrow('useDocumentTabActions must be used within WorkspaceProvider')
+        expect(() => renderHook(() => useActiveTabId())).toThrow('useActiveTabId must be used within WorkspaceProvider')
+    })
+
+    it('leaves parts that only use the tab actions or the open tab id alone while the user types', async () => {
+        const initial = { tabs: [tab('/ws/a.md', 'a.md'), tab('/ws/b.md', 'b.md')], activeTabId: '/ws/a.md' }
+        const renders = { actions: 0, activeId: 0 }
+        const seenIds: Array<string | null> = []
+        function ActionsOnly() {
+            useDocumentTabActions()
+            renders.actions += 1
+            return null
+        }
+        function ActiveIdOnly() {
+            seenIds.push(useActiveTabId())
+            renders.activeId += 1
+            return null
+        }
+        const TabsWrapper = createTabsWrapper({ initial })
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: ({ children }) => (
+                <TabsWrapper>
+                    <ActionsOnly />
+                    <ActiveIdOnly />
+                    {children}
+                </TabsWrapper>
+            ),
+        })
+        await waitFor(() => expect(result.current.activeTabId).toBe('/ws/a.md'))
+        const before = { ...renders }
+
+        act(() => result.current.updateTabContent('/ws/a.md', 'typed'))
+        act(() => result.current.updateTabContent('/ws/a.md', 'typed more'))
+
+        expect(result.current.activeTab?.content).toBe('typed more')
+        expect(renders).toEqual(before)
+
+        await act(async () => {
+            await result.current.setActiveTab('/ws/b.md')
+        })
+
+        expect(seenIds.at(-1)).toBe('/ws/b.md')
+        expect(renders.actions).toBe(before.actions)
     })
 
     it('persists session with first workspace tab when active tab is an example', async () => {

@@ -20,7 +20,7 @@ export function useWorkspaceCoordinator(): WorkspaceCoordinatorRefs {
 
 export { useCanvasFit } from '@/components/studio/workspace/canvas-fit-context'
 export { useDocumentSave } from '@/components/studio/workspace/document-save-context'
-export { useDocumentTabs } from '@/components/studio/workspace/document-tabs-context'
+export { useActiveTabId, useDocumentTabActions, useDocumentTabs } from '@/components/studio/workspace/document-tabs-context'
 export { useStudioLayout } from '@/components/studio/workspace/studio-layout-context'
 export { useWorkspaceSession } from '@/components/studio/workspace/workspace-session-context'
 

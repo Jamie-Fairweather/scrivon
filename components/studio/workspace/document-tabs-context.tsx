@@ -40,7 +40,16 @@ type DocumentTabsContextValue = {
     closeAllTabs: () => Promise<void>
 }
 
+/** What can be done with the tabs. These functions stay the same while the user types. */
+export type DocumentTabActions = Pick<
+    DocumentTabsContextValue,
+    'openFile' | 'openExample' | 'setActiveTab' | 'updateTabContent' | 'closeTab' | 'closeOtherTabs' | 'closeAllTabs'
+>
+
 const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
+const DocumentTabActionsContext = createContext<DocumentTabActions | null>(null)
+/** `undefined` only outside the provider; no tab open is `null`. */
+const ActiveTabIdContext = createContext<string | null | undefined>(undefined)
 
 /** How long closing waits for a save before treating it as failed (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
@@ -65,10 +74,25 @@ function readOnlyNoticeId(tabId: string): string {
     return `read-only:${tabId}`
 }
 
+/** Every tab with its text. Whatever uses this draws again on every keystroke; see the two hooks below. */
 export function useDocumentTabs(): DocumentTabsContextValue {
     const ctx = useContext(DocumentTabsContext)
     if (!ctx) throw new Error('useDocumentTabs must be used within WorkspaceProvider')
     return ctx
+}
+
+/** Opening, switching and closing tabs, without the tabs themselves, so typing doesn't draw the caller again. */
+export function useDocumentTabActions(): DocumentTabActions {
+    const ctx = useContext(DocumentTabActionsContext)
+    if (!ctx) throw new Error('useDocumentTabActions must be used within WorkspaceProvider')
+    return ctx
+}
+
+/** The id of the tab on screen, or null. Changes when another tab is chosen, not when the user types. */
+export function useActiveTabId(): string | null {
+    const id = useContext(ActiveTabIdContext)
+    if (id === undefined) throw new Error('useActiveTabId must be used within WorkspaceProvider')
+    return id
 }
 
 export type DocumentTabsState = {
@@ -501,23 +525,22 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         registerCoordinatorRefs(coordinator, { openFile })
     }, [coordinator, openFile])
 
-    const value = useMemo(
-        () => ({
-            tabs,
-            activeTabId,
-            activeTab,
-            openFile,
-            openExample,
-            setActiveTab,
-            updateTabContent,
-            closeTab,
-            closeOtherTabs,
-            closeAllTabs,
-        }),
-        [tabs, activeTabId, activeTab, openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs]
+    const actions = useMemo<DocumentTabActions>(
+        () => ({ openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs }),
+        [openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs]
     )
 
-    return <DocumentTabsContext.Provider value={value}>{children}</DocumentTabsContext.Provider>
+    const value = useMemo(() => ({ ...actions, tabs, activeTabId, activeTab }), [actions, tabs, activeTabId, activeTab])
+
+    // Split up so a part of the screen that only opens files or marks the open one, such as each row of the
+    // file tree, isn't drawn again for every character typed.
+    return (
+        <DocumentTabActionsContext.Provider value={actions}>
+            <ActiveTabIdContext.Provider value={activeTabId}>
+                <DocumentTabsContext.Provider value={value}>{children}</DocumentTabsContext.Provider>
+            </ActiveTabIdContext.Provider>
+        </DocumentTabActionsContext.Provider>
+    )
 }
 
 export function useDocumentTabsState(): DocumentTabsState {
