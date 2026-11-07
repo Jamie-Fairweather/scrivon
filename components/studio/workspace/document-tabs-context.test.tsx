@@ -6,7 +6,14 @@ import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/no
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { DocumentTabsProvider, useActiveTabId, useDocumentTabActions, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
+import {
+    DocumentTabsProvider,
+    useActiveTabId,
+    useDocumentTabActions,
+    useDocumentTabs,
+    useDocumentTabsState,
+    type DocumentTabsState,
+} from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -31,12 +38,15 @@ type WrapperOptions = {
     initial?: { tabs: DocumentTab[]; activeTabId: string | null }
     coordinator?: WorkspaceCoordinatorRefs
     workspaceRoot?: string | null
+    /** Filled with the tabs' state, for a test standing in for the save provider. */
+    stateOut?: { current?: DocumentTabsState }
 }
 
 function createTabsWrapper(options: WrapperOptions = {}) {
     return function Wrapper({ children }: { children: ReactNode }) {
         const optionsRef = useRef(options)
         const tabsState = useDocumentTabsState()
+        if (optionsRef.current.stateOut) optionsRef.current.stateOut.current = tabsState
         const coordinator = useMemo(() => optionsRef.current.coordinator ?? createWorkspaceCoordinatorRefs(), [])
         const seeded = useRef(false)
 
@@ -637,6 +647,32 @@ describe('DocumentTabsProvider', () => {
             tabIds: ['/ws/other.mmd', '/ws/manual/readme.md'],
             activeTabId: '/ws/manual/readme.md',
         })
+    })
+
+    it('closes the read-only notice of a renamed file, whose button would no longer find its tab', async () => {
+        const initial = {
+            tabs: [
+                tab('/ws/old.md', 'old.md', { readOnly: true, largeFile: true }),
+                tab('/ws/docs/legacy.md', 'legacy.md', { readOnly: true, encodingIssue: 'legacy-encoding' }),
+                tab('/ws/docs/plain.md', 'plain.md'),
+                tab('/ws/kept.md', 'kept.md', { readOnly: true, largeFile: true }),
+            ],
+            activeTabId: '/ws/old.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(4))
+        vi.mocked(dismissNotification).mockClear()
+
+        act(() => coordinator.remapTabsAfterRename.current('/ws/old.md', '/ws/new.md', 'new.md'))
+        act(() => coordinator.remapTabsAfterRename.current('/ws/docs', '/ws/manual', 'manual'))
+
+        expect(vi.mocked(dismissNotification).mock.calls).toEqual([['read-only:/ws/old.md'], ['read-only:/ws/docs/legacy.md']])
+        // The bar above the editor still offers to edit it, under its new name.
+        act(() => result.current.makeTabEditable('/ws/new.md'))
+        expect(result.current.tabs[0]).toMatchObject({ id: '/ws/new.md', readOnly: false })
     })
 
     it('closes tabs when coordinator delete handler runs', async () => {
@@ -1321,16 +1357,28 @@ describe('closing tabs with unsaved changes', () => {
             activeTabId: '/ws/a.mmd',
         }
         const coordinator = createWorkspaceCoordinatorRefs()
-        const flushSave = vi.fn(async () => (typeof flushResult === 'function' ? flushResult() : flushResult))
+        const stateOut: { current?: DocumentTabsState } = {}
+        /** What a save that worked does: the text it wrote is on disk, so the tab has no edits left unless typed since. */
+        const markSaved = (id: string, content?: string) => {
+            const saved = (t: DocumentTab) => (t.id === id && (content === undefined || t.content === content) ? { ...t, isDirty: false } : t)
+            const state = stateOut.current!
+            state.tabsRef.current = state.tabsRef.current.map(saved)
+            state.setTabs((prev) => prev.map(saved))
+        }
+        const flushSave = vi.fn(async (id: string) => {
+            const ok = typeof flushResult === 'function' ? flushResult() : flushResult
+            if (ok) markSaved(id)
+            return ok
+        })
         const cancelScheduledSave = vi.fn()
         coordinator.flushSave.current = flushSave
         coordinator.cancelScheduledSave.current = cancelScheduledSave
         coordinator.getAutosaveEnabled.current = () => autosave
         coordinator.getSaveError.current = () => 'Access is denied. (os error 5)'
         const rendered = renderHook(() => useDocumentTabs(), {
-            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws', stateOut }),
         })
-        return { ...rendered, coordinator, flushSave, cancelScheduledSave }
+        return { ...rendered, coordinator, flushSave, cancelScheduledSave, markSaved, stateOut }
     }
 
     it('keeps the tab open when the user cancels the unsaved-changes prompt', async () => {
@@ -1451,7 +1499,7 @@ describe('closing tabs with unsaved changes', () => {
     })
 
     it('does not count time the user spends answering a question during the save', async () => {
-        const { result, coordinator } = setup({ autosave: true })
+        const { result, coordinator, markSaved } = setup({ autosave: true })
         await waitFor(() => expect(result.current.tabs).toHaveLength(3))
         // The save is waiting on "File changed on disk: Overwrite?" for 25 seconds, then succeeds.
         let asking = true
@@ -1470,6 +1518,7 @@ describe('closing tabs with unsaved changes', () => {
             })
             expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
             asking = false
+            markSaved('/ws/a.mmd')
             finish(true)
             await act(async () => {
                 await closing
@@ -1529,6 +1578,102 @@ describe('closing tabs with unsaved changes', () => {
         // a.mmd is closed by then, so only b.mmd is left to ask about.
         expect(confirmUnsavedChanges).toHaveBeenLastCalledWith(['b.mmd'])
         expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
+    })
+
+    it('saves text typed while the closing saves ran before the tabs go, also in a tab that had no edits', async () => {
+        const { result, coordinator, markSaved, stateOut } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        const written: Array<[id: string, content: string]> = []
+        let finishA: (() => void) | undefined
+        coordinator.flushSave.current = vi.fn(async (id: string) => {
+            const content = stateOut.current!.tabsRef.current.find((t) => t.id === id)!.content
+            // The first save of a.mmd is slow, like one on a network drive.
+            if (id === '/ws/a.mmd' && !written.some(([w]) => w === id)) await new Promise<void>((resolve) => (finishA = resolve))
+            written.push([id, content])
+            markSaved(id, content)
+            return true
+        })
+
+        let closing!: Promise<void>
+        act(() => {
+            closing = result.current.closeAllTabs()
+        })
+        await waitFor(() => expect(finishA).toBeDefined())
+        act(() => {
+            result.current.updateTabContent('/ws/a.mmd', 'typed in a while it saved')
+            result.current.updateTabContent('/ws/c.mmd', 'typed in c, which had no edits')
+        })
+        await act(async () => {
+            finishA!()
+            await closing
+        })
+
+        expect(written).toContainEqual(['/ws/a.mmd', 'typed in a while it saved'])
+        expect(written).toContainEqual(['/ws/c.mmd', 'typed in c, which had no edits'])
+        expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
+        expect(result.current.tabs).toEqual([])
+    })
+
+    it('asks, rather than saving for ever, when the text keeps changing while it is saved', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('cancel').mockResolvedValueOnce('discard')
+        const { result, coordinator, markSaved } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        let typed = 0
+        const flushSave = vi.fn(async (id: string) => {
+            markSaved(id)
+            result.current.updateTabContent(id, `still typing ${++typed}`)
+            return true
+        })
+        coordinator.flushSave.current = flushSave
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        expect(flushSave).toHaveBeenCalledTimes(3)
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'It was edited again while it was being saved.' }])
+        expect(result.current.tabs).toHaveLength(3)
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
+    })
+
+    it('still saves text typed into another closing tab when the user closes one that could not be saved', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
+        const { result, coordinator, markSaved, stateOut } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        const written: Array<[id: string, content: string]> = []
+        let finishB: (() => void) | undefined
+        coordinator.flushSave.current = vi.fn(async (id: string) => {
+            // a.mmd's file is locked by another program.
+            if (id === '/ws/a.mmd') return false
+            const content = stateOut.current!.tabsRef.current.find((t) => t.id === id)!.content
+            // The first save of b.mmd is slow, like one on a network drive.
+            if (id === '/ws/b.mmd' && !written.some(([w]) => w === id)) await new Promise<void>((resolve) => (finishB = resolve))
+            written.push([id, content])
+            markSaved(id, content)
+            return true
+        })
+
+        let closing!: Promise<void>
+        act(() => {
+            closing = result.current.closeAllTabs()
+        })
+        await waitFor(() => expect(finishB).toBeDefined())
+        act(() => {
+            result.current.updateTabContent('/ws/b.mmd', 'typed in b while it saved')
+        })
+        await act(async () => {
+            finishB!()
+            await closing
+        })
+
+        // Only a.mmd was asked about, so only its edits go unsaved.
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledTimes(1)
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Access is denied. (os error 5)' }])
+        expect(written).toContainEqual(['/ws/b.mmd', 'typed in b while it saved'])
+        expect(result.current.tabs).toEqual([])
     })
 
     it('leaves the tabs as they are until they really close', async () => {
@@ -1608,6 +1753,60 @@ describe('opening files that are slow to read', () => {
 
         expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/small.md', '/ws/big.md'])
         expect(result.current.activeTabId).toBe('/ws/small.md')
+    })
+
+    it('drops a file still being read when its folder is switched, and keeps the old folder’s tab list', async () => {
+        const finish = slowRead('/ws/big.md')
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const options: WrapperOptions = { coordinator, workspaceRoot: '/ws' }
+        const { result, rerender } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper(options) })
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1))
+        // Open Recent: the tabs go, the next folder opens and its saved tabs come back before the read ends.
+        act(() => coordinator.clearTabs.current())
+        options.workspaceRoot = '/other'
+        rerender()
+        act(() => coordinator.setTabsFromWorkspace.current([tab('/other/notes.md', 'notes.md')], '/other/notes.md'))
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/other/notes.md'])
+        expect(result.current.activeTabId).toBe('/other/notes.md')
+        expect(setWorkspaceTabSession).not.toHaveBeenCalledWith('/ws', expect.anything())
+        expect(addRecentFile).not.toHaveBeenCalled()
+
+        // Clicking it again reads it afresh instead of waiting on the dropped read.
+        await act(async () => {
+            await result.current.openFile('/ws/big.md')
+        })
+        expect(readFile).toHaveBeenCalledTimes(2)
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/other/notes.md', '/ws/big.md'])
+    })
+
+    it('drops a file still being read when the folder is closed', async () => {
+        const finish = slowRead('/ws/big.md')
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ coordinator, workspaceRoot: '/ws' }) })
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        act(() => coordinator.clearTabs.current())
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs).toEqual([])
+        expect(result.current.activeTabId).toBeNull()
+        expect(setWorkspaceTabSession).not.toHaveBeenCalled()
     })
 
     it('keeps the tab the user switched to while another file was still being read', async () => {
@@ -1696,6 +1895,49 @@ describe('changes to several tabs at once', () => {
         expect(result.current.activeTabId).toBe('/ws/opened.mmd')
     })
 
+    it('puts unsaved text kept from a crash into the tab opened meanwhile, and hands back what it could not', async () => {
+        // The version of each file the kept text was written on; a.md and c.md were opened on it.
+        const writtenOn = { mtimeMs: 1, size: 6 }
+        const initial = {
+            tabs: [
+                tab('/ws/a.md', 'a.md', { readOnly: true, largeFile: true, disk: { stamp: { ...writtenOn } } }),
+                tab('/ws/b.md', 'b.md', { content: 'typed since', isDirty: true }),
+                // Typed in and saved since it was opened: no edits now, but newer text and a newer file.
+                tab('/ws/c.md', 'c.md', { content: 'typed and saved', disk: { stamp: { mtimeMs: 2, size: 15 } } }),
+            ],
+            activeTabId: '/ws/a.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const scheduleBackup = vi.fn()
+        coordinator.scheduleBackup.current = scheduleBackup
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        const keptB = tab('/ws/b.md', 'b.md', { content: 'kept b', isDirty: true, disk: { stamp: null } })
+        const keptC = tab('/ws/c.md', 'c.md', { content: 'kept c', isDirty: true, disk: { stamp: writtenOn } })
+        let left!: DocumentTab[]
+        act(() => {
+            left = coordinator.setTabsFromWorkspace.current(
+                [tab('/ws/a.md', 'a.md', { content: 'kept a', isDirty: true, disk: { stamp: writtenOn } }), keptB, keptC],
+                '/ws/b.md'
+            )
+        })
+
+        // a.md had no edits: it takes the kept text, editable as it was then. b.md and c.md were edited since: left as they are.
+        expect(result.current.tabs).toEqual([
+            expect.objectContaining({ id: '/ws/a.md', content: 'kept a', isDirty: true, disk: { stamp: writtenOn } }),
+            expect.objectContaining({ id: '/ws/b.md', content: 'typed since', isDirty: true }),
+            expect.objectContaining({ id: '/ws/c.md', content: 'typed and saved', isDirty: false }),
+        ])
+        expect(result.current.tabs[0]).not.toHaveProperty('readOnly')
+        expect(result.current.tabs[0]).not.toHaveProperty('largeFile')
+        expect(left).toEqual([keptB, keptC])
+        // The text put back is copied again, as after any edit.
+        expect(scheduleBackup).toHaveBeenCalledTimes(1)
+        expect(scheduleBackup).toHaveBeenCalledWith('/ws/a.md')
+        expect(result.current.activeTabId).toBe('/ws/a.md')
+    })
+
     it('never saves the same file twice in the list of open tabs', async () => {
         const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/a.mmd', 'a.mmd')], activeTabId: '/ws/a.mmd' }
         const coordinator = createWorkspaceCoordinatorRefs()
@@ -1706,5 +1948,43 @@ describe('changes to several tabs at once', () => {
         })
 
         expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/a.mmd'], activeTabId: '/ws/a.mmd' })
+    })
+})
+
+describe('reloading a file another app changed', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
+
+    afterEach(() => {
+        vi.mocked(readFile).mockReset()
+        vi.mocked(readFile).mockResolvedValue(new Uint8Array())
+        vi.mocked(stat).mockReset()
+        vi.mocked(stat).mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null } as never)
+    })
+
+    it('puts the new text in the editor as the tab takes it, before the screen draws again', async () => {
+        const initial = { tabs: [tab('/ws/a.md', 'a.md', { content: 'mine', disk: { stamp: { mtimeMs: 1, size: 4 } } })], activeTabId: '/ws/a.md' }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const stateOut: { current?: DocumentTabsState } = {}
+        const inTabWhenReplaced: string[] = []
+        coordinator.replaceEditorText.current = vi.fn((id: string) => {
+            inTabWhenReplaced.push(stateOut.current!.tabsRef.current.find((t) => t.id === id)!.content)
+        })
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws', stateOut }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+        vi.mocked(stat).mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 6, mtime: new Date(2), nlink: null } as never)
+        vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode('theirs'))
+
+        await act(async () => {
+            await coordinator.reloadChangedTabs.current()
+        })
+
+        expect(coordinator.replaceEditorText.current).toHaveBeenCalledExactlyOnceWith('/ws/a.md', 'theirs')
+        expect(inTabWhenReplaced).toEqual(['theirs'])
+        expect(result.current.tabs[0]).toMatchObject({ content: 'theirs', isDirty: false, disk: { stamp: { mtimeMs: 2, size: 6 } } })
     })
 })

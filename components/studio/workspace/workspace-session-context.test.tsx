@@ -22,11 +22,11 @@ import {
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
     confirmOpenLargeFile,
-    confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickWorkspaceFolder,
     showError,
 } from '@/lib/tauri/dialog'
+import { confirmOverwriteDiskChange } from '@/components/studio/dialogs/disk-change-dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
@@ -88,10 +88,14 @@ vi.mock('@/lib/tauri/dialog', () => ({
     showError: vi.fn(async () => undefined),
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
-    confirmOverwriteDiskChange: vi.fn(async () => 'keep' as const),
     confirmDeleteHiddenFolders: vi.fn(async () => false),
     confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
     confirmOpenLargeFile: vi.fn(async () => false),
+}))
+
+vi.mock('@/components/studio/dialogs/disk-change-dialog', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/components/studio/dialogs/disk-change-dialog')>()),
+    confirmOverwriteDiskChange: vi.fn(async () => 'keep' as const),
 }))
 
 const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
@@ -1263,6 +1267,54 @@ describe('changes made outside Scrivon', () => {
         expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
     })
 
+    it('never asks from an autosave, as a question popping up while the user types could take a key as its answer', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 20 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'MY EDITS', isDirty: false }))
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]?.saveError).toBe('It was changed outside Scrivon since you opened it.'))
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'MY EDITS 2', isDirty: true, isSaving: false })
+        const notice = vi.mocked(notifyError).mock.calls.find(([title]) => title === "Couldn't save notes.md")
+        expect(notice?.[2]).toMatchObject({ timeout: 0, action: { label: 'Try Again' } })
+
+        // More typing doesn't try again, so nothing is asked later either.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 3'))
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 60))
+        })
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(notifyError).toHaveBeenCalledTimes(1)
+
+        // Try Again on the notice is the user asking, so it asks.
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('overwrite')
+        await act(async () => {
+            ;(notice![2] as NotifyOptions).action!.onClick()
+        })
+        await waitFor(async () => expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS 3'))
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+    })
+
+    it('never asks when the user switches away from a tab whose file changed elsewhere', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+
+        act(() => coordinatorOut.current!.flushSaveOnTabLeave.current('C:\\ws\\notes.md'))
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]?.saveError).toBe('It was changed outside Scrivon since you opened it.'))
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        // Saving it on purpose asks.
+        await expect(save()).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+    })
+
     it('shows the other version and drops the edits when the user picks Reload', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
         await openAndEdit(result)
@@ -1402,6 +1454,88 @@ describe('changes made outside Scrivon', () => {
             expect(readDir).toHaveBeenCalledTimes(readsBefore)
         })
 
+        it('takes a save on Windows, reported as the file renamed away and back, as a change, not a new file list', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            const readsBefore = vi.mocked(readDir).mock.calls.length
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+
+            const rename = (mode: 'from' | 'to', path: string) => report!({ type: { modify: { kind: 'rename', mode } }, paths: [path], attrs: null })
+            await act(async () => {
+                report!({ type: { create: { kind: 'any' } }, paths: ['C:\\ws\\notes.md~RF1f2e.TMP'], attrs: null })
+                rename('from', 'C:\\ws\\notes.md')
+                rename('to', 'C:\\ws\\notes.md~RF1f2e.TMP')
+                rename('from', 'C:\\ws\\.scrivon-save-x1.tmp')
+                rename('to', 'C:\\ws\\notes.md')
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+                report!({ type: { remove: { kind: 'any' } }, paths: ['C:\\ws\\notes.md~RF1f2e.TMP'], attrs: null })
+            })
+
+            await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
+            expect(readDir).toHaveBeenCalledTimes(readsBefore)
+            expect(result.current.session.tree.map((n) => n.name)).toEqual(['notes.md'])
+        })
+
+        it('looks only at the open files a change names, or that are inside a folder it names', async () => {
+            await disk.write('C:\\ws\\other.md', 'other v1')
+            await disk.write('C:\\ws\\docs\\inside.md', 'inside v1')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            for (const path of ['C:\\ws\\notes.md', 'C:\\ws\\other.md', 'C:\\ws\\docs\\inside.md']) {
+                await act(async () => {
+                    await result.current.tabs.openFile(path)
+                })
+            }
+            const tabText = (id: string) => result.current.tabs.tabs.find((t) => t.id === id)?.content
+            // Each look at an open file is a plugin-fs stat, which runs on the window's main thread.
+            const lookedAt = (name: string) => vi.mocked(stat).mock.calls.some(([path]) => String(path).toLowerCase().endsWith(name))
+            vi.mocked(stat).mockClear()
+
+            // An autosave, or another app saving notes.md.
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+            })
+            await waitFor(() => expect(tabText('C:\\ws\\notes.md')).toBe('saved by another editor'))
+            expect(lookedAt('other.md')).toBe(false)
+            expect(lookedAt('inside.md')).toBe(false)
+
+            // A folder put back (renamed back, say) is named on its own.
+            vi.mocked(stat).mockClear()
+            await disk.write('C:\\ws\\docs\\inside.md', 'inside v2')
+            await act(async () => {
+                report!({ type: { create: { kind: 'folder' } }, paths: ['C:\\ws\\docs'], attrs: null })
+            })
+            await waitFor(() => expect(tabText('C:\\ws\\docs\\inside.md')).toBe('inside v2'))
+            expect(lookedAt('other.md')).toBe(false)
+        })
+
+        it('shows the new text of an open file straight away, even right after the folder was read', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            // Another app adds a file, so the folder is read again; the next read has to wait a few seconds.
+            const readsBefore = vi.mocked(readDir).mock.calls.length
+            await disk.write('C:\\ws\\from-sync.md', '# new')
+            await act(async () => {
+                report!({ type: { create: { kind: 'any' } }, paths: ['C:\\ws\\from-sync.md'], attrs: null })
+            })
+            await waitFor(() => expect(readDir).toHaveBeenCalledTimes(readsBefore + 1))
+
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+            })
+
+            await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
+            expect(readDir).toHaveBeenCalledTimes(readsBefore + 1)
+        })
+
         it('still reads the folder on focus where it cannot be watched', async () => {
             vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
@@ -1516,6 +1650,31 @@ describe('changes made outside Scrivon', () => {
             windowFocus.handler!({ payload: true })
             await new Promise((resolve) => setTimeout(resolve, 20))
         })
+        expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1)
+    })
+
+    it('shows the new text of an open file when the window gets focus again soon after, without reading the folder again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        const readsAfterOpen = vi.mocked(readDir).mock.calls.length
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1))
+
+        // Saved in VS Code, then back to Scrivon within a few seconds.
+        await disk.write('C:\\ws\\notes.md', 'saved in VS Code')
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved in VS Code', isDirty: false }))
         expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1)
     })
 })
@@ -1646,6 +1805,89 @@ describe('unsaved text kept from a crash', () => {
         expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
         expect(await disk.read('C:\\ws\\notes.md')).toBe('typed before the crash')
         expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+    })
+
+    describe('when the user opens that file while the tabs are still loading', () => {
+        let finishOther!: () => void
+
+        beforeEach(() => {
+            vi.mocked(getWorkspaceTabSession).mockResolvedValueOnce({ tabIds: ['C:\\ws\\other.md'], activeTabId: 'C:\\ws\\other.md' })
+            vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])
+            // Reading the other saved tab is slow, so the user has time to open notes.md from the tree first.
+            const otherRead = new Promise<void>((resolve) => (finishOther = resolve))
+            vi.mocked(readFile).mockImplementation(async (path) => {
+                if (String(path).endsWith('other.md')) await otherRead
+                return disk.readBytes(path)
+            })
+        })
+
+        async function openNotesDuringRestore(result: { current: ReturnType<typeof useHarness> }, typed?: string, { saved = false } = {}) {
+            let opening!: Promise<void>
+            act(() => {
+                opening = result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'on disk', isDirty: false })])
+            if (typed !== undefined) act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', typed))
+            if (saved) await expect(save('C:\\ws\\notes.md')).resolves.toBe(true)
+            await act(async () => {
+                finishOther()
+                await opening
+            })
+        }
+
+        it('puts the unsaved text into the tab the user opened', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openNotesDuringRestore(result)
+
+            expect(result.current.tabs.tabs).toEqual([
+                expect.objectContaining({ id: 'C:\\ws\\other.md' }),
+                expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'typed before the crash', isDirty: true }),
+            ])
+            expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Recovered unsaved changes',
+                expect.objectContaining({ id: 'recovered-changes', description: expect.stringContaining('your changes to notes.md') })
+            )
+            await expect(save('C:\\ws\\notes.md')).resolves.toBe(true)
+            expect(await disk.read('C:\\ws\\notes.md')).toBe('typed before the crash')
+        })
+
+        it('saves the unsaved text as a new file when the user already typed in that tab, and keeps what they typed', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openNotesDuringRestore(result, 'typed after opening')
+
+            expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({ content: 'typed after opening', isDirty: true })
+            await waitFor(async () => expect(await disk.exists('C:\\ws\\notes (recovered).md')).toBe(true))
+            expect(await disk.read('C:\\ws\\notes (recovered).md')).toBe('typed before the crash')
+            expect(notifyWarning).not.toHaveBeenCalledWith('Recovered unsaved changes', expect.objectContaining({ id: 'recovered-changes' }))
+            await waitFor(() =>
+                expect(notifyWarning).toHaveBeenCalledWith(
+                    'Recovered unsaved changes',
+                    expect.objectContaining({ description: expect.stringContaining("they're saved as notes (recovered).md instead") })
+                )
+            )
+            await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toContain('notes (recovered).md'))
+            expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+
+        it('saves the unsaved text as a new file when the user typed in that tab and saved it, and keeps what they saved', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openNotesDuringRestore(result, 'typed and saved after opening', { saved: true })
+
+            // Clean again, but newer than the text kept from the crash, which doesn't replace it.
+            expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({
+                content: 'typed and saved after opening',
+                isDirty: false,
+            })
+            await waitFor(async () => expect(await disk.exists('C:\\ws\\notes (recovered).md')).toBe(true))
+            expect(await disk.read('C:\\ws\\notes (recovered).md')).toBe('typed before the crash')
+            expect(await disk.read('C:\\ws\\notes.md')).toBe('typed and saved after opening')
+            expect(notifyWarning).not.toHaveBeenCalledWith('Recovered unsaved changes', expect.objectContaining({ id: 'recovered-changes' }))
+        })
     })
 
     it('asks before saving the recovered text over a file changed in another app since', async () => {
@@ -2006,6 +2248,98 @@ describe('opening folders one after another', () => {
 
         expect(result.current.session.workspaceRoot).toBeNull()
         expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    /** Makes `mock` (a disk write or delete) wait until the test lets it finish. */
+    function slowly<T extends (...args: never[]) => Promise<void>>(mock: T, run: T) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(mock).mockImplementation((async (...args: Parameters<T>) => {
+            await done
+            await run(...args)
+        }) as unknown as T)
+        return finish
+    }
+
+    /**
+     * Opens C:\ws, starts `action` there, and once `started` passes (its disk change is under way) opens C:\small,
+     * and then lets `finish` end the disk change.
+     */
+    async function switchFoldersDuring(
+        started: () => void,
+        finish: () => void,
+        action: (session: ReturnType<typeof useWorkspaceSession>) => Promise<void>
+    ) {
+        const rendered = renderHook(useHarness, { wrapper: createWrapper() })
+        const { result } = rendered
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        let acting!: Promise<void>
+        act(() => {
+            acting = action(result.current.session)
+        })
+        await waitFor(started)
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\small')
+        })
+        vi.mocked(readDir).mockClear()
+        await act(async () => {
+            finish()
+            await acting
+        })
+        return rendered
+    }
+
+    const readsOfOldFolder = () => vi.mocked(readDir).mock.calls.filter(([dir]) => String(dir).toLowerCase().startsWith('c:\\ws'))
+
+    it("keeps the new folder's file list when a delete in the folder open before ends after the switch", async () => {
+        await disk.write('C:\\ws\\docs\\x.md', 'X')
+        const finish = slowly(remove, disk.remove)
+
+        const { result } = await switchFoldersDuring(
+            () => expect(remove).toHaveBeenCalled(),
+            finish,
+            (session) => session.deleteEntry('C:\\ws\\docs', true)
+        )
+
+        expect(await disk.exists('C:\\ws\\docs')).toBe(false)
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(readsOfOldFolder()).toEqual([])
+        // Its recent files are those of the folder it was deleted from.
+        expect(removeRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\docs')
+        expect(removeRecentFiles).not.toHaveBeenCalledWith('C:\\small', expect.anything())
+    })
+
+    it('neither opens nor lists a copy made in the folder open before when it ends after the switch', async () => {
+        const finish = slowly(writeFile, disk.writeBytes)
+
+        const { result } = await switchFoldersDuring(
+            () => expect(writeFile).toHaveBeenCalled(),
+            finish,
+            (session) => session.duplicateFile('C:\\ws\\notes.md')
+        )
+
+        expect(await disk.read('C:\\ws\\notes copy.md')).toBe('mine')
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(readsOfOldFolder()).toEqual([])
+    })
+
+    it('neither opens nor lists a file created in the folder open before when it ends after the switch', async () => {
+        const finish = slowly(writeTextFile, disk.write)
+
+        const { result } = await switchFoldersDuring(
+            () => expect(writeTextFile).toHaveBeenCalled(),
+            finish,
+            (session) => session.createFile('C:\\ws', 'new.md')
+        )
+
+        expect(await disk.exists('C:\\ws\\new.md')).toBe(true)
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(readsOfOldFolder()).toEqual([])
     })
 
     it('asks before reading a very large file again when reopening the tabs, and leaves it closed on Cancel', async () => {

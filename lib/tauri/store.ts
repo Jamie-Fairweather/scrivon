@@ -37,12 +37,23 @@ const BACKUP_SNAPSHOT_KEY = 'snapshot'
 const STORE_DAMAGED_NOTICE_ID = 'workspace-store-damaged'
 /** The OS error for a file (or the app's data folder) that isn't there yet, as on a first launch. */
 const FILE_MISSING = /\(os error [23]\)/
+/** The store plugin's error for a file it read but couldn't parse. */
+const FILE_DAMAGED = /^Failed to deserialize store\b/
+/** A file another program holds for a moment (access denied, or a sharing or lock violation): tried again shortly. */
+const FILE_BUSY = /\(os error (5|32|33)\)/
+const BUSY_RETRIES = 3
+const BUSY_RETRY_MS = 200
+const STORE_UNREADABLE_NOTICE_ID = 'workspace-store-unreadable'
 
 const STORE_SAVE_FAILED_NOTICE_ID = 'workspace-store-save-failed'
 
-let storeReady: Promise<Store> | null = null
+let storeReady: Promise<Store | null> | null = null
 let saveFailureShown = false
 
+/**
+ * The store; null outside the desktop app, and for the rest of the run when workspace.json couldn't be read
+ * (see leaveUnreadableStore): the lists are then empty, and nothing is saved.
+ */
 async function getStore(): Promise<Store | null> {
     if (!isTauri()) return null
     storeReady ??= openStore().catch((err: unknown) => {
@@ -82,23 +93,67 @@ async function openAppStore(path: string): Promise<Store> {
     return s
 }
 
-async function openStore(): Promise<Store> {
-    const s = await openAppStore(STORE_PATH)
-    // Opening ignores a file it can't read or parse and starts empty; reading the file again says why.
-    let readError: unknown = null
+/** Reads workspace.json into the store again. Returns why it couldn't, or null when it could. */
+async function readStoreFile(s: Store): Promise<unknown> {
     try {
         await s.reload()
+        return null
     } catch (err) {
-        readError = err
+        return err ?? new Error("Couldn't read workspace.json.")
     }
+}
+
+/** Null when workspace.json can't be used this run (see leaveUnreadableStore). */
+async function openStore(): Promise<Store | null> {
+    const s = await getAppStore(STORE_PATH)
+    if (!s) {
+        // The app shell couldn't open it at startup, or it was closed earlier in this run because it couldn't be
+        // read (and the window was reloaded since).
+        warnStoreUnreadable(new Error("Scrivon couldn't open workspace.json."))
+        return null
+    }
+    // Opening ignores a file it can't read or parse and starts empty; reading the file again says why.
+    let readError = await readStoreFile(s)
+    for (let tries = 0; readError !== null && FILE_BUSY.test(errorMessage(readError, '')) && tries < BUSY_RETRIES; tries++) {
+        await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS))
+        readError = await readStoreFile(s)
+    }
+    const message = errorMessage(readError, '')
     if (readError === null) void keepStoreBackup(s)
-    else if (!FILE_MISSING.test(errorMessage(readError, ''))) await recoverStore(s, readError, null)
-    else {
+    else if (FILE_DAMAGED.test(message)) await recoverStore(s, readError, null)
+    else if (FILE_MISSING.test(message)) {
         // Missing because the app shell moved a damaged file aside, or simply not there yet (a first launch).
         const keptAs = await takeDamagedStoreName()
         if (keptAs) await recoverStore(s, readError, keptAs)
-    }
+    } else if (await leaveUnreadableStore(s, readError)) return null
     return s
+}
+
+/**
+ * workspace.json is there but couldn't be read just now (locked, or on a network drive that is offline). It is
+ * left as it is: for the rest of this run nothing is read from it or saved to it. Not saving isn't enough, as
+ * the store plugin also saves every store it has open when the app quits, and this one is empty: once the file
+ * can be written again, that would put an empty list over it. So the store is closed, which the plugin skips.
+ * Returns false when the store can be used after all.
+ */
+async function leaveUnreadableStore(s: Store, readError: unknown): Promise<boolean> {
+    console.warn("Couldn't read workspace.json", readError)
+    // Still held from earlier in this run (the window was reloaded): that came from the file, so it can be saved.
+    if ((await s.length()) > 0) return false
+    try {
+        await s.close()
+    } catch (err) {
+        console.warn("Couldn't close workspace.json", err)
+    }
+    warnStoreUnreadable(readError)
+    return true
+}
+
+function warnStoreUnreadable(err: unknown): void {
+    notifyWarning("Couldn't read recent folders", {
+        id: STORE_UNREADABLE_NOTICE_ID,
+        description: `${errorMessage(err)} The file was left as it is, and recent folders and open tabs won't be remembered until Scrivon is restarted. Your documents aren't affected.`,
+    })
 }
 
 /**
@@ -193,8 +248,10 @@ function toPathList(value: unknown): string[] {
  * the copies of unsaved edits (lib/tauri/backups.ts) are kept. Errors reach the caller.
  */
 export async function clearWorkspaceStore(): Promise<void> {
+    if (!isTauri()) return
     const s = await getStore()
-    if (!s) return
+    // Nothing from it is in use this run, and it is left alone (see leaveUnreadableStore).
+    if (!s) throw new Error("Scrivon couldn't read them when it started, so it left them as they are.")
     await s.clear()
     await s.save()
 }

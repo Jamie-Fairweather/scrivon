@@ -430,10 +430,13 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
     }, [])
 
-    /** Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. */
-    const syncEditorWithActiveTab = useCallback(() => {
+    /**
+     * Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. `given` is text the tab
+     * on screen has just been given from outside the editor, before React draws it (see replaceEditorText).
+     */
+    const syncEditorWithActiveTab = useCallback((given?: { content: string }) => {
         const model = editorRef.current?.getModel()
-        const tab = activeTabRef.current
+        const tab = given ?? activeTabRef.current
         const monaco = monacoRef.current
         if (!model || !tab || !monaco) return
         if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) return
@@ -467,6 +470,24 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         unseenEditsRef.current = { tabId: null, texts: [] }
         syncEditorWithActiveTab()
     }, [activeTabId, activeContent, syncEditorWithActiveTab])
+
+    // Text a tab gets from disk (a reload) goes into the editor at once, not when the screen next draws: a
+    // key pressed in between would otherwise edit the old text, and saving that would replace the file's
+    // new version without asking. Only the tab on screen can be typed in; another one catches up when shown.
+    const replaceEditorText = useCallback(
+        (tabId: string, text: string) => {
+            if (!editorRef.current?.getModel() || activeTabIdRef.current !== tabId) return
+            // Whatever the editor sent before is based on the old text.
+            unseenEditsRef.current = { tabId: null, texts: [] }
+            // Put in exactly as the tab's text is when the screen draws, so the two ways can't differ.
+            syncEditorWithActiveTab({ content: text })
+        },
+        [syncEditorWithActiveTab]
+    )
+
+    useEffect(() => {
+        registerCoordinatorRefs(coordinator, { replaceEditorText })
+    }, [coordinator, replaceEditorText])
 
     // Free the buffers of tabs that are no longer open.
     useEffect(() => {

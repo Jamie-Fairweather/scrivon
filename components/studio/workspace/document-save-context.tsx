@@ -1,11 +1,11 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { confirmOverwriteDiskChange, DiskChangeDialog, type DiskChange, type DiskChangeChoice } from '@/components/studio/dialogs/disk-change-dialog'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
 import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
-import { confirmOverwriteDiskChange, type DiskChange, type DiskChangeChoice } from '@/lib/tauri/dialog'
 import { DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
 import { tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileStamp } from '@/lib/workspace/types'
@@ -22,6 +22,17 @@ type DocumentSaveContextValue = {
 }
 
 const DocumentSaveContext = createContext<DocumentSaveContextValue | null>(null)
+
+type SaveOptions = {
+    /** No saving mark on the tab: for switching tabs. */
+    silent?: boolean
+    /**
+     * A save the user didn't ask for just now (autosave, switching tabs). It never asks a question, as one
+     * popping up while they type could take the next key as its answer: a file changed elsewhere only gets
+     * the "couldn't save" notice, and its Try Again asks.
+     */
+    background?: boolean
+}
 
 function saveErrorToastId(tabId: string): string {
     return `save-error:${tabId}`
@@ -137,12 +148,12 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
     }, [])
 
     const writeTab = useCallback(
-        async (id: string, silent: boolean): Promise<boolean> => {
+        async (id: string, { silent = false, background = false }: SaveOptions): Promise<boolean> => {
             const tab = tabsRef.current.find((t) => t.id === id)
             if (!tab || tab.readOnly || !tab.isDirty) return true
             const disk = tab.disk
-            // The user chose not to save over a change made elsewhere: only an explicit save asks again.
-            if (silent && disk?.conflict) return false
+            // The file was changed elsewhere and the user hasn't saved over it: only a save they ask for asks.
+            if (background && disk?.conflict) return false
 
             const content = tab.content
             if (!silent) {
@@ -157,6 +168,10 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                     stamp = await writeWorkspaceFile(tab.path, content, { format: tab.format, expected: disk ? disk.stamp : undefined })
                 } catch (err) {
                     if (!(err instanceof DiskChangedError) || !disk) throw err
+                    if (background) {
+                        disk.conflict = err.change
+                        throw err
+                    }
                     const choice = await askAboutDiskChange(tab.name, err.change)
                     if (choice !== 'overwrite') disk.conflict = err.change
                     if (choice === 'keep') throw err
@@ -216,12 +231,12 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
     // Tabs whose file is being renamed or deleted. A save asked for meanwhile waits, then goes to wherever
     // the tab is afterwards, so it can never bring back the old file or be dropped.
     const holds = useRef(new Map<string, { whereNow: Promise<string | null>; wantsSave: boolean }>())
-    const flushSaveRef = useRef<(id: string, options?: { silent?: boolean }) => Promise<boolean>>(async () => true)
+    const flushSaveRef = useRef<(id: string, options?: SaveOptions) => Promise<boolean>>(async () => true)
 
     const flushSave = useCallback(
-        (id: string, { silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
+        (id: string, options: SaveOptions = {}): Promise<boolean> => {
             const hold = holds.current.get(id)
-            if (hold) return hold.whereNow.then((next) => (next ? flushSaveRef.current(next, { silent }) : true))
+            if (hold) return hold.whereNow.then((next) => (next ? flushSaveRef.current(next, options) : true))
 
             const timer = saveTimers.current.get(id)
             if (timer) {
@@ -231,7 +246,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
 
             // Saves for one tab run one after another, so an older write can never land after a newer one.
             const previous = inFlightSaves.current.get(id)
-            const run = previous ? previous.then(() => writeTab(id, silent)) : writeTab(id, silent)
+            const run = previous ? previous.then(() => writeTab(id, options)) : writeTab(id, options)
             inFlightSaves.current.set(id, run)
             void run.finally(() => {
                 if (inFlightSaves.current.get(id) === run) inFlightSaves.current.delete(id)
@@ -268,7 +283,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
 
             const timer = setTimeout(() => {
                 saveTimers.current.delete(id)
-                void flushSave(id)
+                void flushSave(id, { background: true })
             }, autosaveDelayMsRef.current)
 
             saveTimers.current.set(id, timer)
@@ -357,7 +372,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
     const flushSaveOnTabLeave = useCallback(
         (id: string) => {
             if (!autosaveEnabledRef.current) return
-            void flushSave(id, { silent: true })
+            void flushSave(id, { silent: true, background: true })
         },
         [flushSave]
     )
@@ -398,5 +413,10 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
         [autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves, scheduleSave, flushSaveOnTabLeave]
     )
 
-    return <DocumentSaveContext.Provider value={value}>{children}</DocumentSaveContext.Provider>
+    return (
+        <DocumentSaveContext.Provider value={value}>
+            {children}
+            <DiskChangeDialog />
+        </DocumentSaveContext.Provider>
+    )
 }

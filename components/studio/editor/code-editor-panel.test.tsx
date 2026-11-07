@@ -234,7 +234,11 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 type RevealInEditor = (path: string, line: number, column: number, length?: number) => void
-const coordinatorHandlers: { revealInEditor?: RevealInEditor; getEditorSelectedText?: () => string | null } = {}
+const coordinatorHandlers: {
+    revealInEditor?: RevealInEditor
+    getEditorSelectedText?: () => string | null
+    replaceEditorText?: (tabId: string, text: string) => void
+} = {}
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({
     registerCoordinatorRefs: (_refs: unknown, handlers: typeof coordinatorHandlers) => Object.assign(coordinatorHandlers, handlers),
 }))
@@ -399,6 +403,27 @@ describe('CodeEditorPanel models', () => {
         setTabs(view, { tabs: [tab(a, 'A12')], activeTabId: a })
         expect(editor.getValue()).toBe('A12')
         expect(updateTabContent).toHaveBeenLastCalledWith(a, 'A12')
+    })
+
+    it('puts text reloaded from disk into the editor at once, so a key pressed before the screen draws edits it', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'my text'), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // Another app saved a.md and its tab took the new text, but the screen hasn't drawn again yet.
+        act(() => coordinatorHandlers.replaceEditorText!(a, 'their text'))
+        expect(editor.getValue()).toBe('their text')
+        expect(updateTabContent).not.toHaveBeenCalled()
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'their text!')
+
+        setTabs(view, { tabs: [tab(a, 'their text!'), tab(b, 'B')], activeTabId: a })
+        expect(editor.getValue()).toBe('their text!')
+
+        // A tab that isn't on screen catches up when it is shown.
+        act(() => coordinatorHandlers.replaceEditorText!(b, 'B from disk'))
+        expect(editor.getValue()).toBe('their text!')
     })
 })
 

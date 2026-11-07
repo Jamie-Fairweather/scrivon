@@ -22,6 +22,7 @@ import {
     getBaseName,
     getWorkspaceFileSize,
     isFileMissingError,
+    isPathInside,
     isSupportedDocument,
     normalizePath,
     readStamp,
@@ -103,6 +104,10 @@ const ActiveTabIdContext = createContext<string | null | undefined>(undefined)
 
 /** How long closing waits for a save before asking the user (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
+
+/** Rounds of saving closing tabs again for text typed meanwhile, before asking the user. */
+const MAX_SAVE_ROUNDS_BEFORE_CLOSE = 3
+const EDITED_WHILE_SAVING = 'It was edited again while it was being saved.'
 
 /** Time spent waiting for the user to answer a question during the save doesn't count. */
 function saveWithin(save: Promise<boolean>, ms: number, isAskingUser: () => boolean): Promise<boolean | 'timeout'> {
@@ -267,8 +272,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                           saveError: undefined,
                       }
                     : t
-            // The ref changes straight away, so a save or restore that runs before React re-renders sees the new text.
+            // The ref and the editor change straight away, so a save, a restore or a key pressed before React
+            // re-renders sees the new text (and the disk version it goes with).
             tabsRef.current = tabsRef.current.map(reloaded)
+            coordinator.replaceEditorText.current(id, fresh.content)
             setTabs((prev) => prev.map(reloaded))
             dismissNotification(readOnlyNoticeId(id))
             // The other app may have saved it in a way Scrivon opens read-only (not UTF-8, say).
@@ -293,6 +300,15 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         },
         [coordinator]
     )
+
+    // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
+    const pendingOpens = useRef(new Map<string, Promise<void>>())
+    // The file or tab the user asked for last: an open that finishes after it doesn't take the focus away.
+    const lastRequestedRef = useRef<string | null>(null)
+
+    // Goes up whenever every tab goes (a folder switch or close): a file still being read for the folder that
+    // was open then doesn't open in the next one, or save its tab list under the old folder.
+    const tabsGeneration = useRef(0)
 
     useEffect(() => {
         registerCoordinatorRefs(coordinator, {
@@ -322,6 +338,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 coordinator.tabsMoved.current(
                     prevTabs.flatMap((t, i) => (t.isDirty && t.id !== nextTabs[i]!.id ? [{ from: t.id, to: nextTabs[i]!.id }] : []))
                 )
+                // A read-only notice's button is tied to the old path, so it would find no tab. It isn't shown again
+                // (the user may have closed it); the bar above the editor still says why and offers the same button.
+                prevTabs.forEach((t, i) => {
+                    if (t.id !== nextTabs[i]!.id && readOnlyReason(t)) dismissNotification(readOnlyNoticeId(t.id))
+                })
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
             closeTabsForDelete: (path, isDirectory) => {
@@ -341,6 +362,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
             clearTabs: () => {
                 releaseTabs(tabsRef.current)
+                tabsGeneration.current += 1
+                pendingOpens.current.clear()
+                lastRequestedRef.current = null
                 // The refs change straight away, so anything that runs before React re-renders sees no tabs.
                 tabsRef.current = []
                 activeTabIdRef.current = null
@@ -354,19 +378,57 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
                 // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.
                 const opened = tabsRef.current
-                const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !current.some((o) => samePath(o.path, t.path)))
+                const openTab = (current: readonly DocumentTab[], path: string) => current.find((o) => samePath(o.path, path))
+                const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !openTab(current, t.path))
                 const restored = notOpen(opened)
-                tabsRef.current = [...restored, ...opened]
+                // Unsaved text kept from a crash (a restored tab with edits) goes into that open tab instead, as long as
+                // the user hasn't changed it: no edits, and still the version of the file that text was written on.
+                // A tab typed in and saved since is clean again, but holds newer text (and its save dropped the copy).
+                // Otherwise the text is left out for the caller to keep some other way.
+                const takesRecovered = (o: DocumentTab, r: DocumentTab) => {
+                    const onDisk = o.disk?.stamp
+                    const writtenOn = r.disk?.stamp
+                    return !o.isDirty && !o.isSaving && !!onDisk && !!writtenOn && !stampChanged(writtenOn, onDisk)
+                }
+                const recovered = nextTabs.filter((t) => {
+                    const o = t.isDirty ? openTab(opened, t.path) : undefined
+                    return o !== undefined && o.content !== t.content
+                })
+                const left = recovered.filter((t) => !takesRecovered(openTab(opened, t.path)!, t))
+                const withRecovered = (o: DocumentTab): DocumentTab => {
+                    const r = recovered.find((t) => samePath(t.path, o.path) && !left.includes(t))
+                    if (!r || !takesRecovered(o, r)) return o
+                    const merged: DocumentTab = { ...o, content: r.content, format: r.format, disk: r.disk, isDirty: true }
+                    // As tabWithRecoveredText: it was being edited, so a read-only reason from the file now doesn't apply.
+                    delete merged.readOnly
+                    delete merged.encodingIssue
+                    delete merged.largeFile
+                    return merged
+                }
+                tabsRef.current = [...restored, ...opened.map(withRecovered)]
                 // Merged into the latest state, so a keystroke queued in the same update isn't lost.
-                setTabs((prev) => [...notOpen(prev), ...prev])
+                setTabs((prev) => [...notOpen(prev), ...prev.map(withRecovered)])
+                for (const t of recovered) {
+                    if (left.includes(t)) continue
+                    const id = openTab(opened, t.path)!.id
+                    coordinator.replaceEditorText.current(id, t.content)
+                    // Copied again, as after any edit, so the text is kept even if its copy went while the file was open.
+                    coordinator.scheduleBackup.current(id)
+                    dismissNotification(readOnlyNoticeId(id))
+                }
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
                 for (const tab of restored) explainReadOnlyFile(tab)
+                return left
             },
             reloadTabFromDisk: async (id) => {
                 await reloadTab(id, false)
             },
-            reloadChangedTabs: async () => {
-                const unedited = tabsRef.current.filter((t) => !t.isDirty && !t.isSaving && !t.readOnly && t.disk?.stamp && !isExampleTabId(t.id))
+            reloadChangedTabs: async (paths) => {
+                // Each tab costs a look at its file, so only those at (or inside) the paths given, when there are some.
+                const named = (t: DocumentTab) => !paths || paths.some((p) => samePath(t.path, p) || isPathInside(t.path, p))
+                const unedited = tabsRef.current.filter(
+                    (t) => !t.isDirty && !t.isSaving && !t.readOnly && t.disk?.stamp && !isExampleTabId(t.id) && named(t)
+                )
                 await Promise.all(
                     unedited.map(async (tab) => {
                         const now = await readStamp(tab.path)
@@ -384,11 +446,6 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
         })
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab])
-
-    // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
-    const pendingOpens = useRef(new Map<string, Promise<void>>())
-    // The file or tab the user asked for last: an open that finishes after it doesn't take the focus away.
-    const lastRequestedRef = useRef<string | null>(null)
 
     const openFile = useCallback(
         async (requestedPath: string) => {
@@ -417,20 +474,27 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
             if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
 
+            const generation = tabsGeneration.current
+            const stale = () => generation !== tabsGeneration.current
             const open = (async () => {
                 // Only reading the file can make the open fail; remembering it afterwards is best-effort.
                 let read: DocumentTab
                 try {
                     // A huge file can make the app stop responding for a while, so the user decides before it is read.
                     const size = await getWorkspaceFileSize(path)
+                    if (stale()) return
                     if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
+                    if (stale()) return
                     read = tabFromFile(path, await readWorkspaceTextFile(path))
                 } catch (err) {
+                    if (stale()) return
                     // Only a file that isn't there leaves the list; a locked one may open next time.
                     if (isFileMissingError(err)) forgetRecentFile(path)
                     await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
                     return
                 }
+                // The folder it was in was switched or closed while it was read.
+                if (stale()) return
                 // Restoring a folder's tabs may have opened it meanwhile; that tab is kept, never a second copy.
                 const alreadyOpen = tabsRef.current.find((t) => samePath(t.path, path))
                 const tab = alreadyOpen ?? read
@@ -449,7 +513,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 if (isLatest) recordRecentFile(tab.id)
             })()
             pendingOpens.current.set(path, open)
-            void open.finally(() => pendingOpens.current.delete(path))
+            void open.finally(() => {
+                // Not a newer open of the same path, started after the folder changed.
+                if (pendingOpens.current.get(path) === open) pendingOpens.current.delete(path)
+            })
             return open
         },
         [coordinator, persistTabSession, recordRecentFile, forgetRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
@@ -516,8 +583,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     )
 
     const resolveUnsavedTabs = useCallback(
-        async (closing: DocumentTab[]): Promise<boolean> => {
-            const editable = closing.filter((t) => !t.readOnly)
+        async (closingNow: () => DocumentTab[]): Promise<boolean> => {
+            const editable = closingNow().filter((t) => !t.readOnly)
             let toSave: DocumentTab[] = []
             if (coordinator.getAutosaveEnabled.current()) {
                 toSave = editable
@@ -530,7 +597,14 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 }
             }
 
+            // Tabs whose save failed and that the user chose to close without saving.
+            const discarded = new Set<string>()
+            // Text typed into a closing tab while the saves ran (or into one that had no edits then) isn't on disk
+            // yet, and the tabs are about to go: it is saved too, unless the user let that tab go unsaved.
+            const stillEdited = () => closingNow().filter((t) => !t.readOnly && t.isDirty && !discarded.has(t.id))
+            let rounds = 0
             while (toSave.length > 0) {
+                rounds += 1
                 const results = await Promise.all(
                     toSave.map(async (tab) => ({
                         tab,
@@ -541,20 +615,35 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                         ),
                     }))
                 )
-                const failed = results.filter((r) => r.result !== true)
-                if (failed.length === 0) break
+                let failed: Array<{ tab: DocumentTab; result: boolean | 'timeout' | 'edited' }> = results.filter((r) => r.result !== true)
+                if (failed.length === 0) {
+                    // Saved again until none is left. Someone still typing after a few rounds is asked, as for a
+                    // save that failed.
+                    toSave = stillEdited()
+                    if (toSave.length === 0) break
+                    if (rounds < MAX_SAVE_ROUNDS_BEFORE_CLOSE) continue
+                    failed = toSave.map((tab) => ({ tab, result: 'edited' }))
+                }
                 // A save that timed out is still running, and saves of one tab wait their turn, so another try
                 // can only wait for it: the question says so.
                 const choice = await confirmCloseAfterSaveFailure(
                     failed.map(({ tab, result }) =>
                         result === 'timeout'
                             ? { name: tab.name, stillSaving: true }
-                            : { name: tab.name, error: coordinator.getSaveError.current(tab.id) }
+                            : result === 'edited'
+                              ? { name: tab.name, error: EDITED_WHILE_SAVING }
+                              : { name: tab.name, error: coordinator.getSaveError.current(tab.id) }
                     )
                 )
                 if (choice === 'cancel') return false
-                if (choice === 'discard') break
-                toSave = failed.map((r) => r.tab)
+                rounds = 0
+                if (choice === 'discard') {
+                    // Only the tabs the question named go unsaved; another closing tab typed in meanwhile is saved.
+                    for (const { tab } of failed) discarded.add(tab.id)
+                    toSave = stillEdited()
+                } else {
+                    toSave = failed.map((r) => r.tab)
+                }
             }
             return true
         },
@@ -578,7 +667,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 await new Promise((resolve) => setTimeout(resolve, 0))
             }
             const closing = closingNow()
-            const done = resolveUnsavedTabs(closing).catch((err: unknown) => {
+            const done = resolveUnsavedTabs(closingNow).catch((err: unknown) => {
                 notifyError("Couldn't close the files", err)
                 return false
             })

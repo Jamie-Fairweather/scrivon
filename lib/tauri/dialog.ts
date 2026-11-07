@@ -84,7 +84,11 @@ export async function showError(title: string, body: string): Promise<void> {
 
 type ThreeButtons = { yes: string; no: string; cancel: string }
 
-/** Asks a blocking question with three buttons. Anything other than the first two buttons counts as cancel. */
+/**
+ * Asks a blocking question with three buttons. Anything other than the first two buttons counts as cancel.
+ * The system dialog gives the keyboard to the first button, and Esc or closing it answers with the last, so
+ * a choice that loses work only ever goes in the middle (`no`): a key typed as the question opens can't pick it.
+ */
 async function askThreeWay(title: string, body: string, buttons: ThreeButtons): Promise<'yes' | 'no' | 'cancel'> {
     if (!isTauri()) {
         // The browser build has no three-button dialog, so it can only go ahead or stop; it never drops work.
@@ -201,8 +205,7 @@ export async function confirmDeleteHiddenFolders(folderName: string, hidden: str
         return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}.`)
     }
 
-    const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: 'Cancel' } })
-    return result === confirm || result === 'Ok'
+    return (await askThreeWay(title, body, { yes: 'Keep Folder', no: confirm, cancel: 'Cancel' })) === 'no'
 }
 
 export type KeptChangesChoice = 'save' | 'discard' | 'keep'
@@ -222,44 +225,4 @@ export async function confirmKeptChangesWithoutFolder(folderName: string, fileNa
     if (choice === 'yes') return 'save'
     if (choice === 'no') return 'discard'
     return 'keep'
-}
-
-/** What happened to a file outside Scrivon while it was open. */
-export type DiskChange = 'changed' | 'deleted'
-
-/**
- * What to do about it: save the user's version over it (or, for a deleted file, there again), open the
- * version now on disk instead (only for a changed file), or leave both as they are for now.
- */
-export type DiskChangeChoice = 'overwrite' | 'reload' | 'keep'
-
-/**
- * Asks before a save replaces a file someone else changed, or puts back a file someone deleted. For a
- * changed file the user can also reload it, which drops their edits. Anything but a button counts as keep.
- */
-export async function confirmOverwriteDiskChange(fileName: string, change: DiskChange): Promise<DiskChangeChoice> {
-    const keep = "Don't Save"
-    if (change === 'changed') {
-        const choice = await askThreeWay(
-            'File changed on disk',
-            `${fileName} was changed outside Scrivon since you opened it.\n\n` +
-                'Overwrite saves your version, and the other changes are lost. Reload opens the other version, and your changes are lost.',
-            { yes: 'Overwrite', no: 'Reload', cancel: keep }
-        )
-        if (choice === 'yes') return 'overwrite'
-        if (choice === 'no') return 'reload'
-        return 'keep'
-    }
-
-    const title = 'File deleted'
-    const body = `${fileName} was deleted or moved outside Scrivon.\n\nSave your version there again?`
-    const confirm = 'Save Again'
-
-    if (!isTauri()) {
-        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return 'keep'
-        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}. Cancel: ${keep}.`) ? 'overwrite' : 'keep'
-    }
-
-    const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: keep } })
-    return result === confirm || result === 'Ok' ? 'overwrite' : 'keep'
 }

@@ -337,13 +337,15 @@ export async function getWorkspaceFileSize(path: string): Promise<number | null>
 }
 
 const SAVE_TEMP_FILE = /^\.scrivon-save-[a-z0-9]+\.tmp$/
+/** `<name>~RF<hex>.TMP`, where Windows keeps the old file for a moment while ReplaceFileW puts the new one in place. */
+const REPLACED_FILE = /~RF[0-9a-f]+\.TMP$/i
 
 /**
- * The temporary file a save writes before it replaces the real one (src-tauri/src/atomic_write.rs names it).
- * Left behind only if the app dies mid-save.
+ * The temporary file a save writes before it replaces the real one (src-tauri/src/atomic_write.rs names it),
+ * or the one Windows moves the old file to while it does. Left behind only if the app dies mid-save.
  */
 function isSaveTempFile(name: string): boolean {
-    return SAVE_TEMP_FILE.test(name)
+    return SAVE_TEMP_FILE.test(name) || REPLACED_FILE.test(name)
 }
 
 /**
@@ -359,18 +361,8 @@ function saveRequestBody(path: string, bytes: Uint8Array): Uint8Array {
     return body
 }
 
-/** Windows file attributes that a file put in place of the original wouldn't have. */
-const FILE_ATTRIBUTE_HIDDEN = 0x2
-const FILE_ATTRIBUTE_SYSTEM = 0x4
-
-type FileOnDisk = {
-    /** Written straight into the file rather than replaced; see inspectFile. */
-    inPlace: boolean
-    stamp: FileStamp
-}
-
-/** What is at `path` now, or null when nothing is. */
-async function inspectFile(path: string): Promise<FileOnDisk | null> {
+/** The stamp of the file at `path` now (for a link, of the file it points to), or null when nothing is there. */
+async function inspectFile(path: string): Promise<FileStamp | null> {
     let info: Awaited<ReturnType<typeof lstat>>
     try {
         info = await lstat(path)
@@ -378,14 +370,9 @@ async function inspectFile(path: string): Promise<FileOnDisk | null> {
         if (!(await exists(path))) return null
         throw err
     }
-    // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file
-    // it points to. A hidden or system file is too, since the new file would show up without those marks.
-    const attributes = info.fileAttributes ?? 0
-    // (A hard link is written through as well; the save command checks that, since only it can tell on Windows.)
-    const inPlace = info.isSymlink || (info.nlink ?? 1) > 1 || (attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) !== 0
-    if (!info.isSymlink) return { inPlace, stamp: stampOf(info) }
+    if (!info.isSymlink) return stampOf(info)
     try {
-        return { inPlace, stamp: stampOf(await stat(path)) }
+        return stampOf(await stat(path))
     } catch {
         // The link points at a file that is gone.
         return null
@@ -417,10 +404,11 @@ export type WriteWorkspaceFileOptions = {
  * Saves text in the file's own encoding. The app's save command writes the bytes to a temporary file next
  * to it, flushes them to the disk, and then puts that file in its place in one step (on Windows keeping its
  * permissions, attributes and other streams). So a save that fails or is cut short (full disk, unplugged
- * drive, crash, power cut) leaves the old version, never an empty or half-written file. Where a file can be
- * changed but not replaced (no right to add files to its folder, or another program has it open), it is
- * written in place as before, rather than never saving. Resolves to the saved file's new stamp (null if it
- * couldn't be read).
+ * drive, crash, power cut) leaves the old version, never an empty or half-written file. A link (or a hard
+ * link) isn't replaced, which would cut it off from the file it points to: the command writes it through and
+ * flushes that too. Where a file can be changed but not replaced (no right to add files to its folder, or
+ * another program has it open), it is written in place as before, rather than never saving. Resolves to the
+ * saved file's new stamp (null if it couldn't be read).
  */
 export async function writeWorkspaceFile(
     path: string,
@@ -431,13 +419,9 @@ export async function writeWorkspaceFile(
     const current = await inspectFile(path)
     if (expected !== undefined) {
         if (!current) throw new DiskChangedError(path, 'deleted')
-        if (expected && stampChanged(expected, current.stamp)) throw new DiskChangedError(path, 'changed')
+        if (expected && stampChanged(expected, current)) throw new DiskChangedError(path, 'changed')
     }
     const bytes = encodeText(content, format)
-    if (current?.inPlace) {
-        await writeFile(path, bytes)
-        return readStamp(path)
-    }
     try {
         // It removes its temporary file itself when anything fails.
         await invoke('save_workspace_file', saveRequestBody(normalizePath(path), bytes))
@@ -600,6 +584,42 @@ export function classifyWatchEvent(root: string, event: WatchEvent): WorkspaceCh
 /** How long changes are gathered before they are reported together (a git checkout touches many files at once). */
 const WATCH_BATCH_MS = 300
 
+/** What one path came to over the changes gathered so far; `either` is for a change that could be an add or a removal. */
+type NetChange = 'added' | 'removed' | 'changed' | 'either'
+
+/**
+ * Adds one event's change to `net`, in order. A file removed and then added again was replaced, which is how
+ * Windows reports a save (the old file is renamed away and the new one renamed in): it counts as changed, so
+ * a save doesn't look like the file list changed. A file added and then removed again counts as nothing.
+ * Paths are compared exactly, so renaming a file to another letter case is still a removal and an addition.
+ */
+function addToNetChange(net: Map<string, NetChange>, change: WorkspaceChange) {
+    const removed = new Set(change.removed)
+    for (const path of change.added) {
+        const before = net.get(path)
+        if (removed.has(path) || before === 'either') net.set(path, 'either')
+        else net.set(path, before === 'removed' || before === 'changed' ? 'changed' : 'added')
+    }
+    for (const path of change.removed) {
+        if (net.get(path) === 'either') continue
+        if (net.get(path) === 'added') net.delete(path)
+        else net.set(path, 'removed')
+    }
+    for (const path of change.changed) {
+        if (!net.has(path)) net.set(path, 'changed')
+    }
+}
+
+function fromNetChange(net: Map<string, NetChange>): WorkspaceChange {
+    const change: WorkspaceChange = { added: [], removed: [], changed: [] }
+    for (const [path, state] of net) {
+        if (state === 'added' || state === 'either') change.added.push(path)
+        if (state === 'removed' || state === 'either') change.removed.push(path)
+        if (state === 'changed') change.changed.push(path)
+    }
+    return change
+}
+
 /**
  * Tells `onChange` about files and folders that change inside `root`, everything in it included, leaving
  * out what classifyWatchEvent drops. Resolves to a function that stops watching; rejects where the folder
@@ -608,13 +628,13 @@ const WATCH_BATCH_MS = 300
 export async function watchWorkspace(root: string, onChange: (change: WorkspaceChange) => void): Promise<() => void> {
     if (!isTauri()) return () => {}
     const base = normalizePath(root)
-    let gathered: WorkspaceChange | null = null
+    let gathered = new Map<string, NetChange>()
     let timer: ReturnType<typeof setTimeout> | undefined
     const report = () => {
         timer = undefined
-        const change = gathered
-        gathered = null
-        if (change) onChange(change)
+        const change = fromNetChange(gathered)
+        gathered = new Map()
+        if (change.added.length + change.removed.length + change.changed.length > 0) onChange(change)
     }
     // Not plugin-fs `watch`: with its delay the plugin first goes through the whole folder, .git and
     // node_modules too, to note every file's ID, which takes a long while in a big folder or a whole drive
@@ -624,20 +644,14 @@ export async function watchWorkspace(root: string, onChange: (change: WorkspaceC
         (event) => {
             const change = classifyWatchEvent(base, event)
             if (!change) return
-            if (gathered) {
-                gathered.added.push(...change.added)
-                gathered.removed.push(...change.removed)
-                gathered.changed.push(...change.changed)
-            } else {
-                gathered = change
-            }
+            addToNetChange(gathered, change)
             timer ??= setTimeout(report, WATCH_BATCH_MS)
         },
         { recursive: true }
     )
     return () => {
         clearTimeout(timer)
-        gathered = null
+        gathered = new Map()
         stop()
     }
 }

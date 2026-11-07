@@ -151,18 +151,37 @@ describe('workspace fs (Tauri)', () => {
         expect(writeFileMock).not.toHaveBeenCalled()
     })
 
-    it('writes a hidden or system file in place, so it keeps those marks', async () => {
-        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null, fileAttributes: 0x22 })
+    it('replaces a hidden or system file in one step like any other, which keeps those marks', async () => {
+        // A hidden, archived file. tauri-plugin-fs 2.5.1 sends its attributes as the misspelt `fileAttribues`, which
+        // its own code drops; even when they are known, writing in place would be neither in one step nor flushed.
+        const hidden = { isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null }
+        lstatMock.mockResolvedValue({ ...hidden, fileAttribues: 0x22, fileAttributes: 0x22 })
         await writeWorkspaceFile('C:\\ws\\.notes.md', 'text')
-        expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\.notes.md', new TextEncoder().encode('text'))
-        expect(invokeMock).not.toHaveBeenCalled()
+        expect(lastSave()).toEqual({ path: 'C:\\ws\\.notes.md', bytes: new TextEncoder().encode('text') })
+        expect(writeFileMock).not.toHaveBeenCalled()
     })
 
-    it('writes through a link instead of replacing it with a plain file', async () => {
+    it('leaves a link to the save command, which writes through it and flushes it to the disk', async () => {
         lstatMock.mockResolvedValue({ isFile: false, isDirectory: false, isSymlink: true, size: 1, mtime: null, nlink: null })
-        statMock.mockResolvedValue({ size: 4, mtime: null })
-        await writeWorkspaceFile('/ws/linked.md', 'text')
-        expect(writeFileMock).toHaveBeenCalledWith('/ws/linked.md', new TextEncoder().encode('text'))
+        statMock.mockResolvedValue({ size: 4, mtime: new Date(1000) })
+        await expect(writeWorkspaceFile('/ws/linked.md', 'text', { expected: { size: 4, mtimeMs: 1000 } })).resolves.toEqual({
+            size: 4,
+            mtimeMs: 1000,
+        })
+        expect(lastSave()).toEqual({ path: '/ws/linked.md', bytes: new TextEncoder().encode('text') })
+        // Not the file plugin's write, which is never flushed.
+        expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('checks a link against the file it points to, and treats a link to nothing as gone', async () => {
+        lstatMock.mockResolvedValue({ isFile: false, isDirectory: false, isSymlink: true, size: 1, mtime: null, nlink: null })
+        statMock.mockResolvedValue({ size: 9, mtime: new Date(5000) })
+        await expect(writeWorkspaceFile('/ws/linked.md', 'text', { expected: { size: 4, mtimeMs: 1000 } })).rejects.toMatchObject({
+            change: 'changed',
+        })
+
+        statMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
+        await expect(writeWorkspaceFile('/ws/linked.md', 'text', { expected: null })).rejects.toMatchObject({ change: 'deleted' })
         expect(invokeMock).not.toHaveBeenCalled()
     })
 
@@ -748,6 +767,9 @@ describe('watching the opened folder', () => {
         const root = 'C:\\ws'
         expect(classifyWatchEvent(root, event({ access: { kind: 'open', mode: 'read' } }, 'C:\\ws\\a.md'))).toBeNull()
         expect(classifyWatchEvent(root, event({ create: { kind: 'any' } }, 'C:\\ws\\.scrivon-save-ab12cd34.tmp'))).toBeNull()
+        // Where Windows keeps the old file for a moment while a save replaces it.
+        expect(classifyWatchEvent(root, event({ create: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))).toBeNull()
+        expect(classifyWatchEvent(root, event({ remove: { kind: 'any' } }, 'C:\\ws\\~RF1a2b.TMP'))).toBeNull()
         expect(classifyWatchEvent(root, event({ modify: { kind: 'any' } }, 'C:\\ws\\.git\\index', 'C:\\ws\\node_modules\\x\\y.js'))).toBeNull()
         // A save renames its temporary file over the real one: only the real one is left.
         expect(
@@ -784,6 +806,64 @@ describe('watching the opened folder', () => {
             vi.advanceTimersByTime(300)
             expect(onChange).toHaveBeenCalledTimes(1)
             expect(unwatch).toHaveBeenCalled()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('reports a save on Windows as a change to the file, not as one file gone and another added', async () => {
+        vi.useFakeTimers()
+        try {
+            watchMock.mockResolvedValue(vi.fn())
+            const onChange = vi.fn()
+            await watchWorkspace('C:\\ws', onChange)
+            const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+            const rename = (mode: 'from' | 'to', path: string) => report(event({ modify: { kind: 'rename', mode } }, path))
+
+            // What Windows reports, one half of each rename at a time, when ReplaceFileW puts a save in place.
+            report(event({ create: { kind: 'any' } }, 'C:\\ws\\.scrivon-save-x1.tmp'))
+            report(event({ create: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))
+            report(event({ remove: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))
+            rename('from', 'C:\\ws\\a.md')
+            rename('to', 'C:\\ws\\a.md~RF506e5bd.TMP')
+            rename('from', 'C:\\ws\\.scrivon-save-x1.tmp')
+            rename('to', 'C:\\ws\\a.md')
+            report(event({ modify: { kind: 'any' } }, 'C:\\ws\\a.md'))
+            report(event({ remove: { kind: 'any' } }, 'C:\\ws\\a.md~RF506e5bd.TMP'))
+            vi.advanceTimersByTime(300)
+
+            expect(onChange).toHaveBeenCalledExactlyOnceWith({ added: [], removed: [], changed: ['C:\\ws\\a.md'] })
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('keeps a rename to another letter case, and leaves out a file that came and went', async () => {
+        vi.useFakeTimers()
+        try {
+            watchMock.mockResolvedValue(vi.fn())
+            const onChange = vi.fn()
+            await watchWorkspace('C:\\ws', onChange)
+            const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+
+            report(event({ modify: { kind: 'rename', mode: 'from' } }, 'C:\\ws\\Notes.md'))
+            report(event({ modify: { kind: 'rename', mode: 'to' } }, 'C:\\ws\\notes.md'))
+            report(event({ create: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            report(event({ remove: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledExactlyOnceWith({ added: ['C:\\ws\\notes.md'], removed: ['C:\\ws\\Notes.md'], changed: [] })
+
+            // Nothing left to report: no call at all.
+            report(event({ create: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            report(event({ remove: { kind: 'file' } }, 'C:\\ws\\~lock.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledTimes(1)
+
+            // An event that could be either an add or a removal stays both.
+            report(event('any', 'C:\\ws\\b.md'))
+            report(event({ modify: { kind: 'rename', mode: 'to' } }, 'C:\\ws\\b.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenLastCalledWith({ added: ['C:\\ws\\b.md'], removed: ['C:\\ws\\b.md'], changed: [] })
         } finally {
             vi.useRealTimers()
         }
