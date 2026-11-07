@@ -213,10 +213,15 @@ describe('AppUpdateProvider installUpdate', () => {
         act(() => progress.onmessage({ event: 'progress', downloaded: 3_355_443, total }))
         expect(screen.getByText('Downloading 3.2 / 12.4 MB')).toBeInTheDocument()
         expect(screen.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', expect.stringMatching(/^25\.8/))
+        // A screen reader is told the step once, not each of the many changes of the byte count.
+        const announced = () => [...document.querySelectorAll('[aria-live]')].map((region) => region.textContent)
+        expect(announced()).toEqual(['Downloading the update'])
+        expect(screen.getByText('Downloading 3.2 / 12.4 MB').closest('[aria-live]')).toBeNull()
 
         act(() => progress.onmessage({ event: 'installing' }))
         expect(screen.getByText('Installing…', { selector: 'p' })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Installing…/ })).toBeDisabled()
+        expect(announced()).toEqual(['Installing the update'])
     })
 
     it('shows the size downloaded so far when the server gives no total', async () => {

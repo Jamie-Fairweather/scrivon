@@ -41,6 +41,17 @@ const INSTALL_LABEL: Record<InstallPhase, string> = {
     installing: 'Installing…',
 }
 
+/**
+ * What a screen reader says as Install moves on: each step once. The download's byte count changes many times
+ * a second, so it isn't announced; the progress bar gives it when asked.
+ */
+const PHASE_ANNOUNCEMENT: Record<InstallPhase, string> = {
+    idle: '',
+    saving: 'Saving open files',
+    downloading: 'Downloading the update',
+    installing: 'Installing the update',
+}
+
 function megabytes(bytes: number): string {
     return (bytes / (1024 * 1024)).toFixed(1)
 }
@@ -51,7 +62,7 @@ function InstallStatus({ phase, download }: { phase: InstallPhase; download: Dow
     if (phase === 'downloading' && download?.total) {
         const percent = Math.min(100, (download.downloaded / download.total) * 100)
         return (
-            <div className="space-y-2 px-6" aria-live="polite">
+            <div className="space-y-2 px-6">
                 <p className="text-sm text-muted-foreground">
                     Downloading {megabytes(download.downloaded)} / {megabytes(download.total)} MB
                 </p>
@@ -68,7 +79,7 @@ function InstallStatus({ phase, download }: { phase: InstallPhase; download: Dow
                 ? `Downloading ${megabytes(download.downloaded)} MB…`
                 : 'Downloading…'
     return (
-        <p className="flex items-center gap-2 px-6 text-sm text-muted-foreground" aria-live="polite">
+        <p className="flex items-center gap-2 px-6 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             {text}
         </p>
@@ -98,6 +109,10 @@ export function UpdateAvailableDialog({ update, notesLoading, phase, download, o
                     </DialogPanel>
                 ) : null}
                 <InstallStatus phase={phase} download={download} />
+                {/* There from the start, so the first step is announced too. */}
+                <p className="sr-only" aria-live="polite" aria-atomic="true">
+                    {PHASE_ANNOUNCEMENT[phase]}
+                </p>
                 <DialogFooter variant="bare">
                     <Button type="button" variant="outline" disabled={busy} onClick={onLater}>
                         Later
