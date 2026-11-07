@@ -4,7 +4,7 @@ import { Component, useEffect, useState, type ComponentType, type ErrorInfo, typ
 import { TITLEBAR_ABOVE_DIALOGS_CLASS, WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
 import { Button } from '@/components/ui/button'
 import { APP_NAME } from '@/lib/app-branding'
-import { APP_VERSION } from '@/lib/legal/third-party-licenses'
+import { APP_VERSION } from '@/lib/legal/app-version'
 import { errorMessage } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { clearWorkspaceStore } from '@/lib/tauri/store'

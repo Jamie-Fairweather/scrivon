@@ -202,11 +202,11 @@ describe('generated module', () => {
         expect(source).toContain('"licenseText": null\n')
     })
 
-    it('leaves the app version to lib/legal/app-version.ts, passing it on for older imports', () => {
+    it('leaves the app version to lib/legal/app-version.ts, so showing it never loads the list', () => {
         const source = renderLicensesModule([])
 
-        expect(source).not.toMatch(/export const APP_(VERSION|NAME)/)
-        expect(source).toContain("export { APP_VERSION } from './app-version'\n")
+        expect(source).not.toContain('app-version')
+        expect(source).not.toMatch(/export .*\bAPP_(VERSION|NAME)\b/)
     })
 
     it('matches the committed module apart from the package list', () => {

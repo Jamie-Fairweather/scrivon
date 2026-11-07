@@ -417,10 +417,6 @@ export type ThirdPartyPackage = {
     licenseText: string | null
 }
 
-// The version lives in lib/legal/app-version.ts, so showing it doesn't load this list. Passed on from here only
-// until components/studio/shell/studio-error-boundary.tsx imports it from there.
-export { APP_VERSION } from './app-version'
-
 // Each distinct licence text is stored once; packages that share it point at the same entry.
 const T: string[] = ${JSON.stringify(texts, null, 4)}
 
