@@ -1,7 +1,7 @@
 'use client'
 
 import { Toast } from '@base-ui/react/toast'
-import { CircleAlertIcon, CircleCheckIcon, InfoIcon, LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react'
+import { CircleAlertIcon, CircleCheckIcon, InfoIcon, LoaderCircleIcon, TriangleAlertIcon, XIcon } from 'lucide-react'
 import type React from 'react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { isAppUpdateToastData } from '@/lib/updater/update-toast-data'
@@ -183,7 +183,15 @@ function Toasts({ position, portalProps }: { position: ToastPosition; portalProp
                                         <Toast.Description className="text-muted-foreground" data-slot="toast-description" />
                                     </div>
                                 </div>
-                                <ToastActions toast={toast} close={close} />
+                                <div className="flex shrink-0 items-center gap-1">
+                                    <ToastActions toast={toast} close={close} />
+                                    {/* Notices that never time out need a visible way out. The update toast has its own Dismiss. */}
+                                    {!isAppUpdateToastData(toast.data) && (
+                                        <Toast.Close aria-label="Dismiss notification" render={<Button variant="ghost" size="icon-xs" />}>
+                                            <XIcon />
+                                        </Toast.Close>
+                                    )}
+                                </div>
                             </Toast.Content>
                         </Toast.Root>
                     )
