@@ -76,6 +76,14 @@ describe('MarkdownPreview', () => {
             expect(screen.getByRole('link', { name: 'docs' })).toHaveAttribute('title', 'Read the docs')
         })
 
+        it('prefixes heading ids as GitHub does, so they never clash with the app’s own ids (B05 review)', () => {
+            const { container } = preview('# Export title\n\n## PDF profile')
+            expect(Array.from(container.querySelectorAll('h1, h2')).map((heading) => heading.id)).toEqual([
+                'user-content-export-title',
+                'user-content-pdf-profile',
+            ])
+        })
+
         it('keeps footnote ids and the hidden footnotes heading', () => {
             const { container } = preview('Text[^1]\n\n[^1]: The note.')
             const label = container.querySelector('h2#user-content-footnote-label')

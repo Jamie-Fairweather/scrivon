@@ -419,6 +419,28 @@ describe('MarkdownDocumentViewer', () => {
             expect(scrollIntoView.mock.contexts).toEqual(headings)
         })
 
+        it('keeps a heading from taking an id the app uses, and #links still reach it (B05 review)', () => {
+            const { container } = render(
+                viewer(DOC_A, '# Export title\n\nSee [x](#export-title), [y](#Export-Title) and [z](#user-content-export-title).')
+            )
+            // The export dialog's title field, which opens after the preview (a portal at the end of the page). Its
+            // <label htmlFor> and getElementById must find it, not the heading that comes first.
+            const field = document.createElement('input')
+            field.id = 'export-title'
+            document.body.append(field)
+            try {
+                const heading = container.querySelector('h1')
+                expect(heading).toHaveAttribute('id', 'user-content-export-title')
+                expect(document.getElementById('export-title')).toBe(field)
+
+                for (const name of ['x', 'y', 'z']) fireEvent.click(screen.getByRole('link', { name }))
+                expect(notifyInfo).not.toHaveBeenCalled()
+                expect(scrollIntoView.mock.contexts).toEqual([heading, heading, heading])
+            } finally {
+                field.remove()
+            }
+        })
+
         it('tells the user when an anchor has no target', () => {
             render(viewer(DOC_A, '[missing](#nowhere)'))
             fireEvent.click(screen.getByRole('link', { name: 'missing' }))
