@@ -155,7 +155,11 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                         'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
                                         // Outlined while its right-click menu is open, since that doesn't switch to it.
                                         'in-data-[menu-open]:ring-1 in-data-[menu-open]:ring-ring/60 in-data-[menu-open]:ring-inset',
-                                        isActive ? 'bg-muted/50' : 'hover:bg-muted/30'
+                                        // The open tab: full-strength text and an accent line along its bottom edge
+                                        // (the ring colour, at least 3:1 on the background). The others are muted.
+                                        isActive
+                                            ? 'bg-background text-foreground shadow-[inset_0_-2px_0_var(--ring)]'
+                                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                                     )}
                                 >
                                     <button
