@@ -129,6 +129,14 @@ describe('StudioLayout tab switches', () => {
         expect(mounts.canvas).toBe(1)
         expect(mounts.editor).toBe(1)
     })
+
+    // The preview swaps between the Markdown viewer and the diagram canvas, but the editor must stay.
+    it('keeps the editor mounted when switching between a Markdown tab and a diagram tab', () => {
+        switchTabs(['/w/a.md', '/w/x.mmd'])
+        expect(screen.getByText('Markdown preview')).toBeInTheDocument()
+        expect(mounts.canvas).toBe(1)
+        expect(mounts.editor).toBe(1)
+    })
 })
 
 describe('StudioLayout find box', () => {
