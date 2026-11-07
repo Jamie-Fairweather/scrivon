@@ -14,8 +14,16 @@ const openByDefault = (level: number) => level <= 2
 /** A pause this long (ms) between letters starts a new type-ahead search. */
 const TYPE_AHEAD_PAUSE_MS = 500
 
-/** Where focus goes once a rename or delete is done; see focusTargetAfterChange. */
-type FocusAfterChange = { fromPath: string; paths: string[]; index: number }
+/** How long (ms) focus waits for the tree to show a rename or delete; see FocusAfterChange. */
+const SHOW_CHANGE_WAIT_MS = 5000
+
+/**
+ * Where focus goes once a rename or delete is done; see focusTargetAfterChange. `goneBy` is set when the row it
+ * started from should go: the action can end before the tree shows that (another read of the folder took over its
+ * own). Focus then stays on that row, and moves on once it has gone. It stops waiting when the user focuses another
+ * row, or when the tree changes after `goneBy` with the row still there (the rename or delete failed, say).
+ */
+type FocusAfterChange = { fromPath: string; paths: string[]; index: number; goneBy?: number; waiting?: boolean }
 
 /**
  * Whether focus may be put back in the tree once a rename or delete is done: it was lost (its row went away), is
@@ -89,10 +97,27 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         requestFocusAfterChange()
     }, [])
 
+    // The user moving to another row while the tree catches up means they have moved on: focus and the Tab stop
+    // stay with them when it does.
+    const handleFocusRow = useCallback((path: string) => {
+        setFocusedPath(path)
+        const request = focusAfterChangeRef.current
+        if (request?.waiting && path !== request.fromPath) focusAfterChangeRef.current = null
+    }, [])
+
     useLayoutEffect(() => {
         const request = focusAfterChangeRef.current
         if (!request) return
-        focusAfterChangeRef.current = null
+        // The tree doesn't show the change yet when the row is still there (see FocusAfterChange). Exact paths, so
+        // a change of letter case only (notes.md -> Notes.md) is seen once it shows.
+        const { goneBy } = request
+        const early = goneBy !== undefined && rows.some((row) => row.node.path === request.fromPath)
+        if (request.waiting && early) {
+            // Focus went to the row already. Wait on, or give up once it is too late (the rename or delete failed, say).
+            if (Date.now() >= goneBy) focusAfterChangeRef.current = null
+            return
+        }
+        focusAfterChangeRef.current = early ? { ...request, waiting: true } : null
         const target = focusTargetAfterChange(rows, request.paths, request.index)
         if (!target) return
         // The Tab stop moves there too, so Tab comes back to where the user was even when focus is left alone.
@@ -110,14 +135,21 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                 const index = rowsRef.current.findIndex((r) => r.node.path === node.path)
                 const path = await renameWithPrompt(node)
                 // Cancelled, or the rename failed: back to the row itself.
-                focusAfter({ fromPath: node.path, paths: path ? [path, node.path] : [node.path], index })
+                const moved = path !== null && path !== node.path
+                focusAfter({
+                    fromPath: node.path,
+                    paths: path ? [path, node.path] : [node.path],
+                    index,
+                    goneBy: moved ? Date.now() + SHOW_CHANGE_WAIT_MS : undefined,
+                })
                 return path
             },
             deleteWithConfirm: async (node) => {
                 const index = rowsRef.current.findIndex((r) => r.node.path === node.path)
-                await deleteWithConfirm(node)
+                const confirmed = await deleteWithConfirm(node)
                 // Still there when cancelled or the delete failed; otherwise the row that moved up into its place.
-                focusAfter({ fromPath: node.path, paths: [node.path], index })
+                focusAfter({ fromPath: node.path, paths: [node.path], index, goneBy: confirmed ? Date.now() + SHOW_CHANGE_WAIT_MS : undefined })
+                return confirmed
             },
         }),
         [renameWithPrompt, deleteWithConfirm, focusAfter]
@@ -177,7 +209,7 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                         isActive={row.node.kind === 'file' && row.node.path === activeTabId}
                         isTabStop={row.node.path === tabStopPath}
                         onActivate={activate}
-                        onFocusRow={setFocusedPath}
+                        onFocusRow={handleFocusRow}
                     />
                 ))}
             </div>

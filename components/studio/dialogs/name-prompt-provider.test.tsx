@@ -59,12 +59,63 @@ describe('NamePromptProvider', () => {
         expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'diagram 2'.length])
     })
 
+    it('shows the note it is given under the field while the name can be used, and the error instead when not', async () => {
+        const note = (name: string) => (name === 'beach' ? 'Will be named "beach.png".' : null)
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'screenshot.png', validate: noColons, note })
+        expect(input).not.toHaveAttribute('aria-describedby')
+
+        fireEvent.change(input, { target: { value: ' beach ' } })
+        const shown = screen.getByText('Will be named "beach.png".')
+        expect(input).toHaveAttribute('aria-describedby', shown.id)
+        expect(input).not.toHaveAttribute('aria-invalid')
+        expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled()
+
+        fireEvent.change(input, { target: { value: 'beach:' } })
+        expect(screen.queryByText('Will be named "beach.png".')).not.toBeInTheDocument()
+        expect(screen.getByText('Name contains invalid characters')).toBeInTheDocument()
+    })
+
     it('selects a whole folder name, even one with a dot', async () => {
         const { input } = await openPrompt({ title: 'Rename', defaultValue: 'v1.2' })
 
         fireEvent.focus(input)
 
         expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'v1.2'.length])
+    })
+
+    it('leaves the extension it is given unselected, such as .png for an image', async () => {
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'screenshot.png', extension: '.png' })
+
+        fireEvent.focus(input)
+
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'screenshot'.length])
+    })
+
+    it('selects the whole name when told there is no extension, even one ending in .md', async () => {
+        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'notes.md', extension: null })
+
+        fireEvent.focus(input)
+
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'notes.md'.length])
+    })
+
+    it('selects the name only when it opens, not each time focus comes back (switching back to the window)', async () => {
+        const { input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram 2.mmd' })
+        fireEvent.focus(input)
+
+        fireEvent.change(input, { target: { value: 'login flow.mmd' } })
+        input.setSelectionRange(10, 10)
+        fireEvent.blur(input)
+        fireEvent.focus(input)
+        expect([input.selectionStart, input.selectionEnd]).toEqual([10, 10])
+
+        // Opened again, it selects the name again.
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        await waitFor(() => expect(screen.queryByLabelText('Name')).not.toBeInTheDocument())
+        fireEvent.click(screen.getByText('Open'))
+        const again = (await screen.findByLabelText('Name')) as HTMLInputElement
+        fireEvent.focus(again)
+        expect([again.selectionStart, again.selectionEnd]).toEqual([0, 'diagram 2'.length])
     })
 
     it('shows the description and button label it is given', async () => {

@@ -173,6 +173,112 @@ describe('FileTree focus', () => {
         expect(item('renamed.md')).toHaveFocus()
     })
 
+    // Another read of the folder (the watcher's) can take over the action's own, so the action is done before the
+    // tree shows it.
+    it('moves focus to the renamed row once the tree shows it, when that comes after the rename is done', async () => {
+        const view = render(ui(tree))
+        session.renameEntry.mockImplementation(async () => undefined)
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F2' })
+        await renameTo('renamed.md')
+        expect(item('b.md')).toHaveFocus()
+
+        view.rerender(ui([file('a.md'), file('renamed.md'), file('c.md')]))
+        expect(item('renamed.md')).toHaveFocus()
+        expect(item('renamed.md').tabIndex).toBe(0)
+    })
+
+    it('moves focus to the next row once the tree shows a delete, when that comes after the delete is done', async () => {
+        const view = render(ui(tree))
+        session.deleteEntry.mockImplementation(async () => undefined)
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'Delete' })
+        await confirmDelete()
+        expect(item('b.md')).toHaveFocus()
+
+        // A read that still has the row changes nothing.
+        view.rerender(ui([...tree, file('d.md')]))
+        expect(item('b.md')).toHaveFocus()
+        view.rerender(ui([file('a.md'), file('c.md'), file('d.md')]))
+        expect(item('c.md')).toHaveFocus()
+    })
+
+    it('leaves focus and the Tab stop on a row the user moved to while the tree caught up with a rename', async () => {
+        const view = render(ui(tree))
+        session.renameEntry.mockImplementation(async () => undefined)
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F2' })
+        await renameTo('renamed.md')
+        fireEvent.keyDown(item('b.md'), { key: 'ArrowUp' })
+        expect(item('a.md')).toHaveFocus()
+
+        view.rerender(ui([file('a.md'), file('renamed.md'), file('c.md')]))
+        expect(item('a.md')).toHaveFocus()
+        expect(item('a.md').tabIndex).toBe(0)
+        expect(item('renamed.md').tabIndex).toBe(-1)
+    })
+
+    it('leaves focus and the Tab stop on a row the user moved to while the tree caught up with a delete', async () => {
+        const view = render(ui(tree))
+        session.deleteEntry.mockImplementation(async () => undefined)
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'Delete' })
+        await confirmDelete()
+        fireEvent.keyDown(item('b.md'), { key: 'ArrowUp' })
+
+        // Not c.md, the row that took the deleted one's place.
+        view.rerender(ui([file('a.md'), file('c.md')]))
+        expect(item('a.md')).toHaveFocus()
+        expect(item('a.md').tabIndex).toBe(0)
+        expect(item('c.md').tabIndex).toBe(-1)
+    })
+
+    it('still moves focus on when the tree shows the rename late, if nothing else in the tree changed meanwhile', async () => {
+        const view = render(ui(tree))
+        session.renameEntry.mockImplementation(async () => undefined)
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F2' })
+        await renameTo('renamed.md')
+
+        const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+        try {
+            view.rerender(ui([file('a.md'), file('renamed.md'), file('c.md')]))
+        } finally {
+            now.mockRestore()
+        }
+        expect(item('renamed.md')).toHaveFocus()
+        expect(item('renamed.md').tabIndex).toBe(0)
+    })
+
+    it('stops waiting for a rename that never shows (it failed), so a later change in the tree leaves the Tab stop alone', async () => {
+        const view = render(ui(tree))
+        session.renameEntry.mockImplementation(async () => undefined)
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F2' })
+        await renameTo('renamed.md')
+        expect(item('b.md')).toHaveFocus()
+        screen.getByRole('button', { name: 'Elsewhere' }).focus()
+
+        const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+        try {
+            // Long after, the folder is read again with the row still there, and then another app deletes it.
+            view.rerender(ui([...tree, file('d.md')]))
+            view.rerender(ui([file('a.md'), file('c.md'), file('d.md')]))
+        } finally {
+            now.mockRestore()
+        }
+        expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus()
+        // The Tab stop isn't moved for the rename that never happened: it falls back to the first row.
+        expect(item('a.md').tabIndex).toBe(0)
+        expect(item('c.md').tabIndex).toBe(-1)
+    })
+
     it('leaves focus alone when the user has moved on by the time the delete is done', async () => {
         renderTree()
         const deleteEntry = session.deleteEntry.getMockImplementation()!

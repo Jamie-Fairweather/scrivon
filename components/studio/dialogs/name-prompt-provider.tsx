@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { documentExtension } from '@/lib/workspace/file-types'
 
 export type NamePromptOptions = {
@@ -14,12 +15,19 @@ export type NamePromptOptions = {
     /** The confirm button's label. Defaults to 'Create'. */
     submitLabel?: string
     defaultValue?: string
+    /**
+     * The end of the name left unselected when the field opens, such as `.png`, so typing a new name keeps it.
+     * Null selects the whole name. Left out, a document extension the name ends with (`.md`) is left unselected.
+     */
+    extension?: string | null
     placeholder?: string
     /**
      * Says why a name can't be used, or null when it can. It runs on the trimmed name as the user types:
      * the reason shows under the field, and the dialog stays open until the name is fixed or cancelled.
      */
     validate?: (name: string) => string | null
+    /** A line under the field while the name can be used, such as the name the item will really get, or null for none. */
+    note?: (name: string) => string | null
 }
 
 type NamePromptContextValue = {
@@ -28,11 +36,14 @@ type NamePromptContextValue = {
 
 const NamePromptContext = createContext<NamePromptContextValue | null>(null)
 
-/** Selects `notes` in `notes.md`, so typing a new name keeps the file type. Other text is selected whole. */
-function selectNameWithoutExtension(input: HTMLInputElement) {
-    const extension = documentExtension(input.value)
+/**
+ * Selects `notes` in `notes.md` (or `screenshot` in `screenshot.png`, given `.png`), so typing a new name keeps the
+ * file type. Other text is selected whole. See NamePromptOptions.extension.
+ */
+function selectNameWithoutExtension(input: HTMLInputElement, given: string | null | undefined) {
+    const extension = given === undefined ? documentExtension(input.value) : given
     const end = input.value.length - (extension?.length ?? 0)
-    if (extension && end > 0) input.setSelectionRange(0, end)
+    if (extension && end > 0 && input.value.endsWith(extension)) input.setSelectionRange(0, end)
     else input.select()
 }
 
@@ -46,17 +57,21 @@ export function useNamePrompt(): NamePromptContextValue {
 
 export function NamePromptProvider({ children }: { children: ReactNode }) {
     const inputId = useId()
-    const errorId = useId()
+    const messageId = useId()
     const pendingRef = useRef<((value: string | null) => void) | null>(null)
+    // Only the field's first focus after the prompt opens selects the name. Focus comes back to it when the user
+    // switches back to the window, and selecting then would let the next key replace what they typed.
+    const selectOnFocusRef = useRef(false)
 
     const [open, setOpen] = useState(false)
     const [request, setRequest] = useState<NamePromptOptions>({ title: '' })
     const [value, setValue] = useState('')
 
-    const { title, description, submitLabel = 'Create', placeholder, validate } = request
+    const { title, description, submitLabel = 'Create', extension, placeholder, validate, note } = request
     const trimmed = value.trim()
     const error = open && validate ? validate(trimmed) : null
     const canSubmit = trimmed.length > 0 && !error
+    const message = error ?? (canSubmit && note ? note(trimmed) : null)
 
     const finish = useCallback((result: string | null) => {
         pendingRef.current?.(result)
@@ -70,6 +85,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                 pendingRef.current(null)
             }
             pendingRef.current = resolve
+            selectOnFocusRef.current = true
             setRequest(options)
             setValue(options.defaultValue ?? '')
             setOpen(true)
@@ -110,7 +126,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                             <Field>
                                 <FieldLabel htmlFor={inputId}>Name</FieldLabel>
                                 <Input
-                                    aria-describedby={error ? errorId : undefined}
+                                    aria-describedby={message ? messageId : undefined}
                                     aria-invalid={error ? true : undefined}
                                     autoFocus
                                     // A Hebrew or Arabic name reads right to left as it is typed.
@@ -118,13 +134,24 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     id={inputId}
                                     nativeInput
                                     onChange={(e) => setValue(e.target.value)}
-                                    onFocus={(e) => selectNameWithoutExtension(e.target)}
+                                    onFocus={(e) => {
+                                        if (!selectOnFocusRef.current) return
+                                        selectOnFocusRef.current = false
+                                        selectNameWithoutExtension(e.target, extension)
+                                    }}
                                     placeholder={placeholder}
                                     value={value}
                                 />
-                                {/* Errors quote names too ('A file named "…" already exists here.'), so they wrap the same way. */}
-                                <p aria-live="polite" className="min-h-4 w-full text-xs wrap-anywhere text-destructive-foreground" id={errorId}>
-                                    {error}
+                                {/* Errors and notes quote names too ('A file named "…" already exists here.'), so they wrap the same way. */}
+                                <p
+                                    aria-live="polite"
+                                    className={cn(
+                                        'min-h-4 w-full text-xs wrap-anywhere',
+                                        error ? 'text-destructive-foreground' : 'text-muted-foreground'
+                                    )}
+                                    id={messageId}
+                                >
+                                    {message}
                                 </p>
                             </Field>
                         </DialogPanel>
