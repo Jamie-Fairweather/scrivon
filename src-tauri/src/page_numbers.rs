@@ -1,12 +1,19 @@
 //! Stamps real page numbers into a PrintToPdf output.
 //!
-//! WebView2 never resolves CSS `counter(page)`, so the export HTML renders an
-//! (almost) invisible marker text inside the footer's page-number slot instead.
-//! After printing we locate that marker on every page, which tells us both
-//! *whether* the footer was drawn on that page (title/TOC pages hide it) and
-//! *exactly where* the number belongs, then draw the label right-aligned to it.
-//! The marker glyphs are then cut out of the page content, so the codes don't
-//! turn up when the PDF's text is copied, searched or read by a screen reader.
+//! Chromium (WebView2 included) only resolves CSS `counter(page)` and
+//! `counter(pages)` inside `@page` margin boxes. The export's footer is an
+//! in-page bar instead (a repeating table row or a fixed element, with images,
+//! backgrounds and edge-to-edge bands), so its number is stamped after printing.
+//! TOC numbers always are, since Chromium doesn't support `target-counter()`.
+//!
+//! The export HTML renders an (almost) invisible marker text inside the footer's
+//! page-number slot and in each TOC row. After printing we locate the markers on
+//! every page, which tells us both *whether* the footer was drawn on that page
+//! (title/TOC pages hide it) and *exactly where* the number belongs, then draw
+//! the label right-aligned to it, in the marker's own embedded font when that
+//! font has every glyph the label needs. The marker glyphs are then cut out of
+//! the page content, so the codes don't turn up when the PDF's text is copied,
+//! searched or read by a screen reader.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
