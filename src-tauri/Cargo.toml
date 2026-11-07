@@ -15,7 +15,10 @@ edition = "2021"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "diagram_app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Only rlib, which is all a desktop build uses. The Tauri template's "staticlib" (iOS) and "cdylib"
+# (Android) made every build also write a big static library (~160 MB in release, ~1.2 GB in debug)
+# and link an unused DLL. Add them back for mobile.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -44,12 +47,14 @@ font-kit = "0.14.3"
 [profile.dev.package.lopdf]
 opt-level = 3
 
-# Shipped builds: whole-program optimisation for a smaller exe and smaller update downloads.
-# opt-level stays 3 so PDF page stamping stays fast. panic stays "unwind" on purpose: a panic
-# in lopdf or font-kit then fails that one export instead of closing the app with unsaved tabs.
+# Shipped builds. strip makes the exe and update downloads smaller. No whole-program optimisation
+# (lto = true with codegen-units = 1): it took 4-6 minutes of every release build, and measured in
+# November 2026 it only made the setup.exe 0.9% smaller (about 100 KB). opt-level stays 3 so PDF page
+# stamping stays fast. panic stays "unwind" on purpose: a panic in lopdf or font-kit then fails that
+# one export instead of closing the app with unsaved tabs.
 [profile.release]
-codegen-units = 1
-lto = true
+codegen-units = 16
+lto = "off"
 opt-level = 3
 strip = true
 
