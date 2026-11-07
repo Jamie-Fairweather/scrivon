@@ -219,8 +219,10 @@ export async function readWorkspaceTextFile(path: string): Promise<TextFileRead>
     return { ...decodeText(await readFile(path)), stamp }
 }
 
+/** Just the text, decoded as readWorkspaceTextFile does, for reads that never save (such as searching every file). */
 export async function readWorkspaceFile(path: string): Promise<string> {
-    return (await readWorkspaceTextFile(path)).content
+    if (!isTauri()) return ''
+    return decodeText(await readFile(path)).content
 }
 
 export async function getWorkspaceFileSize(path: string): Promise<number | null> {

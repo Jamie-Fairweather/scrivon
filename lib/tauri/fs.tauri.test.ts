@@ -86,6 +86,8 @@ describe('workspace fs (Tauri)', () => {
         readFileMock.mockResolvedValue(new TextEncoder().encode('graph TD\n  A --> B'))
         await expect(readWorkspaceFile('/ws/diagram.mmd')).resolves.toBe('graph TD\n  A --> B')
         expect(readFileMock).toHaveBeenCalledWith('/ws/diagram.mmd')
+        // Only reading the text: no second round trip for when the file last changed.
+        expect(statMock).not.toHaveBeenCalled()
     })
 
     it('writes workspace files through Tauri as UTF-8 by default', async () => {
