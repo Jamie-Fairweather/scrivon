@@ -70,7 +70,7 @@ import { visit } from 'unist-util-visit'
 import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
-import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
+import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
@@ -1439,16 +1439,6 @@ async function renderFootnote(state: RenderState, node: FootnoteDefinition): Pro
     }
 }
 
-function chromeVisible(profile: PdfExportProfile, kind: 'header' | 'footer', group: 'title' | 'toc' | 'body'): boolean {
-    const layout = resolvePdfExportLayout(profile)
-    const shown = kind === 'header' ? layout.showHeader : layout.showFooter
-    if (!shown) return false
-    const hide = (kind === 'header' ? profile.header : profile.footer).hideOnFirstPages
-    if (group === 'body' || hide === 'none') return true
-    if (group === 'title') return false
-    return hide === 'title'
-}
-
 function edgeDistance(bleeds: boolean, marginMm: number): number {
     if (bleeds) return 0
     return convertMillimetersToTwip(Math.min(8, marginMm))
@@ -1624,8 +1614,8 @@ function coverIsInline(state: RenderState): boolean {
     if (!logoHasBleed(state) || headerShowsOnTitle(profile)) return false
     const next: 'toc' | 'body' = state.toc.length > 0 ? 'toc' : 'body'
     return (
-        chromeVisible(profile, 'header', 'title') !== chromeVisible(profile, 'header', next) ||
-        chromeVisible(profile, 'footer', 'title') !== chromeVisible(profile, 'footer', next)
+        pdfChromeShown(profile, 'header', 'title') !== pdfChromeShown(profile, 'header', next) ||
+        pdfChromeShown(profile, 'footer', 'title') !== pdfChromeShown(profile, 'footer', next)
     )
 }
 
@@ -1815,8 +1805,8 @@ function pageContentTwip(state: RenderState, group: 'toc' | 'body'): number {
     const page = convertMillimetersToTwip(landscape ? portrait.width : portrait.height)
     const layout = resolvePdfExportLayout(profile)
     const margins = profile.page.marginsMm
-    const showHeader = chromeVisible(profile, 'header', group)
-    const showFooter = chromeVisible(profile, 'footer', group)
+    const showHeader = pdfChromeShown(profile, 'header', group)
+    const showFooter = pdfChromeShown(profile, 'footer', group)
     const topMm = layout.headerBleeds && showHeader ? Math.max(margins.top, profile.header.heightMm + profile.header.gapMm) : margins.top
     const bottomMm = layout.footerBleeds && showFooter ? Math.max(margins.bottom, profile.footer.heightMm + profile.footer.gapMm) : margins.bottom
     return Math.max(1, page - convertMillimetersToTwip(topMm) - convertMillimetersToTwip(bottomMm))
@@ -2159,8 +2149,8 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
     const { profile } = state.document
     const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; children: Block[] }[] = []
     for (const group of groups) {
-        const showHeader = chromeVisible(profile, 'header', group.id)
-        const showFooter = chromeVisible(profile, 'footer', group.id)
+        const showHeader = pdfChromeShown(profile, 'header', group.id)
+        const showFooter = pdfChromeShown(profile, 'footer', group.id)
         const key = `${showHeader}:${showFooter}`
         const previous = merged[merged.length - 1]
         // A cover with no bleeding image is centred on its page, which only works in a section of its own.
