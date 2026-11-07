@@ -15,14 +15,14 @@ import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
 
+/** Loaded when the user exports, so the export code and the diagram renderer it needs aren't part of every launch. */
+const loadDiagramExport = () => import('@/lib/mermaid/export')
+
 const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
     { label: '1×', scale: 1 },
     { label: '2×', scale: 2 },
     { label: '4×', scale: 4 },
 ]
-
-/** Loaded when the user exports, so the export code and the diagram renderer it needs aren't part of every launch. */
-const loadDiagramExport = () => import('@/lib/mermaid/export')
 
 export function DocumentExportMenu() {
     const { activeTab, activeTabId } = useDocumentTabs()

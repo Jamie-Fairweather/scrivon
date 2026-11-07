@@ -7,6 +7,8 @@ import { DocumentExportMenu } from './document-export-menu'
 const tabs = vi.hoisted(() => ({ activeTab: null as DocumentTab | null }))
 /** Tabs whose web images the user chose to load in the preview. */
 const remoteImageTabs = vi.hoisted(() => new Set<string>())
+/** What drawing the diagram gave: an error, still drawing, or nothing to draw. */
+const diagram = vi.hoisted(() => ({ currentError: null as string | null, isPending: false, isStale: false, isEmpty: false }))
 type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void; tabPath?: string; allowRemoteImages?: boolean }
 const dialogProps = vi.hoisted(() => ({ current: null as DialogProps | null }))
 /** The props the export dialog last rendered with, or null when the menu left it out. */
@@ -20,9 +22,7 @@ vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
     useMarkdownPreviewMemory: () => ({ scrollTopByTab: new Map(), remoteImageTabs, allowRemoteImages: () => undefined }),
 }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ themeId: 'light' }) }))
-/** What useMermaidSvg reports for the diagram the menu would export. */
-const diagram = vi.hoisted(() => ({ current: { currentError: null as string | null, isPending: false, isStale: false, isEmpty: false } }))
-vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => diagram.current }))
+vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: diagram.currentError, ...diagram }) }))
 vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn() }))
 vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({
     PdfExportDialog: (props: DialogProps) => {
@@ -40,37 +40,8 @@ describe('DocumentExportMenu', () => {
         tabs.activeTab = null
         dialogProps.current = null
         remoteImageTabs.clear()
-        diagram.current = { currentError: null, isPending: false, isStale: false, isEmpty: false }
+        Object.assign(diagram, { currentError: null, isPending: false, isStale: false, isEmpty: false })
         vi.mocked(exportSvg).mockClear()
-    })
-
-    it('greys out Save SVG and Save PNG while the edited diagram is still rendering behind the older picture (N19)', async () => {
-        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->')
-        diagram.current = { currentError: null, isPending: false, isStale: true, isEmpty: false }
-        const view = render(<DocumentExportMenu />)
-        const button = screen.getByRole('button', { name: 'Export document' })
-        // The button itself stays on, so it doesn't flicker while typing.
-        expect(button).not.toHaveAttribute('aria-disabled')
-
-        fireEvent.click(button)
-        const saveSvg = await screen.findByRole('menuitem', { name: 'Save SVG' })
-        expect(saveSvg).toHaveAttribute('aria-disabled', 'true')
-        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).toHaveAttribute('aria-disabled', 'true')
-        fireEvent.click(saveSvg)
-        // The export code loads on first use, so give a click that got through time to arrive.
-        await act(async () => {
-            await import('@/lib/mermaid/export')
-        })
-        expect(exportSvg).not.toHaveBeenCalled()
-
-        // Once the text has rendered, the items turn back on.
-        diagram.current = { ...diagram.current, isStale: false }
-        view.rerender(<DocumentExportMenu />)
-        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-disabled')
-        const enabled = screen.getByRole('menuitem', { name: 'Save SVG' })
-        expect(enabled).not.toHaveAttribute('aria-disabled')
-        fireEvent.click(enabled)
-        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', 'light', expect.objectContaining({ tabName: 'flow.mmd' })))
     })
 
     it('lets the PDF print web images only for a tab whose preview loaded them', () => {
@@ -149,5 +120,34 @@ describe('DocumentExportMenu', () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         view.rerender(<DocumentExportMenu />)
         expect(lastDialog()?.open).toBe(false)
+    })
+
+    it('greys out Save SVG and Save PNG while the edited diagram is still rendering behind the older picture (N19)', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->')
+        diagram.isStale = true
+        const view = render(<DocumentExportMenu />)
+        const button = screen.getByRole('button', { name: 'Export document' })
+        // The button itself stays on, so it doesn't flicker while typing.
+        expect(button).not.toHaveAttribute('aria-disabled')
+
+        fireEvent.click(button)
+        const saveSvg = await screen.findByRole('menuitem', { name: 'Save SVG' })
+        expect(saveSvg).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(saveSvg)
+        // The export code loads on first use, so give a click that got through time to arrive.
+        await act(async () => {
+            await import('@/lib/mermaid/export')
+        })
+        expect(exportSvg).not.toHaveBeenCalled()
+
+        // Once the text has rendered, the items turn back on.
+        diagram.isStale = false
+        view.rerender(<DocumentExportMenu />)
+        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-disabled')
+        const enabled = screen.getByRole('menuitem', { name: 'Save SVG' })
+        expect(enabled).not.toHaveAttribute('aria-disabled')
+        fireEvent.click(enabled)
+        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', 'light', expect.objectContaining({ tabName: 'flow.mmd' })))
     })
 })

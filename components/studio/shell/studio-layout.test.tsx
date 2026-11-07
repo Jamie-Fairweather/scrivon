@@ -9,10 +9,10 @@ type Layout = { explorerOpen: boolean; editorOpen: boolean }
 let tabs: DocumentTab[] = []
 let activeTabId: string | null = null
 let layout: Layout = { explorerOpen: true, editorOpen: true }
-/** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
-const mounts = { editor: 0, canvas: 0 }
 /** The pan and zoom memory each canvas mount was given. */
 const canvasMemories: (PanZoomMemory | undefined)[] = []
+/** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
+const mounts = { editor: 0, canvas: 0 }
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
