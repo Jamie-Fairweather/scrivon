@@ -16,7 +16,7 @@ export type WorkspaceCoordinatorRefs = {
     setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => void>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
-    revealInEditor: MutableRefObject<(path: string, line: number, column: number) => void>
+    revealInEditor: MutableRefObject<(path: string, line: number, column: number, length?: number) => void>
     getEditorSelectedText: MutableRefObject<() => string | null>
 }
 

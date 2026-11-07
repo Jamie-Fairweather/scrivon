@@ -89,7 +89,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
         async (item: PaletteItem) => {
             if (item.kind === 'text') {
                 await runItem(item)
-                coordinator.revealInEditor.current(item.path, item.line, item.column)
+                coordinator.revealInEditor.current(item.path, item.line, item.column, item.length)
                 return
             }
             await runItem(item)
