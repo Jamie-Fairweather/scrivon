@@ -1457,6 +1457,18 @@ pub struct Stamped {
     pub warning: Option<String>,
 }
 
+/// Why the page numbers were left out when the stamper failed. The technical
+/// reason goes to the log; the user gets a plain sentence.
+const COULD_NOT_READ: &str = "Scrivon couldn't read the printed PDF to add page numbers.";
+const COULD_NOT_NUMBER: &str = "Scrivon couldn't add page numbers to this PDF.";
+const COULD_NOT_SAVE: &str = "Scrivon couldn't save the numbered copy of this PDF.";
+
+/// Logs `detail` and gives back `message` for the user.
+fn plain_error(message: &str, detail: impl std::fmt::Display) -> String {
+    eprintln!("PDF page numbers: {message} {detail}");
+    message.to_string()
+}
+
 /// Numbers the pages of the PDF at `input` and writes the numbered copy to
 /// `output` (which may be the same file). The copy goes to a temporary file
 /// that is then swapped in, so a failed write never leaves a cut-off PDF.
@@ -1465,11 +1477,11 @@ pub fn stamp_page_numbers_to(
     output: &Path,
     options: &PdfPrintOptions,
 ) -> Result<Stamped, String> {
-    let mut doc =
-        Document::load(input).map_err(|e| format!("Could not open PDF to number pages: {e}"))?;
-    let stamped = stamp_document(&mut doc, options)?;
+    let mut doc = Document::load(input).map_err(|e| plain_error(COULD_NOT_READ, e))?;
+    let stamped =
+        stamp_document(&mut doc, options).map_err(|e| plain_error(COULD_NOT_NUMBER, e))?;
     if stamped.changed {
-        save_replacing(&mut doc, output)?;
+        save_replacing(&mut doc, output).map_err(|e| plain_error(COULD_NOT_SAVE, e))?;
     }
     Ok(stamped)
 }
@@ -1481,12 +1493,11 @@ pub fn stamp_page_numbers(path: &str, options: &PdfPrintOptions) -> Result<(), S
 }
 
 /// Writes `doc` next to `output` and then renames it over `output`.
-fn save_replacing(doc: &mut Document, output: &Path) -> Result<(), String> {
+fn save_replacing(doc: &mut Document, output: &Path) -> std::io::Result<()> {
     let temp = TempFile(crate::pdf_export::temp_sibling(output));
     doc.save(&temp.0)
         .and_then(|file| file.sync_all())
         .and_then(|()| std::fs::rename(&temp.0, output))
-        .map_err(|e| format!("Could not save numbered PDF: {e}"))
 }
 
 /// A temporary file that is deleted when this is dropped, so a failed save
@@ -2252,6 +2263,27 @@ end";
         let _ = std::fs::remove_file(&path);
         assert!(stamped.extract_text(&[1]).unwrap().contains("Page 1"));
         assert!(stamped.extract_text(&[2]).unwrap().contains("Page 2"));
+    }
+
+    #[test]
+    fn says_in_plain_words_when_the_numbered_copy_cannot_be_saved() {
+        let mut doc = Document::with_version("1.5");
+        let fonts = || dictionary! { "Font" => dictionary! { "F1" => helvetica() } };
+        let page = [
+            vec![flip()],
+            text("F1", 10.0, 100.0, 300.0, Object::string_literal("Body")),
+        ]
+        .concat();
+        build_pdf(&mut doc, vec![(page, fonts())]);
+        let path = save_temp(&mut doc, "scrivon-page-numbers-unsaved.pdf");
+        let gone = std::env::temp_dir()
+            .join(format!("scrivon-gone-{}", uuid::Uuid::new_v4()))
+            .join("Report.pdf");
+
+        let result = stamp_page_numbers_to(&path, &gone, &options("page-n", ""));
+
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(result, Err(COULD_NOT_SAVE.to_string()));
     }
 
     #[test]

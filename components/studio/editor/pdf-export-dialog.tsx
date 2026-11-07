@@ -135,7 +135,7 @@ function PdfExportForm({
             const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
-                notifyExportSaved(result.path, result.missingImages)
+                notifyExportSaved(result)
                 // Safe even if this form went away mid-export: the export button stays disabled while
                 // an export runs, so no newer dialog can have been opened since.
                 onClose()

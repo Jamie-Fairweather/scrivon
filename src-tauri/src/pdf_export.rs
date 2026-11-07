@@ -906,7 +906,11 @@ mod tests {
         let saved = std::fs::read(&output).unwrap();
         let names = files_in(&dir);
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(warning.is_some_and(|w| w.contains("number pages")));
+        // A plain sentence for the user, not the PDF parser's error.
+        assert_eq!(
+            warning.as_deref(),
+            Some("Scrivon couldn't read the printed PDF to add page numbers.")
+        );
         assert_eq!(saved, b"%PDF-1.7 not really a pdf");
         assert_eq!(names, ["Report.pdf"]);
     }

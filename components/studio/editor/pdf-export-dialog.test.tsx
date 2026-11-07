@@ -108,7 +108,20 @@ describe('PdfExportDialog', () => {
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
         expect(onOpenChange).toHaveBeenCalledWith(false)
-        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', path: 'C:/out/report.pdf' })
+    })
+
+    it('passes why the page numbers were left out to the saved notice', async () => {
+        const saved: ExportResult = {
+            status: 'saved',
+            path: 'C:/out/report.pdf',
+            pageNumberWarning: "Scrivon couldn't add page numbers to this PDF.",
+        }
+        exportMarkdown.mockResolvedValue(saved)
+        renderDialog()
+        await exportWithTitle('Quarterly report')
+        expect(notifyExportSaved).toHaveBeenCalledTimes(1)
+        expect(notifyExportSaved).toHaveBeenCalledWith(saved)
     })
 
     it('passes any images the export left out to the saved notice', async () => {
@@ -117,7 +130,7 @@ describe('PdfExportDialog', () => {
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
         expect(onOpenChange).toHaveBeenCalledWith(false)
-        expect(notifyExportSaved).toHaveBeenCalledWith(undefined, missing)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', missingImages: missing })
     })
 
     it('shows progress and cannot be closed or edited while exporting', async () => {
@@ -160,7 +173,7 @@ describe('PdfExportDialog', () => {
 
         finish({ status: 'saved', path: 'C:/out/report.pdf' })
         await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
-        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', path: 'C:/out/report.pdf' })
         // The save finished, so the dialog closes, even though the form that started it is gone.
         expect(onOpenChange).toHaveBeenCalledWith(false)
         expect(exportMarkdown).toHaveBeenCalledTimes(1)

@@ -318,7 +318,7 @@ describe('export-pdf helpers', () => {
     it('says where the export was saved and can show it in its folder', async () => {
         const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
         const path = String.raw`C:\Users\ada\Reports\q3.pdf`
-        notifyExportSaved(path)
+        notifyExportSaved({ status: 'saved', path })
         expect(notifySuccess).toHaveBeenCalledWith('Saved q3.pdf', expect.objectContaining({ description: path }))
 
         const options = notifySuccess.mock.calls[0]![1] as { action: { label: string; onClick: () => void } }
@@ -352,7 +352,7 @@ describe('export-pdf helpers', () => {
 
     it('names the left-out images when the export is saved', async () => {
         const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
-        notifyExportSaved('C:/out/q3.pdf', [MISSING_LOGO])
+        notifyExportSaved({ status: 'saved', path: 'C:/out/q3.pdf', missingImages: [MISSING_LOGO] })
         expect(notifySuccess).not.toHaveBeenCalled()
         expect(notifyWarning).toHaveBeenCalledWith('Saved q3.pdf without some images', {
             description: 'Logo (logo.png): Could not read image: not found',
@@ -361,11 +361,35 @@ describe('export-pdf helpers', () => {
 
         // Printed or downloaded: no path to show, but the user still hears about the images.
         notifyWarning.mockReset()
-        notifyExportSaved(undefined, [MISSING_LOGO])
+        notifyExportSaved({ status: 'saved', missingImages: [MISSING_LOGO] })
         expect(notifyWarning).toHaveBeenCalledWith('Some images were left out', { description: 'Logo (logo.png): Could not read image: not found' })
         notifyWarning.mockReset()
-        notifyExportSaved(undefined)
+        notifyExportSaved({ status: 'saved' })
         expect(notifyWarning).not.toHaveBeenCalled()
         expect(notifySuccess).not.toHaveBeenCalled()
+    })
+
+    it('says in one notice that the PDF was saved without page numbers, and why', async () => {
+        const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
+        notifyExportSaved({ status: 'saved', path: 'C:/out/Report.pdf', pageNumberWarning: "Scrivon couldn't add page numbers to this PDF." })
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(notifyWarning).toHaveBeenCalledTimes(1)
+        expect(notifyWarning).toHaveBeenCalledWith('Saved Report.pdf without page numbers', {
+            description: "Scrivon couldn't add page numbers to this PDF.",
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        notifyWarning.mockReset()
+        notifyExportSaved({
+            status: 'saved',
+            path: 'C:/out/Report.pdf',
+            missingImages: [MISSING_LOGO],
+            pageNumberWarning: "Scrivon couldn't add page numbers to this PDF.",
+        })
+        expect(notifyWarning).toHaveBeenCalledTimes(1)
+        expect(notifyWarning).toHaveBeenCalledWith('Saved Report.pdf without page numbers or some images', {
+            description: "Scrivon couldn't add page numbers to this PDF. Logo (logo.png): Could not read image: not found",
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
     })
 })

@@ -1,4 +1,3 @@
-import { notifySavedWithoutPageNumbers } from '@/lib/markdown/pdf-page-number-warning'
 import { invoke } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
@@ -27,14 +26,17 @@ export type ExportMarkdownOptions = {
     documentPath?: string
 }
 
-/**
- * How an export ended: saved (or handed to the print dialog / a download), cancelled at the
- * save picker, or failed. A saved export lists any profile images it had to leave out.
- */
-export type ExportResult =
-    | { status: 'saved'; path?: string; missingImages?: PdfExportMissingImage[] }
-    | { status: 'cancelled' }
-    | { status: 'failed'; message: string }
+/** A saved export (or one handed to the print dialog / a download), with anything it had to leave out. */
+export type SavedExport = {
+    status: 'saved'
+    path?: string
+    missingImages?: PdfExportMissingImage[]
+    /** Why the PDF was saved without its page numbers (the Windows app adds them after printing). */
+    pageNumberWarning?: string
+}
+
+/** How an export ended: saved, cancelled at the save picker, or failed. */
+export type ExportResult = SavedExport | { status: 'cancelled' } | { status: 'failed'; message: string }
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
@@ -103,10 +105,10 @@ async function printExportHtml(html: string): Promise<void> {
     })
 }
 
-async function savePdfWithWebView2(html: string, outputPath: string, options: PdfPrintOptions): Promise<void> {
-    // Comes back with the reason when the PDF was saved but its page numbers couldn't be added.
+/** Saves the PDF. Returns why, when it was saved but its page numbers couldn't be added. */
+async function savePdfWithWebView2(html: string, outputPath: string, options: PdfPrintOptions): Promise<string | undefined> {
     const pageNumberProblem = await invoke<string | null>('export_html_to_pdf', { html, outputPath, options })
-    if (pageNumberProblem) notifySavedWithoutPageNumbers(pageNumberProblem)
+    return pageNumberProblem || undefined
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string): void {
@@ -161,8 +163,8 @@ async function renderAndSave(
     if (stamped) {
         const path = await pickSavePath({ title: 'Save PDF', defaultPath: savePathBesideDocument(filename, documentPath), filters: PDF_FILTERS })
         if (!path) return { status: 'cancelled' }
-        await savePdfWithWebView2(html, path, print)
-        return { status: 'saved', path }
+        const pageNumberWarning = await savePdfWithWebView2(html, path, print)
+        return pageNumberWarning ? { status: 'saved', path, pageNumberWarning } : { status: 'saved', path }
     }
 
     await printExportHtml(html)
@@ -194,12 +196,13 @@ function describeMissingImages(missing: PdfExportMissingImage[]): string {
 
 /**
  * Tells the user the export was saved and where, with a button that shows the file in its
- * folder, and names any profile images that had to be left out.
+ * folder. One notice says what had to be left out: page numbers, profile images, or both.
  */
-export function notifyExportSaved(path: string | undefined, missingImages: PdfExportMissingImage[] = []): void {
+export function notifyExportSaved({ path, missingImages = [], pageNumberWarning }: SavedExport): void {
+    const images = missingImages.length > 0 ? describeMissingImages(missingImages) : ''
     if (!path) {
         // The print dialog or the browser's download took over; only left-out images need a word.
-        if (missingImages.length > 0) notifyWarning('Some images were left out', { description: describeMissingImages(missingImages) })
+        if (images) notifyWarning('Some images were left out', { description: images })
         return
     }
     const action = {
@@ -208,8 +211,10 @@ export function notifyExportSaved(path: string | undefined, missingImages: PdfEx
             revealItemInDir(path).catch((err: unknown) => notifyError('Could not show the file', err))
         },
     }
-    if (missingImages.length > 0) {
-        notifyWarning(`Saved ${fileName(path)} without some images`, { description: describeMissingImages(missingImages), action })
+    const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : ''].filter(Boolean)
+    if (leftOut.length > 0) {
+        const description = [pageNumberWarning, images].filter(Boolean).join(' ')
+        notifyWarning(`Saved ${fileName(path)} without ${leftOut.join(' or ')}`, { description, action })
         return
     }
     notifySuccess(`Saved ${fileName(path)}`, { description: path, timeout: SAVED_NOTICE_MS, action })

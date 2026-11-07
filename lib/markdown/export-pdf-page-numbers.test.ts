@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.hoisted(() => vi.fn())
 const pickSavePath = vi.hoisted(() => vi.fn(async () => 'C:\\Users\\me\\Documents\\Report.pdf'))
-const notifySavedWithoutPageNumbers = vi.hoisted(() => vi.fn())
+const notify = vi.hoisted(() => ({ notifyError: vi.fn(), notifySuccess: vi.fn(), notifyWarning: vi.fn() }))
 const PRINT = vi.hoisted(() => ({
     pageWidthMm: 210,
     pageHeightMm: 297,
@@ -18,35 +18,39 @@ const PRINT = vi.hoisted(() => ({
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, showError: vi.fn(), writeBinaryFile: vi.fn() }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true, isWindowsTauri: () => true }))
+vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), ...notify }))
 vi.mock('@/lib/markdown/export-assets', () => ({ resolvePdfExportAssets: vi.fn(async () => ({ assets: {}, missing: [] })) }))
 vi.mock('@/lib/markdown/markdown-to-export-html', () => ({
     markdownToExportHtml: vi.fn(async () => ({ html: '<html></html>', print: PRINT })),
 }))
-vi.mock('@/lib/markdown/pdf-page-number-warning', () => ({ notifySavedWithoutPageNumbers }))
 
 import { exportMarkdown } from '@/lib/markdown/export-pdf'
+
+const SAVED_TO = 'C:\\Users\\me\\Documents\\Report.pdf'
 
 describe('saving a PDF whose page numbers could not be added', () => {
     beforeEach(() => {
         invoke.mockReset()
-        notifySavedWithoutPageNumbers.mockReset()
+        Object.values(notify).forEach((fn) => fn.mockReset())
     })
 
-    it('says the PDF was saved without page numbers, and why', async () => {
-        invoke.mockResolvedValueOnce('Could not open PDF to number pages: invalid file header')
+    it('returns why the PDF was saved without page numbers, and shows nothing itself', async () => {
+        invoke.mockResolvedValueOnce("Scrivon couldn't add page numbers to this PDF.")
 
-        await exportMarkdown('# Report', 'Report.md')
+        await expect(exportMarkdown('# Report', 'Report.md')).resolves.toEqual({
+            status: 'saved',
+            path: SAVED_TO,
+            pageNumberWarning: "Scrivon couldn't add page numbers to this PDF.",
+        })
 
-        expect(invoke).toHaveBeenCalledWith('export_html_to_pdf', expect.objectContaining({ outputPath: 'C:\\Users\\me\\Documents\\Report.pdf' }))
-        expect(notifySavedWithoutPageNumbers).toHaveBeenCalledWith('Could not open PDF to number pages: invalid file header')
+        expect(invoke).toHaveBeenCalledWith('export_html_to_pdf', expect.objectContaining({ outputPath: SAVED_TO }))
+        // The caller shows one notice for the whole export (notifyExportSaved).
+        Object.values(notify).forEach((fn) => expect(fn).not.toHaveBeenCalled())
     })
 
-    it('says nothing extra when the page numbers were added', async () => {
+    it('has no warning when the page numbers were added', async () => {
         invoke.mockResolvedValueOnce(null)
 
-        await exportMarkdown('# Report', 'Report.md')
-
-        expect(invoke).toHaveBeenCalledWith('export_html_to_pdf', expect.anything())
-        expect(notifySavedWithoutPageNumbers).not.toHaveBeenCalled()
+        await expect(exportMarkdown('# Report', 'Report.md')).resolves.toEqual({ status: 'saved', path: SAVED_TO })
     })
 })
