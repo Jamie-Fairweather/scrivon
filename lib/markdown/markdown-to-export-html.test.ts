@@ -614,7 +614,7 @@ SHIKI_FAIL
         expect(html).not.toContain('<script')
         expect(html).not.toContain('alert(')
         expect(html).toContain('<img src="pic.png" alt="pic">')
-        expect(html).toContain('<a>bad</a>')
+        expect(html).toContain('<span>bad</span>')
         // A page can't be clicked open, so details print open.
         expect(html).toMatch(/<details open>\s*<summary>More<\/summary>\s*<p dir="auto">Hidden until opened\.<\/p>/)
         // Ids stay as written, so the PDF's own links and Contents page still reach them.
@@ -633,18 +633,22 @@ SHIKI_FAIL
                 '',
                 '[share](//host/share/x.docx) [unc](\\\\\\\\host\\\\share\\\\x.docx) <a href="\\\\host\\share">raw</a>',
                 '',
-                '[web](https://example.com/safe) [mail](mailto:me@example.com) [doc](other.md)',
+                '[web](https://example.com/safe) [mail](mailto:me@example.com) [doc](other.md) <a id="spot">Spot</a> [to spot](#spot)',
                 '',
                 '[^1]: A note.',
             ].join('\n'),
             { assets: EMPTY_ASSETS }
         )
+        // A dead link prints as its words, not blue and underlined as if it could be clicked, as in Word (review).
+        expect(html).toContain('<p dir="auto"><span>run</span>')
+        // An anchor with no address is plain text too, and links to it still land on it.
+        expect(html).toContain('<span id="spot">Spot</span> <a href="#spot">to spot</a>')
         for (const words of ['a', 'b', 'c']) expect(html).toContain(`<a href="#résumé">${words}</a>`)
         expect(html).toContain('<a href="#%E0%A4%25A">d</a>')
         expect(html).toContain('<a href="#missing">e</a>')
         // Footnote links reach their notes as before.
         expect(html).toMatch(/<a href="#user-content-fn-1" id="user-content-fnref-1"/)
-        for (const words of ['run', 'open', 'find', 'path', 'share', 'unc', 'raw']) expect(html).toContain(`<a>${words}</a>`)
+        for (const words of ['run', 'open', 'find', 'path', 'share', 'unc', 'raw']) expect(html).toContain(`<span>${words}</span>`)
         expect(html).not.toMatch(/javascript:|file:|search-ms:|docs|href="[^"]*host/)
         expect(html).toContain('<a href="https://example.com/safe">web</a>')
         expect(html).toContain('<a href="mailto:me@example.com">mail</a>')

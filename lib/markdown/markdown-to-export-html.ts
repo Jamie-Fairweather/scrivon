@@ -65,7 +65,8 @@ function openDetails(hast: HastRoot): void {
 /**
  * Points each `#heading` link at the id it means, the way Word's bookmarks are matched ({@link resolveHeadingAnchor}),
  * so `#Résumé` or a percent-encoded fragment reaches the heading. A link the preview would leave dead (`javascript:`,
- * `file:`, a Windows path) loses its address and keeps its words. The Contents page is built separately.
+ * `file:`, a Windows path or network share), or one with no address, prints as its words alone, as in Word: the
+ * stylesheet colours and underlines every <a>, so it would look clickable. The Contents page is built separately.
  */
 function resolveLinks(hast: HastRoot): void {
     const ids = new Set<string>()
@@ -73,10 +74,17 @@ function resolveLinks(hast: HastRoot): void {
         if (typeof node.properties.id === 'string') ids.add(node.properties.id)
     })
     visit(hast, 'element', (node: Element) => {
+        if (node.tagName !== 'a') return
         const href = node.properties.href
-        if (node.tagName !== 'a' || typeof href !== 'string') return
-        if (href.startsWith('#')) node.properties.href = `#${resolveHeadingAnchor(href.slice(1), ids)}`
-        else if (safeExportHref(href) === null) delete node.properties.href
+        if (typeof href === 'string' && href.startsWith('#')) {
+            node.properties.href = `#${resolveHeadingAnchor(href.slice(1), ids)}`
+            return
+        }
+        if (typeof href === 'string' && safeExportHref(href) !== null) return
+        // Its id, if any, stays, so a link to it still lands here.
+        node.tagName = 'span'
+        delete node.properties.href
+        delete node.properties.hrefLang
     })
 }
 
