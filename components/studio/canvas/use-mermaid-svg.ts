@@ -53,6 +53,8 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
 
         // Cleared as soon as the text, theme or document changes, or the view goes away.
         let cancelled = false
+        // Aborted at the same time, so a render that hasn't started is dropped rather than holding up other diagrams.
+        const stillWanted = new AbortController()
 
         const showSvg = (svg: string) => {
             if (cancelled) return
@@ -88,12 +90,12 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 return
             }
 
-            // Layout runs in a worker, so a big diagram doesn't freeze typing. A result is kept even
-            // when the text has moved on by the time it arrives: going back to that text needs no
-            // second layout, and it is newer than the picture on screen. The cache drops it if the
-            // document was cleared meanwhile, so a deleted diagram can't come back.
+            // Layout runs in a worker, so a big diagram doesn't freeze typing. A result that started
+            // is kept even when the text has moved on by the time it arrives: going back to that text
+            // needs no second layout, and it is newer than the picture on screen. The cache drops it if
+            // the document was cleared meanwhile, so a deleted diagram can't come back.
             const startedAt = startRender()
-            renderMermaidDiagramAsync(trimmedSource, themeId, documentKey).then(
+            renderMermaidDiagramAsync(trimmedSource, themeId, documentKey, stillWanted.signal).then(
                 (svg) => {
                     const stored = storeSvg(themeId, documentKey, trimmedSource, svg, startedAt)
                     if (!cancelled) showSvg(svg)
@@ -111,6 +113,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         return () => {
             cancelled = true
             window.clearTimeout(timer)
+            stillWanted.abort()
         }
     }, [canRender, documentKey, themeId, trimmedSource])
 

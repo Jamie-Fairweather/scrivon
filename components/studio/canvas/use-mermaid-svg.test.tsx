@@ -8,7 +8,7 @@ import type { AppThemeId } from '@/lib/theme/catalog'
 const theme = vi.hoisted(() => ({ id: 'scrivon-light' }))
 
 /** When `on`, renders wait in `jobs` until a test finishes them, like a slow diagram in the worker. */
-const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; finish: () => void }[] }))
+const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; signal?: AbortSignal; finish: () => void }[] }))
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
     useAppTheme: () => ({ themeId: theme.id }),
@@ -24,11 +24,12 @@ vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
     const { renderMermaidDiagram: render } = await import('@/lib/mermaid/render')
     return {
         ...actual,
-        renderMermaidDiagramAsync: (source: string, themeId: AppThemeId, documentKey: string) => {
-            if (!slow.on) return actual.renderMermaidDiagramAsync(source, themeId, documentKey)
+        renderMermaidDiagramAsync: (source: string, themeId: AppThemeId, documentKey: string, signal?: AbortSignal) => {
+            if (!slow.on) return actual.renderMermaidDiagramAsync(source, themeId, documentKey, signal)
             return new Promise<string>((resolve, reject) => {
                 slow.jobs.push({
                     source,
+                    signal,
                     finish: () => {
                         try {
                             resolve(render(source, themeId))
@@ -216,6 +217,23 @@ describe('useMermaidSvg', () => {
         expect(again.result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: false, isPending: false })
         await waitForRender()
         expect(slow.jobs).toHaveLength(0)
+    })
+
+    it("withdraws its render when the view goes away or the text changes, so it can't hold up other diagrams (N67)", async () => {
+        slow.on = true
+        const { rerender, unmount } = renderEditor(V1)
+        await waitForRender(0)
+        const first = slow.jobs[0].signal
+        expect(first?.aborted).toBe(false)
+
+        rerender({ source: V2 })
+        expect(first?.aborted).toBe(true)
+        await waitForRender()
+        const second = slow.jobs[1].signal
+        expect(second?.aborted).toBe(false)
+
+        unmount()
+        expect(second?.aborted).toBe(true)
     })
 
     it('does not bring back a deleted diagram from a render that finished after the text was cleared (P01 review)', async () => {

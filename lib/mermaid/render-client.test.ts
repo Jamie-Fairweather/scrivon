@@ -159,6 +159,53 @@ describe('renderMermaidDiagramAsync', () => {
         await expect(blockNext).resolves.toBe('<svg>v2</svg>')
     })
 
+    it("drops waiting renders once their views have gone, so the next tab's diagrams don't wait behind them (N67)", async () => {
+        const { renderMermaidDiagramAsync, SupersededRenderError } = await loadClient()
+        const leftTab = [new AbortController(), new AbortController()]
+
+        const running = renderMermaidDiagramAsync('first', 'scrivon-light', 'old.md:block:1', leftTab[0].signal)
+        const waiting = renderMermaidDiagramAsync('second', 'scrivon-light', 'old.md:block:2', leftTab[1].signal)
+        const newTab = renderMermaidDiagramAsync('shown', 'scrivon-light', 'new.md:block:1')
+        const worker = onlyWorker()
+        for (const controller of leftTab) controller.abort()
+
+        await expect(waiting).rejects.toBeInstanceOf(SupersededRenderError)
+        // The one already running finishes, so coming back to that tab finds its picture.
+        worker.answer(worker.posted[0], { svg: '<svg>first</svg>' })
+        await expect(running).resolves.toBe('<svg>first</svg>')
+        expect(worker.posted.map((request) => request.source)).toEqual(['first', 'shown'])
+        worker.answer(worker.posted[1], { svg: '<svg>shown</svg>' })
+        await expect(newTab).resolves.toBe('<svg>shown</svg>')
+    })
+
+    it('keeps a waiting render shared by two views until both have gone (N67)', async () => {
+        const { renderMermaidDiagramAsync, SupersededRenderError } = await loadClient()
+        const canvas = new AbortController()
+        const exportMenu = new AbortController()
+
+        renderMermaidDiagramAsync('busy', 'scrivon-light', 'a.mmd')
+        const forCanvas = renderMermaidDiagramAsync('v1', 'scrivon-light', 'b.mmd', canvas.signal)
+        const forMenu = renderMermaidDiagramAsync('v1', 'scrivon-light', 'b.mmd', exportMenu.signal)
+        const worker = onlyWorker()
+
+        canvas.abort()
+        worker.answer(worker.posted[0], { svg: '<svg>busy</svg>' })
+        expect(worker.posted.map((request) => request.source)).toEqual(['busy', 'v1'])
+        worker.answer(worker.posted[1], { svg: '<svg>v1</svg>' })
+        await expect(forMenu).resolves.toBe('<svg>v1</svg>')
+        await expect(forCanvas).resolves.toBe('<svg>v1</svg>')
+
+        const later = new AbortController()
+        const another = new AbortController()
+        renderMermaidDiagramAsync('busy again', 'scrivon-light', 'a.mmd')
+        const first = renderMermaidDiagramAsync('v2', 'scrivon-light', 'b.mmd', later.signal)
+        const second = renderMermaidDiagramAsync('v2', 'scrivon-light', 'c.mmd', another.signal)
+        later.abort()
+        another.abort()
+        await expect(first).rejects.toBeInstanceOf(SupersededRenderError)
+        await expect(second).rejects.toBeInstanceOf(SupersededRenderError)
+    })
+
     it('runs one render at a time and drops a waiting one when newer text comes in', async () => {
         const { renderMermaidDiagramAsync, SupersededRenderError } = await loadClient()
 

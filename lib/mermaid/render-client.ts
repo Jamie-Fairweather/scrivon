@@ -4,7 +4,8 @@ import type { AppThemeId } from '@/lib/theme/catalog'
 
 /**
  * Lays diagrams out in a Web Worker so a big diagram doesn't freeze typing and the window.
- * One render runs at a time; a newer text for the same document replaces one still waiting.
+ * One render runs at a time; a newer text for the same document replaces one still waiting, and
+ * one still waiting is dropped when every view that asked for it has gone.
  * Views showing the same text in the same theme share one render, whichever document they belong to.
  * If the worker can't start or can't render, everything quietly runs on the main thread as before.
  */
@@ -15,7 +16,7 @@ export const RENDER_TIMEOUT_MS = 20_000
 export const WORKER_START_TIMEOUT_MS = 10_000
 export const RENDER_TIMEOUT_MESSAGE = 'This diagram is too big to draw. Try splitting it into smaller diagrams.'
 
-/** The render was dropped because a newer text for the same document came in first. */
+/** The render was dropped before it started: a newer text for the same document came in, or every view waiting for it went away. */
 export class SupersededRenderError extends Error {
     constructor() {
         super('A newer version of this diagram replaced this render.')
@@ -173,12 +174,31 @@ function dropIfWaiting(job: Job): void {
     settle(job, { error: new SupersededRenderError() })
 }
 
+function createJob(source: string, themeId: AppThemeId, requestKey: string): Job {
+    let resolve!: (svg: string) => void
+    let reject!: (err: Error) => void
+    const promise = new Promise<string>((res, rej) => {
+        resolve = res
+        reject = rej
+    })
+    const job: Job = { id: nextId++, source, themeId, requestKey, callers: new Set(), promise, resolve, reject }
+    // Keep sharing the result until callers have had it, so a second view that asks in the same
+    // tick (even when the render ran synchronously on the main thread) reuses it.
+    pending.set(requestKey, job)
+    const forget = () => {
+        if (pending.get(requestKey) === job) pending.delete(requestKey)
+    }
+    promise.then(forget, forget)
+    return job
+}
+
 /**
  * Renders a diagram for the live preview. Rejects with the parser's error for invalid text, with
- * RENDER_TIMEOUT_MESSAGE when it takes too long, and with SupersededRenderError when a newer text
- * for the same document replaced it before it started (and no other view still wanted it).
+ * RENDER_TIMEOUT_MESSAGE when it takes too long, and with SupersededRenderError when it was dropped
+ * before it started: a newer text for the same document replaced it, or `signal` was aborted, and no
+ * other view still wanted it. Abort `signal` when the view goes away.
  */
-export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, documentKey: string): Promise<string> {
+export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, documentKey: string, signal?: AbortSignal): Promise<string> {
     const requestKey = `${themeId}\0${source}`
 
     // This document has moved on from any older text still waiting, so it no longer needs those renders.
@@ -190,28 +210,24 @@ export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, d
         if (job.callers.size === 0) dropIfWaiting(job)
     }
 
-    const caller: Caller = { documentKey }
     const shared = pending.get(requestKey)
-    if (shared) {
-        shared.callers.add(caller)
-        return shared.promise
+    const job = shared ?? createJob(source, themeId, requestKey)
+    const caller: Caller = { documentKey }
+    job.callers.add(caller)
+    // A view that went away (its tab was left or closed) stops waiting, so the next tab's diagrams
+    // don't queue behind renders nobody will see.
+    if (signal) {
+        const leave = () => {
+            job.callers.delete(caller)
+            if (job.callers.size === 0) dropIfWaiting(job)
+        }
+        signal.addEventListener('abort', leave, { once: true })
+        const stopListening = () => signal.removeEventListener('abort', leave)
+        job.promise.then(stopListening, stopListening)
     }
-
-    let resolve!: (svg: string) => void
-    let reject!: (err: Error) => void
-    const promise = new Promise<string>((res, rej) => {
-        resolve = res
-        reject = rej
-    })
-    const job: Job = { id: nextId++, source, themeId, requestKey, callers: new Set([caller]), promise, resolve, reject }
-    // Keep sharing the result until callers have had it, so a second view that asks in the same
-    // tick (even when the render ran synchronously on the main thread) reuses it.
-    pending.set(requestKey, job)
-    const forget = () => {
-        if (pending.get(requestKey) === job) pending.delete(requestKey)
+    if (!shared) {
+        queue.push(job)
+        pump()
     }
-    promise.then(forget, forget)
-    queue.push(job)
-    pump()
-    return promise
+    return job.promise
 }
