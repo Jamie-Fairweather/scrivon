@@ -64,10 +64,15 @@ jobs:
               with:
                   toolchain: 1.97.1
 
+            # Dev's compiled crates, as in release.yml. An older tag with a different Cargo.lock or
+            # Cargo.toml gets a partial match and Cargo rebuilds what changed. Read-only, so an old
+            # tag's crates never end up in dev's cache.
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
+                  shared-key: windows-release
+                  save-if: false
 
             - name: Get release ID
               id: gh_release

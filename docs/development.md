@@ -30,9 +30,13 @@ Releases are automated with [semantic-release](https://semantic-release.gitbook.
 | `main` | Stable releases                                    | `0.2.0`         |
 | `rc`   | Pre-releases (GitHub Release marked as prerelease) | `0.2.0-rc.1`    |
 
-Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow first runs the same checks as a pull request ([`ci.yml`](../.github/workflows/ci.yml)) and stops if any fail. Then it bumps versions, updates the changelog, and creates a git tag and a **draft** GitHub Release. The Windows job builds the installers, uploads them and `latest.json` to the draft, and publishes it as its last step. Until then the release is hidden, so the download link and the updater never see a release without installers.
+Push to `main` or `rc` when commits since the last tag warrant a version bump. The release workflow first runs the same checks as a push to `dev` ([`ci.yml`](../.github/workflows/ci.yml)) and stops if any fail. If those checks already passed in a push run on `dev` with exactly the same files, it uses that result and skips the whole CI run. That is the usual case when you merge `dev` into `rc` after the backmerge's `dev` CI has gone green. Then it bumps versions, updates the changelog, and creates a git tag and a **draft** GitHub Release. The Windows job builds the installers, uploads them and `latest.json` to the draft, and publishes it as its last step. Until then the release is hidden, so the download link and the updater never see a release without installers.
 
-CI and both release workflows use one pinned Rust version (the `toolchain:` inputs in [`.github/workflows`](../.github/workflows)), so the released app is built by the compiler CI checked it with. To move to a newer Rust, change all of them in one pull request and fix what the new Clippy reports.
+CI and both release workflows use one pinned Rust version (the `toolchain:` inputs in [`.github/workflows`](../.github/workflows)), so the released app is built by the compiler CI checked it with. To move to a newer Rust, change all of them in one pull request and fix what the new Clippy reports. CI's installer check (**Build Windows installer**) builds exactly the way the release does, and the release builds start from the crates that check compiled on `dev`. Keep it that way: a `CARGO_*` variable or a different `--config` that changes how crates compile in only one of them makes every release build compile all of them again.
+
+Shipped builds don't use whole-program optimisation (`lto`). In November 2026 it made the setup `.exe` only 0.9% smaller (about 100 KB) but added 4-6 minutes to every Windows build. `strip = true` in [`Cargo.toml`](../src-tauri/Cargo.toml) is what keeps the download small.
+
+semantic-release's own `chore(release): …` commit starts the Release workflow again, because it is pushed with the PAT. That run checks that the commit's tag exists and skips everything else. If the tag is missing (the release stopped after pushing the commit), it carries on and semantic-release finishes the release.
 
 If the Windows build fails, the release stays a draft. What to do depends on the cause:
 
@@ -82,7 +86,7 @@ feat!: remove legacy file format support
 
     Without this tag, existing `feat:` commits in history may produce a larger first bump (e.g. `0.2.0`).
 
-3. Merge a conventional commit to `main` or `rc` and confirm the [Release](../.github/workflows/release.yml) workflow succeeds: all three of its jobs (**CI checks**, **semantic-release** and **Build Windows installers**). The manual **Build release artifacts** workflow only runs when you start it.
+3. Merge a conventional commit to `main` or `rc` and confirm the [Release](../.github/workflows/release.yml) workflow succeeds: **Look for passing CI checks**, then **CI checks** (skipped if `dev` already passed on the same files), **semantic-release** and **Build Windows installers**. The manual **Build release artifacts** workflow only runs when you start it.
 
 ### Branch model
 
@@ -102,7 +106,7 @@ When rc is ready to ship:
 2. Use **Create a merge commit** on GitHub (not fast-forward). That makes a new commit on `main` and triggers the Release workflow.
 3. semantic-release on `main` publishes the next **stable** version (from commits since the last stable tag) and the Windows build job runs.
 
-Fast-forwarding `main` to match `rc` tip still works now that release commits no longer use `[skip ci]`, but a merge commit is clearer in history.
+Fast-forwarding `main` to match `rc` tip still works now that release commits no longer use `[skip ci]`, but a merge commit is clearer in history. (The Release workflow skips a push only when semantic-release's release commit is the only commit in it, and a fast-forward pushes more than that.)
 
 ### Fix main after recreating it from rc
 
@@ -128,7 +132,7 @@ Stable releases only. The desktop app checks [latest stable `latest.json`](https
 
 ### Updating Tauri
 
-Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.github/dependabot.yml)). The Tauri CLI won't build when an `@tauri-apps/*` package and its Rust crate are on different minor versions, and pull request checks never run the Tauri CLI, so a minor or major bump is done by hand in one PR: the `@tauri-apps/*` packages in `package.json`, the `tauri*` crates in `src-tauri/Cargo.toml`, and `webview2-com` and `windows-core` to the versions the new `wry` uses. CI checks the npm and crate versions match (`node scripts/check-tauri-versions.mjs`), but check that `bun run tauri build` still works before merging: CI only builds the installer (the **Build Windows installer** job) once a change is on `dev`, and again before each release, not for a pull request.
+Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.github/dependabot.yml)). The Tauri CLI won't build when an `@tauri-apps/*` package and its Rust crate are on different minor versions, and pull request checks never run the Tauri CLI, so a minor or major bump is done by hand in one PR: the `@tauri-apps/*` packages in `package.json`, the `tauri*` crates in `src-tauri/Cargo.toml`, and `webview2-com` and `windows-core` to the versions the new `wry` uses. CI checks the npm and crate versions match (`node scripts/check-tauri-versions.mjs`), but check that `bun run tauri build` still works before merging: CI only builds the installer (the **Build Windows installer** job) once a change is on `dev`, and again before each release unless `dev` already built the same files, not for a pull request.
 
 ### Installer identity
 

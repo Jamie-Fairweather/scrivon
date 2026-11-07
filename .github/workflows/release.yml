@@ -17,18 +17,78 @@ permissions:
     contents: read
 
 jobs:
-    # The same checks as a pull request (ci.yml), on the commit being released. Nothing is
-    # tagged or released unless they pass, including for a direct push to main or rc.
+    # semantic-release pushes its `chore(release): ...` commit with the PAT, so that push starts this
+    # workflow again. Once the release's tag points at that commit there is nothing left to do, so every
+    # later job is skipped. Without the tag (the release stopped after pushing the commit), the run goes
+    # on as usual and semantic-release finishes the release. Only when that commit is the whole push:
+    # fast-forwarding main to rc's tip (docs/development.md) pushes more commits, so it still releases.
+    #
+    # Otherwise this looks for a push run of ci.yml on dev that passed with exactly the same files (the
+    # same git tree) as the commit being released. Merging dev into rc right after the backmerge gives
+    # that tree, and dev's run has just passed every job verify would run, installer build included.
+    # When there's no such run, or a lookup fails, verify runs the checks itself.
+    gate:
+        name: Look for passing CI checks
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+        outputs:
+            ci_run: ${{ steps.find.outputs.ci_run }}
+            released: ${{ steps.find.outputs.released }}
+        steps:
+            - name: Find a passing dev CI run with the same files
+              id: find
+              shell: bash
+              run: |
+                  if [ "$RELEASE_COMMIT" = "true" ]; then
+                    tags=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" --paginate --jq '.[].object.sha') || tags=''
+                    if grep -qxF "$GITHUB_SHA" <<< "$tags"; then
+                      echo "released=true" >> "$GITHUB_OUTPUT"
+                      echo "semantic-release's release commit, already tagged: nothing to check or release." | tee -a "$GITHUB_STEP_SUMMARY"
+                      exit 0
+                    fi
+                  fi
+
+                  # A failed lookup only means the CI checks run again.
+                  if ! run_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=dev&event=push&status=success&per_page=20" \
+                    --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "dev" and .conclusion == "success" and .head_commit.tree_id == env.TREE)][0].id // empty'); then
+                    echo "Couldn't look up dev's CI runs, so the CI checks run here." | tee -a "$GITHUB_STEP_SUMMARY"
+                  elif [ -n "$run_id" ]; then
+                    echo "ci_run=$run_id" >> "$GITHUB_OUTPUT"
+                    echo "These files already passed CI in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}, so the CI checks are skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+                  else
+                    echo "None of dev's last 20 passing push runs has these files, so the CI checks run here." | tee -a "$GITHUB_STEP_SUMMARY"
+                  fi
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TREE: ${{ github.event.head_commit.tree_id }}
+                  RELEASE_COMMIT: >-
+                      ${{ github.event.head_commit.author.email == 'semantic-release-bot@martynus.net'
+                      && startsWith(github.event.head_commit.message, 'chore(release): ')
+                      && !github.event.commits[1] }}
+
+    # The checks a push to dev runs (ci.yml, including the installer build that pull requests skip), on
+    # the commit being released, unless the gate found they already passed on the same files. Nothing
+    # is tagged or released unless one of the two passed, including for a direct push to main or rc.
+    # If the gate job itself fails, this still runs.
     verify:
         name: CI checks
+        needs: gate
+        if: ${{ !cancelled() && !needs.gate.outputs.released && !needs.gate.outputs.ci_run }}
         uses: ./.github/workflows/ci.yml
         permissions:
             contents: read
             id-token: write
 
+    # Spelled out because verify can be skipped, and a skipped job's dependants are otherwise skipped too.
+    # `!cancelled()` alone would also run after a failed verify, so its result is checked as well.
     release:
         name: semantic-release
-        needs: verify
+        needs: [gate, verify]
+        if: >-
+            ${{ !cancelled() && (needs.verify.result == 'success'
+            || (needs.verify.result == 'skipped' && needs.gate.result == 'success' && needs.gate.outputs.ci_run)) }}
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -93,10 +153,15 @@ jobs:
               with:
                   toolchain: 1.97.1
 
+            # The crates dev's installer check compiled (ci.yml bundle-windows, same shared-key), so only
+            # the app itself is built here. Read-only: a copy saved on rc or main was gone by the next
+            # release anyway (unused caches are dropped after 7 days).
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
+                  shared-key: windows-release
+                  save-if: false
 
             - name: Get release ID
               id: gh_release

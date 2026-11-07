@@ -4,7 +4,8 @@ on:
     pull_request:
     push:
         branches: [dev]
-    # release.yml runs these same checks before it tags or publishes anything.
+    # release.yml runs these same checks before it tags anything, unless a push run on dev already
+    # passed them on the same files.
     workflow_call:
 
 concurrency:
@@ -14,6 +15,9 @@ concurrency:
 permissions:
     contents: read
 
+# release.yml trusts a passing push run on dev with the same files instead of running this again, so
+# every job and step that guards a release must also run on pushes to dev. Never make one depend on
+# github.ref being rc or main: put a check that should only run before a release in release.yml.
 jobs:
     frontend:
         name: Lint, build, and test
@@ -113,10 +117,14 @@ jobs:
               with:
                   toolchain: 1.97.1
 
+            # The Rust caches are saved from dev only. Pull requests and release runs on rc and main read
+            # dev's (the default branch's). The copies they saved could only be read by that same PR, or
+            # by that branch and PRs into it, so they mostly just filled the 10 GB cache limit (0.5-1 GB each).
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
+                  save-if: ${{ github.ref == 'refs/heads/dev' }}
 
             # --locked: fail when Cargo.lock is out of date instead of quietly rewriting it.
             - name: Test
@@ -148,10 +156,12 @@ jobs:
                   toolchain: 1.97.1
                   components: clippy, rustfmt
 
+            # Saved from dev only, like the Rust tests job's.
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
+                  save-if: ${{ github.ref == 'refs/heads/dev' }}
 
             - name: Check formatting
               run: cargo fmt --check
@@ -176,7 +186,8 @@ jobs:
     # signing key). Nothing else builds windows/installer-hooks.nsh or a full release build, so
     # without this a break there only shows up after semantic-release has tagged a version.
     # It takes a while, so it runs on pushes (to dev, and release.yml's own run of this file
-    # before it tags anything), not on every pull request.
+    # before it tags anything, unless dev's run already passed on the same files), not on every
+    # pull request.
     bundle-windows:
         name: Build Windows installer
         if: github.event_name == 'push'
@@ -195,10 +206,16 @@ jobs:
               with:
                   toolchain: 1.97.1
 
+            # Saved from dev only, like the Rust tests job's. The release builds (release.yml,
+            # build-release.yml) read this same cache (shared-key), so they start with dev's compiled
+            # crates instead of building all ~350 from scratch. Only works while they build the same
+            # way: same Rust, Cargo.lock, Cargo.toml and CARGO_* variables. Don't add CARGO_* env here.
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
+                  shared-key: windows-release
+                  save-if: ${{ github.ref == 'refs/heads/dev' }}
 
             - name: Build the installer
               shell: bash
