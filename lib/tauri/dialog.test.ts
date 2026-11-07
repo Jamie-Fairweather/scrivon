@@ -32,6 +32,7 @@ vi.mock('@/lib/tauri/scope', () => ({
 import {
     confirmCloseAfterSaveFailure,
     confirmDeleteHiddenFolders,
+    confirmKeptChangesWithoutFolder,
     confirmOpenLargeFile,
     confirmOverwriteDiskChange,
     confirmUnsavedChanges,
@@ -343,5 +344,30 @@ describe('confirmDeleteHiddenFolders', () => {
         messageMock.mockResolvedValueOnce('Cancel')
         await expect(confirmDeleteHiddenFolders('proj', ['.git', 'a', 'b', 'c'])).resolves.toBe(false)
         expect(messageMock.mock.calls[1]![0]).toContain('proj also has .git, a, b and more in it')
+    })
+})
+
+describe('confirmKeptChangesWithoutFolder', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('offers to save the kept changes elsewhere, discard them, or keep them, and closing keeps them', async () => {
+        messageMock.mockResolvedValueOnce('Save Copies…')
+        await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md'])).resolves.toBe('save')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain("Scrivon kept your unsaved changes to a.md from last time, but it can't open Notes to put them back.")
+        expect(options).toMatchObject({
+            title: 'Unsaved changes from last time',
+            buttons: { yes: 'Save Copies…', no: 'Discard', cancel: 'Keep for Later' },
+        })
+
+        messageMock.mockResolvedValueOnce('Discard')
+        await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md', 'b.md'])).resolves.toBe('discard')
+        expect(messageMock.mock.calls[1]![0]).toContain('your unsaved changes to 2 files')
+
+        messageMock.mockResolvedValueOnce(null)
+        await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md'])).resolves.toBe('keep')
     })
 })

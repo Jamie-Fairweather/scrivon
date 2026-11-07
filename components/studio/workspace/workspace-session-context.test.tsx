@@ -2,12 +2,14 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
-import { dismissNotification, notifyError, notifyInfo, notifyWarning, type NotifyOptions } from '@/lib/notify'
+import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import {
     confirmCloseAfterSaveFailure,
     confirmDeleteHiddenFolders,
+    confirmKeptChangesWithoutFolder,
     confirmOverwriteDiskChange,
     confirmUnsavedChanges,
+    pickWorkspaceFolder,
     showError,
 } from '@/lib/tauri/dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
@@ -57,6 +59,7 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
     notifyError: vi.fn(() => 'toast'),
     notifyWarning: vi.fn(() => 'toast'),
     notifyInfo: vi.fn(() => 'toast'),
+    notifySuccess: vi.fn(() => 'toast'),
     dismissNotification: vi.fn(),
 }))
 
@@ -67,6 +70,7 @@ vi.mock('@/lib/tauri/dialog', () => ({
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
     confirmOverwriteDiskChange: vi.fn(async () => false),
     confirmDeleteHiddenFolders: vi.fn(async () => false),
+    confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
 }))
 
 const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
@@ -1097,6 +1101,74 @@ describe('unsaved text kept from a crash', () => {
         })
         return ok
     }
+
+    describe('when their folder is gone', () => {
+        const gone = (path: string, content: string, overrides: Partial<UnsavedBackup> = {}) =>
+            kept(path, content, { root: 'D:\\renamed', ...overrides })
+
+        async function openGone(result: { current: ReturnType<typeof useHarness> }) {
+            await act(async () => {
+                await result.current.session.openWorkspace('D:\\renamed')
+            })
+            await waitFor(() => expect(confirmKeptChangesWithoutFolder).toHaveBeenCalled())
+        }
+
+        it('keeps them for later when the user says so, or just closes the question', async () => {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([gone('D:\\renamed\\a.md', 'mine')])
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            expect(confirmKeptChangesWithoutFolder).toHaveBeenCalledWith('renamed', ['a.md'])
+            expect(notifyError).toHaveBeenCalledWith("Couldn't open renamed", expect.anything(), expect.anything())
+            expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+
+        it('discards them when the user chooses to, so the notice stops coming back', async () => {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([gone('D:\\renamed\\a.md', 'mine'), kept('C:\\ws\\notes.md', 'other folder')])
+            vi.mocked(confirmKeptChangesWithoutFolder).mockResolvedValueOnce('discard')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            await waitFor(() => expect(deleteUnsavedBackup).toHaveBeenCalledWith('D:\\renamed\\a.md'))
+            expect(deleteUnsavedBackup).toHaveBeenCalledTimes(1)
+            expect(dismissNotification).toHaveBeenCalledWith('recovered-changes')
+        })
+
+        it('saves them as new files in a folder the user picks, then lets the copies go', async () => {
+            await disk.write('C:\\rescue\\a.md', 'already here')
+            vi.mocked(listUnsavedBackups).mockResolvedValue([
+                gone('D:\\renamed\\a.md', 'mine'),
+                gone('D:\\renamed\\b.md', 'B', { format: { encoding: 'utf-16le', bom: true } }),
+            ])
+            vi.mocked(confirmKeptChangesWithoutFolder).mockResolvedValueOnce('save')
+            vi.mocked(pickWorkspaceFolder).mockResolvedValueOnce('C:\\rescue')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            await waitFor(() => expect(deleteUnsavedBackup).toHaveBeenCalledTimes(2))
+            expect(pickWorkspaceFolder).toHaveBeenCalledWith('Save Copies To')
+            expect(await disk.read('C:\\rescue\\a.md')).toBe('already here')
+            expect(await disk.read('C:\\rescue\\a 2.md')).toBe('mine')
+            // Stored the way the file was: UTF-16 with a byte-order mark.
+            expect(vi.mocked(writeFile)).toHaveBeenCalledWith('C:\\rescue\\b.md', new Uint8Array([0xff, 0xfe, 0x42, 0x00]), { createNew: true })
+            expect(notifySuccess).toHaveBeenCalledWith('Saved 2 files', { description: "They're in rescue." })
+        })
+
+        it('keeps them when saving the copies fails', async () => {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([gone('D:\\renamed\\a.md', 'mine')])
+            vi.mocked(confirmKeptChangesWithoutFolder).mockResolvedValueOnce('save')
+            vi.mocked(pickWorkspaceFolder).mockResolvedValueOnce('E:\\unplugged')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't save the copies", expect.anything()))
+            expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+    })
 
     it('reopens the file with the unsaved text, not saved yet, and says so', async () => {
         vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])

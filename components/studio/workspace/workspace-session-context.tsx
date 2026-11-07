@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { defaultMarkdownFor } from '@/lib/default-markdown'
-import { confirmDeleteHiddenFolders, pickWorkspaceFolder } from '@/lib/tauri/dialog'
+import { confirmDeleteHiddenFolders, confirmKeptChangesWithoutFolder, pickWorkspaceFolder } from '@/lib/tauri/dialog'
 import {
     createWorkspaceDirectory,
     createWorkspaceFile,
@@ -36,7 +36,7 @@ import {
     setFolderToggles,
 } from '@/lib/tauri/store'
 import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
-import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
+import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, keepUnchangedNodes, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
 import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
@@ -363,6 +363,49 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [coordinator]
     )
 
+    /**
+     * Unsaved changes kept for `root` only come back when that folder opens. When it can't (moved, renamed or
+     * deleted elsewhere), the user picks what happens to them, so the "from last time" notice can't come back
+     * on every launch with no way out: save them as new files in another folder, discard them, or keep them.
+     */
+    const offerKeptChanges = useCallback(async (root: string) => {
+        const kept = (await listBackupsSafely()).filter((b) => samePath(b.root ?? getParentPath(b.path), root))
+        if (kept.length === 0) return
+        const choice = await confirmKeptChangesWithoutFolder(
+            getBaseName(root) || root,
+            kept.map((b) => getBaseName(b.path))
+        )
+        if (choice === 'keep') return
+        if (choice === 'save') {
+            const failed = "Couldn't save the copies"
+            let folder: string | null
+            try {
+                folder = await pickWorkspaceFolder('Save Copies To')
+            } catch (err) {
+                notifyError(failed, err)
+                return
+            }
+            if (!folder) return
+            try {
+                const names = await listFolderNames(folder)
+                for (const backup of kept) {
+                    const name = uniqueNewName(getBaseName(backup.path), names)
+                    names.push(name)
+                    await createWorkspaceFile(joinPath(folder, name), backup.content, backup.format)
+                }
+            } catch (err) {
+                // The copies stay kept, so nothing is lost; the user can try again.
+                notifyError(failed, err)
+                return
+            }
+            notifySuccess(kept.length === 1 ? `Saved ${getBaseName(kept[0]!.path)}` : `Saved ${kept.length} files`, {
+                description: `They're in ${getBaseName(folder) || folder}.`,
+            })
+        }
+        dismissNotification(RECOVERED_CHANGES_NOTICE_ID)
+        await Promise.all(kept.map((b) => deleteUnsavedBackup(b.path).catch((err: unknown) => console.warn("Couldn't remove a kept copy", err))))
+    }, [])
+
     // Every open or close of a folder gets the next number. An open that a newer one has replaced (the user
     // clicked another folder while a big one was still being read) stops where it is and changes nothing.
     const workspaceRequest = useRef(0)
@@ -415,6 +458,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
                     const removeFromRecent = () => void removeRecent(path)
                     notifyError(`Couldn't open ${name}`, err, isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {})
+                    void offerKeptChanges(path)
                     return
                 }
 
@@ -456,7 +500,17 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 }
             }
         },
-        [isDesktop, recentWorkspaces, maxRecentFolders, removeRecent, restoreTabSession, refreshTree, updateFolderToggles, coordinator]
+        [
+            isDesktop,
+            recentWorkspaces,
+            maxRecentFolders,
+            removeRecent,
+            restoreTabSession,
+            offerKeptChanges,
+            refreshTree,
+            updateFolderToggles,
+            coordinator,
+        ]
     )
 
     useEffect(() => {

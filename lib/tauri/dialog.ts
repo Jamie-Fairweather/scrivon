@@ -32,13 +32,14 @@ export async function writeTextFileAtPath(path: string, content: string): Promis
     await writeTextFile(path, content)
 }
 
-export async function pickWorkspaceFolder(): Promise<string | null> {
+/** Asks for a folder and lets the app read and write in it. `title` says what it is for. */
+export async function pickWorkspaceFolder(title = 'Open Folder'): Promise<string | null> {
     if (!isTauri()) return null
 
     const selected = await open({
         directory: true,
         multiple: false,
-        title: 'Open Folder',
+        title,
     })
 
     if (!selected || Array.isArray(selected)) return null
@@ -202,6 +203,25 @@ export async function confirmDeleteHiddenFolders(folderName: string, hidden: str
 
     const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: 'Cancel' } })
     return result === confirm || result === 'Ok'
+}
+
+export type KeptChangesChoice = 'save' | 'discard' | 'keep'
+
+/**
+ * Asks what to do with unsaved changes kept from last time when their folder can't be opened (moved, renamed
+ * or deleted): save them as new files in another folder, discard them, or keep them for when it is back.
+ * Closing the question keeps them.
+ */
+export async function confirmKeptChangesWithoutFolder(folderName: string, fileNames: string[]): Promise<KeptChangesChoice> {
+    const what = fileNames.length === 1 ? `your unsaved changes to ${fileNames[0]}` : `your unsaved changes to ${fileNames.length} files`
+    const list = fileNames.length > 1 ? `\n\n${listFiles(fileNames)}` : ''
+    const body =
+        `Scrivon kept ${what} from last time, but it can't open ${folderName} to put them back.${list}\n\n` +
+        'You can save them as new files in another folder, or discard them. If the folder is only missing for now (on a drive that is unplugged, say), keep them for later.'
+    const choice = await askThreeWay('Unsaved changes from last time', body, { yes: 'Save Copies…', no: 'Discard', cancel: 'Keep for Later' })
+    if (choice === 'yes') return 'save'
+    if (choice === 'no') return 'discard'
+    return 'keep'
 }
 
 /** What happened to a file outside Scrivon while it was open. */

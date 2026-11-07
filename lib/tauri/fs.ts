@@ -416,12 +416,13 @@ export async function createWorkspaceDirectory(path: string): Promise<void> {
     await mkdir(path)
 }
 
-/** Creates a new file. Never replaces an existing one: throws PathExistsError instead. */
-export async function createWorkspaceFile(path: string, content: string): Promise<void> {
+/** Creates a new file, as UTF-8 or in `format`. Never replaces an existing one: throws PathExistsError instead. */
+export async function createWorkspaceFile(path: string, content: string, format?: TextFileFormat): Promise<void> {
     if (!isTauri()) return
     if (await exists(path)) throw new PathExistsError(path)
     // createNew also refuses a file that turns up between the check and the write (and ignores letter case on Windows).
-    await writeTextFile(path, content, { createNew: true })
+    if (format) await writeFile(path, encodeText(content, format), { createNew: true })
+    else await writeTextFile(path, content, { createNew: true })
 }
 
 /**
