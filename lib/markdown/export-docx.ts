@@ -215,8 +215,13 @@ function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
     return kana * 10 >= han ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.chinese
 }
 
-/** The document's language for Word's spelling and line breaking, with its East Asian and right-to-left parts. */
-function wordLanguage(lang: string): { value: string; eastAsia?: string; bidirectional?: string } {
+/**
+ * The document's language for Word's spelling and line breaking, with its East Asian and right-to-left parts.
+ * Undefined, leaving Word to use the reader's own language, when it is only the `en` the guess falls back to:
+ * a German or French document would otherwise be spell-checked as English.
+ */
+function wordLanguage({ lang, langGuessed }: ExportDocument): { value: string; eastAsia?: string; bidirectional?: string } | undefined {
+    if (langGuessed && lang === 'en') return undefined
     return { value: lang, eastAsia: CJK_LANGUAGE.test(lang) ? lang : undefined, bidirectional: RTL_LANGUAGE.test(lang) ? lang : undefined }
 }
 
@@ -2244,7 +2249,7 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         styles: {
             default: {
                 document: {
-                    run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626', language: wordLanguage(document.lang) },
+                    run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626', language: wordLanguage(document) },
                     paragraph: { spacing: bodyLineSpacing(state) },
                 },
                 heading1: headingStyle(1),

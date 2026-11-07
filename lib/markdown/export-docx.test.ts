@@ -679,8 +679,14 @@ describe('renderExportDocx', () => {
         expect(runWith(chinese.xml, '这是一个中文段落，里面只有一个片假名ツ。')).toContain('w:eastAsia="Microsoft YaHei"')
         const quoted = 'This English paragraph quotes 这是一个很长的中文句子 once, with a stray ツ in it.'
         const english = await render(quoted)
-        expect(language(english.parts)).toBe('<w:lang w:val="en"/>')
         expect(runWith(english.xml, quoted)).toContain('w:eastAsia="Microsoft YaHei"')
+
+        // A guess of `en` only means no other script leads, so Word keeps the reader's own language: a German
+        // document isn't spell-checked as English. A language the front matter names is always written.
+        expect(language(english.parts)).toBeUndefined()
+        expect(language((await render('Ein deutscher Absatz über Größe.')).parts)).toBeUndefined()
+        expect(language((await render('---\nlang: en\n---\n\nPlain words.')).parts)).toBe('<w:lang w:val="en"/>')
+        expect(language((await render('---\nlang: de-DE\n---\n\nEin Absatz.')).parts)).toBe('<w:lang w:val="de-DE"/>')
 
         const japanese = await render('---\nlang: ja\n---\n\n日本語の文章です。')
         expect(language(japanese.parts)).toBe('<w:lang w:val="ja" w:eastAsia="ja"/>')

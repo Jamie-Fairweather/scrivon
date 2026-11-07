@@ -33,6 +33,8 @@ export type ExportDocument = {
     metadata: PdfExportMetadata
     /** Language tag of the text: the front matter's `lang:`, else a guess from its script (`en` when unsure). */
     lang: string
+    /** Whether `lang` was guessed from the text rather than set by `lang:`. A guessed `en` only means no other script leads. */
+    langGuessed: boolean
     profile: PdfExportProfile
     assets: PdfExportResolvedAssets
     tree: Root
@@ -71,5 +73,5 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
 
-    return { metadata, lang: lang ?? guessDocumentLanguage(proseText(tree)), profile, assets, tree, outline, toc }
+    return { metadata, lang: lang ?? guessDocumentLanguage(proseText(tree)), langGuessed: lang === undefined, profile, assets, tree, outline, toc }
 }
