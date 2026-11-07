@@ -71,12 +71,33 @@ function newBlockId(): string {
     return `b${lastBlockId}`
 }
 
+/** A line that opens a fence, which a diagram's own text never has: the block has run on into the next one. */
+const FENCE_LINE = /^[ \t]*(?:`{3,}|~{3,})/m
+
+/** A block's text up to the first fence line in it: its own part, before the block it ran into. */
+function ownPart(text: string): string {
+    const fence = FENCE_LINE.exec(text)
+    return fence ? text.slice(0, fence.index).replace(/\n$/, '') : text
+}
+
+/**
+ * Whether `after`, at the place `before` had, is the same block edited. A block that ran into the next one (its
+ * closing fence deleted) is still the first of them, so it is only the same as a block that was, or becomes, its own
+ * part. A block that swallowed the one after it (an opening fence pasted above a diagram) is a new block, not that
+ * diagram edited, so it never takes that diagram's id and its picture.
+ */
+function sameBlockEdited(before: string, after: string): boolean {
+    if (FENCE_LINE.test(before) === FENCE_LINE.test(after)) return true
+    return ownPart(before) === ownPart(after)
+}
+
 /**
  * The id for each block in `sources`, carried over from `previous` (the last pass) so a block keeps its cached
  * picture and expanded view when blocks above it are added or removed. A block whose text didn't change keeps its
  * id wherever it moved. Of the rest, with as many blocks as before, a block keeps the id of the one at its position
  * (it is being edited); with blocks added or removed, only changed blocks next to the start or the end of the run
- * of matches are taken as edits. Every other block is new, and gets an id no block has had before.
+ * of matches are taken as edits. Either way, a block that ran into its neighbour only pairs as
+ * {@link sameBlockEdited} allows. Every other block is new, and gets an id no block has had before.
  */
 export function matchMermaidBlockIds(previous: readonly MermaidBlockIdentity[], sources: readonly string[], createId = newBlockId): string[] {
     const ids: (string | undefined)[] = sources.map(() => undefined)
@@ -88,9 +109,10 @@ export function matchMermaidBlockIds(previous: readonly MermaidBlockIdentity[], 
         ids[index] = previous[at]!.id
     })
 
-    /** Gives block `index` the id of previous block `at`. False when either one already has a partner. */
+    /** Gives block `index` the id of previous block `at`. False when either one already has a partner, or they differ. */
     const pair = (index: number, at: number): boolean => {
         if (ids[index] !== undefined || taken.has(at)) return false
+        if (!sameBlockEdited(previous[at]!.source, sources[index]!)) return false
         taken.add(at)
         ids[index] = previous[at]!.id
         return true

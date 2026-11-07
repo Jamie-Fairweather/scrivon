@@ -36,6 +36,49 @@ describe('matchMermaidBlockIds (B28)', () => {
         expect(match([], ['A', 'B'])).toEqual(['new0', 'new1'])
     })
 
+    /** Runs one pass per step, each against the one before, as the preview does, and returns every pass's ids. */
+    function passes(...steps: string[][]): string[][] {
+        let next = 0
+        let before: MermaidBlockIdentity[] = []
+        return steps.map((sources) => {
+            const ids = matchMermaidBlockIds(before, sources, () => `new${next++}`)
+            before = sources.map((source, index) => ({ id: ids[index]!, source }))
+            return ids
+        })
+    }
+
+    describe('an opening fence pasted above a diagram (review)', () => {
+        const D1 = 'graph TD\n  A --> B'
+        const N = 'graph LR\n  X --> Y'
+        const swallowed = (own: string) => `${own ? `${own}\n` : ''}\`\`\`mermaid\n${D1}`
+
+        it('never hands the diagram’s id to the new block that swallowed it, so the new one can’t show its picture', () => {
+            // The new fence takes in D1's fence and text; then N is written into it and closed in one go.
+            expect(passes([D1], [swallowed('')], [N, D1])).toEqual([['new0'], ['new1'], ['new2', 'new3']])
+            // Pasted with its text already in it.
+            expect(passes([D1], [swallowed(N)], [N, D1])).toEqual([['new0'], ['new1'], ['new1', 'new2']])
+        })
+
+        it('keeps one id for the new block while it is written', () => {
+            expect(passes([D1], [swallowed('')], [swallowed('g')], [swallowed(N)], [N, D1])).toEqual([
+                ['new0'],
+                ['new1'],
+                ['new1'],
+                ['new1'],
+                ['new1', 'new2'],
+            ])
+        })
+
+        it('still takes a block whose closing fence was deleted and put back as the same block', () => {
+            expect(passes(['A', 'B'], ['A\n```mermaid\nB'], ['A2\n```mermaid\nB'], ['A2', 'B'])).toEqual([
+                ['new0', 'new1'],
+                ['new0'],
+                ['new0'],
+                ['new0', 'new2'],
+            ])
+        })
+    })
+
     it('matches repeated diagrams one to one', () => {
         expect(match(previous('A', 'A'), ['A'])).toEqual(['old0'])
         expect(match(previous('A'), ['A', 'A'])).toEqual(['old0', 'new0'])
