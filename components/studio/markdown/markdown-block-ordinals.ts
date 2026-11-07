@@ -49,10 +49,16 @@ function textOf(node: Element | ElementContent): string {
     return ''
 }
 
-/** A Mermaid block's text, as the preview hands it to the diagram. */
-export function mermaidBlockText(code: Element): string {
+/**
+ * A fenced block's text, as the preview shows it. Read from the tree, so tags inside a raw-HTML
+ * `<pre><code>` (`git <b>commit</b>`) give their words.
+ */
+export function codeBlockText(code: Element): string {
     return textOf(code).replace(/\n$/, '')
 }
+
+/** A Mermaid block's text, as the preview hands it to the diagram. */
+export const mermaidBlockText = codeBlockText
 
 /** A Mermaid block's id, and the text it had when the document was last shown. */
 export type MermaidBlockIdentity = { id: string; source: string }

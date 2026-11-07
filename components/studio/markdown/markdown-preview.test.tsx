@@ -232,6 +232,21 @@ describe('MarkdownPreview', () => {
             expect(typeof document.createElement).toBe('function')
         })
 
+        it('keeps a raw <pre> of plain text as a block, with its spaces and line breaks (review)', () => {
+            const { container } = preview('<pre>+--+\n|  | <b>box</b>\n+--+</pre>\n\nAfter.')
+            const pre = container.querySelector('pre')!
+            expect(pre).not.toBeNull()
+            expect(pre.textContent).toBe('+--+\n|  | box\n+--+')
+            expect(pre).toHaveClass('whitespace-pre', 'font-mono')
+            expect(pre.querySelector('b')).toHaveTextContent('box')
+        })
+
+        it('shows the words of tags inside a raw <pre><code> block, not [object Object] (review)', () => {
+            const { container } = preview('<pre><code>git <b>commit</b> -m "x"</code></pre>')
+            expect(container).toHaveTextContent('git commit -m "x"')
+            expect(container).not.toHaveTextContent('[object Object]')
+        })
+
         it('numbers a diagram written as raw HTML the same way the viewer finds it', () => {
             const source = '<pre><code class="language-mermaid">graph LR\n  A --> B</code></pre>\n\n```mermaid\nflowchart TD\n```'
             preview(source)

@@ -10,9 +10,11 @@ import type { PluggableList } from 'unified'
 import { EmbeddedMermaidBlock } from '@/components/studio/markdown/embedded-mermaid-block'
 import { FencedCodeBlock } from '@/components/studio/markdown/fenced-code-block'
 import {
+    codeBlockText,
     fencedCodeBlockOrdinal,
     mermaidBlockKey,
     mermaidBlockOrdinal,
+    mermaidBlockText,
     rehypeFencedBlockOrdinals,
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
@@ -45,12 +47,6 @@ type CodeComponentProps = ComponentProps<'code'> & {
 /** The fence's language, from react-markdown's `language-*` class, in lower case. */
 function codeLanguage(className: string | undefined): string | undefined {
     return /language-([^\s]+)/i.exec(className ?? '')?.[1]?.toLowerCase()
-}
-
-function extractText(children: ReactNode): string {
-    if (typeof children === 'string') return children
-    if (Array.isArray(children)) return children.map(extractText).join('')
-    return String(children ?? '')
 }
 
 /**
@@ -252,8 +248,19 @@ const staticMarkdownComponents: Components = {
             {children}
         </td>
     ),
-    // Each fenced block draws its own frame (the code override), so the <pre> adds nothing.
-    pre: ({ children }) => <>{children}</>,
+    pre: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        const first = props.node?.children[0]
+        // A fenced block draws its own frame (the code override), so its <pre> adds nothing.
+        if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) return <>{rest.children}</>
+        // A raw-HTML <pre> of plain text, such as ASCII art, keeps its spaces and line breaks.
+        return (
+            <pre
+                {...rest}
+                className={cn('mb-3 overflow-x-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs whitespace-pre', className)}
+            />
+        )
+    },
     img: PreviewImage,
 }
 
@@ -291,12 +298,11 @@ export const MarkdownPreview = memo(function MarkdownPreview({
             },
             code(props: CodeComponentProps) {
                 const { className: codeClassName, children, node } = props
-                const text = extractText(children)
                 // Numbered on the syntax tree (rehypeFencedBlockOrdinals): every fenced block, even an empty one, has
                 // a number and inline code has none. Counting here would go wrong when React renders a block twice.
                 const ordinal = mermaidBlockOrdinal(node)
 
-                if (ordinal !== null) {
+                if (node && ordinal !== null) {
                     // Keyed by an id that stays with the block, not its position, so a block never shows the picture
                     // of the one that was in its place before a block above it was added or removed.
                     const blockId = mermaidBlockId(tabId, mermaidBlockKey(node) ?? `at-${ordinal}`)
@@ -305,7 +311,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                             key={blockId}
                             blockId={blockId}
                             ordinal={ordinal}
-                            source={text.replace(/\n$/, '')}
+                            source={mermaidBlockText(node)}
                             tabId={tabId}
                             onExpand={onExpandBlock}
                         />
@@ -313,13 +319,13 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 }
 
                 const codeOrdinal = fencedCodeBlockOrdinal(node)
-                if (codeOrdinal === null) {
+                if (!node || codeOrdinal === null) {
                     return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">{children}</code>
                 }
 
                 const lang = codeLanguage(codeClassName)
                 const blockId = fencedCodeBlockId(tabId, codeOrdinal, lang)
-                return <FencedCodeBlock key={blockId} code={text.replace(/\n$/, '')} language={lang} />
+                return <FencedCodeBlock key={blockId} code={codeBlockText(node)} language={lang} />
             },
         }
     }, [onExpandBlock, onLinkClick, tabId])
