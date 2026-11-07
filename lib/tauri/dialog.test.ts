@@ -93,11 +93,10 @@ describe('pickOpenFile', () => {
         expect(openMock).not.toHaveBeenCalled()
     })
 
-    it('allows the parent folder and returns the file path', async () => {
+    it('returns the file path without granting access to its folder', async () => {
         isTauriMock.mockReturnValue(true)
-        openMock.mockResolvedValue('C:\\brand\\logo.png')
-        await expect(pickOpenFile({ title: 'Choose image' })).resolves.toBe('C:\\brand\\logo.png')
-        expect(allowWorkspacePathMock).toHaveBeenCalledWith('C:\\brand')
+        openMock.mockResolvedValue('C:\\Users\\me\\Downloads\\logo.png')
+        await expect(pickOpenFile({ title: 'Choose image' })).resolves.toBe('C:\\Users\\me\\Downloads\\logo.png')
         expect(openMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 directory: false,
@@ -105,20 +104,9 @@ describe('pickOpenFile', () => {
                 title: 'Choose image',
             })
         )
-        openMock.mockResolvedValue('/tmp/logo.png')
-        await expect(pickOpenFile()).resolves.toBe('/tmp/logo.png')
-        expect(allowWorkspacePathMock).toHaveBeenCalledWith('/tmp')
-    })
-
-    it('allows a file path that has no parent directory', async () => {
-        isTauriMock.mockReturnValue(true)
-        openMock.mockResolvedValue('logo.png')
-        await expect(pickOpenFile()).resolves.toBe('logo.png')
-        expect(allowWorkspacePathMock).toHaveBeenCalledWith('logo.png')
-
-        openMock.mockResolvedValue('/logo.png')
-        await expect(pickOpenFile()).resolves.toBe('/logo.png')
-        expect(allowWorkspacePathMock).toHaveBeenCalledWith('/logo.png')
+        openMock.mockResolvedValue('G:\\logo.png')
+        await expect(pickOpenFile()).resolves.toBe('G:\\logo.png')
+        expect(allowWorkspacePathMock).not.toHaveBeenCalled()
     })
 
     it('returns null when file selection is cancelled or returns an array', async () => {

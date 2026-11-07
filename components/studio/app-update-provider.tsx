@@ -1,5 +1,6 @@
 'use client'
 
+import { reportLastUpdateAttempt } from '@/lib/updater/update-attempt'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { UpdateAvailableDialog, type AppUpdateInfo, type InstallBlocker } from '@/components/studio/dialogs/update-available-dialog'
 import { useDocumentSave, useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
@@ -71,6 +72,11 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         tabsRef.current = tabs
     }, [tabs])
+
+    // The installer runs after the app has closed, so say on the next launch how it went.
+    useEffect(() => {
+        void reportLastUpdateAttempt()
+    }, [])
 
     useEffect(() => {
         if (!isTauri() || !settings.updates.checkOnLaunch) return

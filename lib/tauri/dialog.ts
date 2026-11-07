@@ -53,12 +53,7 @@ export type OpenFileDialogOptions = {
     filters?: DialogFilter[]
 }
 
-function parentDirectory(path: string): string {
-    const trimmed = path.replace(/[\\/]+$/, '')
-    const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-    return slash <= 0 ? trimmed : trimmed.slice(0, slash)
-}
-
+/** Picks one file. Its folder is not added to the fs scope: export images are read by the read_export_image command. */
 export async function pickOpenFile(options: OpenFileDialogOptions = {}): Promise<string | null> {
     if (!isTauri()) return null
 
@@ -71,8 +66,6 @@ export async function pickOpenFile(options: OpenFileDialogOptions = {}): Promise
     })
 
     if (!selected || Array.isArray(selected)) return null
-
-    await allowWorkspacePath(parentDirectory(selected))
     return selected
 }
 
