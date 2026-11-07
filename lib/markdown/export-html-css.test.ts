@@ -174,6 +174,17 @@ describe('buildPdfExportCss', () => {
         }
     })
 
+    it('indents lists, quotes and TOC levels from the start side, so Arabic and Hebrew indent on the right', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).toContain('ul, ol { margin: 0 0 0.75rem; padding-inline-start: 1.25rem; }')
+        expect(css).toMatch(/blockquote \{[^}]*padding-inline-start: 1rem;[^}]*border-inline-start: 2px solid #[0-9a-f]+;/i)
+        expect(css).not.toMatch(/blockquote \{[^}]*(padding|border)-left/)
+        expect(css).toContain('.pdf-toc-l2 a { padding-inline-start: 1rem; }')
+        expect(css).toContain('.pdf-toc-l3 a { padding-inline-start: 2rem;')
+        expect(css).toContain('.pdf-toc-l4 a { padding-inline-start: 3rem;')
+        expect(css).not.toMatch(/\.pdf-toc-l\d a \{[^}]*padding-left/)
+    })
+
     it('fixes an every-page footer to the page bottom and hides its table copy', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
         expect(css).toContain('.pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }')

@@ -465,12 +465,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   h6 { margin: 1rem 0 0.5rem; font-size: 0.9em; font-weight: 600; }
   p { margin: 0 0 0.75rem; }
   ${profile.typography.justify ? '.pdf-body > p { text-align: justify; }' : ''}
-  ul, ol { margin: 0 0 0.75rem; padding-left: 1.25rem; }
+  ul, ol { margin: 0 0 0.75rem; padding-inline-start: 1.25rem; }
   li { margin: 0.25rem 0; word-break: break-word; }
   blockquote {
     margin: 0 0 0.75rem;
-    padding-left: 1rem;
-    border-left: 2px solid ${accent};
+    padding-inline-start: 1rem;
+    border-inline-start: 2px solid ${accent};
     color: #525252;
     font-style: italic;
   }
@@ -677,9 +677,9 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     font-weight: 600;
     color: #171717;
   }
-  .pdf-toc-l2 a { padding-left: 1rem; }
-  .pdf-toc-l3 a { padding-left: 2rem; font-size: 0.94em; color: #404040; }
-  .pdf-toc-l4 a { padding-left: 3rem; font-size: 0.9em; color: #525252; }
+  .pdf-toc-l2 a { padding-inline-start: 1rem; }
+  .pdf-toc-l3 a { padding-inline-start: 2rem; font-size: 0.94em; color: #404040; }
+  .pdf-toc-l4 a { padding-inline-start: 3rem; font-size: 0.9em; color: #525252; }
   .pdf-toc-title {
     min-width: 0;
     overflow: hidden;
