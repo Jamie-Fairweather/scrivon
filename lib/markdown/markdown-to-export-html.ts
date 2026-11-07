@@ -417,6 +417,12 @@ function renderChromeBar(
  * the page bottom (see {@link wrapWithChrome}), and each section's repeating footer row is a
  * copy of it that is never seen: on a section that shows the footer it keeps the text clear
  * of it, and on one that hides it (the title page, the TOC) it is opaque and covers it.
+ *
+ * Known gaps, which only the stamper could close by cutting the fixed footer out of those
+ * pages: a cover is a table row, so it reaches the page bottom only on a page the section
+ * fills. With 'Title page + TOC' and contents longer than a page, the last contents page
+ * ends early and the footer bar (with no number) shows below its cover. And a covered
+ * footer's text stays in the PDF's text layer, so search and copy can still find it there.
  */
 function chromeTable(kind: ChromeSection, inner: string, header: string, footer: string, coversFooter: boolean): string {
     const foot = footer ? ` class="${coversFooter ? 'pdf-footer-cover' : 'pdf-footer-spacer'}" aria-hidden="true"` : ''
