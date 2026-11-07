@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor'
-import { ensureContrast, hexColorMix } from '@/lib/theme/color-mix'
+import { ensureContrast, hexColorMix, parseHexColor } from '@/lib/theme/color-mix'
 import type { ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
 
 export const MONACO_DIAGRAM_THEME_ID = 'scrivon-diagram'
@@ -25,35 +25,109 @@ function withAlpha(hex: string, alpha: number): string {
     return `${hex}${Math.round(alpha).toString(16).padStart(2, '0')}`
 }
 
+/** The colour each kind of Markdown syntax gets, before it is made readable on the theme's background. */
+type SyntaxColors = {
+    heading: string
+    link: string
+    /** Code fences and indented code. */
+    code: string
+    /** Inline code and the inside of fenced code. */
+    inlineCode: string
+    /** Block quotes and HTML comments. */
+    quote: string
+    tag: string
+    attribute: string
+    htmlString: string
+}
+
 /**
- * Syntax colours for Monaco's Markdown tokenizer (also used for .mmd files), taken from the
- * palette so headings, links and code don't fall back to VS Code's blues, reds and greens.
+ * VS Code's own syntax colours (from Monaco's built-in vs and vs-dark themes), for palettes with no
+ * colour of their own: Scrivon and Zinc have a grey accent, so colours built from it are all grey.
  */
-function tokenRules(tokens: ResolvedThemeTokens): editor.ITokenThemeRule[] {
+const VSCODE_SYNTAX: Record<'light' | 'dark', SyntaxColors> = {
+    light: {
+        heading: '#0000ff',
+        link: '#a31515',
+        code: '#a31515',
+        inlineCode: '#001188',
+        quote: '#008000',
+        tag: '#800000',
+        attribute: '#ff0000',
+        htmlString: '#0000ff',
+    },
+    dark: {
+        heading: '#569cd6',
+        link: '#ce9178',
+        code: '#ce9178',
+        inlineCode: '#74b0df',
+        quote: '#608b4e',
+        tag: '#569cd6',
+        attribute: '#9cdcfe',
+        htmlString: '#ce9178',
+    },
+}
+
+/**
+ * How far apart a colour's red, green and blue (0-255) can be while it still counts as a grey.
+ * Scrivon's and Zinc's accents are 1 apart at most; the least colourful theme accent (Nord's) is 72.
+ */
+const GREY_SPREAD = 24
+
+/** True when a colour has no hue to speak of, so syntax in it would look like body text. */
+function isGrey(hex: string): boolean {
+    const rgb = parseHexColor(hex)
+    if (!rgb) return true
+    return Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b) < GREY_SPREAD
+}
+
+/** Syntax colours from the palette's accent, so they match the theme instead of VS Code's blues and reds. */
+function paletteSyntax(tokens: ResolvedThemeTokens): SyntaxColors {
+    const code = hexColorMix(tokens.accent, tokens.fg, 50)
+    return {
+        heading: tokens.accent,
+        link: tokens.accent,
+        code,
+        inlineCode: code,
+        quote: tokens.textSecondary,
+        tag: code,
+        attribute: tokens.textSecondary,
+        htmlString: code,
+    }
+}
+
+/**
+ * Syntax colours for Monaco's Markdown tokenizer (also used for .mmd files): from the palette when it
+ * has a colour of its own, VS Code's otherwise. Every rule is set here, so none falls back to the base theme.
+ */
+function tokenRules(tokens: ResolvedThemeTokens, isLight: boolean): editor.ITokenThemeRule[] {
     // Readable on the editor background and on the current line's highlight, in every palette.
     const readable = (color: string) => ensureContrast(color, tokens.fg, [tokens.bg, tokens.surface], MIN_TEXT_CONTRAST)
-    const accent = readable(tokens.accent)
+    const syntax = isGrey(tokens.accent) ? VSCODE_SYNTAX[isLight ? 'light' : 'dark'] : paletteSyntax(tokens)
+    const heading = readable(syntax.heading)
+    const link = readable(syntax.link)
+    const code = readable(syntax.code)
+    const inlineCode = readable(syntax.inlineCode)
+    const quote = readable(syntax.quote)
     const secondary = readable(tokens.textSecondary)
-    const code = readable(hexColorMix(tokens.accent, tokens.fg, 50))
     return [
         // Headings, list markers and table pipes.
-        { token: 'keyword', foreground: accent, fontStyle: 'bold' },
+        { token: 'keyword', foreground: heading, fontStyle: 'bold' },
         { token: 'meta.separator', foreground: secondary },
-        { token: 'string.link', foreground: accent },
-        { token: 'string.target', foreground: accent },
+        { token: 'string.link', foreground: link },
+        { token: 'string.target', foreground: link },
         { token: 'string.escape', foreground: secondary },
         { token: 'escape', foreground: secondary },
-        // Code fences, indented code, inline code and fenced code.
+        // Code fences and indented code, then inline code and the inside of fenced code.
         { token: 'string', foreground: code },
-        { token: 'variable', foreground: code },
-        { token: 'variable.source', foreground: code },
+        { token: 'variable', foreground: inlineCode },
+        { token: 'variable.source', foreground: inlineCode },
         // Block quote markers and HTML comments.
-        { token: 'comment', foreground: secondary, fontStyle: 'italic' },
-        { token: 'comment.content', foreground: secondary, fontStyle: 'italic' },
+        { token: 'comment', foreground: quote, fontStyle: 'italic' },
+        { token: 'comment.content', foreground: quote, fontStyle: 'italic' },
         // Inline HTML.
-        { token: 'tag', foreground: code },
-        { token: 'attribute.name', foreground: secondary },
-        { token: 'string.html', foreground: code },
+        { token: 'tag', foreground: readable(syntax.tag) },
+        { token: 'attribute.name', foreground: readable(syntax.attribute) },
+        { token: 'string.html', foreground: readable(syntax.htmlString) },
         { token: 'delimiter.html', foreground: secondary },
         { token: 'strong', fontStyle: 'bold' },
         { token: 'emphasis', fontStyle: 'italic' },
@@ -127,7 +201,7 @@ export function buildMonacoDiagramTheme(tokens: ResolvedThemeTokens, isLight: bo
     return {
         base: isLight ? 'vs' : 'vs-dark',
         inherit: true,
-        rules: tokenRules(tokens),
+        rules: tokenRules(tokens, isLight),
         colors: {
             'editor.background': tokens.bg,
             'editor.foreground': tokens.fg,

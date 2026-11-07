@@ -4,6 +4,8 @@
 import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/esm/vs/editor/edcore.main.js'
 import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js'
+// The languages Markdown code blocks are coloured with.
+import '@/lib/monaco/code-block-languages'
 import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js'
 import { IOpenerService } from 'monaco-editor/esm/vs/platform/opener/common/opener.js'
 import { registerExternalLinkOpener } from '@/lib/monaco/link-opener'
