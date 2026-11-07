@@ -100,6 +100,8 @@ jobs:
                   tagName: ${{ inputs.tag }}
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
+                  # The updater never downloads the .sig files: their signature is already inside latest.json.
+                  uploadUpdaterSignatures: false
                   # Only the per-user setup.exe ships. Explicit, so rebuilding an older tag (whose config
                   # still builds every target) doesn't add an MSI, or fail on one for an rc version.
                   args: --bundles nsis
