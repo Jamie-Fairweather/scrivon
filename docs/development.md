@@ -15,7 +15,7 @@ bun run tauri dev
 
 The web UI also runs with `bun run dev`, but folder workspaces require the desktop app (`bun run tauri dev`).
 
-Only one copy of Scrivon runs at a time, and a second launch just brings the open window to the front. A dev build counts too: it has the same identifier and uses the same settings, recent folders and kept unsaved edits as the installed app, so quit the installed app before `bun run tauri dev`, or the dev build will only focus it and quit.
+Only one copy of Scrivon runs at a time, and a second launch just brings the open window to the front. A dev build counts too: it has the same identifier, so quit the installed app before `bun run tauri dev`, or the dev build will only focus it and quit. The same identifier also means the dev build shares the installed app's recent folders, open tabs and kept unsaved edits (the `workspace.json` and `unsaved-changes.json` store files in the app's data folder). Settings (theme, shortcuts, export profiles, autosave) are not shared: they live in the page's localStorage, which is kept per origin, and the dev build loads the page from `http://localhost:3000` rather than the installed app's `http://tauri.localhost`. So a dev build starts with its own settings, and changes made there don't carry over.
 
 `bun run build` (the production web build) also needs Rust installed: afterwards it runs `cargo metadata` to list the Rust crates in the licences dialog.
 
