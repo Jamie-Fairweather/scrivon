@@ -17,11 +17,22 @@ const KINDS: [pattern: RegExp, kind: Kind, label: string][] = [
 /** How many labels the description names before it says how many more there are. */
 const MAX_LABELS = 5
 
+/**
+ * Text with its tags taken out, repeated until none are left. This only tidies what is read aloud: every
+ * caller still escapes the result, so it isn't what keeps HTML out.
+ */
+function withoutTags(text: string): string {
+    let previous: string
+    do {
+        previous = text
+        text = text.replace(/<[^>]*>/g, '')
+    } while (text !== previous)
+    return text
+}
+
 /** A label as it reads on the diagram: no quotes, tags, or Markdown backticks, and `<br>` as a space. */
 function cleanLabel(text: string): string {
-    return text
-        .replace(/<br\s*\/?>/gi, ' ')
-        .replace(/<[^>]*>/g, '')
+    return withoutTags(text.replace(/<br\s*\/?>/gi, ' '))
         .replace(/^["'`]+|["'`]+$/g, '')
         .replace(/\s+/g, ' ')
         .trim()

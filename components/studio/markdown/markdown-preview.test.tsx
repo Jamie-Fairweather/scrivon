@@ -70,7 +70,7 @@ describe('MarkdownPreview', () => {
                 for (const name of owner.classList) {
                     const rule = /^\[(.+)\]:list-\[(\w+)\]$/.exec(name)
                     if (!rule) continue
-                    const selector = rule[1]!.replaceAll('_', ' ').replace('&', `.${CSS.escape(name)}`)
+                    const selector = rule[1]!.replaceAll('_', ' ').replaceAll('&', `.${CSS.escape(name)}`)
                     const steps = selector.split(' ').length
                     if (list.matches(selector) && steps > best.steps) best = { type: rule[2]!, steps }
                 }

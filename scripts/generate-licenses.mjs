@@ -195,13 +195,26 @@ function standardLicenseText(id) {
     return existsSync(path) ? normalizeText(readFileSync(path, 'utf8')) : null
 }
 
+/**
+ * An author without `<email>` parts, repeated until none are left. The licence file stores it as a quoted
+ * string and the app shows it as plain text, so this is tidying, not what keeps HTML out.
+ * @param {string} author
+ */
+function withoutEmails(author) {
+    let previous
+    do {
+        previous = author
+        author = author.replace(/\s*<[^>]*>/g, '')
+    } while (author !== previous)
+    return author
+}
+
 function formatAuthors(authors) {
     return authors
         .map((author) => (typeof author === 'string' ? author : author?.name))
         .filter(Boolean)
         .map((author) =>
-            author
-                .replace(/\s*<[^>]*>/g, '')
+            withoutEmails(author)
                 .replace(/\s*\([^)]*\)/g, '')
                 .trim()
         )
