@@ -38,6 +38,9 @@ function swatchStyle(hex: string | null) {
 /**
  * Hex colour input with a popover picker. Stores `#rrggbb`, or `#rrggbbaa` when
  * translucent. With `allowEmpty`, a cleared field stores `''` (the caller's default).
+ * While the popover is open, the picker and the hex text follow a drag or typing. The colour is
+ * saved when a drag or key step ends, when the text is left or Enter is pressed, and when the
+ * popover closes, so a drag saves once rather than on every pointer move.
  */
 export function ColorField({ id, value, placeholder = '#000000', allowEmpty = false, onChange }: ColorFieldProps) {
     const [draft, setDraft] = useState(value)
@@ -45,10 +48,33 @@ export function ColorField({ id, value, placeholder = '#000000', allowEmpty = fa
     const normalized = normalizeColorHex(value)
     const swatch = normalized ?? (allowEmpty && !value.trim() ? null : FALLBACK_HEX)
 
+    /** Saves a colour (or `''`) unless it is the one already saved. */
+    const save = (next: string) => {
+        if (next === value || (next !== '' && next === normalized)) return
+        onChange(next)
+    }
+
+    /** Saves the hex text if it is a colour (or empty, when allowed); otherwise puts the saved value back. */
+    const commitDraft = () => {
+        if (allowEmpty && draft.trim() === '') {
+            save('')
+            setDraft('')
+            return
+        }
+        const parsed = normalizeColorHex(draft)
+        if (parsed) {
+            save(parsed)
+            setDraft(parsed)
+        } else {
+            setDraft(value)
+        }
+    }
+
     return (
         <Popover
             onOpenChange={(open) => {
                 if (open) setDraft(value || '')
+                else commitDraft()
             }}
         >
             <PopoverTrigger
@@ -68,11 +94,11 @@ export function ColorField({ id, value, placeholder = '#000000', allowEmpty = fa
             </PopoverTrigger>
             <PopoverPopup className="w-72 p-3" align="start">
                 <ColorPicker
-                    value={normalized ?? FALLBACK_HEX}
-                    onChange={(hex) => {
-                        setDraft(hex)
-                        onChange(hex)
-                    }}
+                    // Follows the hex text while it is a colour; while it isn't, the picker stays where it was.
+                    value={normalizeColorHex(draft) ?? undefined}
+                    defaultValue={normalized ?? FALLBACK_HEX}
+                    onChange={setDraft}
+                    onChangeEnd={save}
                 >
                     <ColorPickerSelection className="h-40" />
                     <ColorPickerHue />
@@ -84,29 +110,10 @@ export function ColorField({ id, value, placeholder = '#000000', allowEmpty = fa
                             value={draft}
                             placeholder={placeholder}
                             spellCheck={false}
-                            onChange={(event) => {
-                                const next = event.target.value
-                                setDraft(next)
-                                if (allowEmpty && next.trim() === '') {
-                                    onChange('')
-                                    return
-                                }
-                                const parsed = normalizeColorHex(next)
-                                if (parsed) onChange(parsed)
-                            }}
-                            onBlur={() => {
-                                if (allowEmpty && draft.trim() === '') {
-                                    onChange('')
-                                    setDraft('')
-                                    return
-                                }
-                                const parsed = normalizeColorHex(draft)
-                                if (parsed) {
-                                    onChange(parsed)
-                                    setDraft(parsed)
-                                } else {
-                                    setDraft(value)
-                                }
+                            onChange={(event) => setDraft(event.target.value)}
+                            onBlur={commitDraft}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') commitDraft()
                             }}
                         />
                     </div>

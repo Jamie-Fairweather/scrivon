@@ -34,6 +34,8 @@ type ColorPickerContextValue = HslColor & {
     setLightness: (lightness: number) => void
     setAlpha: (alpha: number) => void
     setColor: (color: HslColor) => void
+    /** Marks the end of a change (pointer released, a key step, an eyedropper pick); `onChangeEnd` then gets the colour. */
+    endChange: () => void
 }
 
 const ColorPickerContext = createContext<ColorPickerContextValue | undefined>(undefined)
@@ -175,11 +177,16 @@ function colorToHex(color: HslColor): string {
 export type ColorPickerProps = Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> & {
     value?: string
     defaultValue?: string
-    /** Receives the normalised hex (`#rrggbb` or `#rrggbbaa`) whenever the colour changes. */
+    /** Receives the normalised hex (`#rrggbb` or `#rrggbbaa`) whenever the colour changes, including every move of a drag. */
     onChange?: (hex: string) => void
+    /**
+     * Receives the hex once a change ends: the pointer is released, a key moves a slider or the
+     * square, or the eyedropper picks a colour. Use it to save, so a drag saves once.
+     */
+    onChangeEnd?: (hex: string) => void
 }
 
-export function ColorPicker({ value, defaultValue = '#000000', onChange, className, children, ...props }: ColorPickerProps) {
+export function ColorPicker({ value, defaultValue = '#000000', onChange, onChangeEnd, className, children, ...props }: ColorPickerProps) {
     const [color, setColor] = useState(() => hexToHsl(value ?? defaultValue))
     const lastEmittedRef = useRef(colorToHex(color))
 
@@ -207,16 +214,27 @@ export function ColorPicker({ value, defaultValue = '#000000', onChange, classNa
         emitChange(colorToHex(color))
     }, [color])
 
+    // Counted rather than called straight away, so the end is reported after the render that
+    // applies the last change (a key step sets the colour and ends the change in one event).
+    const [changeEnds, setChangeEnds] = useState(0)
+    const endChange = useCallback(() => setChangeEnds((count) => count + 1), [])
+    const emitChangeEnd = useEffectEvent(() => onChangeEnd?.(colorToHex(color)))
+
+    useEffect(() => {
+        if (changeEnds > 0) emitChangeEnd()
+    }, [changeEnds])
+
     const context = useMemo<ColorPickerContextValue>(
         () => ({
             ...color,
             setColor,
+            endChange,
             setHue: (hue) => setColor((current) => ({ ...current, hue })),
             setSaturation: (saturation) => setColor((current) => ({ ...current, saturation })),
             setLightness: (lightness) => setColor((current) => ({ ...current, lightness })),
             setAlpha: (alpha) => setColor((current) => ({ ...current, alpha })),
         }),
-        [color]
+        [color, endChange]
     )
 
     return (
@@ -233,7 +251,7 @@ export type ColorPickerSelectionProps = HTMLAttributes<HTMLDivElement>
 export const ColorPickerSelection = memo(function ColorPickerSelection({ className, ...props }: ColorPickerSelectionProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const [isDragging, setIsDragging] = useState(false)
-    const { hue, saturation, lightness, setSaturation, setLightness } = useColorPicker()
+    const { hue, saturation, lightness, setSaturation, setLightness, endChange } = useColorPicker()
     // The last point the user picked. Along the black bottom row (and at white) HSL drops the
     // HSV saturation, so rebuilding the thumb from the colour alone would jump it to the left edge.
     const [picked, setPicked] = useState<(SelectionPoint & { saturation: number; lightness: number }) | null>(null)
@@ -273,19 +291,23 @@ export const ColorPickerSelection = memo(function ColorPickerSelection({ classNa
         setSaturation(next.saturation)
         setLightness(next.lightness)
         setPicked({ ...point, ...next })
+        endChange()
     }
 
     useEffect(() => {
         if (!isDragging) return
         const onMove = (event: PointerEvent) => updateFromPointer(event.clientX, event.clientY)
-        const onUp = () => setIsDragging(false)
+        const onUp = () => {
+            setIsDragging(false)
+            endChange()
+        }
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
         return () => {
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
         }
-    }, [isDragging, updateFromPointer])
+    }, [isDragging, updateFromPointer, endChange])
 
     return (
         <div
@@ -341,6 +363,7 @@ function ColorSliderTrack({
     unit: string
     'aria-label': string
 }) {
+    const { endChange } = useColorPicker()
     return (
         <SliderPrimitive.Root
             aria-label={ariaLabel}
@@ -351,6 +374,8 @@ function ColorSliderTrack({
             thumbAlignment="edge"
             value={[value]}
             onValueChange={([next]) => onValueChange(next)}
+            // Fires when a drag is released and after each key step.
+            onValueCommitted={endChange}
         >
             <SliderPrimitive.Control className="flex h-4 w-full touch-none items-center select-none">
                 <SliderPrimitive.Track className="relative h-3 w-full grow rounded-full" data-slot="slider-track" style={style}>
@@ -423,7 +448,7 @@ export type ColorPickerEyeDropperProps = ComponentProps<typeof Button>
 type EyeDropperWindow = { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }
 
 export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDropperProps) {
-    const { alpha, setColor } = useColorPicker()
+    const { alpha, setColor, endChange } = useColorPicker()
     const [supported] = useState(() => isEyeDropperSupported())
 
     if (!supported) return null
@@ -440,6 +465,7 @@ export function ColorPickerEyeDropper({ className, ...props }: ColorPickerEyeDro
                     const result = await new (window as unknown as EyeDropperWindow).EyeDropper().open()
                     // Screen colours are opaque; keep whatever alpha the user had dialled in.
                     setColor({ ...hexToHsl(result.sRGBHex), alpha })
+                    endChange()
                 } catch {
                     // Cancelled or unavailable.
                 }
