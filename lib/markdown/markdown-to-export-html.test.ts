@@ -203,7 +203,7 @@ SHIKI_FAIL
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
-        expect(html).toContain('<div class="mermaid-export pdf-avoid-break"><svg')
+        expect(html).toMatch(/<div class="mermaid-export pdf-avoid-break" role="img" aria-label="[^"]*"><svg/)
         expect(html).toContain('<li dir="auto"><div class="code-block pdf-avoid-break">')
         expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
         expect(html).not.toContain('<p></p>')
@@ -655,6 +655,21 @@ SHIKI_FAIL
         expect(html).toContain('<pre class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
         expect(html).not.toContain('<div class="mermaid-export')
         expect(html).not.toContain('<svg')
+    })
+
+    it('names each diagram picture the way Word does, from accTitle or its kind and nodes (A26)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const diagram = (lines: string[]) => ['```mermaid', ...lines, '```'].join('\n')
+        const source = [
+            diagram(['flowchart TD', '  accTitle: Login flow', '  A[Sign in] --> B[Home]']),
+            diagram(['flowchart TD', '  A[Start] --> B[End]']),
+            diagram(['flowchart TD', '  accTitle: Say "hi" & <wave>', '  A --> B']),
+        ].join('\n\n')
+        const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Login flow"><svg')
+        expect(html).toContain('<div class="mermaid-export pdf-avoid-break" role="img" aria-label="Flowchart: Start, End"><svg')
+        // The label can't end the attribute or start markup.
+        expect(html).toContain('aria-label="Say &quot;hi&quot; &amp;"><svg')
     })
 
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {

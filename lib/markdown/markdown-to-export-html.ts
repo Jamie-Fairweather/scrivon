@@ -22,6 +22,7 @@ import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-link
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
+import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
@@ -216,7 +217,9 @@ async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<s
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
             // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
             if (!getSvgDimensions(svg)) return `<pre class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
-            return `<div class="mermaid-export pdf-avoid-break">${svg}</div>`
+            // One named picture, as in Word, so a screen reader doesn't read every node label in turn.
+            const label = escapeHtml(diagramAltText(text).description)
+            return `<div class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             return `<pre class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
