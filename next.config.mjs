@@ -4,6 +4,8 @@ const internalHost = process.env.TAURI_DEV_HOST || 'localhost'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: 'export',
+    // Next 16.3+ writes an AGENTS.md into the repo when next dev is started by an AI coding agent.
+    agentRules: false,
     // Only so scripts/generate-licenses.mjs can trace the shipped packages; it deletes them from out/ afterwards.
     productionBrowserSourceMaps: process.env.GENERATE_LICENSES === '1',
     images: {

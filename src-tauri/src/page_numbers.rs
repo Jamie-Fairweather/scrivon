@@ -1156,9 +1156,7 @@ fn cache_for_pages<'a>(doc: &'a Document, pages: &[ObjectId]) -> FontCache<'a> {
 }
 
 fn scan_page(doc: &Document, cache: &FontCache<'_>, page_id: ObjectId) -> Walked {
-    let Ok(bytes) = doc.get_page_content(page_id) else {
-        return Walked::default();
-    };
+    let bytes = doc.get_page_content(page_id);
     walk_content(
         doc,
         cache,
@@ -1230,7 +1228,7 @@ fn cut_stream(
         return Ok(());
     }
     let bytes = match source {
-        Source::Page(page_id) => doc.get_page_content(page_id)?,
+        Source::Page(page_id) => doc.get_page_content(page_id),
         Source::Form(id) => {
             let stream = doc.get_object(id).and_then(Object::as_stream)?;
             stream
@@ -2541,7 +2539,7 @@ end";
         assert!((baseline - expected_slot.baseline).abs() < 0.1);
 
         // A translucent colour paints through an ExtGState registered on the page.
-        let content = Content::decode(&stamped.get_page_content(page_ids[1]).unwrap()).unwrap();
+        let content = Content::decode(&stamped.get_page_content(page_ids[1])).unwrap();
         assert!(content.operations.iter().any(|op| {
             op.operator == "gs" && op.operands.first() == Some(&Object::Name(ALPHA_GS_NAME.into()))
         }));
@@ -2569,7 +2567,7 @@ end";
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         let page_id = *stamped.get_pages().values().next().unwrap();
-        let content = Content::decode(&stamped.get_page_content(page_id).unwrap()).unwrap();
+        let content = Content::decode(&stamped.get_page_content(page_id)).unwrap();
         assert!(!content.operations.iter().any(|op| op.operator == "gs"));
         let resources = stamped.get_page_resources(page_id).unwrap().0.unwrap();
         assert!(resources.get(b"ExtGState").is_err());
@@ -2821,7 +2819,7 @@ end";
 
     fn page_operations(doc: &Document, page_number: u32) -> Vec<Operation> {
         let page_id = doc.get_pages()[&page_number];
-        Content::decode(&doc.get_page_content(page_id).unwrap())
+        Content::decode(&doc.get_page_content(page_id))
             .unwrap()
             .operations
     }
@@ -3603,7 +3601,7 @@ end";
 
     /// Device-space right edge, baseline and flip state of the stamped label on a page.
     fn stamped_label_extent(doc: &Document, page_id: ObjectId, label: &str) -> (f32, f32, bool) {
-        let bytes = doc.get_page_content(page_id).unwrap();
+        let bytes = doc.get_page_content(page_id);
         let content = Content::decode(&bytes).unwrap();
         let mut ctm = Matrix::IDENTITY;
         let mut stack = Vec::new();

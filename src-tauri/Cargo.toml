@@ -33,13 +33,13 @@ tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 0.42+ fixes RUSTSEC-2026-0187 (stack overflow on deeply nested PDFs).
-lopdf = "0.42"
-base64 = "0.22"
+lopdf = "0.47"
+base64 = "0.23"
 tauri-plugin-process = "2"
 tokio = { version = "1", features = ["sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-tauri-plugin-prevent-default = { version = "5.0.0", features = ["platform-windows"] }
+tauri-plugin-prevent-default = { version = "6.0.1", features = ["platform-windows"] }
 font-kit = "0.14.3"
 
 # Page stamping parses every PDF content stream. lopdf's parser is the slow
@@ -59,11 +59,11 @@ opt-level = 3
 strip = true
 
 [target.'cfg(windows)'.dependencies]
-webview2-com = "0.38.2"
-windows-core = "0.61.2"
+webview2-com = "0.39.1"
+windows-core = "0.62.2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 # One Scrivon process at a time, so two windows can't overwrite each other's files and sessions (B60, D20).
-tauri-plugin-single-instance = "~2.4"
+tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 

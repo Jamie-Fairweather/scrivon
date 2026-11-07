@@ -124,7 +124,7 @@ describe('model keys for file names with percent signs', () => {
     it('gives files whose names differ only by a %XX code their own buffer', async () => {
         // Monaco reads a model path with URI.parse, which decodes %XX: a raw file path would make
         // 'a b.md' and 'a%20b.md' share one buffer.
-        const { URI } = await import('monaco-editor/esm/vs/base/common/uri.js')
+        const { URI } = await import('monaco-editor/base/common/uri.js')
         expect(URI.parse('C:\\w\\a b.md').toString()).toBe(URI.parse('C:\\w\\a%20b.md').toString())
 
         const paths = ['C:\\w\\a b.md', 'C:\\w\\a%20b.md', '/w/100%.md', '/w/100%25.md', '/w/50%41.md', '/w/50A.md']

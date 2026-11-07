@@ -293,6 +293,34 @@ mod tests {
     }
 
     #[test]
+    fn a_signature_for_another_version_reads_as_a_failed_security_check() {
+        let errors = [
+            tauri_plugin_updater::Error::SignedVersionMismatch {
+                signed: "1.4.0".into(),
+                announced: "1.5.0".into(),
+            },
+            tauri_plugin_updater::Error::MissingSignedVersion,
+        ];
+        for error in &errors {
+            let message = install_error_message(error);
+            assert!(message.contains("failed its security check"), "{message}");
+            assert!(!message.contains('`'), "{message}");
+        }
+    }
+
+    #[test]
+    fn an_installer_that_cannot_start_reads_as_a_plain_sentence() {
+        let error = tauri_plugin_updater::Error::Io(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        ));
+        let message = install_error_message(&error);
+        assert!(
+            message.starts_with("The update couldn't be installed"),
+            "{message}"
+        );
+    }
+
+    #[test]
     fn counts_other_copies_in_the_same_session() {
         let own = "\"Scrivon.exe\",\"4100\",\"Console\",\"1\",\"210,512 K\"";
         let other = "\"Scrivon.exe\",\"5200\",\"Console\",\"1\",\"180,004 K\"";
@@ -384,9 +412,17 @@ fn install_error_message(err: &tauri_plugin_updater::Error) -> String {
         Error::Network(detail) => {
             format!("The update couldn't be downloaded ({detail}). Try again later.")
         }
-        Error::Minisign(_) | Error::Base64(_) | Error::SignatureUtf8(_) => {
+        // Since updater 2.14 the version inside the signature must also match the one announced,
+        // so a release can't be swapped for an older signed one.
+        Error::Minisign(_)
+        | Error::Base64(_)
+        | Error::SignatureUtf8(_)
+        | Error::SignedVersionMismatch { .. }
+        | Error::MissingSignedVersion => {
             "The downloaded update failed its security check, so it wasn't installed.".into()
         }
+        // Since updater 2.11 this includes the installer failing to start, which used to close the app.
+        Error::Io(detail) => format!("The update couldn't be installed ({detail}). Try again."),
         other => other.to_string(),
     }
 }

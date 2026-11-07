@@ -22,9 +22,7 @@ const UPDATE_CHECK_DELAY_MS = 4_000
 
 /** What install_app_update says while it works (UpdateProgress in src-tauri/src/updater.rs). */
 export type UpdateProgress =
-    | { event: 'started'; total: number | null }
-    | { event: 'progress'; downloaded: number; total: number | null }
-    | { event: 'installing' }
+    { event: 'started'; total: number | null } | { event: 'progress'; downloaded: number; total: number | null } | { event: 'installing' }
 
 type AppUpdateContextValue = {
     update: AppUpdateInfo | null

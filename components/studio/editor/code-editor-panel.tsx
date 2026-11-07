@@ -90,6 +90,9 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     suggestOnTriggerCharacters: false,
     acceptSuggestionOnEnter: 'off',
     snippetSuggestions: 'none',
+    // Monaco 0.56 made a double-click next to a bracket or quote select what's inside it. In Markdown
+    // that catches links, (asides) and "quotes", so double-click keeps selecting the word, as it always did.
+    doubleClickSelectsBlock: false,
     scrollbar: {
         vertical: 'auto',
         // Only appears when a line is wider than the pane (word wrap off or at a column).

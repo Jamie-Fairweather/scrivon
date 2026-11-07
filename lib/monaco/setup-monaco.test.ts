@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { config, openerService, OPENER_SERVICE_ID } = vi.hoisted(() => ({
     config: vi.fn(),
@@ -8,15 +8,25 @@ const { config, openerService, OPENER_SERVICE_ID } = vi.hoisted(() => ({
 const bundledMonaco = { editor: {}, languages: {} }
 
 vi.mock('@monaco-editor/react', () => ({ loader: { config } }))
-vi.mock('monaco-editor/esm/vs/editor/edcore.main.js', () => bundledMonaco)
-vi.mock('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js', () => ({}))
+vi.mock('monaco-editor/editor', () => bundledMonaco)
+vi.mock('monaco-editor/features/register.all', () => ({}))
+vi.mock('monaco-editor/editor/contrib/dropOrPasteInto/browser/copyPasteContribution.js', () => ({}))
+vi.mock('monaco-editor/editor/contrib/caretOperations/browser/caretOperations.js', () => ({}))
+vi.mock('monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens.js', () => ({}))
+vi.mock('monaco-editor/languages/definitions/markdown/register', () => ({}))
 vi.mock('@/lib/monaco/code-block-languages', () => ({}))
-vi.mock('monaco-editor/esm/vs/platform/opener/common/opener.js', () => ({ IOpenerService: OPENER_SERVICE_ID }))
-vi.mock('monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js', () => ({
+vi.mock('monaco-editor/platform/opener/common/opener.js', () => ({ IOpenerService: OPENER_SERVICE_ID }))
+vi.mock('monaco-editor/editor/standalone/browser/standaloneServices.js', () => ({
     StandaloneServices: { get: (id: unknown) => (id === OPENER_SERVICE_ID ? openerService : undefined) },
 }))
 
 describe('setup-monaco', () => {
+    // Vitest wipes the mocks' call history before each test, so each test loads a fresh copy of the module
+    // and checks the calls that load makes, instead of leaning on an earlier test having imported it.
+    beforeEach(() => {
+        vi.resetModules()
+    })
+
     it('points the loader at the bundled Monaco instead of the CDN, and provides a worker', async () => {
         await import('./setup-monaco')
 
