@@ -1,3 +1,4 @@
+mod close_watchdog;
 mod crash_report;
 mod legacy_profile;
 mod page_numbers;
@@ -13,6 +14,7 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 
+use close_watchdog::CloseWatchdog;
 use updater::PendingUpdate;
 use workspace_access::WorkspaceAccess;
 
@@ -110,6 +112,7 @@ pub fn run() {
 
     let result = tauri::Builder::default()
         .manage(PendingUpdate(Mutex::new(None)))
+        .manage(CloseWatchdog::default())
         .plugin(tauri_plugin_process::init())
         .plugin(prevent_browser_shortcuts::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -126,11 +129,21 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().ok();
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             build_main_window(app)?;
+            #[cfg(windows)]
+            close_watchdog::watch_page_process(app);
             crash_report::mark_started();
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    close_watchdog::on_close_requested(window);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
+            close_watchdog::close_ack,
             pdf_export::export_html_to_pdf,
             pdf_export::read_export_image,
             system_fonts::list_system_fonts,

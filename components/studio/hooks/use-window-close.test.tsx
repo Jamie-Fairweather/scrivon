@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
+import { invoke } from '@tauri-apps/api/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { isTauri } from '@/lib/tauri/platform'
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -44,6 +45,8 @@ async function requestClose() {
 describe('useWindowCloseHandler', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        vi.restoreAllMocks()
+        vi.mocked(invoke).mockResolvedValue(undefined)
         vi.mocked(isTauri).mockReturnValue(true)
         state.workspaceRoot = 'C:\\ws'
         state.coordinator = createWorkspaceCoordinatorRefs()
@@ -57,6 +60,33 @@ describe('useWindowCloseHandler', () => {
 
         await expect(requestClose()).resolves.toEqual({ closed: true })
         expect(confirmCloseTabs).toHaveBeenCalledWith()
+    })
+
+    it('tells the app it is handling the close before anything that can wait on the user', async () => {
+        const order: string[] = []
+        vi.mocked(invoke).mockImplementation(async (command) => {
+            order.push(command)
+        })
+        state.coordinator.confirmCloseTabs.current = vi.fn(async () => {
+            order.push('confirmCloseTabs')
+            return false
+        })
+        renderHook(() => useWindowCloseHandler())
+
+        await requestClose()
+
+        expect(order).toEqual(['close_ack', 'confirmCloseTabs'])
+    })
+
+    it('still asks about unsaved changes when the app could not be told', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        vi.mocked(invoke).mockRejectedValue(new Error('no app'))
+        const confirmCloseTabs = vi.fn(async () => true)
+        state.coordinator.confirmCloseTabs.current = confirmCloseTabs
+        renderHook(() => useWindowCloseHandler())
+
+        await expect(requestClose()).resolves.toEqual({ closed: true })
+        expect(confirmCloseTabs).toHaveBeenCalledTimes(1)
     })
 
     it('removes the copies of unsaved text before the window goes, once closing is sure', async () => {
