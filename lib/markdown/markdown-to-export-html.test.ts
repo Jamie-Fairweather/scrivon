@@ -105,8 +105,10 @@ SHIKI_FAIL
         expect(tocTable).toBeLessThan(html.indexOf('class="pdf-toc-page"'))
         expect(html.indexOf('class="pdf-toc-page"')).toBeLessThan(bodyTable)
         expect(bodyTable).toBeLessThan(html.indexOf('class="pdf-body"'))
-        expect(html.match(/class="pdf-chrome-bar pdf-header-bar"/g)).toHaveLength(3)
-        expect(html.match(/class="pdf-chrome-bar pdf-footer-bar"/g)).toHaveLength(3)
+        // Both bars hide on the title page (the default), so only the TOC and body tables carry them.
+        expect(html.match(/class="pdf-chrome-bar pdf-header-bar"/g)).toHaveLength(2)
+        expect(html.match(/class="pdf-chrome-bar pdf-footer-bar"/g)).toHaveLength(2)
+        expect(html.slice(titleTable, tocTable)).not.toContain('pdf-chrome-bar')
         expect(html).toContain('pdf-logo')
         expect(html).toContain('Sub')
         expect(html).toContain('Ada')
@@ -134,6 +136,78 @@ SHIKI_FAIL
         expect(html).toContain('#abc123')
     })
 
+    it('keeps only short code blocks and tables on one page, so long ones split instead of leaving a blank page', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const code = (lines: number) => ['```js', ...Array.from({ length: lines }, (_, i) => `line ${i}`), '```'].join('\n')
+        const table = (rows: number) => ['| A | B |', '|---|---|', ...Array.from({ length: rows }, (_, i) => `| ${i} | x |`)].join('\n')
+
+        const { html } = await markdownToExportHtml(`# A\n\n${code(25)}\n\n${code(26)}\n\n${table(14)}\n\n${table(15)}`, { assets: EMPTY_ASSETS })
+        // 25 lines and 15 rows (header row included) still fit on half a page.
+        expect(html.match(/<div class="code-block pdf-avoid-break">/g)).toHaveLength(1)
+        expect(html.match(/<div class="code-block">/g)).toHaveLength(1)
+        expect(html.match(/<table class="pdf-avoid-break">/g)).toHaveLength(1)
+        expect(html.match(/<table>/g)).toHaveLength(1)
+        expect(html.indexOf('<div class="code-block pdf-avoid-break">')).toBeLessThan(html.indexOf('<div class="code-block">'))
+        expect(html.indexOf('<table class="pdf-avoid-break">')).toBeLessThan(html.indexOf('<table>'))
+    })
+
+    it('lets only tables too wide for the page break words anywhere, long words first', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        // The stylesheet names the classes too, so look for them on a tag.
+        const WIDE_TABLE = /<table class="[^"]*pdf-wide-table/
+        const LONG_WORD_CELL = /<t[hd][^>]*class="pdf-long-word">/g
+        const table = (columns: number, cell: (column: number) => string) =>
+            [
+                `| ${Array.from({ length: columns }, (_, i) => `H${i}`).join(' | ')} |`,
+                `|${'---|'.repeat(columns)}`,
+                `| ${Array.from({ length: columns }, (_, i) => cell(i)).join(' | ')} |`,
+            ].join('\n')
+        const render = async (source: string, landscape = false) => {
+            const profile = createDefaultPdfExportProfile()
+            if (landscape) profile.page.orientation = 'landscape'
+            return (await markdownToExportHtml(`# A\n\n${source}`, { assets: EMPTY_ASSETS, profile })).html
+        }
+
+        // Twelve columns of long tokens can't fit: the tokens may break, the short headers stay whole.
+        const tokens = await render(table(12, (i) => `cell-0-${i}-longishvalue`))
+        expect(tokens.match(LONG_WORD_CELL)).toHaveLength(12)
+        expect(tokens).not.toMatch(WIDE_TABLE)
+        // So may a long URL in an otherwise narrow table, while its `I/D` cells keep whole.
+        const url = await render(table(3, (i) => (i === 1 ? `https://example.com/${'a'.repeat(100)}` : 'I/D')))
+        expect(url.match(LONG_WORD_CELL)).toHaveLength(1)
+        expect(url).toContain('<td class="pdf-long-word"><a href="https://example.com/')
+        // Too many columns of short words to fit: every cell may break.
+        const columns = await render(table(16, () => 'abcdefgh'))
+        expect(columns).toContain('<table class="pdf-avoid-break pdf-wide-table">')
+        expect(columns).not.toMatch(LONG_WORD_CELL)
+
+        // Tables that fit, long prose or CJK text included, are left alone.
+        for (const fits of [
+            table(4, (i) => (i === 3 ? 'a long note with many short words in it '.repeat(5) : 'I/D')),
+            table(3, () => 'こんにちは世界、これは長い日本語の文章です。'.repeat(4)),
+            table(12, (i) => `v${i}`),
+        ]) {
+            const html = await render(fits)
+            expect(html).not.toMatch(WIDE_TABLE)
+            expect(html).not.toMatch(LONG_WORD_CELL)
+        }
+        // A landscape page has room for more.
+        const fiveTokens = table(5, (i) => `token-${i}-abcdefghij`)
+        expect(await render(fiveTokens)).toMatch(LONG_WORD_CELL)
+        expect(await render(fiveTokens, true)).not.toMatch(LONG_WORD_CELL)
+    })
+
+    it('puts code blocks and diagrams in place of their paragraph, never inside a <p>', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
+        const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+        expect(html).toContain('<div class="mermaid-export pdf-avoid-break"><svg')
+        expect(html).toContain('<li><div class="code-block pdf-avoid-break">')
+        expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
+        expect(html).not.toContain('<p></p>')
+        expect(html).not.toContain('__SCRIVON_')
+    })
+
     it('renders enabled chrome without optional images or text', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
@@ -149,6 +223,99 @@ SHIKI_FAIL
         expect(html).toContain('pdf-page-number')
         expect(html).toContain('SFPN')
         expect(html).not.toContain('counter(page)')
+    })
+
+    it('pins a footer shown on every page to the page bottom instead of a table row', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+
+        // No title page, so the default "hide on title page" hides nothing: one fixed footer for every page.
+        const { html } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
+        expect(html.match(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
+        // The table rows stay as invisible copies so the body never runs under the footer.
+        expect(html.match(/<tfoot class="pdf-footer-spacer" aria-hidden="true">/g)).toHaveLength(2)
+        expect(html.match(/<tfoot>/g)).toBeNull()
+
+        // A footer hidden on the title page can't be a fixed element, which would repeat there too.
+        profile.frontMatter.titlePage = true
+        const { html: withTitle } = await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })
+        expect(withTitle).not.toContain('<div class="pdf-fixed-footer">')
+        expect(withTitle).not.toContain('<tfoot class="pdf-footer-spacer"')
+        expect(withTitle.match(/<tfoot>/g)).toHaveLength(3)
+
+        profile.footer.hideOnFirstPages = 'none'
+        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
+
+        profile.frontMatter.titlePage = false
+        profile.footer.hideOnFirstPages = 'title+toc'
+        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).not.toContain('<div class="pdf-fixed-footer">')
+        profile.frontMatter.toc = false
+        expect((await markdownToExportHtml('# A\n\n## B', { profile, assets: EMPTY_ASSETS })).html).toContain('<div class="pdf-fixed-footer">')
+    })
+
+    it('prints only the page number when the footer switch is off', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.enabled = false
+        profile.footer.pageNumbers = 'page-n'
+        profile.footer.left.text = 'Confidential'
+        profile.footer.backgroundColor = '#e5e7eb'
+        profile.footer.textColor = '#ffffff'
+
+        const { html, print } = await markdownToExportHtml('# Only', {
+            profile,
+            assets: { ...EMPTY_ASSETS, footer: { left: 'data:image/png;base64,fl', right: 'data:image/png;base64,fr' } },
+        })
+        expect(html).toContain('<span class="pdf-page-number-mark">SFPN</span>')
+        expect(html).not.toContain('Confidential')
+        expect(html).not.toContain('base64,fl')
+        expect(html).not.toContain('base64,fr')
+        expect(html).not.toContain('#e5e7eb')
+        expect(print.pageNumberColor).toBe('')
+    })
+
+    it('leaves header and footer images out of the sections that hide the bar', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.header.enabled = true
+        profile.header.hideOnFirstPages = 'title+toc'
+        profile.footer.enabled = true
+        profile.footer.hideOnFirstPages = 'none'
+        const assets = {
+            logoDataUrl: '',
+            header: { left: 'data:image/png;base64,HEAD', right: '' },
+            footer: { left: 'data:image/png;base64,FOOT', right: '' },
+        }
+
+        const { html } = await markdownToExportHtml('# A\n\n## B', { profile, assets })
+        // The header shows on body pages only; the footer shows everywhere, so it is drawn once, fixed.
+        expect(html.match(/base64,HEAD/g)).toHaveLength(1)
+        const body = html.indexOf('class="pdf-chrome-table pdf-body-table"')
+        expect(html.indexOf('base64,HEAD')).toBeGreaterThan(body)
+        expect(html.slice(0, body)).not.toContain('class="pdf-chrome-bar pdf-header-bar"')
+        expect(html.match(/<div class="pdf-fixed-footer"><div class="pdf-chrome-bar pdf-footer-bar">/g)).toHaveLength(1)
+
+        // A switched-off header has no bar anywhere, so a stale image there is never embedded.
+        profile.header.enabled = false
+        const { html: noHeader } = await markdownToExportHtml('# A\n\n## B', { profile, assets })
+        expect(noHeader).not.toContain('class="pdf-chrome-bar pdf-header-bar"')
+        expect(noHeader).not.toContain('base64,HEAD')
+        expect(noHeader).toContain('<thead class="pdf-chrome-head"><tr><td></td></tr></thead>')
+    })
+
+    it('keeps footer rows when only the header shows', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.header.enabled = true
+        const { html } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(html).not.toContain('<div class="pdf-fixed-footer">')
+        expect(html).toContain('<tfoot>')
     })
 
     it('renders a footer bar without the page-number slot when numbering is off', async () => {
@@ -189,6 +356,107 @@ SHIKI_FAIL
         profile.footer.right.text = '   '
         const { html: empty } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(empty).not.toContain('class="pdf-chrome-table')
+    })
+
+    it('keeps a watermark or other profile text from ending the stylesheet early', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.content.watermark = 'DRAFT</style><h1>oops'
+        const { html } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain('content: "DRAFT\\3c /style>\\3c h1>oops";')
+        expect(html.match(/<\/style>/gi)).toHaveLength(1)
+        expect(html).not.toContain('<h1>oops')
+
+        // A value written into the CSS raw is caught before it reaches the page too.
+        profile.typography.bodyFont = 'Arial</STYLE><h1>font'
+        const { html: font } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(font.match(/<\/style>/gi)).toHaveLength(1)
+        expect(font).toContain('Arial<\\/STYLE><h1>font')
+    })
+
+    it('lays out custom footer text the stamper font cannot draw as html beside the counter', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = '{{title}} · {{page}}/{{total}} · <b>'
+        profile.footer.hideOnFirstPages = 'none'
+        const source = '---\ntitle: Отчёт о продажах\n---\n# Only'
+
+        const { html, print } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain(
+            '<span class="pdf-chrome-side pdf-chrome-right"><span>Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark">SFPN</span></span><span>· &lt;b&gt;</span></span>'
+        )
+        // Only the counting part goes to the stamper, which draws in a Latin-only font.
+        expect(print.pageNumberFormat).toBe('custom:{{page}}/{{total}}')
+
+        // The print dialog's page counter is drawn by the browser, so it keeps the whole text.
+        const { html: dialog } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(dialog).toContain('content: "Отчёт о продажах · " counter(page) "/" counter(pages) " · \\3c b>";')
+    })
+
+    it('keeps an indented code block that opens the document, with or without front matter', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const code = '    const a = 1\n    const b = 2\n\nAfter'
+        for (const source of [code, `\n  \n${code}`, `---\ntitle: Snippet\n---\n${code}`]) {
+            const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+            expect(html).toContain(
+                '<div class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
+            )
+            expect(html).not.toContain('<p>const a = 1')
+            expect(html).toContain('<p>After</p>')
+        }
+    })
+
+    it('tags the html with the document language', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const japanese = '# 写真\n\n骨角器と直線の写真について説明します。'
+        expect((await markdownToExportHtml(japanese, { assets: EMPTY_ASSETS })).html).toContain('<html lang="ja">')
+        const tagged = `---\nlang: zh-Hant\n---\n${japanese}`
+        expect((await markdownToExportHtml(tagged, { assets: EMPTY_ASSETS })).html).toContain('<html lang="zh-Hant">')
+        // Code doesn't count: English prose with Chinese code comments is still English.
+        const code = '# Setup\n\nRun the script below.\n\n```js\n// 这是一个关于导出文档的很长很长的注释说明\n```'
+        expect((await markdownToExportHtml(code, { assets: EMPTY_ASSETS })).html).toContain('<html lang="en">')
+    })
+
+    it('leaves the stamper marks out of a print-dialog export and counts pages with CSS instead', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        profile.footer.pageNumbers = 'n-of-total'
+        profile.footer.hideOnFirstPages = 'title+toc'
+
+        const { html } = await markdownToExportHtml('# Report\n\n## Section\n\nBody', { profile, assets: EMPTY_ASSETS, stamped: false })
+        for (const mark of ['SFPN', 'SFT0', 'SFH0', 'class="pdf-toc-leader"', 'class="pdf-toc-num"', 'pdf-heading-mark"']) {
+            expect(html).not.toContain(mark)
+        }
+        // The TOC still links each heading, it just has no page column.
+        expect(html).toContain('<a href="#section"><span class="pdf-toc-title">Section</span></a>')
+        expect(html).toContain('content: counter(page) " / " counter(pages);')
+        // The sections that hide the footer are a named page without the counter.
+        expect(html).toContain('.pdf-title-table, .pdf-toc-table { page: pdf-no-footer; }')
+        expect(html).toContain('@page pdf-no-footer { @bottom-right { content: none; } }')
+    })
+
+    it('builds the print-dialog counter from a custom template and skips it with no bottom margin', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = 'Sheet {{ page }} of {{total}} - "{{title}}" </style>'
+        profile.footer.hideOnFirstPages = 'none'
+
+        const source = '---\ntitle: Spec\n---\n# Only'
+        const { html } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(html).toContain('content: "Sheet " counter(page) " of " counter(pages) " - \\"Spec\\" \\3c /style>";')
+        expect(html.match(/<\/style>/g)).toHaveLength(1)
+        expect(html).not.toContain('pdf-no-footer')
+
+        profile.footer.enabled = true
+        profile.footer.ignoreMargins = true
+        const { html: bleed } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(bleed).not.toContain('counter(page)')
+        expect(bleed).not.toContain('SFPN')
     })
 
     it('wraps title text in a body block and adds the chrome table when only the logo bleeds', async () => {
@@ -251,11 +519,21 @@ SHIKI_FAIL
         expect(html).not.toContain('SFT0003')
     })
 
+    it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })
+        expect(html).toContain('<td align="left">1</td>')
+        expect(html).toContain('<td align="center">2</td>')
+        expect(html).toContain('<td align="right">3</td>')
+        expect(html).toContain('td[align="right"] { text-align: right; }')
+    })
+
     it('returns the metadata and print options that match the html', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
         profile.page.size = 'letter'
         profile.page.orientation = 'landscape'
+        profile.footer.enabled = true
         profile.footer.pageNumbers = 'custom'
         profile.footer.right.text = '{{title}} · {{page}}/{{total}}'
         profile.footer.textColor = '#ff0000'

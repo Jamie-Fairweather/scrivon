@@ -36,6 +36,9 @@ export function DocumentExportMenu() {
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+    // The dialog only exists for a Markdown tab. Switching away drops it, so drop its open flag too;
+    // otherwise it would pop open by itself the next time a Markdown tab is active.
+    if (pdfDialogOpen && !isMarkdownTab) setPdfDialogOpen(false)
 
     const hasMarkdown = markdownSource.trim().length > 0
     const hasDiagramSource = diagramExportSource.trim().length > 0
@@ -55,14 +58,16 @@ export function DocumentExportMenu() {
 
     const tabName = activeTab?.name
     const diagramTarget = { tabName, tabPath: activeTab?.path, markdown: isMarkdownTab ? markdownSource : undefined }
+    // With no Markdown or Mermaid tab open the menu would have nothing in it.
     const triggerDisabled =
-        exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
+        !tabKind || exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
+    const triggerTitle = tabKind ? 'Export document' : 'Open a document to export'
 
     return (
         <>
             <Menu>
                 <MenuTrigger
-                    render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title="Export document" disabled={triggerDisabled} />}
+                    render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title={triggerTitle} disabled={triggerDisabled} />}
                 >
                     {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 </MenuTrigger>
@@ -127,7 +132,10 @@ export function DocumentExportMenu() {
                     onOpenChange={setPdfDialogOpen}
                     source={markdownSource}
                     tabName={tabName}
+                    tabPath={activeTab?.path}
                     format={exportFormat}
+                    exporting={exporting}
+                    onExportingChange={setExporting}
                 />
             ) : null}
         </>

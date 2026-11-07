@@ -39,7 +39,35 @@ describe('collectPdfExportOutline', () => {
 
     it('skips leafless inline nodes such as images when reading heading text', () => {
         const tree = parse('## See ![diagram](a.png) here')
-        expect(collectPdfExportOutline(tree)).toEqual([{ id: 'see-here', level: 2, text: 'See  here' }])
+        expect(collectPdfExportOutline(tree)).toEqual([{ id: 'see--here', level: 2, text: 'See  here' }])
+    })
+
+    it('makes the same ids as GitHub, so README-style links still land', () => {
+        const tree = parse(
+            [
+                '## Alerts / admonitions (GFM on GitHub)',
+                '## Install & Setup',
+                '## Step 1 - Install',
+                '## Résumé',
+                '## 概要',
+                '## snake_case_name',
+            ].join('\n\n')
+        )
+        expect(collectPdfExportOutline(tree).map((item) => item.id)).toEqual([
+            'alerts--admonitions-gfm-on-github',
+            'install--setup',
+            'step-1---install',
+            'résumé',
+            '概要',
+            'snake_case_name',
+        ])
+    })
+
+    it('never gives a repeated heading the id of another heading', () => {
+        const tree = parse('## One\n\n## One 1\n\n## One\n\n## One')
+        expect(collectPdfExportOutline(tree).map((item) => item.id)).toEqual(['one', 'one-1', 'one-2', 'one-3'])
+        const before = parse('## One 1\n\n## One\n\n## One')
+        expect(collectPdfExportOutline(before).map((item) => item.id)).toEqual(['one-1', 'one', 'one-2'])
     })
 
     it('uses the plain text of inline markup and slugifies punctuation-only headings', () => {
