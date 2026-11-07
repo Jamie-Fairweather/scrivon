@@ -147,15 +147,30 @@ describe('MarkdownPreview', () => {
         )
         expect(container.querySelector('h1')).toHaveAttribute('dir', 'auto')
         expect(screen.getByText('مرحبا بالعالم.')).toHaveAttribute('dir', 'auto')
-        expect(container.querySelector('li')).toHaveAttribute('dir', 'auto')
+        expect(container.querySelector('li')).toHaveAttribute('dir', 'rtl')
         const quote = container.querySelector('blockquote')!
-        expect(quote).toHaveAttribute('dir', 'auto')
+        expect(quote).toHaveAttribute('dir', 'rtl')
         // The bar is on the start side, so it moves to the right of a right-to-left quote.
         expect(quote).toHaveClass('border-s-2')
         expect(quote).not.toHaveClass('border-l-2')
         expect(container.querySelector('th')).toHaveAttribute('dir', 'auto')
         expect(container.querySelector('td')).toHaveAttribute('dir', 'auto')
         expect(screen.getByText('Set by the document')).toHaveAttribute('dir', 'ltr')
+    })
+
+    it('turns a quote or list item right to left from its first letter, and indents each item from its own side', () => {
+        const { container } = preview(['> Plain quote', '', '- שלום', '', '- second item', '', '1. مرحبا'].join('\n'))
+        // dir="auto" can't see into the item's own paragraph, so the first letter decides.
+        expect(screen.getByText('שלום')).toHaveAttribute('dir', 'auto')
+        const [hebrew, latin, arabic] = Array.from(container.querySelectorAll('li'))
+        expect(hebrew).toHaveAttribute('dir', 'rtl')
+        expect(latin).toHaveAttribute('dir', 'auto')
+        expect(arabic).toHaveAttribute('dir', 'rtl')
+        expect(container.querySelector('blockquote')).toHaveAttribute('dir', 'auto')
+        // The indent follows each item's direction; the list has none of its own.
+        expect(hebrew).toHaveClass('ms-5')
+        expect(container.querySelector('ul')).not.toHaveClass('ps-5')
+        expect(container.querySelector('ol')).not.toHaveClass('ps-5')
     })
 
     it('tags the document with its language, as the PDF is, so kanji take Japanese glyph shapes (B104)', () => {

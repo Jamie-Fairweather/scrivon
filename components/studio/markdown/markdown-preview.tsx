@@ -23,6 +23,7 @@ import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/ma
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import { blockDirection } from '@/lib/markdown/text-direction'
 import { isWebImageUrl } from '@/lib/markdown/web-images'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
@@ -72,7 +73,7 @@ function hasClass(className: string | undefined, name: string): boolean {
     return className?.split(/\s+/).includes(name) ?? false
 }
 
-/** Hides the bullet and moves the checkbox into its place (the list's start padding). */
+/** Hides the bullet and moves the checkbox into its place (the item's start margin). */
 const TASK_LIST_ITEM_CLASS = 'list-none [&_input]:-ms-5 [&_input]:me-1 [&_input]:align-middle'
 
 /** Whether loading this image would contact another site. Without a page to read it against, assume so. */
@@ -189,7 +190,7 @@ const staticMarkdownComponents: Components = {
             <ul
                 {...rest}
                 className={cn(
-                    'mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90 [:is(ul,ol)_&]:list-[circle] [:is(ul,ol)_:is(ul,ol)_&]:list-[square]',
+                    'mb-3 list-disc space-y-1 text-sm text-foreground/90 [:is(ul,ol)_&]:list-[circle] [:is(ul,ol)_:is(ul,ol)_&]:list-[square]',
                     className
                 )}
             />
@@ -198,17 +199,29 @@ const staticMarkdownComponents: Components = {
     // `start` comes through, so a list that resumes at 3 is numbered from 3.
     ol: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <ol {...rest} className={cn('mb-3 list-decimal space-y-1 ps-5 text-sm text-foreground/90', className)} />
+        return <ol {...rest} className={cn('mb-3 list-decimal space-y-1 text-sm text-foreground/90', className)} />
     },
+    // The indent is on each item, not the list: the list has no direction of its own, so its start side is always
+    // the left, and a Hebrew or Arabic item's bullet would hang past the right edge. A task item shows its checkbox
+    // where the bullet would be, not as well as it.
     li: (props) => {
         const { className, ...rest } = withoutNode(props)
-        // A task item shows its checkbox where the bullet would be, not as well as it.
-        return <li dir="auto" {...rest} className={cn('break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)} />
+        return (
+            <li
+                dir={props.node ? blockDirection(props.node) : 'auto'}
+                {...rest}
+                className={cn('ms-5 break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)}
+            />
+        )
     },
     blockquote: (props) => {
         const { className, ...rest } = withoutNode(props)
         return (
-            <blockquote dir="auto" {...rest} className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
+            <blockquote
+                dir={props.node ? blockDirection(props.node) : 'auto'}
+                {...rest}
+                className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic', className)}
+            />
         )
     },
     hr: () => <hr className="my-6 border-border" />,
