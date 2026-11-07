@@ -32,6 +32,28 @@ describe('ToastProvider', () => {
         await waitFor(() => expect(toastTitles()).toEqual([]))
     })
 
+    it('lets a long file path wrap, so it never pushes the buttons out of the toast', async () => {
+        render(<ToastProvider />)
+        act(() => {
+            notifyWarning('Saved example.pdf', {
+                id: 'stuck',
+                timeout: 0,
+                description: 'G:\\My Drive\\Documents\\Diagrams\\example.pdf',
+                action: { label: 'Show in folder', onClick: vi.fn() },
+            })
+        })
+        await waitFor(() => expect(toastTitles()).toEqual(['Saved example.pdf']))
+
+        // A flex item is never narrower than its longest word unless it may shrink (min-w-0) and break words.
+        const text = document.querySelector('[data-slot="toast-text"]')!
+        expect(text.className).toMatch(/\bmin-w-0\b/)
+        expect(text.querySelector('.flex-col')!.className).toMatch(/\bmin-w-0\b/)
+        for (const slot of ['toast-title', 'toast-description']) {
+            expect(document.querySelector(`[data-slot="${slot}"]`)!.className, slot).toMatch(/\bwrap-anywhere\b/)
+        }
+        expect(screen.getByText('Show in folder')).toBeTruthy()
+    })
+
     it('does not add a second dismiss button to the update toast', async () => {
         render(<ToastProvider />)
         act(() => {

@@ -106,7 +106,7 @@ function contrast(a: string, b: string): number {
 }
 
 describe('Markdown syntax colours in the editor', () => {
-    it.each(APP_THEME_IDS)('come only from the %s theme, not VS Code defaults', (id) => {
+    it.each(APP_THEME_IDS)("are all set by the %s editor theme, none left to Monaco's base theme", (id) => {
         const tokens = resolveThemeTokensForId(id)
         const theme = buildMonacoDiagramTheme(tokens, isLightTheme(id))
         const ours = new Set([tokens.fg, ...theme.rules.flatMap((r) => (r.foreground ? [r.foreground] : []))].map((c) => c.toLowerCase()))
@@ -140,6 +140,33 @@ describe('Markdown syntax colours in the editor', () => {
         expect(comment).not.toBe(oneDark.textSecondary)
         expect(contrast(comment, oneDark.bg)).toBeGreaterThanOrEqual(4.5)
         expect(contrast(comment, oneDark.bg)).toBeLessThan(contrast(oneDark.fg, oneDark.bg))
+    })
+})
+
+/** How far apart a colour's red, green and blue are: 0 for a pure grey. */
+function hueSpread(hex: string): number {
+    const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.replace('#', '').slice(i - 1, i + 1), 16))
+    return Math.max(r!, g!, b!) - Math.min(r!, g!, b!)
+}
+
+describe('Markdown syntax colours on themes without a colour of their own', () => {
+    // Scrivon and Zinc have a grey accent, so colours built from it would all look like body text.
+    it.each(['scrivon-dark', 'scrivon-light', 'zinc-dark', 'zinc-light'] as const)(
+        'gives headings, code and quotes in %s their own colours, not greys',
+        (id) => {
+            const colors = ['keyword.md', 'string.md', 'variable.md', 'comment.md', 'string.link.md'].map((token) => resolvedTokenColor(id, token))
+
+            for (const color of colors) expect(hueSpread(color), color).toBeGreaterThan(40)
+            // Headings, code fences, inline code and quotes are told apart by colour alone.
+            expect(new Set(colors.slice(0, 4)).size).toBe(4)
+        }
+    )
+
+    it("uses VS Code's own colours there, as the editor did before themes had syntax colours", () => {
+        expect(resolvedTokenColor('scrivon-dark', 'keyword.md')).toBe('#569cd6')
+        expect(resolvedTokenColor('scrivon-dark', 'string.md')).toBe('#ce9178')
+        expect(resolvedTokenColor('scrivon-light', 'keyword.md')).toBe('#0000ff')
+        expect(resolvedTokenColor('scrivon-light', 'string.md')).toBe('#a31515')
     })
 })
 

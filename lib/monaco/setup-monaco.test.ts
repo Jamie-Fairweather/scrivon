@@ -10,6 +10,7 @@ const bundledMonaco = { editor: {}, languages: {} }
 vi.mock('@monaco-editor/react', () => ({ loader: { config } }))
 vi.mock('monaco-editor/esm/vs/editor/edcore.main.js', () => bundledMonaco)
 vi.mock('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js', () => ({}))
+vi.mock('@/lib/monaco/code-block-languages', () => ({}))
 vi.mock('monaco-editor/esm/vs/platform/opener/common/opener.js', () => ({ IOpenerService: OPENER_SERVICE_ID }))
 vi.mock('monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js', () => ({
     StandaloneServices: { get: (id: unknown) => (id === OPENER_SERVICE_ID ? openerService : undefined) },

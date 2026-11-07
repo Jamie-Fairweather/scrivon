@@ -167,7 +167,8 @@ function Toasts({ position, portalProps }: { position: ToastPosition; portalProp
                                     transition-opacity duration-250 data-behind:opacity-0 data-behind:not-data-expanded:pointer-events-none
                                     data-expanded:opacity-100"
                             >
-                                <div className="flex gap-2">
+                                {/* Can shrink, and long words (file paths) wrap anywhere, so the buttons beside it always fit. */}
+                                <div className="flex min-w-0 flex-1 gap-2" data-slot="toast-text">
                                     {Icon && (
                                         <div className="[&_svg]:pointer-events-none [&_svg]:shrink-0 [&>svg]:h-lh [&>svg]:w-4" data-slot="toast-icon">
                                             <Icon
@@ -178,9 +179,9 @@ function Toasts({ position, portalProps }: { position: ToastPosition; portalProp
                                         </div>
                                     )}
 
-                                    <div className="flex flex-col gap-0.5">
-                                        <Toast.Title className="font-medium" data-slot="toast-title" />
-                                        <Toast.Description className="text-muted-foreground" data-slot="toast-description" />
+                                    <div className="flex min-w-0 flex-col gap-0.5">
+                                        <Toast.Title className="font-medium wrap-anywhere" data-slot="toast-title" />
+                                        <Toast.Description className="wrap-anywhere text-muted-foreground" data-slot="toast-description" />
                                     </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1">
