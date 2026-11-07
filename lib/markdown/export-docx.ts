@@ -337,6 +337,12 @@ function htmlAnchor(id: string): Html {
 /** Paragraphs standing for a blank line of raw HTML, such as a `<br>` spacer: written though they show nothing, as the PDF shows the line. */
 const HTML_BLANK_LINES = new WeakSet<MdParagraph>()
 
+/** A width or height an `<img>` gives in pixels (`120` or `120px`), as a browser reads it. Undefined for none, or a percentage. */
+function htmlPixels(value: unknown): number | undefined {
+    const pixels = typeof value === 'number' ? value : typeof value === 'string' && /^\s*\d*\.?\d+\s*(px)?\s*$/i.test(value) ? parseFloat(value) : 0
+    return Number.isFinite(pixels) && pixels > 0 ? pixels : undefined
+}
+
 function isTableCell(node: HastContent): boolean {
     return node.type === 'element' && (node.tagName === 'td' || node.tagName === 'th')
 }
@@ -382,7 +388,10 @@ function htmlLines(root: HastRoot): HtmlLine[] {
                     lineBreak(marks)
                 } else if (tag === 'img') {
                     const description = typeof alt === 'string' ? xmlSafe(alt) : ''
-                    if (typeof src === 'string') line.leaves.push({ node: { type: 'image', url: xmlSafe(src), alt: description }, marks })
+                    // The size the HTML gives it, which the PDF shows it at (see givenSize).
+                    const size = { width: htmlPixels(node.properties.width), height: htmlPixels(node.properties.height) }
+                    const data = size.width || size.height ? { hProperties: size } : undefined
+                    if (typeof src === 'string') line.leaves.push({ node: { type: 'image', url: xmlSafe(src), alt: description, data }, marks })
                     else if (description) text(description, marks)
                 } else {
                     if (tag === 'hr') line.rule = true
@@ -763,8 +772,12 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
     const urls = new Set(
         [assets.logoDataUrl, assets.header.left, assets.header.right, assets.footer.left, assets.footer.right].map((url) => url.trim())
     )
+    // The widest raw HTML shows each picture at (<img width>), so vector art drawn wider than its own size stays sharp.
+    const shownWidths = new Map<string, number>()
     visit(tree, 'image', (node: Image) => {
-        urls.add(node.url.trim())
+        const url = node.url.trim()
+        urls.add(url)
+        shownWidths.set(url, Math.max(shownWidths.get(url) ?? 0, givenSize(node).width ?? 0))
     })
     const definitions = collectDefinitions(tree)
     visit(tree, 'imageReference', (node: ImageReference) => {
@@ -776,7 +789,7 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
         [...urls]
             .filter((url) => url.startsWith('data:'))
             .map(async (url) => {
-                const image = await redrawForWord(url)
+                const image = await redrawForWord(url, shownWidths.get(url))
                 if (image) converted.set(url, image)
             })
     )
@@ -1201,7 +1214,7 @@ function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Mark
             children.push(...renderLink(state, node, marks))
         } else if (node.type === 'image' || node.type === 'imageReference') {
             const url = imageUrl(state, node)
-            const image = url === undefined ? null : renderImage(state, url, node.alt)
+            const image = url === undefined ? null : renderImage(state, url, node.alt, givenSize(node))
             children.push(image ?? textRun(state, imageText(state, node), marks))
         } else if (node.type === 'footnoteReference') {
             // Word has no footnotes inside footnotes.
@@ -1324,19 +1337,36 @@ function pageHeightPx(state: RenderState): number {
 /** The box a picture whose file doesn't give its size is shown in. */
 const UNSIZED_IMAGE = { width: 640, height: 480 } as const
 
-/** A body picture's size: its own, as in the PDF, shrunk only to fit `maxWidth` (the text width where it sits) and the page. */
-function bodyImageSize(state: RenderState, image: DecodedImage, maxWidth: number): { width: number; height: number } {
-    return fit(image.size ?? UNSIZED_IMAGE, maxWidth, pageHeightPx(state))
+/** The size, in pixels, raw HTML gives a picture (`<img width="120">`). Neither is set for a Markdown picture. */
+type GivenSize = { width?: number; height?: number }
+
+function givenSize(node: Image | ImageReference): GivenSize {
+    const props = node.data?.hProperties
+    return { width: typeof props?.width === 'number' ? props.width : undefined, height: typeof props?.height === 'number' ? props.height : undefined }
+}
+
+/**
+ * A body picture's size: its own, as in the PDF, shrunk only to fit `maxWidth` (the text width where it sits) and the
+ * page. A width raw HTML gives wins, the height following it to keep the picture's shape; a height alone keeps it too.
+ */
+function bodyImageSize(state: RenderState, image: DecodedImage, maxWidth: number, given: GivenSize = {}): { width: number; height: number } {
+    const own = image.size ?? UNSIZED_IMAGE
+    const size = given.width
+        ? { width: given.width, height: (given.width * own.height) / Math.max(own.width, 1) }
+        : given.height
+          ? { width: (given.height * own.width) / Math.max(own.height, 1), height: given.height }
+          : own
+    return fit(size, maxWidth, pageHeightPx(state))
 }
 
 /** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
-function renderImage(state: RenderState, url: string, alt: string | null | undefined): ImageRun | null {
+function renderImage(state: RenderState, url: string, alt: string | null | undefined, given: GivenSize = {}): ImageRun | null {
     const image = decodeImage(state.images, url)
     if (!image) return null
     return new ImageRun({
         type: image.kind,
         data: image.bytes,
-        transformation: bodyImageSize(state, image, availablePx(state)),
+        transformation: bodyImageSize(state, image, availablePx(state), given),
         altText: { name: alt || 'Picture', description: alt ?? '' },
     })
 }
@@ -2226,8 +2256,8 @@ function measuredPx(state: RenderState, width: number): number {
 }
 
 /** Height of a body picture, sized the way {@link renderImage} draws it. */
-function imageTwip(state: RenderState, image: DecodedImage, width: number): number {
-    return pxToTwip(bodyImageSize(state, image, measuredPx(state, width)).height)
+function imageTwip(state: RenderState, image: DecodedImage, width: number, given: GivenSize): number {
+    return pxToTwip(bodyImageSize(state, image, measuredPx(state, width), given).height)
 }
 
 /**
@@ -2246,7 +2276,7 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
                 // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
                 const url = imageUrl(state, child)
                 const decoded = url === undefined ? null : decodeImage(state.images, url)
-                if (decoded) image = Math.max(image, imageTwip(state, decoded, width))
+                if (decoded) image = Math.max(image, imageTwip(state, decoded, width, givenSize(child)))
                 else add(imageText(state, child))
             } else if (child.type === 'text' || child.type === 'inlineCode') add(child.value)
             else if (child.type === 'break') lines.push('')

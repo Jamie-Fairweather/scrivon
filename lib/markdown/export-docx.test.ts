@@ -952,6 +952,39 @@ describe('renderExportDocx', () => {
         expect(body).toContain('>Bell</w:t>')
     })
 
+    it('draws a raw HTML picture at the width or height it gives, as the PDF does (review)', async () => {
+        const picture = dataUrl('image/png', sizedPng(64, 32))
+        const { xml } = await render(
+            [
+                `<img src="${picture}" width="120" alt="By width">`,
+                '',
+                `<img src="${picture}" height="16" alt="By height">`,
+                '',
+                `<img src="${picture}" width="40px" height="40" alt="Both">`,
+                '',
+                `<img src="${picture}" width="5000" alt="Too wide">`,
+                '',
+                `![Wide markdown](${dataUrl('image/png', sizedPng(5000, 2500))})`,
+                '',
+                `<img src="${picture}" width="50%" alt="Percent">`,
+            ].join('\n')
+        )
+        expect(drawingSize(xml, 'By width')).toEqual({ width: 120, height: 60 })
+        expect(drawingSize(xml, 'By height')).toEqual({ width: 32, height: 16 })
+        // A width wins, and the height follows it, as in the PDF.
+        expect(drawingSize(xml, 'Both')).toEqual({ width: 40, height: 20 })
+        // It still shrinks to the text width, keeping its shape. A percentage leaves the picture at its own size.
+        expect(drawingSize(xml, 'Too wide')).toEqual(drawingSize(xml, 'Wide markdown'))
+        expect(drawingSize(xml, 'Percent')).toEqual({ width: 64, height: 32 })
+        // The contents page numbers use the size it is drawn at: twelve 480px pictures shown 10px tall fit on one page.
+        const small = Array.from({ length: 12 }, () => [`<img src="${dataUrl('image/png', sizedPng(640, 480))}" height="10">`, '']).flat()
+        const toc = await render(['# Start', '', ...small, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        expect(tocPage(toc.xml, 'End')).toBe(2)
+    })
+
     it('keeps the blank lines and rules raw HTML blocks show: &nbsp;, <br> spacers and <hr> (review)', async () => {
         const { parts } = await render(
             [
@@ -2104,6 +2137,8 @@ describe('renderExportDocx', () => {
                 `![utf8-base64](${svgBase64Utf8})`,
                 '',
                 `<p align="center"><img src="${svgIcon}" alt="html icon"></p>`,
+                '',
+                `<img src="data:image/svg+xml,${encodeURIComponent(svgMarkup('viewBox="0 0 30 15"'))}" width="300" alt="wide icon">`,
             ].join('\n'),
             (draft) => {
                 draft.frontMatter.titlePage = true
@@ -2121,8 +2156,10 @@ describe('renderExportDocx', () => {
         expect(drawingSize(xml, 'chart')).toEqual({ width: 32, height: 16 })
         expect(drawingSize(xml, 'utf8')).toEqual({ width: 40, height: 20 })
         expect(drawingSize(xml, 'utf8-base64')).toEqual({ width: 30, height: 10 })
-        // A raw HTML <img> is redrawn the same way.
+        // A raw HTML <img> is redrawn the same way, and at 2x the width it gives when that is wider than its own.
         expect(drawingSize(xml, 'html icon')).toEqual({ width: 32, height: 16 })
+        expect(drawingSize(xml, 'wide icon')).toEqual({ width: 300, height: 150 })
+        expect(canvases).toContainEqual({ width: 600, height: 300 })
         expect(mediaFiles(names).length).toBeGreaterThanOrEqual(3)
         expect(notifyWarning).not.toHaveBeenCalled()
     })
