@@ -8,8 +8,16 @@ import type { FileStamp } from '@/lib/workspace/types'
  * Copies of edits that aren't saved yet, so a crash, a forced Windows restart or a power cut can't lose
  * them. They are kept in the app's own data folder, never next to the user's files, and are removed once
  * the file is saved or the user closes it without saving.
+ *
+ * Every change rewrites the whole file, and a power cut during that can leave it empty or full of zeros.
+ * So there are two files, written in turn: while one is being rewritten, the other still holds every copy
+ * as of the change before. On launch the newer one that reads cleanly is used.
  */
-const BACKUP_STORE_PATH = 'unsaved-changes.json'
+const BACKUP_STORE_PATHS = ['unsaved-changes.json', 'unsaved-changes.2.json'] as const
+/** Counts the writes, so launch can tell which of the two files is newer. Never a file path. */
+const GENERATION_KEY = '#generation'
+/** The OS error for a file that isn't there yet, as on a first launch. */
+const FILE_MISSING = /\(os error [23]\)/
 
 export type UnsavedBackup = {
     path: string
@@ -22,23 +30,61 @@ export type UnsavedBackup = {
     savedAt: number
 }
 
-let store: LazyStore | null = null
+/** Both files hold the same copies in memory; only the one written next differs on disk. */
+type Slots = { stores: [LazyStore, LazyStore]; generation: number; next: 0 | 1 }
+
+let slots: Slots | null = null
 // One operation at a time, so a delete never lands before the write it follows.
 let queue: Promise<unknown> = Promise.resolve()
 
-function run<T>(operation: (s: LazyStore) => Promise<T>, fallback: T): Promise<T> {
+/** Opens one of the two files. Its generation is null when it is there but can't be read (damaged). */
+async function openSlot(path: string): Promise<{ store: LazyStore; generation: number | null }> {
+    // Saved by hand right after each change, so a crash just after it can't lose it.
+    const store = new LazyStore(path, { defaults: {}, autoSave: false })
+    await store.init()
+    try {
+        // init() quietly starts empty when the file can't be read; reading it again says so.
+        await store.reload({ ignoreDefaults: true })
+    } catch (err) {
+        const missing = FILE_MISSING.test(err instanceof Error ? err.message : String(err))
+        if (!missing) console.warn(`Couldn't read ${path}`, err)
+        return { store, generation: missing ? 0 : null }
+    }
+    const generation = await store.get<unknown>(GENERATION_KEY)
+    return { store, generation: typeof generation === 'number' ? generation : 0 }
+}
+
+async function openSlots(): Promise<Slots> {
+    const [a, b] = await Promise.all(BACKUP_STORE_PATHS.map(openSlot))
+    const newest: 0 | 1 = b!.generation !== null && (a!.generation === null || b!.generation > a!.generation) ? 1 : 0
+    const from = newest === 0 ? a! : b!
+    const other = newest === 0 ? b! : a!
+    // The other file takes the newest copies in memory. It is written next, so the newest file stays as it is.
+    await other.store.clear()
+    for (const [key, value] of await from.store.entries<unknown>()) await other.store.set(key, value)
+    return { stores: [a!.store, b!.store], generation: from.generation ?? 0, next: newest === 0 ? 1 : 0 }
+}
+
+function run<T>(operation: (s: Slots) => Promise<T>, fallback: T): Promise<T> {
     if (!isTauri()) return Promise.resolve(fallback)
     const next = queue.then(async () => {
-        if (!store) {
-            // Saved by hand right after each change, so a crash just after it can't lose it.
-            const created = new LazyStore(BACKUP_STORE_PATH, { defaults: {}, autoSave: false })
-            await created.init()
-            store = created
-        }
-        return operation(store)
+        slots ??= await openSlots()
+        return operation(slots)
     })
     queue = next.catch(() => undefined)
     return next
+}
+
+/** Makes a change in memory and, if anything changed, writes it to the file whose turn it is. */
+async function change(s: Slots, apply: (store: LazyStore) => Promise<boolean>): Promise<void> {
+    const changed = (await Promise.all(s.stores.map(apply))).some(Boolean)
+    if (!changed) return
+    const target = s.stores[s.next]
+    s.generation += 1
+    await target.set(GENERATION_KEY, s.generation)
+    await target.save()
+    // Only after a write that worked: if it failed part way, the same file is written again, never the good one.
+    s.next = s.next === 0 ? 1 : 0
 }
 
 function backupKey(path: string): string {
@@ -75,17 +121,19 @@ function readBackup(value: unknown): UnsavedBackup | null {
 
 /** Keeps a copy of a file's unsaved text, replacing any earlier copy for that file. */
 export function saveUnsavedBackup(backup: UnsavedBackup): Promise<void> {
-    return run(async (s) => {
-        await s.set(backupKey(backup.path), backup)
-        await s.save()
-    }, undefined)
+    return run(
+        (s) =>
+            change(s, async (store) => {
+                await store.set(backupKey(backup.path), backup)
+                return true
+            }),
+        undefined
+    )
 }
 
 /** Forgets the copy for a file, once it is saved or the user chose not to keep the changes. */
 export function deleteUnsavedBackup(path: string): Promise<void> {
-    return run(async (s) => {
-        if (await s.delete(backupKey(path))) await s.save()
-    }, undefined)
+    return run((s) => change(s, (store) => store.delete(backupKey(path))), undefined)
 }
 
 /**
@@ -101,7 +149,8 @@ export function settleUnsavedBackups(timeoutMs: number): Promise<void> {
 /** Every copy of unsaved text still kept, newest first. */
 export function listUnsavedBackups(): Promise<UnsavedBackup[]> {
     return run(async (s) => {
-        const backups = (await s.values<unknown>()).map(readBackup).filter((b): b is UnsavedBackup => b !== null)
+        const entries = (await s.stores[0].entries<unknown>()).filter(([key]) => key !== GENERATION_KEY)
+        const backups = entries.map(([, value]) => readBackup(value)).filter((b): b is UnsavedBackup => b !== null)
         return backups.sort((a, b) => b.savedAt - a.savedAt)
     }, [])
 }
