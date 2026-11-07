@@ -10,6 +10,8 @@ import { FileTree } from './file-tree'
 const { tabs, session } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
     session: {
+        folderToggles: new Map<string, boolean>(),
+        setFolderExpanded: vi.fn(),
         openFile: vi.fn(async () => undefined),
         renameEntry: vi.fn<(oldPath: string, newName: string, isDirectory: boolean) => Promise<void>>(async () => undefined),
         deleteEntry: vi.fn<(path: string, isDirectory: boolean) => Promise<void>>(async () => undefined),
@@ -22,7 +24,8 @@ const { tabs, session } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => tabs,
+    useActiveTabId: () => tabs.activeTabId,
+    useDocumentTabActions: () => tabs,
     useWorkspaceSession: () => session,
 }))
 

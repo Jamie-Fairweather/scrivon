@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useActiveTabId, useDocumentTabActions } from '@/components/studio/workspace/workspace-provider'
 import { APP_EXAMPLES, APP_EXAMPLE_CATEGORIES, type AppExample, type AppExampleCategory } from '@/lib/examples/app-samples'
 import { EXAMPLE_CATEGORY_LABELS } from '@/lib/examples/category-labels'
 import { exampleTabId } from '@/lib/examples/example-tab'
@@ -11,7 +11,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
 function ExamplesByCategory({ category, examples }: { category: AppExampleCategory; examples: AppExample[] }) {
-    const { activeTabId, openExample } = useDocumentTabs()
+    const activeTabId = useActiveTabId()
+    const { openExample } = useDocumentTabActions()
 
     return (
         <Collapsible defaultOpen className="border-b border-sidebar-border last:border-b-0">

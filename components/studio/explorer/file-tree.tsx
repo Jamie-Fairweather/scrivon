@@ -3,8 +3,8 @@
 import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
 import { TreeEntryActionsProvider, useFileTreeEntryActions, type FileTreeEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
-import { isSupportedDocument } from '@/lib/tauri/fs'
+import { useActiveTabId, useDocumentTabActions, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { isSupportedDocument, normalizePath } from '@/lib/tauri/fs'
 import { focusTargetAfterChange, treeKeyAction, typeAheadMatch, visibleTreeRows } from '@/lib/workspace/flatten-file-tree'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -33,14 +33,18 @@ function canRefocus(active: Element | null, fromPath: string): boolean {
  * F2 to rename, Delete to delete, Shift+F10 or the menu key for the row menu, and typing a name to jump to it.
  */
 export function FileTree({ tree }: { tree: FileNode[] }) {
-    const { activeTabId, openFile } = useDocumentTabs()
+    // Not useDocumentTabs: that changes with every keystroke, and the tree only needs to know which file is open.
+    const activeTabId = useActiveTabId()
+    const { openFile } = useDocumentTabActions()
     const entryActions = useFileTreeEntryActions()
     const treeRef = useRef<HTMLDivElement>(null)
-    // Folders the user opened or closed; the rest follow openByDefault.
-    const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+    // Folders the user opened or closed; the rest follow openByDefault. Kept by the session (by normalised path), so
+    // they survive hiding the explorer, switching to Examples, a rename and reopening the folder. setExpanded never
+    // changes, so the memoized rows stay put.
+    const { folderToggles: toggled, setFolderExpanded: setExpanded } = useWorkspaceSession()
     const [focusedPath, setFocusedPath] = useState<string | null>(null)
 
-    const rows = useMemo(() => visibleTreeRows(tree, (path, level) => toggled.get(path) ?? openByDefault(level)), [tree, toggled])
+    const rows = useMemo(() => visibleTreeRows(tree, (path, level) => toggled.get(normalizePath(path)) ?? openByDefault(level)), [tree, toggled])
     const rowsRef = useRef(rows)
     useLayoutEffect(() => {
         rowsRef.current = rows
@@ -51,10 +55,6 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         rows.find((row) => row.node.path === focusedPath)?.node.path ??
         rows.find((row) => row.node.path === activeTabId)?.node.path ??
         rows[0]?.node.path
-
-    const setExpanded = useCallback((path: string, expanded: boolean) => {
-        setToggled((prev) => new Map(prev).set(path, expanded))
-    }, [])
 
     // Takes the folder's open state from the row, so it doesn't change with `rows` and the memoized rows stay put.
     const activate = useCallback(

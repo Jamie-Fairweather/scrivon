@@ -1,6 +1,6 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
+import { memo, useSyncExternalStore } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
 import { FileTree } from '@/components/studio/explorer/file-tree'
@@ -38,7 +38,8 @@ function setExplorerPanel(value: ExplorerPanel): void {
     }
 }
 
-export function WorkspaceExplorer() {
+/** Memoized: the layout around it draws again on every keystroke, and nothing here depends on the text. */
+export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
     const { workspaceName, tree } = useWorkspaceSession()
     const panel = useSyncExternalStore(subscribeExplorerPanel, getExplorerPanelSnapshot, getExplorerPanelServerSnapshot)
 
@@ -99,4 +100,4 @@ export function WorkspaceExplorer() {
             </div>
         </aside>
     )
-}
+})
