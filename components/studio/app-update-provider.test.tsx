@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getVersion } from '@tauri-apps/api/app'
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
@@ -12,7 +12,7 @@ import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
-import { AppUpdateProvider, useAppUpdate } from './app-update-provider'
+import { AppUpdateProvider, useAppUpdate, type UpdateProgress } from './app-update-provider'
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn(async () => '1.0.0') }))
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn(async () => undefined) }))
@@ -28,6 +28,11 @@ const confirmCloseTabs = vi.fn<() => Promise<boolean>>()
 const releaseAllTabs = vi.fn<() => Promise<void>>()
 const backUpUnsavedTabs = vi.fn<() => void>()
 const persistWorkspaceTabSession = vi.fn<() => Promise<void>>()
+
+/** How many times the installer was started. */
+function installCalls(): number {
+    return vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'install_app_update').length
+}
 
 function mockSettings(checkOnLaunch: boolean) {
     vi.mocked(useAppSettings).mockReturnValue({ settings: { updates: { checkOnLaunch } } } as unknown as ReturnType<typeof useAppSettings>)
@@ -89,11 +94,11 @@ describe('AppUpdateProvider installUpdate', () => {
         await act(() => result.current.installUpdate())
 
         expect(releaseAllTabs).not.toHaveBeenCalled()
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
+        expect(installCalls()).toBe(0)
         expect(result.current.installPhase).toBe('idle')
 
         await act(() => result.current.installUpdate())
-        expect(invoke).toHaveBeenCalledWith('install_app_update')
+        expect(invoke).toHaveBeenCalledWith('install_app_update', { onProgress: expect.any(Channel) })
     })
 
     it('ignores a second press while the first is still saving', async () => {
@@ -173,17 +178,62 @@ describe('AppUpdateProvider installUpdate', () => {
 
         await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
 
-        expect(await screen.findByRole('button', { name: 'Saving files…' })).toBeDisabled()
+        expect(await screen.findByRole('button', { name: /Saving files…/ })).toBeDisabled()
+        expect(screen.getByText('Saving open files…')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Later' })).toBeDisabled()
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
+        expect(installCalls()).toBe(0)
 
         await act(async () => {
             finishSaving(true)
         })
-        expect(await screen.findByRole('button', { name: 'Installing…' })).toBeDisabled()
+        expect(await screen.findByRole('button', { name: /Downloading…/ })).toBeDisabled()
         await act(async () => {
             finishInstall()
         })
+    })
+
+    it('shows how far the download has got, then that it is installing, with no close button meanwhile', async () => {
+        const user = await openUpdateDialogInUi()
+        let progress!: Channel<UpdateProgress>
+        vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+            if (cmd !== 'install_app_update') return Promise.resolve(undefined)
+            progress = (args as { onProgress: Channel<UpdateProgress> }).onProgress
+            return new Promise<undefined>(() => {})
+        })
+        expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
+
+        await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
+        await waitFor(() => expect(installCalls()).toBe(1))
+        expect(screen.getByText('Downloading…', { selector: 'p' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
+
+        const total = 13_002_342
+        act(() => progress.onmessage({ event: 'started', total }))
+        expect(screen.getByText('Downloading 0.0 / 12.4 MB')).toBeInTheDocument()
+        act(() => progress.onmessage({ event: 'progress', downloaded: 3_355_443, total }))
+        expect(screen.getByText('Downloading 3.2 / 12.4 MB')).toBeInTheDocument()
+        expect(screen.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', expect.stringMatching(/^25\.8/))
+
+        act(() => progress.onmessage({ event: 'installing' }))
+        expect(screen.getByText('Installing…', { selector: 'p' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Installing…/ })).toBeDisabled()
+    })
+
+    it('shows the size downloaded so far when the server gives no total', async () => {
+        const user = await openUpdateDialogInUi()
+        let progress!: Channel<UpdateProgress>
+        vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+            if (cmd !== 'install_app_update') return Promise.resolve(undefined)
+            progress = (args as { onProgress: Channel<UpdateProgress> }).onProgress
+            return new Promise<undefined>(() => {})
+        })
+
+        await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
+        await waitFor(() => expect(installCalls()).toBe(1))
+        act(() => progress.onmessage({ event: 'progress', downloaded: 5 * 1024 * 1024, total: null }))
+
+        expect(screen.getByText('Downloading 5.0 MB…')).toBeInTheDocument()
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
     it('goes back to Install and restart when the user cancels a question about the open files', async () => {
@@ -193,7 +243,7 @@ describe('AppUpdateProvider installUpdate', () => {
         await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
 
         await waitFor(() => expect(screen.getByRole('button', { name: 'Install and restart' })).toBeEnabled())
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
+        expect(installCalls()).toBe(0)
     })
 })
 

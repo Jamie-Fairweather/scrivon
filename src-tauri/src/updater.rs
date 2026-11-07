@@ -1,9 +1,18 @@
 use std::future::Future;
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
+
+/// How long to wait for the update server to answer, and then for each piece
+/// of the download. Without these a stalled connection waits for ever (reqwest
+/// has no default). They limit each wait, not the whole download, so a slow
+/// download that is still moving is never cut off.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Written to the app data folder just before the installer starts. On Windows
 /// the app exits as soon as it has launched the installer, so it can't tell
@@ -36,6 +45,44 @@ pub struct UpdateAttempt {
     pub installed: bool,
 }
 
+/// What install_app_update tells the page while it works, so the update
+/// dialog can show the download moving instead of a still "Installing…".
+/// `total` is the download's size in bytes, when the server says it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(tag = "event", rename_all = "camelCase")]
+pub enum UpdateProgress {
+    Started { total: Option<u64> },
+    Progress { downloaded: u64, total: Option<u64> },
+    Installing,
+}
+
+/// Lets through at most one progress message per 100 ms or per 1% of the
+/// download (a download arrives in thousands of small pieces), and always the
+/// last piece.
+#[derive(Default)]
+struct ProgressThrottle {
+    last_sent: Option<(Instant, u64)>,
+}
+
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+impl ProgressThrottle {
+    fn should_send(&mut self, now: Instant, downloaded: u64, total: Option<u64>) -> bool {
+        let due = match self.last_sent {
+            None => true,
+            Some((at, bytes)) => {
+                total == Some(downloaded)
+                    || now.duration_since(at) >= PROGRESS_INTERVAL
+                    || total.is_some_and(|total| (downloaded - bytes).saturating_mul(100) >= total)
+            }
+        };
+        if due {
+            self.last_sent = Some((now, downloaded));
+        }
+        due
+    }
+}
+
 fn is_prerelease_build(version: &str) -> bool {
     let version = version.split('+').next().unwrap_or(version);
     version.contains('-')
@@ -45,10 +92,57 @@ fn is_prerelease_build(version: &str) -> bool {
 mod tests {
     use std::sync::Mutex;
 
+    use std::time::{Duration, Instant};
+
     use super::{
         count_other_instances, install_error_message, install_pending, install_with_record,
-        is_prerelease_build, take_attempt, UpdateAttempt,
+        is_prerelease_build, take_attempt, ProgressThrottle, UpdateAttempt, UpdateProgress,
     };
+
+    #[test]
+    fn progress_is_sent_at_most_every_100_ms_or_1_percent_and_always_at_the_end() {
+        let start = Instant::now();
+        let ms = |n: u64| start + Duration::from_millis(n);
+        let mut throttle = ProgressThrottle::default();
+        let total = Some(10_000);
+
+        assert!(throttle.should_send(ms(0), 16, total));
+        // Less than 1% more, only 10 ms later.
+        assert!(!throttle.should_send(ms(10), 80, total));
+        // 1% more.
+        assert!(throttle.should_send(ms(20), 116, total));
+        // 100 ms on, however little arrived.
+        assert!(!throttle.should_send(ms(60), 120, total));
+        assert!(throttle.should_send(ms(120), 130, total));
+        // The last piece, straight away.
+        assert!(throttle.should_send(ms(121), 10_000, total));
+
+        // An unknown size: by time only.
+        let mut unknown = ProgressThrottle::default();
+        assert!(unknown.should_send(ms(0), 1_000_000, None));
+        assert!(!unknown.should_send(ms(50), 9_000_000, None));
+        assert!(unknown.should_send(ms(100), 9_500_000, None));
+    }
+
+    #[test]
+    fn progress_messages_have_the_shape_the_page_reads() {
+        let json = |p: UpdateProgress| serde_json::to_value(p).unwrap();
+        assert_eq!(
+            json(UpdateProgress::Started { total: Some(12) }),
+            serde_json::json!({ "event": "started", "total": 12 })
+        );
+        assert_eq!(
+            json(UpdateProgress::Progress {
+                downloaded: 5,
+                total: None
+            }),
+            serde_json::json!({ "event": "progress", "downloaded": 5, "total": null })
+        );
+        assert_eq!(
+            json(UpdateProgress::Installing),
+            serde_json::json!({ "event": "installing" })
+        );
+    }
 
     fn temp_data_dir() -> std::path::PathBuf {
         std::env::temp_dir().join(format!("scrivon-update-{}", uuid::Uuid::new_v4()))
@@ -220,7 +314,16 @@ pub async fn check_for_app_update(
     }
 
     // The manifest URL comes from plugins.updater.endpoints in tauri.conf.json.
-    let updater = app.updater_builder().build().map_err(|e| e.to_string())?;
+    // The client settings carry over to the download (`Update::download`).
+    let updater = app
+        .updater_builder()
+        .configure_client(|client| {
+            client
+                .connect_timeout(CONNECT_TIMEOUT)
+                .read_timeout(READ_TIMEOUT)
+        })
+        .build()
+        .map_err(|e| e.to_string())?;
 
     match updater.check().await.map_err(|e| e.to_string())? {
         Some(update) => {
@@ -392,16 +495,36 @@ fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
     })
 }
 
+/// Downloads and installs the pending update, telling `on_progress` how the
+/// download goes (see `UpdateProgress`).
 #[tauri::command]
 pub async fn install_app_update(
     app: AppHandle,
     pending: State<'_, PendingUpdate>,
+    on_progress: Channel<UpdateProgress>,
 ) -> Result<(), String> {
     let data_dir = app.path().app_data_dir().ok();
     install_pending(&pending.0, |update: Update| async move {
         ensure_no_other_instances().await?;
+        let mut downloaded: u64 = 0;
+        let mut throttle = ProgressThrottle::default();
+        let finished = on_progress.clone();
+        // A page that stopped listening doesn't stop the update.
         let bytes = update
-            .download(|_, _| {}, || {})
+            .download(
+                |chunk, total| {
+                    if downloaded == 0 {
+                        let _ = on_progress.send(UpdateProgress::Started { total });
+                    }
+                    downloaded += chunk as u64;
+                    if throttle.should_send(Instant::now(), downloaded, total) {
+                        let _ = on_progress.send(UpdateProgress::Progress { downloaded, total });
+                    }
+                },
+                move || {
+                    let _ = finished.send(UpdateProgress::Installing);
+                },
+            )
             .await
             .map_err(|e| install_error_message(&e))?;
         // Again, in case another window was opened during the download.

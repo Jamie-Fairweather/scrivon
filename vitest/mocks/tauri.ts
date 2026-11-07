@@ -39,6 +39,11 @@ vi.mock('@tauri-apps/api/core', async () => {
             return undefined
         }),
         isTauri: vi.fn(() => false),
+        // A command's messages back to the page; a test calls onmessage itself to play the command's part.
+        Channel: class Channel<T> {
+            readonly id = 0
+            onmessage: (message: T) => void = () => {}
+        },
     }
 })
 

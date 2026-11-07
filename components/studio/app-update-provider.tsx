@@ -2,24 +2,37 @@
 
 import { reportLastUpdateAttempt } from '@/lib/updater/update-attempt'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { UpdateAvailableDialog, type AppUpdateInfo, type InstallPhase } from '@/components/studio/dialogs/update-available-dialog'
+import {
+    UpdateAvailableDialog,
+    type AppUpdateInfo,
+    type DownloadProgress,
+    type InstallPhase,
+} from '@/components/studio/dialogs/update-available-dialog'
 import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
 import { getVersion } from '@tauri-apps/api/app'
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 const UPDATE_CHECK_DELAY_MS = 4_000
 
+/** What install_app_update says while it works (UpdateProgress in src-tauri/src/updater.rs). */
+export type UpdateProgress =
+    | { event: 'started'; total: number | null }
+    | { event: 'progress'; downloaded: number; total: number | null }
+    | { event: 'installing' }
+
 type AppUpdateContextValue = {
     update: AppUpdateInfo | null
     notesLoading: boolean
-    /** What Install is doing: nothing yet, saving the open files (or asking about them), or installing. */
+    /** What Install is doing: nothing yet, saving the open files (or asking about them), downloading or installing. */
     installPhase: InstallPhase
+    /** How much of the update has downloaded, once the download has started. */
+    download: DownloadProgress | null
     dialogOpen: boolean
     openUpdateDialog: () => void
     dismissUpdateDialog: () => void
@@ -42,6 +55,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
     const [notesLoading, setNotesLoading] = useState(false)
     const [installPhase, setInstallPhase] = useState<InstallPhase>('idle')
+    const [download, setDownload] = useState<DownloadProgress | null>(null)
     const [dialogOpen, setDialogOpen] = useState(false)
     // Set straight away, so a second press while the first is still saving does nothing.
     const installRunning = useRef(false)
@@ -123,13 +137,20 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 console.warn('Could not save open tabs before updating:', error)
             }
 
-            setInstallPhase('installing')
+            setInstallPhase('downloading')
+            setDownload(null)
+            const onProgress = new Channel<UpdateProgress>()
+            onProgress.onmessage = (message) => {
+                if (message.event === 'installing') setInstallPhase('installing')
+                else setDownload({ downloaded: message.event === 'progress' ? message.downloaded : 0, total: message.total })
+            }
             try {
-                await invoke('install_app_update')
+                await invoke('install_app_update', { onProgress })
                 await relaunch()
             } catch (error) {
                 notifyError("Couldn't install the update", error)
                 setInstallPhase('idle')
+                setDownload(null)
                 // The app stays open with its tabs, so their unsaved edits get their safety copies back.
                 coordinator.backUpUnsavedTabs.current()
             }
@@ -143,12 +164,13 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
             update,
             notesLoading,
             installPhase,
+            download,
             dialogOpen,
             openUpdateDialog,
             dismissUpdateDialog,
             installUpdate,
         }),
-        [update, notesLoading, installPhase, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
+        [update, notesLoading, installPhase, download, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
     )
 
     return (
@@ -159,6 +181,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                     update={update}
                     notesLoading={notesLoading}
                     phase={installPhase}
+                    download={download}
                     onLater={dismissUpdateDialog}
                     onInstall={() => void installUpdate()}
                 />
