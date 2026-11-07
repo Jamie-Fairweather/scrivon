@@ -128,7 +128,7 @@ describe('export-pdf helpers', () => {
         expect(print).toHaveBeenCalled()
         expect(invoke).not.toHaveBeenCalled()
         // No stamper behind the print dialog: the html must not carry its marks.
-        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: false })
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: false, allowRemoteImages: false })
     })
 
     it('awaits document fonts when available before printing', async () => {
@@ -244,7 +244,16 @@ describe('export-pdf helpers', () => {
             options: EXPORT_DOCUMENT.print,
         })
         // The Windows exporter stamps the page numbers, so the html keeps its marks.
-        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true })
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true, allowRemoteImages: false })
+    })
+
+    it('prints web images when the user chose to load them in the preview', async () => {
+        isWindowsTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue('C:/out.pdf')
+        invoke.mockResolvedValue(undefined)
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await expect(exportMarkdown('# Hi', 'hi.md', { allowRemoteImages: true })).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf' })
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true, allowRemoteImages: true })
     })
 
     it('cancels windows save when dialog is dismissed', async () => {
@@ -343,7 +352,7 @@ describe('export-pdf helpers', () => {
         await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf', missingImages: [MISSING_LOGO] })
         // The images are read once and handed to the renderer.
         expect(resolvePdfExportAssets).toHaveBeenCalledTimes(1)
-        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ assets: EMPTY_ASSETS }), { stamped: true })
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ assets: EMPTY_ASSETS }), { stamped: true, allowRemoteImages: false })
 
         pickSavePath.mockResolvedValue('C:/out.docx')
         await expect(exportMarkdown('# Hi', 'hi.md', { format: 'docx' })).resolves.toMatchObject({ status: 'saved', missingImages: [MISSING_LOGO] })
@@ -388,7 +397,7 @@ describe('export-pdf helpers', () => {
             tocSkipped: true,
         })
         // The PDF is rendered from the same document whose contents came up empty.
-        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true })
+        expect(renderExportPdf).toHaveBeenCalledWith(expect.objectContaining({ toc: [] }), { stamped: true, allowRemoteImages: false })
         pickSavePath.mockResolvedValue('C:/out/notes.docx')
         await expect(exportMarkdown('# One\n\nText', 'notes.md', { profile, format: 'docx' })).resolves.toMatchObject({ tocSkipped: true })
 

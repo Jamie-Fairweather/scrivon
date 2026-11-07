@@ -4,7 +4,9 @@ import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 
 const tabs = vi.hoisted(() => ({ activeTab: null as DocumentTab | null }))
-type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void; tabPath?: string }
+/** Tabs whose web images the user chose to load in the preview. */
+const remoteImageTabs = vi.hoisted(() => new Set<string>())
+type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void; tabPath?: string; allowRemoteImages?: boolean }
 const dialogProps = vi.hoisted(() => ({ current: null as DialogProps | null }))
 /** The props the export dialog last rendered with, or null when the menu left it out. */
 const lastDialog = (): DialogProps | null => dialogProps.current
@@ -12,7 +14,10 @@ const lastDialog = (): DialogProps | null => dialogProps.current
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTab: tabs.activeTab, activeTabId: tabs.activeTab?.id ?? null }),
 }))
-vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({ useMarkdownExpand: () => ({ expanded: null }) }))
+vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
+    useMarkdownExpand: () => ({ expanded: null }),
+    useMarkdownPreviewMemory: () => ({ scrollTopByTab: new Map(), remoteImageTabs, allowRemoteImages: () => undefined }),
+}))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ themeId: 'light' }) }))
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: null, isPending: false }) }))
 vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn() }))
@@ -31,6 +36,23 @@ describe('DocumentExportMenu', () => {
     beforeEach(() => {
         tabs.activeTab = null
         dialogProps.current = null
+        remoteImageTabs.clear()
+    })
+
+    it('lets the PDF print web images only for a tab whose preview loaded them', () => {
+        tabs.activeTab = tab('notes.md', '# Notes')
+        const view = render(<DocumentExportMenu />)
+        expect(lastDialog()?.allowRemoteImages).toBe(false)
+
+        // The user clicked 'Load images' in this tab's preview.
+        remoteImageTabs.add('notes.md')
+        view.rerender(<DocumentExportMenu />)
+        expect(lastDialog()?.allowRemoteImages).toBe(true)
+
+        // Another tab keeps its web images out of the PDF.
+        tabs.activeTab = tab('other.md', '# Other')
+        view.rerender(<DocumentExportMenu />)
+        expect(lastDialog()?.allowRemoteImages).toBe(false)
     })
 
     it('disables the export button when no document is open, instead of opening an empty menu', () => {

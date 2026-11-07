@@ -23,6 +23,8 @@ type PdfExportDialogProps = {
     /** The document's file path, so the save dialog starts in its folder. */
     tabPath?: string
     format?: ExportFormat
+    /** The user chose 'Load images' in this document's preview, so the PDF prints its web images too. */
+    allowRemoteImages?: boolean
     /**
      * Whether an export is running. Kept by the owner, not the dialog, so it outlives the dialog
      * (a tab switch can unmount it mid-export) and a second export can't start alongside the first.
@@ -38,6 +40,7 @@ export function PdfExportDialog({
     tabName,
     tabPath,
     format = 'pdf',
+    allowRemoteImages = false,
     exporting,
     onExportingChange,
 }: PdfExportDialogProps) {
@@ -56,6 +59,7 @@ export function PdfExportDialog({
                     tabName={tabName}
                     tabPath={tabPath}
                     initialFormat={format}
+                    allowRemoteImages={allowRemoteImages}
                     busy={exporting}
                     onBusyChange={onExportingChange}
                     onClose={() => onOpenChange(false)}
@@ -127,6 +131,7 @@ function PdfExportForm({
     tabName,
     tabPath,
     initialFormat,
+    allowRemoteImages,
     busy,
     onBusyChange,
     onClose,
@@ -135,6 +140,7 @@ function PdfExportForm({
     tabName: string | undefined
     tabPath: string | undefined
     initialFormat: ExportFormat
+    allowRemoteImages: boolean
     busy: boolean
     onBusyChange: (busy: boolean) => void
     onClose: () => void
@@ -173,7 +179,7 @@ function PdfExportForm({
         try {
             // Let 'Exporting…' paint before the build takes over the main thread.
             await afterNextPaint()
-            const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath })
+            const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath, allowRemoteImages })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
                 notifyExportSaved(result)

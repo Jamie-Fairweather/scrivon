@@ -5,7 +5,7 @@ import { Download, Loader2 } from 'lucide-react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
-import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
+import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
@@ -22,6 +22,8 @@ const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
 export function DocumentExportMenu() {
     const { activeTab, activeTabId } = useDocumentTabs()
     const { expanded } = useMarkdownExpand()
+    // Web images the user chose to load in this tab's preview print in its PDF too.
+    const { remoteImageTabs } = useMarkdownPreviewMemory()
     const { themeId } = useAppTheme()
 
     const tabKind = activeTab ? documentKind(activeTab.name) : null
@@ -134,6 +136,7 @@ export function DocumentExportMenu() {
                     tabName={tabName}
                     tabPath={activeTab?.path}
                     format={exportFormat}
+                    allowRemoteImages={activeTabId ? remoteImageTabs.has(activeTabId) : false}
                     exporting={exporting}
                     onExportingChange={setExporting}
                 />

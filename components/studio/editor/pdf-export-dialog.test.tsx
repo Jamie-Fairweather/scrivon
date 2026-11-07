@@ -29,7 +29,17 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 if (!Element.prototype.getAnimations) Element.prototype.getAnimations = () => []
 
 /** Stands in for the export menu, which owns the export state; `shown` mimics a tab switch unmounting the dialog. */
-function Owner({ shown = true, format, onOpenChange }: { shown?: boolean; format?: ExportFormat; onOpenChange: (open: boolean) => void }) {
+function Owner({
+    shown = true,
+    format,
+    allowRemoteImages,
+    onOpenChange,
+}: {
+    shown?: boolean
+    format?: ExportFormat
+    allowRemoteImages?: boolean
+    onOpenChange: (open: boolean) => void
+}) {
     const [exporting, setExporting] = useState(false)
     if (!shown) return <p>{exporting ? 'Menu busy' : 'Menu idle'}</p>
     return (
@@ -40,6 +50,7 @@ function Owner({ shown = true, format, onOpenChange }: { shown?: boolean; format
             tabName="report.md"
             tabPath={'D:\\docs\\report.md'}
             format={format}
+            allowRemoteImages={allowRemoteImages}
             exporting={exporting}
             onExportingChange={setExporting}
         />
@@ -87,6 +98,19 @@ describe('PdfExportDialog', () => {
         expect(onOpenChange).not.toHaveBeenCalled()
         expect(screen.getByLabelText('Title')).toHaveValue('Quarterly report')
         expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it("passes the preview's 'Load images' choice to the export", async () => {
+        exportMarkdown.mockResolvedValue({ status: 'cancelled' })
+        const blocked = render(<Owner onOpenChange={vi.fn()} />)
+        await exportWithTitle('Report')
+        expect(exportMarkdown).toHaveBeenLastCalledWith(expect.any(String), 'report.md', expect.objectContaining({ allowRemoteImages: false }))
+        blocked.unmount()
+
+        exportMarkdown.mockClear()
+        render(<Owner allowRemoteImages onOpenChange={vi.fn()} />)
+        await exportWithTitle('Report')
+        expect(exportMarkdown).toHaveBeenLastCalledWith(expect.any(String), 'report.md', expect.objectContaining({ allowRemoteImages: true }))
     })
 
     it('shows a failure inside the dialog and clears it on the next try', async () => {

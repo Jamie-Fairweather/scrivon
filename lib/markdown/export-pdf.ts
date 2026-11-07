@@ -24,6 +24,8 @@ export type ExportMarkdownOptions = {
     overrides?: PdfExportMetadataOverrides
     /** The document's file path, so the save dialog starts in its folder. */
     documentPath?: string
+    /** The user chose to load this document's web images in the preview, so the PDF prints them too. Word ignores it. */
+    allowRemoteImages?: boolean
 }
 
 /** A saved export (or one handed to the print dialog / a download), with anything it had to leave out. */
@@ -171,7 +173,7 @@ async function renderAndSaveDocument(
 
     // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
     const stamped = isWindowsTauri()
-    const { html, print } = await renderExportPdf(exportDocument, { stamped })
+    const { html, print } = await renderExportPdf(exportDocument, { stamped, allowRemoteImages: options.allowRemoteImages === true })
     const filename = `${markdownExportBaseName(tabName)}.pdf`
 
     if (stamped) {
