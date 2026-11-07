@@ -98,7 +98,12 @@ pub fn parse_hex_color(value: &str) -> Option<(Rgb, f32)> {
     let digits: Vec<u32> = hex.chars().map(|c| c.to_digit(16)).collect::<Option<_>>()?;
     let (r, g, b, a) = match digits.len() {
         3 => (digits[0] * 17, digits[1] * 17, digits[2] * 17, 255),
-        4 => (digits[0] * 17, digits[1] * 17, digits[2] * 17, digits[3] * 17),
+        4 => (
+            digits[0] * 17,
+            digits[1] * 17,
+            digits[2] * 17,
+            digits[3] * 17,
+        ),
         6 | 8 => (
             digits[0] * 16 + digits[1],
             digits[2] * 16 + digits[3],
@@ -122,8 +127,23 @@ fn helvetica_width(ch: char) -> f32 {
     match ch {
         ' ' | '!' | ',' | '.' | '/' | ':' | ';' | 'I' | '[' | '\\' | ']' | 'f' | 't' => 278.0,
         '"' => 355.0,
-        '#' | '$' | '?' | '_' | 'L' | 'a' | 'b' | 'd' | 'e' | 'g' | 'h' | 'n' | 'o' | 'p' | 'q'
-        | 'u' | '0'..='9' => 556.0,
+        '#'
+        | '$'
+        | '?'
+        | '_'
+        | 'L'
+        | 'a'
+        | 'b'
+        | 'd'
+        | 'e'
+        | 'g'
+        | 'h'
+        | 'n'
+        | 'o'
+        | 'p'
+        | 'q'
+        | 'u'
+        | '0'..='9' => 556.0,
         '%' => 889.0,
         '&' | 'A' | 'B' | 'E' | 'K' | 'P' | 'S' | 'V' | 'X' | 'Y' => 667.0,
         '\'' => 191.0,
@@ -2107,7 +2127,9 @@ end";
         assert_eq!(parse_hex_color(" #FFF "), Some(((1.0, 1.0, 1.0), 1.0)));
         assert_eq!(parse_hex_color("#0000"), Some(((0.0, 0.0, 0.0), 0.0)));
         let ((r, g, b), a) = parse_hex_color("#40404080").unwrap();
-        assert!((r - 0.251).abs() < 0.001 && (g - 0.251).abs() < 0.001 && (b - 0.251).abs() < 0.001);
+        assert!(
+            (r - 0.251).abs() < 0.001 && (g - 0.251).abs() < 0.001 && (b - 0.251).abs() < 0.001
+        );
         assert!((a - 0.502).abs() < 0.001);
         assert_eq!(parse_hex_color(""), None);
         assert_eq!(parse_hex_color("red"), None);
@@ -2480,7 +2502,12 @@ end";
         let resources = stamped.get_page_resources(page_ids[1]).unwrap().0.unwrap();
         let gs = resources.get(b"ExtGState").unwrap().as_dict().unwrap();
         let state = stamped
-            .get_object(gs.get(ALPHA_GS_NAME.as_bytes()).unwrap().as_reference().unwrap())
+            .get_object(
+                gs.get(ALPHA_GS_NAME.as_bytes())
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
             .unwrap()
             .as_dict()
             .unwrap();

@@ -137,15 +137,20 @@ jobs:
               uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
               with:
                   toolchain: stable
-                  components: clippy
+                  components: clippy, rustfmt
 
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
 
+            - name: Check formatting
+              run: cargo fmt --check
+              working-directory: src-tauri
+
+            # -D warnings: a new warning fails the build instead of scrolling past in the log.
             - name: Clippy
-              run: cargo clippy --all-targets --locked
+              run: cargo clippy --all-targets --locked -- -D warnings
               working-directory: src-tauri
 
             - name: Test

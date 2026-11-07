@@ -273,7 +273,7 @@ async fn export_html_to_pdf_impl(
                         .SetMarginRight(print.margin_right_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetShouldPrintBackgrounds(true.into())
+                        .SetShouldPrintBackgrounds(true)
                         .map_err(|e| e.to_string())?;
 
                     PrintToPdfCompletedHandler::wait_for_async_operation(
