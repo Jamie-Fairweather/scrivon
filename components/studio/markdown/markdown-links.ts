@@ -5,6 +5,8 @@ import type { FileNode } from '@/lib/workspace/types'
 /** Where a link in the Markdown preview points. */
 export type MarkdownLinkTarget =
     | { kind: 'none' }
+    /** The top of the same document: a bare `#`, which a browser reads that way whatever the document holds. */
+    | { kind: 'top' }
     /** A heading or footnote in the same document. */
     | { kind: 'anchor'; id: string }
     /** Opened in the system browser or mail app. */
@@ -162,7 +164,7 @@ export function resolveMarkdownLink(href: string | undefined, context: MarkdownL
 
     if (value.startsWith('#')) {
         const id = decode(value.slice(1))
-        return id ? { kind: 'anchor', id } : { kind: 'none' }
+        return id ? { kind: 'anchor', id } : { kind: 'top' }
     }
 
     if (EXTERNAL_SCHEME.test(value)) return { kind: 'external', url: value }

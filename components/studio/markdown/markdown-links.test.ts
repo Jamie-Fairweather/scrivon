@@ -35,7 +35,11 @@ describe('resolveMarkdownLink', () => {
         expect(resolveMarkdownLink('#install', inWorkspace)).toEqual({ kind: 'anchor', id: 'install' })
         expect(resolveMarkdownLink('#user-content-fn-1', inWorkspace)).toEqual({ kind: 'anchor', id: 'user-content-fn-1' })
         expect(resolveMarkdownLink('#caf%C3%A9', inWorkspace)).toEqual({ kind: 'anchor', id: 'café' })
-        expect(resolveMarkdownLink('#', inWorkspace)).toEqual({ kind: 'none' })
+    })
+
+    it('takes a bare # to mean the top of the document, as a browser does (N27)', () => {
+        expect(resolveMarkdownLink('#', inWorkspace)).toEqual({ kind: 'top' })
+        expect(resolveMarkdownLink(' # ', inWorkspace)).toEqual({ kind: 'top' })
     })
 
     it('sends web, email and phone links to the system', () => {

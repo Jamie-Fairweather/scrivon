@@ -292,6 +292,11 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             switch (target.kind) {
                 case 'none':
                     return
+                case 'top': {
+                    const viewport = scrollViewport(scrollAreaRef.current)
+                    if (viewport) viewport.scrollTop = 0
+                    return
+                }
                 case 'anchor':
                     scrollToAnchor(target.id)
                     return
