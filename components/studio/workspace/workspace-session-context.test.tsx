@@ -825,6 +825,61 @@ describe('reading only the folder an action changed', () => {
         expect(result.current.session.tree.map((n) => n.name)).toEqual(['other', 'sub'])
     })
 
+    /** Makes the next listing of `folder` wait until the test lets it finish; later ones don't wait. */
+    function holdNextListing(folder: string) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        let held = false
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (!held && String(dir) === folder) {
+                held = true
+                await done
+            }
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        return finish
+    }
+
+    it('still shows what a read of the whole tree it stopped would have shown', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        // A git pull adds a file elsewhere, and coming back to the window starts reading the folder again.
+        await disk.write('C:\\ws\\other\\pulled.md', '# Pulled')
+        const finish = holdNextListing('C:\\ws')
+        act(() => windowFocus.handler!({ payload: true }))
+
+        // The user creates a file before that read is done.
+        await act(() => result.current.session.createFile('C:\\ws\\sub', 'new.md', '# New'))
+        await act(async () => finish())
+
+        expect(namesIn(result, 'sub')).toEqual(['a.mmd', 'new.md'])
+        expect(namesIn(result, 'other')).toEqual(['deep', 'pulled.md'])
+    })
+
+    it('reads again the folder of an earlier action whose read it stopped', async () => {
+        await disk.write('C:\\ws\\sub\\keep.md', '# Keep')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        const finish = holdNextListing('C:\\ws\\sub')
+
+        // A delete in one folder, then a new file in another before the first folder is read again.
+        let deleting!: Promise<void>
+        act(() => {
+            deleting = result.current.session.deleteEntry('C:\\ws\\sub\\a.mmd', false)
+        })
+        await waitFor(() => expect(readDir).toHaveBeenCalledWith('C:\\ws\\sub'))
+        await act(() => result.current.session.createFile('C:\\ws\\other', 'new.md', '# New'))
+        await act(async () => {
+            finish()
+            await deleting
+        })
+
+        expect(namesIn(result, 'sub')).toEqual(['keep.md'])
+        expect(namesIn(result, 'other')).toEqual(['deep', 'new.md'])
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
     it('reads the whole tree when reading just the folder fails', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await open(result)

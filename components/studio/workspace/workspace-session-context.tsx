@@ -258,13 +258,25 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     // an older one still running stops reading.
     const treeRead = useRef(0)
     const treeReadAbort = useRef<AbortController | null>(null)
+    // What the read started last is reading until it is over: the whole tree ('all') or some folders. A read
+    // that stops it must read that too, or what it would have shown (another app's changes) is lost.
+    const treeReading = useRef<'all' | readonly string[] | null>(null)
 
-    /** Starts a new read of the tree (or, for a folder switch, just stops the ones running): its number and its signal. */
-    const startTreeRead = useCallback(() => {
+    /**
+     * Starts a new read of the tree, of `reading` (or, with null, for a folder switch, just stops the ones
+     * running): its number and its signal.
+     */
+    const startTreeRead = useCallback((reading: 'all' | readonly string[] | null) => {
         treeReadAbort.current?.abort()
         const controller = new AbortController()
         treeReadAbort.current = controller
+        treeReading.current = reading
         return { read: ++treeRead.current, signal: controller.signal }
+    }, [])
+
+    /** Read `read` is over, whether it was read, failed or stopped. */
+    const endTreeRead = useCallback((read: number) => {
+        if (read === treeRead.current) treeReading.current = null
     }, [])
 
     // Whether the tree shown was cut short, having too many entries to list them all. Such a folder isn't
@@ -292,7 +304,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         async (announce: boolean) => {
             if (!workspaceRoot) return
             const root = workspaceRoot
-            const { read, signal } = startTreeRead()
+            const { read, signal } = startTreeRead('all')
             try {
                 const next = await listWorkspaceTree(root, { signal })
                 if (read !== treeRead.current) return
@@ -302,9 +314,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             } catch (err) {
                 // A newer read took over, and shows the change.
                 if (!signal.aborted) notifyError("Couldn't refresh the file list", err)
+            } finally {
+                endTreeRead(read)
             }
         },
-        [workspaceRoot, startTreeRead, noteTruncation]
+        [workspaceRoot, startTreeRead, endTreeRead, noteTruncation]
     )
 
     const refreshTree = useCallback(() => readWholeTree(false), [readWholeTree])
@@ -325,24 +339,31 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (!workspaceRoot) return
             const root = workspaceRoot
             const folder = normalizePath(folderPath)
+            // A read still running (a window focus, say) may have listed the folder before the change, so it
+            // stops: it can't put the old entries back over these. What it was reading is read here instead: the
+            // whole tree again, as it may hold changes made in other apps, or the folders other actions changed.
+            const running = treeReading.current
             // The root's entries are the whole tree anyway.
-            if (samePath(folder, root) || !canReplaceChildren(treeRef.current, root, folder)) {
+            if (running === 'all' || samePath(folder, root) || !canReplaceChildren(treeRef.current, root, folder)) {
                 await refreshTree()
                 return
             }
-            // A full read started earlier (a window focus) may have listed the folder before the change, so it
-            // stops: it can't put the old entries back over these.
-            const { read, signal } = startTreeRead()
-            let children: FileNode[]
+            const folders = [...(running ?? []).filter((other) => !samePath(other, folder)), folder]
+            const { read, signal } = startTreeRead(folders)
+            let lists: FileNode[][]
             try {
-                children = await listWorkspaceTree(folder, { signal })
+                lists = await Promise.all(folders.map((path) => listWorkspaceTree(path, { signal })))
             } catch {
+                endTreeRead(read)
                 if (!signal.aborted) await refreshTree()
                 return
             }
-            if (read === treeRead.current) setTree((prev) => replaceChildren(prev, root, folder, children) ?? prev)
+            endTreeRead(read)
+            if (read !== treeRead.current) return
+            // A folder no longer in the tree (deleted meanwhile) is left out.
+            setTree((prev) => folders.reduce((tree, path, i) => replaceChildren(tree, root, path, lists[i]!) ?? tree, prev))
         },
-        [workspaceRoot, refreshTree, startTreeRead]
+        [workspaceRoot, refreshTree, startTreeRead, endTreeRead]
     )
 
     // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up, and open files
@@ -363,7 +384,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         let treeWanted = false
         let seen: { added: string[]; removed: string[] } = { added: [], removed: [] }
         const readTree = async () => {
-            const { read, signal } = startTreeRead()
+            const { read, signal } = startTreeRead('all')
             try {
                 const next = await listWorkspaceTree(root, { signal })
                 if (disposed || read !== treeRead.current) return
@@ -372,6 +393,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 setTree((prev) => keepUnchangedNodes(prev, next))
             } catch {
                 // See above.
+            } finally {
+                endTreeRead(read)
             }
         }
         const reloadTabs = async () => {
@@ -461,7 +484,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             unlisten?.()
             unwatch?.()
         }
-    }, [isDesktop, workspaceRoot, treeTruncated, coordinator, startTreeRead, noteTruncation])
+    }, [isDesktop, workspaceRoot, treeTruncated, coordinator, startTreeRead, endTreeRead, noteTruncation])
 
     const removeRecent = useCallback(async (path: string) => {
         try {
@@ -660,7 +683,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 const leaving = workspaceRootRef.current ? coordinator.persistWorkspaceTabSession.current() : null
                 workspaceRootRef.current = path
                 setWorkspaceRoot(path)
-                startTreeRead()
+                startTreeRead(null)
                 setTree(nextTree)
                 coordinator.clearTabs.current()
                 warnAboutUnreadableFolders(nextTree)
@@ -730,7 +753,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         if (!(await coordinator.confirmCloseTabs.current())) return
         // Closing is the newest request: a folder still being opened, or a file list still being read, is dropped.
         startWorkspaceRequest()
-        startTreeRead()
+        startTreeRead(null)
         setOpeningWorkspace(null)
         dismissNotification(OPENING_NOTICE_ID)
         dismissNotification(TRUNCATED_NOTICE_ID)
