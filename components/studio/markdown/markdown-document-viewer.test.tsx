@@ -469,6 +469,17 @@ describe('MarkdownDocumentViewer', () => {
             }
         })
 
+        it('reaches an old-style <a name> anchor, as the PDF does (review)', () => {
+            const { container } = render(
+                viewer(DOC_A, '<a name="install"></a>\n\nInstall it.\n\n<a name="Set_Up">Set up</a>\n\n[x](#install) [y](#Install) [z](#set_up)')
+            )
+            const [install, setUp] = Array.from(container.querySelectorAll('a[name]'))
+            expect(install).toHaveAttribute('name', 'user-content-install')
+            for (const name of ['x', 'y', 'z']) fireEvent.click(screen.getByRole('link', { name }))
+            expect(notifyInfo).not.toHaveBeenCalled()
+            expect(scrollIntoView.mock.contexts).toEqual([install, install, setUp])
+        })
+
         it('tells the user when an anchor has no target', () => {
             render(viewer(DOC_A, '[missing](#nowhere)'))
             fireEvent.click(screen.getByRole('link', { name: 'missing' }))

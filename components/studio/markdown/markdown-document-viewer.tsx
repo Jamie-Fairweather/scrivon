@@ -41,15 +41,19 @@ function scrollViewport(root: HTMLElement | null): HTMLElement | null {
 /** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
 const DOCUMENT_ID_PREFIX = 'user-content-'
 
-/** An element's id as the document wrote it, without the preview's prefix. */
+/**
+ * An element's id as the document wrote it, without the preview's prefix. For an old-style `<a name="install">`
+ * anchor with no id, its name, which the sanitizer prefixes the same way.
+ */
 function documentId(element: HTMLElement): string {
-    return element.id.startsWith(DOCUMENT_ID_PREFIX) ? element.id.slice(DOCUMENT_ID_PREFIX.length) : element.id
+    const id = element.id || element.getAttribute('name') || ''
+    return id.startsWith(DOCUMENT_ID_PREFIX) ? id.slice(DOCUMENT_ID_PREFIX.length) : id
 }
 
 /**
- * The heading or footnote a `#fragment` points at: an exact id match first (with or without the preview's
- * `user-content-` prefix), then one that differs only in case, then one that matches once both are reduced to
- * export's id rules (GitHub-style links such as `#foo--bar`).
+ * The heading, footnote or `<a name>` anchor a `#fragment` points at: an exact id match first (with or without the
+ * preview's `user-content-` prefix), then one that differs only in case, then one that matches once both are
+ * reduced to export's id rules (GitHub-style links such as `#foo--bar`).
  */
 function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | null {
     if (!root) return null
@@ -58,9 +62,10 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
     let exactMatch: HTMLElement | null = null
     let caseMatch: HTMLElement | null = null
     let keyMatch: HTMLElement | null = null
-    for (const element of root.querySelectorAll<HTMLElement>('[id]')) {
-        if (element.id === id) return element
+    for (const element of root.querySelectorAll<HTMLElement>('[id], a[name]')) {
+        if (element.id && element.id === id) return element
         const written = documentId(element)
+        if (!written) continue
         if (!exactMatch && written === id) exactMatch = element
         if (!caseMatch && written.toLowerCase() === lower) caseMatch = element
         if (!keyMatch && key && anchorKey(written) === key) keyMatch = element
