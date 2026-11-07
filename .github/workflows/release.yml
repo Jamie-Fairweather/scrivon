@@ -190,6 +190,8 @@ jobs:
                   tagName: v${{ needs.release.outputs.version }}
                   releaseDraft: false
                   prerelease: ${{ steps.gh_release.outputs.prerelease == 'true' }}
+                  # The updater never downloads the .sig files: their signature is already inside latest.json.
+                  uploadUpdaterSignatures: false
                   # Only the per-user setup.exe ships. An MSI next to it installed a second, per-machine copy.
                   args: --bundles nsis
 
