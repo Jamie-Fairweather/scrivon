@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_REPO_URL } from '@/lib/app-branding'
-import { APP_VERSION } from '@/lib/legal/third-party-licenses'
+import { APP_VERSION } from '@/lib/legal/app-version'
 import { notifyError, notifySuccess } from '@/lib/notify'
 import { AboutDialog } from './about-dialog'
 

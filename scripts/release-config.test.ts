@@ -110,7 +110,7 @@ describe('semantic-release plugins', () => {
                 'src-tauri/Cargo.toml',
                 'src-tauri/Cargo.lock',
                 'src-tauri/tauri.conf.json',
-                'lib/legal/third-party-licenses.ts',
+                'lib/legal/app-version.ts',
             ])
         )
     })

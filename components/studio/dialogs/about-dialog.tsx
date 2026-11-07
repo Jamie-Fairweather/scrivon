@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { APP_AFFILIATION, APP_COPYRIGHT, APP_NAME, APP_REPO_URL, APP_TAGLINE } from '@/lib/app-branding'
-import { APP_VERSION } from '@/lib/legal/third-party-licenses'
+import { APP_VERSION } from '@/lib/legal/app-version'
 import { notifyError, notifySuccess } from '@/lib/notify'
 
 type AboutDialogProps = {

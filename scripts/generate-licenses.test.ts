@@ -171,13 +171,26 @@ describe('generated module', () => {
             licenseTexts,
         })
 
-        const source = renderLicensesModule([entry('a', ['Shared MIT text']), entry('b', ['Shared MIT text', 'NOTICE b']), entry('c', [])], '9.9.9')
+        const source = renderLicensesModule([entry('a', ['Shared MIT text']), entry('b', ['Shared MIT text', 'NOTICE b']), entry('c', [])])
 
         expect(source.split('Shared MIT text')).toHaveLength(2)
         expect(source).toContain('"licenseText": T[0]\n')
         expect(source).toContain('"licenseText": T[0] + SEP + T[1]\n')
         expect(source).toContain('"licenseText": null\n')
-        expect(source).toContain('export const APP_VERSION = "9.9.9"\n')
+    })
+
+    it('leaves the app version to lib/legal/app-version.ts, passing it on for older imports', () => {
+        const source = renderLicensesModule([])
+
+        expect(source).not.toMatch(/export const APP_(VERSION|NAME)/)
+        expect(source).toContain("export { APP_VERSION } from './app-version'\n")
+    })
+
+    it('matches the committed module apart from the package list', () => {
+        const committed = readFileSync(join(__dirname, '..', 'lib', 'legal', 'third-party-licenses.ts'), 'utf8').replace(/\r\n/g, '\n')
+        const header = (source: string) => source.slice(0, source.indexOf('// Each distinct licence text'))
+
+        expect(header(committed)).toBe(header(renderLicensesModule([])))
     })
 
     it('renames a crate or font that shares a name with an npm package', () => {

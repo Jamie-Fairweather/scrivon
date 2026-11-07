@@ -365,7 +365,7 @@ export function withUniqueNames(entries) {
 }
 
 /** Source of lib/legal/third-party-licenses.ts. Each distinct licence text is written once and shared. */
-export function renderLicensesModule(entries, appVersion) {
+export function renderLicensesModule(entries) {
     const texts = []
     const textIndex = new Map()
     const ref = (text) => {
@@ -403,8 +403,9 @@ export type ThirdPartyPackage = {
     licenseText: string | null
 }
 
-export const APP_NAME = 'Scrivon' // keep in sync with lib/app-branding.ts
-export const APP_VERSION = ${JSON.stringify(appVersion)}
+// The version lives in lib/legal/app-version.ts, so showing it doesn't load this list. Passed on from here only
+// until components/studio/shell/studio-error-boundary.tsx imports it from there.
+export { APP_VERSION } from './app-version'
 
 // Each distinct licence text is stored once; packages that share it point at the same entry.
 const T: string[] = ${JSON.stringify(texts, null, 4)}
@@ -434,8 +435,6 @@ export function updateLicensesModule(path, source, rebuild) {
 }
 
 function main() {
-    const appPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-
     ensureShippedBuild()
 
     const shippedNames = [...collectShippedPackageNames()].sort(compareNames)
@@ -449,7 +448,7 @@ function main() {
     }
 
     const summary = `${npmPackages.length} npm packages, ${rustCrates.length} Rust crates and ${BUNDLED_FONTS.length} fonts`
-    const changed = updateLicensesModule(outPath, renderLicensesModule(entries, appPkg.version), () => {
+    const changed = updateLicensesModule(outPath, renderLicensesModule(entries), () => {
         console.log(`Wrote ${summary} to ${outPath}`)
         console.log('The licence list changed after next build bundled it; building again so the app ships the new list…')
         runProductionBuild({ sourceMaps: false })

@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from '@/components/ui/accordion'
 import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { THIRD_PARTY_PACKAGES } from '@/lib/legal/third-party-licenses'
+import type { ThirdPartyPackage } from '@/lib/legal/third-party-licenses'
 import { cn } from '@/lib/utils'
 
 type OpenSourceLicensesDialogProps = {
@@ -13,23 +13,71 @@ type OpenSourceLicensesDialogProps = {
     onOpenChange: (open: boolean) => void
 }
 
+const ECOSYSTEM_LABELS: Record<ThirdPartyPackage['ecosystem'], string> = {
+    npm: 'npm package',
+    rust: 'Rust crate',
+    font: 'Font',
+}
+
+let packagesLoad: Promise<readonly ThirdPartyPackage[]> | null = null
+
+/**
+ * The licence list is large (every licence text), so it is loaded the first time the dialog opens instead of
+ * with the app. One load is shared by every opening; after a failure, the next opening tries again.
+ */
+function loadPackages(): Promise<readonly ThirdPartyPackage[]> {
+    if (!packagesLoad) {
+        packagesLoad = import('@/lib/legal/third-party-licenses').then((module) => module.THIRD_PARTY_PACKAGES)
+        packagesLoad.catch(() => {
+            packagesLoad = null
+        })
+    }
+    return packagesLoad
+}
+
 export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicensesDialogProps) {
     const [query, setQuery] = useState('')
+    const [allPackages, setAllPackages] = useState<readonly ThirdPartyPackage[] | null>(null)
+    const [loadFailed, setLoadFailed] = useState(false)
+
+    useEffect(() => {
+        if (!open || allPackages) return
+        let cancelled = false
+        loadPackages().then(
+            (loaded) => {
+                if (cancelled) return
+                setAllPackages(loaded)
+                setLoadFailed(false)
+            },
+            (err: unknown) => {
+                console.error("Couldn't load the licence list", err)
+                if (!cancelled) setLoadFailed(true)
+            }
+        )
+        return () => {
+            cancelled = true
+        }
+    }, [open, allPackages])
 
     const packages = useMemo(() => {
+        if (!allPackages) return null
         const q = query.trim().toLowerCase()
-        if (!q) return THIRD_PARTY_PACKAGES
+        if (!q) return allPackages
         // Match the package name and licence type only. Searching the full licence text made short queries
         // ('isc', 'use') hit boilerplate words in almost every notice.
-        return THIRD_PARTY_PACKAGES.filter((pkg) => pkg.name.toLowerCase().includes(q) || pkg.license.toLowerCase().includes(q))
-    }, [query])
+        return allPackages.filter((pkg) => pkg.name.toLowerCase().includes(q) || pkg.license.toLowerCase().includes(q))
+    }, [allPackages, query])
 
     return (
         <Dialog
             open={open}
             onOpenChange={(next) => {
                 onOpenChange(next)
-                if (!next) setQuery('')
+                if (!next) {
+                    setQuery('')
+                    // The next opening tries the load again, and says it is loading meanwhile.
+                    setLoadFailed(false)
+                }
             }}
         >
             <DialogPopup className="flex max-h-[min(85vh,720px)] max-w-3xl flex-col">
@@ -50,7 +98,17 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                     />
                 </div>
                 <DialogPanel className="pt-0">
-                    {packages.length === 0 ? (
+                    {!packages ? (
+                        loadFailed ? (
+                            <p role="alert" className="text-sm text-destructive">
+                                Couldn&apos;t load the licence list. Close Licences and open it again to retry.
+                            </p>
+                        ) : (
+                            <p role="status" className="text-sm text-muted-foreground">
+                                Loading licences…
+                            </p>
+                        )
+                    ) : packages.length === 0 ? (
                         <p className="text-sm text-muted-foreground">No packages match your search.</p>
                     ) : (
                         <Accordion className="rounded-lg border">
@@ -60,7 +118,7 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                                         <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
                                             <span className="truncate font-medium">{pkg.name}</span>
                                             <span className="text-xs font-normal text-muted-foreground">
-                                                {pkg.version ? `v${pkg.version} · ` : ''}
+                                                {ECOSYSTEM_LABELS[pkg.ecosystem]} · {pkg.version ? `v${pkg.version} · ` : ''}
                                                 {pkg.license}
                                             </span>
                                         </span>
