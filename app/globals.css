@@ -38,7 +38,9 @@
     --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
     --accent: --alpha(var(--color-black) / 4%);
     --accent-foreground: var(--color-neutral-800);
-    --destructive: var(--color-red-500);
+    /* The fill behind the white text of Delete and Restore buttons: red-700 keeps it at 4.5:1 or more,
+       also at 90% on hover. Red text and icons on the page use --destructive-foreground. */
+    --destructive: var(--color-red-700);
     --border: --alpha(var(--color-black) / 8%);
     --input: --alpha(var(--color-black) / 10%);
     --ring: var(--color-neutral-400);
@@ -204,7 +206,7 @@
     --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--color-neutral-100);
-    --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
+    --destructive: var(--color-red-600);
     --border: --alpha(var(--color-white) / 6%);
     --input: --alpha(var(--color-white) / 8%);
     --ring: var(--color-neutral-500);

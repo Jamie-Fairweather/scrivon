@@ -98,6 +98,21 @@ describe('tokensToSemanticVars', () => {
         expect(vars['--sidebar-accent-foreground']).toBe('#ffffff')
     })
 
+    it.each(APP_THEME_IDS)('%s: text on primary buttons and selected text reaches 4.5:1', (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--primary-foreground'], vars['--primary'])).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(vars['--sidebar-primary-foreground'], vars['--sidebar-primary'])).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it('keeps the palette text colour as the primary fill when it already reaches 4.5:1', () => {
+        const vars = tokensToSemanticVars(sampleTokens)
+
+        expect(vars['--primary']).toBe('#eeeeee')
+        expect(vars['--sidebar-primary']).toBe('#eeeeee')
+        expect(vars['--primary-foreground']).toBe('#111111')
+    })
+
     it.each(APP_THEME_IDS)('%s: text on highlighted rows reaches 4.5:1', (id) => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
 

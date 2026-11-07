@@ -101,7 +101,7 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                 <DialogPanel className="pt-0">
                     {!packages ? (
                         loadFailed ? (
-                            <p role="alert" className="text-sm text-destructive">
+                            <p role="alert" className="text-sm text-destructive-foreground">
                                 Couldn&apos;t load the licence list. Close Licences and open it again to retry.
                             </p>
                         ) : (

@@ -39,6 +39,9 @@ const MIN_TEXT_CONTRAST = 4.5
 export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticThemeVars {
     const accent = hexColorMix(tokens.accent, tokens.bg, 24)
     const textOnInteractive = ensureContrast(tokens.uiText, tokens.uiText, [tokens.interactive], MIN_TEXT_CONTRAST)
+    // Primary buttons and selected text: the palette text colour as a fill, with the background colour as its text.
+    // Stepped toward black or white only where that pair is under 4.5:1 (Solarized Light).
+    const primaryFill = ensureContrast(tokens.fg, tokens.fg, [tokens.bg], MIN_TEXT_CONTRAST)
 
     return {
         '--background': tokens.bg,
@@ -47,7 +50,7 @@ export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticTheme
         '--card-foreground': tokens.uiText,
         '--popover': tokens.surface,
         '--popover-foreground': tokens.uiText,
-        '--primary': tokens.fg,
+        '--primary': primaryFill,
         '--primary-foreground': tokens.bg,
         '--secondary': tokens.interactive,
         '--secondary-foreground': textOnInteractive,
@@ -60,7 +63,7 @@ export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticTheme
         '--ring': tokens.accent,
         '--sidebar': tokens.bg,
         '--sidebar-foreground': tokens.textSecondary,
-        '--sidebar-primary': tokens.fg,
+        '--sidebar-primary': primaryFill,
         '--sidebar-primary-foreground': tokens.bg,
         '--sidebar-accent': tokens.interactive,
         '--sidebar-accent-foreground': textOnInteractive,

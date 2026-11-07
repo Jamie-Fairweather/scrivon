@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { contrastRatio, hexColorMix } from '@/lib/theme/color-mix'
 
 /** app/globals.css without its comments. */
 const css = readFileSync(path.resolve(__dirname, '../../app/globals.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -16,6 +17,43 @@ function mediaBlock(query: string): string {
         else if (css[i] === '}' && --depth === 0) return css.slice(open + 1, i)
     }
     return ''
+}
+
+/** Tailwind's colour palette (oklch), as `name -> value`. */
+const tailwindTheme = readFileSync(require.resolve('tailwindcss/theme.css'), 'utf8')
+
+/** The value `selector { name: value }` sets at the top level of globals.css, with `var(--color-*)` looked up in Tailwind's palette. */
+function themeColor(selector: string, name: string): string {
+    const start = css.indexOf(`${selector} {`)
+    const block = css.slice(start, css.indexOf('}', start))
+    const value = new RegExp(String.raw`${name}:\s*([^;]+);`).exec(block)?.[1]?.trim() ?? ''
+    const palette = /^var\((--color-[a-z]+-\d+)\)$/.exec(value)?.[1]
+    if (!palette) return value
+    return new RegExp(String.raw`${palette}:\s*([^;]+);`).exec(tailwindTheme)?.[1]?.trim() ?? ''
+}
+
+/** An `oklch(L% C h)` colour as sRGB hex, clipped to the sRGB range like the browser does. */
+function oklchToHex(value: string): string {
+    const [lightness, chroma, hue] = /oklch\(([\d.]+)% ([\d.]+) ([\d.]+)\)/.exec(value)!.slice(1).map(Number) as [number, number, number]
+    const L = lightness / 100
+    const a = chroma * Math.cos((hue * Math.PI) / 180)
+    const b = chroma * Math.sin((hue * Math.PI) / 180)
+    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+    const linear = [
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+    ]
+    const channel = (c: number) => {
+        const clipped = Math.min(1, Math.max(0, c))
+        const srgb = clipped <= 0.0031308 ? 12.92 * clipped : 1.055 * clipped ** (1 / 2.4) - 0.055
+        return Math.round(srgb * 255)
+            .toString(16)
+            .padStart(2, '0')
+    }
+    return `#${linear.map(channel).join('')}`
 }
 
 /** Each selector in `block` with the declarations of its rule, e.g. 'animation: none'. */
@@ -66,6 +104,18 @@ describe('app/globals.css', () => {
             const selectors = [...rules.keys()]
             expect(selectors.length).toBeGreaterThan(0)
             expect(selectors.filter((selector) => selector === '*' || selector.includes('animate-spin'))).toEqual([])
+        })
+    })
+
+    describe('the red fill of Delete and Restore buttons', () => {
+        it('keeps their white text at 4.5:1 in light themes, also at 90% on hover over a dialog', () => {
+            const fill = oklchToHex(themeColor(':root', '--destructive'))
+            expect(contrastRatio('#ffffff', fill)).toBeGreaterThanOrEqual(4.5)
+            expect(contrastRatio('#ffffff', hexColorMix(fill, '#ffffff', 90))).toBeGreaterThanOrEqual(4.5)
+        })
+
+        it('keeps their white text at 4.5:1 in dark themes', () => {
+            expect(contrastRatio('#ffffff', oklchToHex(themeColor('.dark', '--destructive')))).toBeGreaterThanOrEqual(4.5)
         })
     })
 
