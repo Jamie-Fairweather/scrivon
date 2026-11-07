@@ -12,7 +12,7 @@ vi.mock('@/components/theme/app-theme-provider', () => ({
 const shiki = vi.hoisted(() => ({
     /** Themes highlightFencedCodeNow can draw in; any other has to wait for highlightFencedCode. */
     readyThemes: new Set<string>(),
-    pending: [] as { theme: string; resolve: () => void }[],
+    pending: [] as { code: string; theme: string; resolve: () => void }[],
 }))
 
 function shikiHtml(code: string, theme: string): string {
@@ -24,7 +24,7 @@ vi.mock('@/lib/markdown/shiki-highlighter', async (importOriginal) => ({
     highlightFencedCodeNow: (code: string, _language: string | undefined, theme: string) =>
         shiki.readyThemes.has(theme) ? shikiHtml(code, theme) : null,
     highlightFencedCode: (code: string, _language: string | undefined, theme: string) =>
-        new Promise<string>((resolve) => shiki.pending.push({ theme, resolve: () => resolve(shikiHtml(code, theme)) })),
+        new Promise<string>((resolve) => shiki.pending.push({ code, theme, resolve: () => resolve(shikiHtml(code, theme)) })),
 }))
 
 /** What the block shows: its text, whether it's coloured, and in which theme. */
@@ -171,6 +171,73 @@ describe('FencedCodeBlock', () => {
             act(() => vi.advanceTimersByTime(400))
             again.unmount()
             expect([code, `${code}0`].map(isRemembered)).toEqual([false, true])
+        })
+
+        describe('but never one another block still shows (review)', () => {
+            /** Code blocks matched to the components by position, as the preview keys them. */
+            function Blocks({ codes }: { codes: string[] }) {
+                return codes.map((code, index) => <FencedCodeBlock key={index} code={code} language="ts" />)
+            }
+
+            /** Renders the blocks and waits for their colours to be saved. */
+            function renderRemembered(codes: string[]) {
+                const view = render(<Blocks codes={codes} />)
+                act(() => vi.advanceTimersByTime(400))
+                return view
+            }
+
+            it('when the first block is deleted and each one after it takes its neighbour’s code', () => {
+                const [w, x, y] = ['w', 'x', 'y'].map((name) => `const ${name}${uniqueCode} = 1`)
+                const { rerender, unmount } = renderRemembered([w!, x!, y!])
+
+                rerender(<Blocks codes={[x!, y!]} />)
+                act(() => vi.advanceTimersByTime(400))
+                unmount()
+                expect([x!, y!].map(isRemembered)).toEqual([true, true])
+            })
+
+            it('when a block is added above the others, without highlighting them again', async () => {
+                const [a, b, c, added] = ['a', 'b', 'c', 'added'].map((name) => `const ${name}${uniqueCode} = 1`)
+                const { rerender, unmount } = renderRemembered([a!, b!, c!])
+
+                // As for big blocks, whose colours can't be made on the spot.
+                shiki.readyThemes.clear()
+                rerender(<Blocks codes={[added!, a!, b!, c!]} />)
+                await act(async () => {
+                    vi.advanceTimersByTime(400)
+                    for (const call of shiki.pending) call.resolve()
+                })
+                expect(shiki.pending.map((call) => call.code)).toEqual([added])
+
+                unmount()
+                expect([a!, b!, c!, added!].map(isRemembered)).toEqual([true, true, true, true])
+            })
+
+            it('when one of two copies of the same snippet is edited', () => {
+                const snippet = `npm install ${uniqueCode}`
+                const { rerender, unmount } = renderRemembered([snippet, snippet])
+
+                rerender(<Blocks codes={[`${snippet} --save`, snippet]} />)
+                act(() => vi.advanceTimersByTime(400))
+                unmount()
+                expect([snippet, `${snippet} --save`].map(isRemembered)).toEqual([true, true])
+            })
+        })
+
+        it('and keeps the colours of the theme it was shown in before, for switching back', () => {
+            const code = `const h${uniqueCode} = 1`
+            const { rerender, unmount } = render(<FencedCodeBlock code={code} language="ts" />)
+            act(() => vi.advanceTimersByTime(400))
+
+            theme.themeId = 'scrivon-light'
+            theme.isLight = true
+            rerender(<FencedCodeBlock code={code} language="ts" />)
+            act(() => vi.advanceTimersByTime(400))
+            unmount()
+
+            theme.themeId = 'scrivon-dark'
+            theme.isLight = false
+            expect(isRemembered(code)).toBe(true)
         })
     })
 })

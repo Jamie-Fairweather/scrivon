@@ -72,6 +72,23 @@ export function createHighlightCache(maxEntries = MAX_HIGHLIGHT_CACHE_ENTRIES, m
 
 const globalHighlightCache = createHighlightCache()
 
+/**
+ * How many mounted blocks show each cache key. The same snippet can appear twice, and the preview matches blocks to
+ * the document's code blocks by position, so adding or removing one hands the blocks after it their neighbours'
+ * code: a block's old entry may still be another block's current one.
+ */
+const shownKeyCounts = new Map<string, number>()
+
+/** Counts a block as showing `key`; returns the function that stops counting it. */
+function showKey(key: string): () => void {
+    shownKeyCounts.set(key, (shownKeyCounts.get(key) ?? 0) + 1)
+    return () => {
+        const count = (shownKeyCounts.get(key) ?? 0) - 1
+        if (count > 0) shownKeyCounts.set(key, count)
+        else shownKeyCounts.delete(key)
+    }
+}
+
 function highlightCacheKey(theme: BundledTheme, language: string | undefined, code: string): string {
     return `${theme}\0${language ?? ''}\0${code}`
 }
@@ -127,13 +144,17 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
      */
     const nowHighlightRef = useRef<IdleHighlight | null>(null)
     /** The shared cache's entry for the code the block shows, so its earlier versions don't pile up as it's edited. */
-    const cachedKeyRef = useRef<string | null>(null)
+    const claimedRef = useRef<{ key: string; theme: BundledTheme } | null>(null)
     const { themeId, isLight } = useAppTheme()
     const theme = previewCodeTheme(themeId, isLight)
+    const cacheKey = highlightCacheKey(theme, language, code)
     const [idleHighlight, setIdleHighlight] = useState<IdleHighlight | null>(() => {
-        const html = globalHighlightCache.get(highlightCacheKey(theme, language, code))
+        const html = globalHighlightCache.get(cacheKey)
         return html ? { code, language, theme, html } : null
     })
+
+    // A layout effect, so every block in an update is counted before any of them drops an entry below.
+    useLayoutEffect(() => showKey(cacheKey), [cacheKey])
 
     useLayoutEffect(() => {
         const container = containerRef.current
@@ -157,19 +178,21 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
     }, [code, language, theme, idleHighlight])
 
     useEffect(() => {
-        const key = highlightCacheKey(theme, language, code)
-        // The block's entry stays when it goes (its tab may be shown again), and is dropped once it shows other code.
+        // The block's entry stays when it goes (its tab may be shown again) and when only the theme changes (it may
+        // be switched back). It's dropped once the block shows other code, unless another block still shows it.
         const claim = () => {
-            const previous = cachedKeyRef.current
-            if (previous !== null && previous !== key) globalHighlightCache.delete(previous)
-            cachedKeyRef.current = key
+            const previous = claimedRef.current
+            if (previous && previous.key !== cacheKey && previous.theme === theme && !shownKeyCounts.has(previous.key)) {
+                globalHighlightCache.delete(previous.key)
+            }
+            claimedRef.current = { key: cacheKey, theme }
         }
         const remember = (html: string) => {
             claim()
-            globalHighlightCache.set(key, html)
+            globalHighlightCache.set(cacheKey, html)
         }
 
-        if (globalHighlightCache.has(key)) {
+        if (globalHighlightCache.has(cacheKey)) {
             claim()
             return
         }
@@ -200,7 +223,7 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [code, language, theme])
+    }, [cacheKey, code, language, theme])
 
     return <div ref={containerRef} className={cn(WRAPPER_CLASS, className)} />
 }
