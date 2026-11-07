@@ -135,6 +135,30 @@ describe('DocumentSaveProvider', () => {
         expect(result.current.tabs.tabs[0]?.isDirty).toBe(false)
     })
 
+    it('keeps the copy of text typed just before a save finishes, before the screen draws again', async () => {
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        const writes = deferWrites()
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'v1'))
+        let saving!: Promise<boolean>
+        act(() => {
+            saving = result.current.save.flushSave('/ws/a.mmd')
+        })
+        await waitFor(() => expect(writes.pending).toHaveLength(1))
+
+        await act(async () => {
+            result.current.tabs.updateTabContent('/ws/a.mmd', 'v2')
+            writes.pending.shift()!()
+            await saving
+        })
+
+        expect(writes.disk.get('/ws/a.mmd')).toBe('v1')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'v2', isDirty: true })
+        // 'v2' isn't on disk, so its copy (and the timer that writes it) must stay.
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+    })
+
     it('runs saves for one file one after another, so the newest text lands last', async () => {
         const writes = deferWrites()
         const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
@@ -249,6 +273,8 @@ describe('save error notices', () => {
         act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'more text'))
 
         expect(result.current.tabs.tabs[0]?.saveError).toBe('The network path was not found. (os error 53)')
+        // Saving now uses up the autosave the typing started, so it can't land in a later test.
+        await save()
     })
 
     it('saves again from the notice and reports a new failure', async () => {
@@ -370,6 +396,34 @@ describe('copies of unsaved text', () => {
         expect(vi.mocked(settleUnsavedBackups).mock.invocationCallOrder[0]).toBeGreaterThan(
             vi.mocked(deleteUnsavedBackup).mock.invocationCallOrder[0]!
         )
+    })
+
+    it('keeps the copies again when the tabs stay open after all, as when an update fails to install', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+        const { result } = renderHook(useHarness, {
+            wrapper: createWrapper([tab('/ws/a.mmd'), tab('/ws/b.mmd'), tab('/ws/locked.md', { readOnly: true, isDirty: true })], coordinatorOut),
+        })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(3))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+        await act(async () => {
+            await coordinatorOut.current!.confirmCloseTabs.current()
+            await coordinatorOut.current!.releaseAllTabs.current()
+        })
+        vi.mocked(saveUnsavedBackup).mockClear()
+
+        vi.useFakeTimers()
+        try {
+            act(() => coordinatorOut.current!.backUpUnsavedTabs.current())
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(BACKUP_DELAY_MS)
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+
+        // Only the tab with edits: not the one without, nor text the user can't have typed.
+        expect(saveUnsavedBackup).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: '/ws/a.mmd', content: 'draft' }))
     })
 
     it("doesn't rewrite the copies when a tab without edits closes", async () => {

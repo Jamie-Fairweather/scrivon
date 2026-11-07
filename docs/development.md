@@ -15,6 +15,8 @@ bun run tauri dev
 
 The web UI also runs with `bun run dev`, but folder workspaces require the desktop app (`bun run tauri dev`).
 
+Only one copy of Scrivon runs at a time, and a second launch just brings the open window to the front. A dev build counts too: it has the same identifier and uses the same settings, recent folders and kept unsaved edits as the installed app, so quit the installed app before `bun run tauri dev`, or the dev build will only focus it and quit.
+
 `bun run build` (the production web build) also needs Rust installed: afterwards it runs `cargo metadata` to list the Rust crates in the licences dialog.
 
 ## Releasing
@@ -115,7 +117,9 @@ Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.gi
 
 ### Installer identity
 
-The installers find an existing install through these values in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json): `productName`, `mainBinaryName`, `identifier`, `bundle.publisher` and `bundle.windows.wix.upgradeCode`. The `identifier` also names the folder where settings are kept. Don't change them. In 1.4.1 a new identifier silently changed the publisher from `diagram` to `github`, so updates lost track of installs in a custom folder and left the old copy behind. [`src-tauri/windows/installer-hooks.nsh`](../src-tauri/windows/installer-hooks.nsh) cleans that up; if one of these values ever has to change, add the same kind of clean-up there first.
+The installers find an existing install through these values in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json): `productName`, `mainBinaryName`, `identifier`, `bundle.publisher` and `bundle.windows.wix.upgradeCode`. The `identifier` also names the folder where settings are kept, and is the taskbar ID the app gives its windows and the installer puts on its shortcuts. Don't change them. In 1.4.1 a new identifier silently changed the publisher from `diagram` to `github`, so updates lost track of installs in a custom folder and left the old copy behind. [`src-tauri/windows/installer-hooks.nsh`](../src-tauri/windows/installer-hooks.nsh) cleans that up; if one of these values ever has to change, add the same kind of clean-up there first.
+
+The new identifier also left settings, shortcuts and recent folders behind in the old `com.diagram.app` data folders. [`src-tauri/src/legacy_profile.rs`](../src-tauri/src/legacy_profile.rs) copies them across once, before the main window is built. That's why the window entry in `tauri.conf.json` has `"create": false`: WebView2 opens its profile (where localStorage lives) as soon as the window is built, so `setup` builds it after the copy.
 
 That is why **Settings → Apps** and the exe's **Properties → Details** still name the publisher `github`. A real name needs more than a hook: the setup `.exe` reads the install folder, and the folder the old copy's uninstaller runs in, from `HKCU\Software\<publisher>\Scrivon` before any hook runs, so it would need a custom NSIS template (`bundle.windows.nsis.template`) that also checks the old key. The other bundle details (`copyright`, `homepage`, descriptions) are safe to change.
 

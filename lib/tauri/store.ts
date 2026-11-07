@@ -1,8 +1,10 @@
-import { LazyStore } from '@tauri-apps/plugin-store'
+import { invoke } from '@tauri-apps/api/core'
+import { getStore as getAppStore, type Store } from '@tauri-apps/plugin-store'
 import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
-import { normalizePath, samePath } from '@/lib/tauri/fs'
+import { isPathInside, normalizePath, samePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
+import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 
 const STORE_PATH = 'workspace.json'
 const RECENT_KEY = 'recent-workspaces'
@@ -38,10 +40,10 @@ const FILE_MISSING = /\(os error [23]\)/
 
 const STORE_SAVE_FAILED_NOTICE_ID = 'workspace-store-save-failed'
 
-let storeReady: Promise<LazyStore> | null = null
+let storeReady: Promise<Store> | null = null
 let saveFailureShown = false
 
-async function getStore(): Promise<LazyStore | null> {
+async function getStore(): Promise<Store | null> {
     if (!isTauri()) return null
     storeReady ??= openStore().catch((err: unknown) => {
         // Not remembered as broken: the next call tries again.
@@ -56,7 +58,7 @@ async function getStore(): Promise<LazyStore | null> {
  * a locked file, an offline network AppData) is reported once and never stops what the user was doing.
  * The values stay in memory for this session either way.
  */
-async function saveStore(s: LazyStore): Promise<void> {
+async function saveStore(s: Store): Promise<void> {
     try {
         await s.save()
     } catch (err) {
@@ -70,10 +72,19 @@ async function saveStore(s: LazyStore): Promise<void> {
     }
 }
 
-async function openStore(): Promise<LazyStore> {
-    const s = new LazyStore(STORE_PATH)
-    await s.init()
-    // init() ignores a file it can't read or parse and starts empty; reading the file again says why.
+/**
+ * One of the store files the app opens at startup (src-tauri/src/lib.rs). The webview can't open a store
+ * itself, so a script in the window can't write a store file anywhere on disk.
+ */
+async function openAppStore(path: string): Promise<Store> {
+    const s = await getAppStore(path)
+    if (!s) throw new Error(`Scrivon couldn't open ${path}.`)
+    return s
+}
+
+async function openStore(): Promise<Store> {
+    const s = await openAppStore(STORE_PATH)
+    // Opening ignores a file it can't read or parse and starts empty; reading the file again says why.
     let readError: unknown = null
     try {
         await s.reload()
@@ -81,18 +92,35 @@ async function openStore(): Promise<LazyStore> {
         readError = err
     }
     if (readError === null) void keepStoreBackup(s)
-    else if (!FILE_MISSING.test(errorMessage(readError, ''))) await recoverStore(s, readError)
+    else if (!FILE_MISSING.test(errorMessage(readError, ''))) await recoverStore(s, readError, null)
+    else {
+        // Missing because the app shell moved a damaged file aside, or simply not there yet (a first launch).
+        const keptAs = await takeDamagedStoreName()
+        if (keptAs) await recoverStore(s, readError, keptAs)
+    }
     return s
 }
 
-async function openBackupStore(): Promise<LazyStore> {
-    // Written by hand, once per launch.
-    const backup = new LazyStore(BACKUP_STORE_PATH, { defaults: {}, autoSave: false })
-    await backup.init()
-    return backup
+/**
+ * The name the app shell gave a workspace.json it couldn't read, which it moved aside at startup so nothing
+ * saves over it (src-tauri/src/store_recovery.rs). Handed out once per launch; null when nothing was moved.
+ */
+async function takeDamagedStoreName(): Promise<string | null> {
+    try {
+        const name = await invoke<unknown>('take_store_recovery')
+        return typeof name === 'string' && name ? name : null
+    } catch (err) {
+        console.warn("Couldn't check whether workspace.json was damaged", err)
+        return null
+    }
 }
 
-async function keepStoreBackup(s: LazyStore): Promise<void> {
+async function openBackupStore(): Promise<Store> {
+    // Written by hand, once per launch.
+    return openAppStore(BACKUP_STORE_PATH)
+}
+
+async function keepStoreBackup(s: Store): Promise<void> {
     try {
         const snapshot = Object.fromEntries(await s.entries())
         const backup = await openBackupStore()
@@ -109,8 +137,11 @@ async function readStoreBackup(): Promise<Record<string, unknown> | null> {
     return Object.keys(snapshot).length > 0 ? (snapshot as Record<string, unknown>) : null
 }
 
-/** workspace.json is there but couldn't be read: it is filled from the copy, before anything can save over it. */
-async function recoverStore(s: LazyStore, readError: unknown): Promise<void> {
+/**
+ * workspace.json couldn't be read: it is filled from the copy, before anything can save over it. `keptAs`
+ * names the damaged file when the app shell kept it aside.
+ */
+async function recoverStore(s: Store, readError: unknown, keptAs: string | null): Promise<void> {
     console.warn("Couldn't read workspace.json", readError)
     // Still held from earlier in this run (the window was reloaded): that is newer than the copy.
     if ((await s.length()) > 0) return
@@ -126,15 +157,16 @@ async function recoverStore(s: LazyStore, readError: unknown): Promise<void> {
         console.warn("Couldn't restore workspace.json from its copy", err)
     }
     const what = "Scrivon couldn't read the file that keeps your recent folders and open tabs"
+    const kept = keptAs ? ` The damaged file was kept as ${keptAs} in Scrivon's data folder.` : ''
     if (restored) {
         notifyWarning('Recent folders restored', {
             id: STORE_DAMAGED_NOTICE_ID,
-            description: `${what}, so it brought back the copy from when Scrivon last started. Your documents aren't affected.`,
+            description: `${what}, so it brought back the copy from when Scrivon last started.${kept} Your documents aren't affected.`,
         })
     } else {
         notifyWarning('Recent folders were reset', {
             id: STORE_DAMAGED_NOTICE_ID,
-            description: `${what}, so those lists start empty. Your documents aren't affected.`,
+            description: `${what}, so those lists start empty.${kept} Your documents aren't affected.`,
         })
     }
 }
@@ -155,6 +187,18 @@ function toPathList(value: unknown): string[] {
     return paths
 }
 
+/**
+ * Empties workspace.json: the recent folders, and each folder's open tabs, opened folders and recent files.
+ * The crash screens offer it for when something kept there makes Scrivon fail on every start. Documents and
+ * the copies of unsaved edits (lib/tauri/backups.ts) are kept. Errors reach the caller.
+ */
+export async function clearWorkspaceStore(): Promise<void> {
+    const s = await getStore()
+    if (!s) return
+    await s.clear()
+    await s.save()
+}
+
 export async function getRecentWorkspaces(): Promise<string[]> {
     const s = await getStore()
     if (!s) return []
@@ -165,7 +209,7 @@ export async function getRecentWorkspaces(): Promise<string[]> {
  * Forgets what was kept for a folder that left the recent folders: its open tabs, last file and recent
  * files, which name the user's files. Keys written with other separators or letter case go too.
  */
-async function forgetWorkspace(s: LazyStore, root: string): Promise<void> {
+async function forgetWorkspace(s: Store, root: string): Promise<void> {
     const prefixes = [OPEN_TABS_PREFIX, OPEN_FOLDERS_PREFIX, LAST_FILE_PREFIX, RECENT_FILES_PREFIX]
     for (const key of await s.keys()) {
         const prefix = prefixes.find((p) => key.startsWith(p))
@@ -280,6 +324,37 @@ export async function addRecentFile(workspaceRoot: string, filePath: string): Pr
     const path = normalizePath(filePath)
     const current = await getRecentFiles(workspaceRoot)
     const next = [path, ...current.filter((p) => !samePath(p, path))].slice(0, MAX_RECENT_FILES)
+    await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
+    await saveStore(s)
+    return next
+}
+
+/** Moves a renamed file in the folder's recent files to its new path, or every file inside a renamed folder. */
+export async function renameRecentFiles(workspaceRoot: string, oldPath: string, newPath: string): Promise<string[]> {
+    const s = await getStore()
+    if (!s) return []
+
+    const current = await getRecentFiles(workspaceRoot)
+    const next = toPathList(current.map((p) => remapPathAfterRename(p, oldPath, newPath)))
+    return replaceRecentFiles(s, workspaceRoot, current, next)
+}
+
+/**
+ * Drops a deleted or missing file from the folder's recent files, or every file inside a deleted folder, so
+ * dead entries don't take up the list and a new file made later at the same path doesn't show up in it.
+ */
+export async function removeRecentFiles(workspaceRoot: string, deletedPath: string): Promise<string[]> {
+    const s = await getStore()
+    if (!s) return []
+
+    const current = await getRecentFiles(workspaceRoot)
+    const next = current.filter((p) => !samePath(p, deletedPath) && !isPathInside(p, deletedPath))
+    return replaceRecentFiles(s, workspaceRoot, current, next)
+}
+
+/** Writes a folder's recent files, but only when they changed. */
+async function replaceRecentFiles(s: Store, workspaceRoot: string, current: string[], next: string[]): Promise<string[]> {
+    if (next.length === current.length && next.every((p, i) => p === current[i])) return current
     await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
     await saveStore(s)
     return next

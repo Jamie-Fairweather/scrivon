@@ -18,11 +18,14 @@ import {
     joinPath,
     listFolderNames,
     listWorkspaceTree,
+    MAX_TREE_ENTRIES,
     normalizePath,
     readWorkspaceTextFile,
     removeWorkspacePath,
     renameWorkspacePath,
     samePath,
+    watchWorkspace,
+    type WorkspaceChange,
 } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
@@ -33,13 +36,26 @@ import {
     getFolderToggles,
     getRecentWorkspaces,
     getWorkspaceTabSession,
+    removeRecentFiles,
     removeRecentWorkspace,
+    renameRecentFiles,
     setFolderToggles,
 } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
-import { childrenOf, collectUnreadableFolders, entryNameError, keepUnchangedNodes, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
+import {
+    canReplaceChildren,
+    changeAltersTree,
+    childrenOf,
+    collectUnreadableFolders,
+    entryNameError,
+    isTreeTruncated,
+    keepUnchangedNodes,
+    replaceChildren,
+    uniqueFileName,
+    uniqueNewName,
+} from '@/lib/workspace/paths'
 import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -86,10 +102,13 @@ const WorkspaceSessionContext = createContext<WorkspaceSessionContextValue | nul
 
 const RECOVERED_CHANGES_NOTICE_ID = 'recovered-changes'
 const OPENING_NOTICE_ID = 'opening-folder'
+const TRUNCATED_NOTICE_ID = 'folder-too-big'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
-/** The least time between two reads of the folder when the window gets focus. */
+/** The least time between two reads of the folder when the window gets focus or another app changes it. */
 const FOCUS_RELOAD_GAP_MS = 5_000
+/** Past this many changed paths waiting to be looked at, the folder is simply read again. */
+const MAX_SEEN_CHANGES = 1_000
 
 /** The copies of unsaved text kept from earlier; none when they can't be read (they are only a safety net). */
 async function listBackupsSafely(): Promise<UnsavedBackup[]> {
@@ -129,6 +148,22 @@ function warnAboutUnreadableFolders(tree: FileNode[]) {
               ? "Scrivon may not have permission to open them, or they link to folders outside the one you opened, which it can't open yet."
               : 'Scrivon may not have permission to open them.'
     notifyWarning(`Couldn't read ${folders.length} folders`, { description: `${names}${more} show as empty. ${why}` })
+}
+
+/**
+ * Says, until it is closed, when the folder has too many files and folders to list them all (a whole drive,
+ * say), so the folders left unread showing as empty don't look like a mistake; or takes that back.
+ */
+function warnIfTruncated(tree: FileNode[], name: string) {
+    if (!isTreeTruncated(tree)) {
+        dismissNotification(TRUNCATED_NOTICE_ID)
+        return
+    }
+    notifyWarning(`${name} has too many files to show them all`, {
+        id: TRUNCATED_NOTICE_ID,
+        description: `Scrivon stopped after ${MAX_TREE_ENTRIES.toLocaleString()} files and folders, so some folders show as empty. Open a folder inside it to see everything there.`,
+        timeout: 0,
+    })
 }
 
 export function useWorkspaceSession(): WorkspaceSessionContextValue {
@@ -219,50 +254,181 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
     }, [isDesktop])
 
-    /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
-    // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown.
+    // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown, and
+    // an older one still running stops reading.
     const treeRead = useRef(0)
+    const treeReadAbort = useRef<AbortController | null>(null)
+    // What the read started last is reading until it is over: the whole tree ('all') or some folders. A read
+    // that stops it must read that too, or what it would have shown (another app's changes) is lost.
+    const treeReading = useRef<'all' | readonly string[] | null>(null)
 
-    const refreshTree = useCallback(async () => {
-        if (!workspaceRoot) return
-        const read = ++treeRead.current
-        try {
-            const next = await listWorkspaceTree(workspaceRoot)
-            // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
-            if (read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
-        } catch (err) {
-            notifyError("Couldn't refresh the file list", err)
-        }
-    }, [workspaceRoot])
+    /**
+     * Starts a new read of the tree, of `reading` (or, with null, for a folder switch, just stops the ones
+     * running): its number and its signal.
+     */
+    const startTreeRead = useCallback((reading: 'all' | readonly string[] | null) => {
+        treeReadAbort.current?.abort()
+        const controller = new AbortController()
+        treeReadAbort.current = controller
+        treeReading.current = reading
+        return { read: ++treeRead.current, signal: controller.signal }
+    }, [])
 
-    // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up when the user comes
-    // back to the window. A failed read is left quiet here; the next action that changes the disk reports it.
+    /** Read `read` is over, whether it was read, failed or stopped. */
+    const endTreeRead = useCallback((read: number) => {
+        if (read === treeRead.current) treeReading.current = null
+    }, [])
+
+    // Whether the tree shown was cut short, having too many entries to list them all. Such a folder isn't
+    // watched (see below).
+    const [treeTruncated, setTreeTruncated] = useState(false)
+    const treeTruncatedRef = useRef(false)
+
+    /**
+     * Notes whether a new read of the whole of `root` was cut short, and says so (warnIfTruncated): after a
+     * read the user asked for (`announce`), and otherwise only when that changed, so a notice the user closed
+     * doesn't come back with every focus while one that is new (the folder grew) still shows.
+     */
+    const noteTruncation = useCallback((root: string, next: FileNode[], announce: boolean) => {
+        const truncated = isTreeTruncated(next)
+        if (announce || truncated !== treeTruncatedRef.current) warnIfTruncated(next, getBaseName(root) || root)
+        treeTruncatedRef.current = truncated
+        setTreeTruncated(truncated)
+    }, [])
+
+    /**
+     * Re-reads the folder; `announce` when the user asked for it. A failure is reported rather than thrown, so
+     * the action that changed the disk still finishes.
+     */
+    const readWholeTree = useCallback(
+        async (announce: boolean) => {
+            if (!workspaceRoot) return
+            const root = workspaceRoot
+            const { read, signal } = startTreeRead('all')
+            try {
+                const next = await listWorkspaceTree(root, { signal })
+                if (read !== treeRead.current) return
+                noteTruncation(root, next, announce)
+                // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
+                setTree((prev) => keepUnchangedNodes(prev, next))
+            } catch (err) {
+                // A newer read took over, and shows the change.
+                if (!signal.aborted) notifyError("Couldn't refresh the file list", err)
+            } finally {
+                endTreeRead(read)
+            }
+        },
+        [workspaceRoot, startTreeRead, endTreeRead, noteTruncation]
+    )
+
+    const refreshTree = useCallback(() => readWholeTree(false), [readWholeTree])
+
+    // The tree shown now, for telling whether a change seen by the watcher alters it.
+    const treeRef = useRef(tree)
+    useEffect(() => {
+        treeRef.current = tree
+    }, [tree])
+
+    /**
+     * Re-reads only `folderPath` (and the folders in it) after an action that changed just what is in it, such
+     * as creating, renaming or deleting an entry there. In a big folder reading everything again would take a
+     * while. The whole tree is read instead when that folder isn't in it as one that was read, or can't be read.
+     */
+    const refreshFolder = useCallback(
+        async (folderPath: string) => {
+            if (!workspaceRoot) return
+            const root = workspaceRoot
+            const folder = normalizePath(folderPath)
+            // A read still running (a window focus, say) may have listed the folder before the change, so it
+            // stops: it can't put the old entries back over these. What it was reading is read here instead: the
+            // whole tree again, as it may hold changes made in other apps, or the folders other actions changed.
+            const running = treeReading.current
+            // The root's entries are the whole tree anyway.
+            if (running === 'all' || samePath(folder, root) || !canReplaceChildren(treeRef.current, root, folder)) {
+                await refreshTree()
+                return
+            }
+            const folders = [...(running ?? []).filter((other) => !samePath(other, folder)), folder]
+            const { read, signal } = startTreeRead(folders)
+            let lists: FileNode[][]
+            try {
+                lists = await Promise.all(folders.map((path) => listWorkspaceTree(path, { signal })))
+            } catch {
+                endTreeRead(read)
+                if (!signal.aborted) await refreshTree()
+                return
+            }
+            endTreeRead(read)
+            if (read !== treeRead.current) return
+            // A folder no longer in the tree (deleted meanwhile) is left out.
+            setTree((prev) => folders.reduce((tree, path, i) => replaceChildren(tree, root, path, lists[i]!) ?? tree, prev))
+        },
+        [workspaceRoot, refreshTree, startTreeRead, endTreeRead]
+    )
+
+    // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up, and open files
+    // without edits that they changed show the new text: as the watcher sees the change, and again when the
+    // user comes back to the window (some drives can't be watched). A failed read is left quiet here; the next
+    // action that changes the disk reports it.
     useEffect(() => {
         if (!isDesktop || !workspaceRoot) return
         const root = workspaceRoot
         let disposed = false
         let unlisten: (() => void) | undefined
+        let unwatch: (() => void) | undefined
         let reloading = false
+        let again = false
         let lastReloadEnd = 0
         let planned: ReturnType<typeof setTimeout> | undefined
-        const reload = async () => {
-            if (reloading) return
-            reloading = true
-            const read = ++treeRead.current
+        // What the next reload reads: the whole tree after a focus, otherwise only if what the watcher saw alters it.
+        let treeWanted = false
+        let seen: { added: string[]; removed: string[] } = { added: [], removed: [] }
+        const readTree = async () => {
+            const { read, signal } = startTreeRead('all')
             try {
-                const next = await listWorkspaceTree(root)
+                const next = await listWorkspaceTree(root, { signal })
+                if (disposed || read !== treeRead.current) return
+                noteTruncation(root, next, false)
                 // Nothing changed, nothing redraws: the tree shown now is kept as it is.
-                if (!disposed && read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
+                setTree((prev) => keepUnchangedNodes(prev, next))
             } catch {
                 // See above.
+            } finally {
+                endTreeRead(read)
+            }
+        }
+        const reloadTabs = async () => {
+            try {
+                if (!disposed) await coordinator.reloadChangedTabs.current()
+            } catch (err) {
+                console.warn("Couldn't check the open files for changes", err)
+            }
+        }
+        const reload = async () => {
+            reloading = true
+            const withTree = treeWanted || changeAltersTree(treeRef.current, root, seen)
+            treeWanted = false
+            seen = { added: [], removed: [] }
+            try {
+                await Promise.all([withTree ? readTree() : undefined, reloadTabs()])
             } finally {
                 reloading = false
                 lastReloadEnd = Date.now()
             }
+            // Something changed while that ran: it is read too, once the gap is over.
+            if (again && !disposed) {
+                again = false
+                request()
+            }
         }
-        // Alt-tabbing back and forth, or each native dialog closing, mustn't read a big folder again every time: at
-        // most once every few seconds. A focus inside that gap is read once the gap is over, so a change still shows.
-        const onFocus = () => {
+        // Alt-tabbing back and forth, each native dialog closing, or a sync tool busy in the folder mustn't read a
+        // big folder again every time: at most once every few seconds. A focus or change inside that gap is read
+        // once the gap is over, so it still shows.
+        const request = () => {
+            if (reloading) {
+                again = true
+                return
+            }
             if (planned !== undefined) return
             const wait = lastReloadEnd + FOCUS_RELOAD_GAP_MS - Date.now()
             if (wait <= 0) {
@@ -273,6 +439,30 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 planned = undefined
                 if (!disposed) void reload()
             }, wait)
+        }
+        const onFocus = () => {
+            treeWanted = true
+            request()
+        }
+        const onDiskChange = (change: WorkspaceChange) => {
+            // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
+            if (!treeWanted) {
+                seen.added.push(...change.added)
+                seen.removed.push(...change.removed)
+                if (seen.added.length + seen.removed.length > MAX_SEEN_CHANGES) treeWanted = true
+            }
+            request()
+        }
+        // Where the folder can't be watched (some network drives), coming back to the window still reads it. So
+        // does a folder too big to show it all (a whole drive): something in it changes all the time, and
+        // reading it again for each change would keep the app busy for nothing shown.
+        if (!treeTruncated) {
+            void watchWorkspace(root, onDiskChange)
+                .then((fn) => {
+                    if (disposed) fn()
+                    else unwatch = fn
+                })
+                .catch((err: unknown) => console.warn(`Can't watch ${root} for changes`, err))
         }
         try {
             void getCurrentWindow()
@@ -292,8 +482,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             disposed = true
             clearTimeout(planned)
             unlisten?.()
+            unwatch?.()
         }
-    }, [isDesktop, workspaceRoot])
+    }, [isDesktop, workspaceRoot, treeTruncated, coordinator, startTreeRead, endTreeRead, noteTruncation])
 
     const removeRecent = useCallback(async (path: string) => {
         try {
@@ -424,7 +615,16 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     // Every open or close of a folder gets the next number. An open that a newer one has replaced (the user
     // clicked another folder while a big one was still being read) stops where it is and changes nothing.
     const workspaceRequest = useRef(0)
+    const workspaceReadAbort = useRef<AbortController | null>(null)
     const [openingWorkspace, setOpeningWorkspace] = useState<string | null>(null)
+
+    /** Starts a new open or close of a folder; a folder an older one is still reading stops being read. */
+    const startWorkspaceRequest = useCallback(() => {
+        workspaceReadAbort.current?.abort()
+        const controller = new AbortController()
+        workspaceReadAbort.current = controller
+        return { request: ++workspaceRequest.current, signal: controller.signal }
+    }, [])
 
     const openWorkspace = useCallback(
         async (requestedPath: string) => {
@@ -435,17 +635,18 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (openRoot && samePath(path, openRoot)) {
                 // The folder that is already open (it tops Open Recent): its tabs, unsaved edits and undo history
                 // stay as they are. A folder still being opened is dropped, so the one clicked last wins.
-                workspaceRequest.current += 1
+                startWorkspaceRequest()
                 setOpeningWorkspace(null)
                 dismissNotification(OPENING_NOTICE_ID)
                 // Saved under the open folder's own spelling, which its saved tabs are kept under.
                 void addRecentWorkspace(openRoot, maxRecentFolders)
                     .then(setRecentWorkspaces)
                     .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
-                await refreshTree()
+                // Says again if the folder has too many files to show them all, as a first open does.
+                await readWholeTree(true)
                 return
             }
-            const request = ++workspaceRequest.current
+            const { request, signal } = startWorkspaceRequest()
             const isCurrent = () => request === workspaceRequest.current
             const name = getBaseName(path) || path
             setOpeningWorkspace(path)
@@ -458,7 +659,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 let nextTree: FileNode[]
                 try {
                     await allowWorkspacePath(path)
-                    nextTree = await listWorkspaceTree(path)
+                    // Stops reading as soon as another folder is picked (or this one closed), however big it is.
+                    nextTree = await listWorkspaceTree(path, { signal })
                     if (!isCurrent()) return
                     // Leaving the open folder closes its tabs, so unsaved or unsavable edits are dealt with first. That
                     // happens only now, right before switching, so nothing typed while the new folder was read is lost.
@@ -481,10 +683,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 const leaving = workspaceRootRef.current ? coordinator.persistWorkspaceTabSession.current() : null
                 workspaceRootRef.current = path
                 setWorkspaceRoot(path)
-                treeRead.current += 1
+                startTreeRead(null)
                 setTree(nextTree)
                 coordinator.clearTabs.current()
                 warnAboutUnreadableFolders(nextTree)
+                noteTruncation(path, nextTree, true)
                 void leaving?.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
                 // The new folder's tree opens folders as it had them last time.
                 updateFolderToggles(null, () => new Map())
@@ -522,9 +725,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             removeRecent,
             restoreTabSession,
             offerKeptChanges,
-            refreshTree,
+            readWholeTree,
             updateFolderToggles,
             coordinator,
+            startWorkspaceRequest,
+            startTreeRead,
+            noteTruncation,
         ]
     )
 
@@ -546,10 +752,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     const closeWorkspace = useCallback(async () => {
         if (!(await coordinator.confirmCloseTabs.current())) return
         // Closing is the newest request: a folder still being opened, or a file list still being read, is dropped.
-        workspaceRequest.current += 1
-        treeRead.current += 1
+        startWorkspaceRequest()
+        startTreeRead(null)
         setOpeningWorkspace(null)
         dismissNotification(OPENING_NOTICE_ID)
+        dismissNotification(TRUNCATED_NOTICE_ID)
+        treeTruncatedRef.current = false
+        setTreeTruncated(false)
         const leaving = coordinator.persistWorkspaceTabSession.current()
         workspaceRootRef.current = null
         setWorkspaceRoot(null)
@@ -563,7 +772,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err)),
             settleUnsavedBackups(),
         ])
-    }, [coordinator, updateFolderToggles])
+    }, [coordinator, updateFolderToggles, startWorkspaceRequest, startTreeRead])
 
     const suggestName = useCallback(
         (parentPath: string, name: string) =>
@@ -596,13 +805,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await createWorkspaceFile(path, resolvedContent)
             } catch (err) {
                 notifyError(failed, err)
-                await refreshTree()
+                await refreshFolder(parentPath)
                 return
             }
-            // The new file opens straight away; in a big folder, reading the file list again takes a while.
-            await Promise.all([refreshTree(), coordinator.openFile.current(path)])
+            // The new file opens straight away; reading even its folder again can take a while.
+            await Promise.all([refreshFolder(parentPath), coordinator.openFile.current(path)])
         },
-        [getNameError, refreshTree, coordinator]
+        [getNameError, refreshFolder, coordinator]
     )
 
     /** A folder the file list leaves out (a tool or build folder) seems to vanish once made, so the user is told why. */
@@ -628,13 +837,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await createWorkspaceDirectory(path)
             } catch (err) {
                 notifyError(failed, err)
-                await refreshTree()
+                await refreshFolder(parentPath)
                 return
             }
             explainIfHidden(parentPath, name)
-            await refreshTree()
+            await refreshFolder(parentPath)
         },
-        [getNameError, refreshTree, explainIfHidden]
+        [getNameError, refreshFolder, explainIfHidden]
     )
 
     const renameEntry = useCallback(
@@ -658,6 +867,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 // The tabs follow straight away; reading the file list again can take a while.
                 coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
                 whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
+                // Recent files follow too (best-effort: a store failure never fails the rename).
+                const root = workspaceRootRef.current
+                if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
                 if (isDirectory) {
                     // The folder and the ones inside it stay open or closed as they were.
                     updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
@@ -668,9 +880,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             } finally {
                 release(whereNow)
             }
-            await refreshTree()
+            // A rename keeps the entry in its folder, so only that folder changed.
+            await refreshFolder(parent)
         },
-        [getNameError, refreshTree, explainIfHidden, updateFolderToggles, coordinator]
+        [getNameError, refreshFolder, explainIfHidden, updateFolderToggles, coordinator]
     )
 
     const deleteEntry = useCallback(
@@ -689,6 +902,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await removeWorkspacePath(path, { recursive: isDirectory })
                 coordinator.closeTabsForDelete.current(path, isDirectory)
                 whereNow = () => null
+                const root = workspaceRootRef.current
+                if (root) void removeRecentFiles(root, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
                 // A new folder made later with the same name starts as any other.
                 if (isDirectory) updateFolderToggles(workspaceRootRef.current, (prev) => dropPathKeysAfterDelete(prev, path))
             } catch (err) {
@@ -697,9 +912,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             } finally {
                 release(whereNow)
             }
-            await refreshTree()
+            await refreshFolder(getParentPath(path))
         },
-        [refreshTree, updateFolderToggles, coordinator]
+        [refreshFolder, updateFolderToggles, coordinator]
     )
 
     const openFile = useCallback((path: string) => coordinator.openFile.current(path), [coordinator])
@@ -718,13 +933,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await duplicateWorkspaceFile(path, destPath, coordinator.getUnsavedContent.current(path))
             } catch (err) {
                 notifyError(`Couldn't duplicate ${baseName}`, err)
-                await refreshTree()
+                await refreshFolder(parent)
                 return
             }
             // A copy of a file Scrivon doesn't open (an image, say) just shows up in the list.
-            await Promise.all([refreshTree(), isSupportedDocument(destPath) ? coordinator.openFile.current(destPath) : null])
+            await Promise.all([refreshFolder(parent), isSupportedDocument(destPath) ? coordinator.openFile.current(destPath) : null])
         },
-        [refreshTree, coordinator]
+        [refreshFolder, coordinator]
     )
 
     const value = useMemo(

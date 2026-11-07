@@ -10,6 +10,8 @@ export type FileNode =
           unreadable?: true
           /** It is a link to a folder outside the opened one, which Scrivon can't open yet (also `unreadable`). */
           linksOutside?: true
+          /** Not read: the opened folder has too many files and folders to list them all, so `children` is empty. */
+          truncated?: true
       }
     | {
           kind: 'file'

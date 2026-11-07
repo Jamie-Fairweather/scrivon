@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+    canReplaceChildren,
+    changeAltersTree,
     childrenOf,
     collectFileNames,
     collectFilePaths,
@@ -8,8 +10,10 @@ import {
     findNameClash,
     findNodeByPath,
     folderLabels,
+    isTreeTruncated,
     keepUnchangedNodes,
     nameTakenMessage,
+    replaceChildren,
     shortenPath,
     uniqueFileName,
     uniqueNewName,
@@ -193,6 +197,96 @@ describe('keepUnchangedNodes', () => {
         const locked = copy(sampleTree)
         locked[0] = { kind: 'directory', name: 'docs', path: '/ws/docs', children: [], unreadable: true }
         expect(keepUnchangedNodes(sampleTree, locked)[0]).toEqual(locked[0])
+    })
+
+    it('notices a folder that was left unread, or is read in full again', () => {
+        const empty: FileNode[] = [{ kind: 'directory', name: 'docs', path: '/ws/docs', children: [] }]
+        const cut: FileNode[] = [{ kind: 'directory', name: 'docs', path: '/ws/docs', children: [], truncated: true }]
+        expect(keepUnchangedNodes(empty, cut)[0]).toBe(cut[0])
+        expect(keepUnchangedNodes(cut, empty)[0]).toBe(empty[0])
+    })
+})
+
+describe('isTreeTruncated', () => {
+    it('finds a folder left unread at any depth', () => {
+        const cut = { kind: 'directory' as const, name: 'deep', path: '/ws/docs/deep', children: [], truncated: true as const }
+        expect(isTreeTruncated([{ kind: 'directory', name: 'docs', path: '/ws/docs', children: [cut] }, ...sampleTree])).toBe(true)
+        expect(isTreeTruncated(sampleTree)).toBe(false)
+    })
+})
+
+describe('changeAltersTree', () => {
+    const none: string[] = []
+
+    it('reads the folder again for a new entry in a folder the tree lists, or a listed entry that went', () => {
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/new.md'], removed: none })).toBe(true)
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/docs/new.md'], removed: none })).toBe(true)
+        expect(changeAltersTree(sampleTree, '/ws', { added: none, removed: ['/ws/docs/readme.md'] })).toBe(true)
+    })
+
+    it("doesn't for a file saved where it already was, or for paths the tree doesn't show", () => {
+        // A save replaces the file: it 'appears' where it already was.
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/root.mmd'], removed: none })).toBe(false)
+        // Inside a folder the tree leaves out (build output next to its project file, say).
+        expect(changeAltersTree(sampleTree, '/ws', { added: ['/ws/dist/app.js'], removed: ['/ws/dist/old.js'] })).toBe(false)
+        expect(changeAltersTree(sampleTree, '/ws', { added: none, removed: none })).toBe(false)
+    })
+
+    it('ignores letter case in Windows paths, and changes inside a folder that could not be read', () => {
+        const tree: FileNode[] = [
+            { kind: 'file', name: 'Notes.md', path: 'C:\\ws\\Notes.md' },
+            { kind: 'directory', name: 'locked', path: 'C:\\ws\\locked', children: [], unreadable: true },
+        ]
+        expect(changeAltersTree(tree, 'C:\\ws', { added: ['c:\\WS\\notes.md'], removed: none })).toBe(false)
+        expect(changeAltersTree(tree, 'C:\\ws', { added: ['C:\\ws\\locked\\a.md'], removed: none })).toBe(false)
+        expect(changeAltersTree(tree, 'C:\\ws', { added: none, removed: ['c:\\ws\\NOTES.md'] })).toBe(true)
+    })
+})
+
+describe('replaceChildren', () => {
+    const tree: FileNode[] = [
+        {
+            kind: 'directory',
+            name: 'docs',
+            path: '/ws/docs',
+            children: [
+                { kind: 'directory', name: 'deep', path: '/ws/docs/deep', children: [{ kind: 'file', name: 'x.md', path: '/ws/docs/deep/x.md' }] },
+                { kind: 'file', name: 'readme.md', path: '/ws/docs/readme.md' },
+            ],
+        },
+        { kind: 'directory', name: 'other', path: '/ws/other', children: [] },
+        { kind: 'directory', name: 'locked', path: '/ws/locked', children: [], unreadable: true },
+        { kind: 'directory', name: 'cut', path: '/ws/cut', children: [], truncated: true },
+    ]
+    const docs = tree[0] as Extract<FileNode, { kind: 'directory' }>
+
+    it('puts a nested folder read again into the tree, and keeps everything else as it was', () => {
+        const children: FileNode[] = [
+            { kind: 'file', name: 'new.md', path: '/ws/docs/deep/new.md' },
+            { kind: 'file', name: 'x.md', path: '/ws/docs/deep/x.md' },
+        ]
+
+        const next = replaceChildren(tree, '/ws', '/ws/docs/deep', children)!
+
+        const nextDocs = next[0] as Extract<FileNode, { kind: 'directory' }>
+        expect((nextDocs.children[0] as Extract<FileNode, { kind: 'directory' }>).children.map((n) => n.name)).toEqual(['new.md', 'x.md'])
+        expect(nextDocs.children[1]).toBe(docs.children[1])
+        expect(next[1]).toBe(tree[1])
+        expect(next.slice(2)).toEqual(tree.slice(2))
+    })
+
+    it('gives back the same tree when the folder read again is unchanged', () => {
+        expect(replaceChildren(tree, '/ws', '/ws/docs', structuredClone(docs.children))).toBe(tree)
+    })
+
+    it('replaces the whole list for the root, and refuses a folder it has no read entries for', () => {
+        const root: FileNode[] = [{ kind: 'file', name: 'only.md', path: '/ws/only.md' }]
+        expect(replaceChildren(tree, '/ws/', '/ws', root)).toEqual(root)
+        for (const folder of ['/ws/missing', '/ws/locked', '/ws/cut', '/ws/docs/readme.md']) {
+            expect(canReplaceChildren(tree, '/ws', folder)).toBe(false)
+            expect(replaceChildren(tree, '/ws', folder, [])).toBeNull()
+        }
+        expect(canReplaceChildren(tree, '/ws', '/ws/other')).toBe(true)
     })
 })
 

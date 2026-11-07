@@ -17,6 +17,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     exists: vi.fn(async () => false),
     stat: vi.fn(async () => ({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null })),
     lstat: vi.fn(async () => ({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null })),
+    watchImmediate: vi.fn(async () => () => undefined),
 }))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -25,36 +26,51 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
     message: vi.fn(async () => undefined),
 }))
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(async () => undefined),
-    isTauri: vi.fn(() => false),
-}))
+vi.mock('@tauri-apps/api/core', async () => {
+    const fs = await import('@tauri-apps/plugin-fs')
+    return {
+        // The app's save command (src-tauri/src/atomic_write.rs, sent by writeWorkspaceFile in lib/tauri/fs.ts)
+        // writes through the plugin-fs mock here, so a test sees every save as a writeFile of the file itself.
+        invoke: vi.fn(async (command: string, args?: unknown) => {
+            if (command !== 'save_workspace_file' || !ArrayBuffer.isView(args)) return undefined
+            const body = new Uint8Array(args.buffer, args.byteOffset, args.byteLength)
+            const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)
+            await fs.writeFile(new TextDecoder().decode(body.subarray(4, 4 + length)), body.slice(4 + length))
+            return undefined
+        }),
+        isTauri: vi.fn(() => false),
+        // A command's messages back to the page; a test calls onmessage itself to play the command's part.
+        Channel: class Channel<T> {
+            readonly id = 0
+            onmessage: (message: T) => void = () => {}
+        },
+    }
+})
 
-// An empty store with every public LazyStore method (the `implements` makes tsc flag any that are missing),
-// so the real lib/tauri/store.ts also works in a test that un-mocks it, whichever methods it calls.
-type LazyStoreApi = Pick<import('@tauri-apps/plugin-store').LazyStore, keyof import('@tauri-apps/plugin-store').LazyStore>
-vi.mock('@tauri-apps/plugin-store', () => ({
-    LazyStore: vi.fn(
-        class implements LazyStoreApi {
-            init = vi.fn(async () => undefined)
-            set = vi.fn(async () => undefined)
-            get = vi.fn(async () => undefined)
-            has = vi.fn(async () => false)
-            delete = vi.fn(async () => false)
-            clear = vi.fn(async () => undefined)
-            reset = vi.fn(async () => undefined)
-            keys = vi.fn(async () => [])
-            values = vi.fn(async () => [])
-            entries = vi.fn(async () => [])
-            length = vi.fn(async () => 0)
-            reload = vi.fn(async () => undefined)
-            save = vi.fn(async () => undefined)
-            onKeyChange = vi.fn(async () => () => undefined)
-            onChange = vi.fn(async () => () => undefined)
-            close = vi.fn(async () => undefined)
-        }
-    ),
-}))
+// getStore hands out an empty store with every public Store member (the `implements` makes tsc flag any that
+// are missing), so the real lib/tauri/store.ts also works in a test that un-mocks it, whichever methods it calls.
+type StoreApi = Pick<import('@tauri-apps/plugin-store').Store, keyof import('@tauri-apps/plugin-store').Store>
+vi.mock('@tauri-apps/plugin-store', () => {
+    class EmptyStore implements StoreApi {
+        readonly rid = 0
+        set = vi.fn(async () => undefined)
+        get = vi.fn(async () => undefined)
+        has = vi.fn(async () => false)
+        delete = vi.fn(async () => false)
+        clear = vi.fn(async () => undefined)
+        reset = vi.fn(async () => undefined)
+        keys = vi.fn(async () => [])
+        values = vi.fn(async () => [])
+        entries = vi.fn(async () => [])
+        length = vi.fn(async () => 0)
+        reload = vi.fn(async () => undefined)
+        save = vi.fn(async () => undefined)
+        onKeyChange = vi.fn(async () => () => undefined)
+        onChange = vi.fn(async () => () => undefined)
+        close = vi.fn(async () => undefined)
+    }
+    return { getStore: vi.fn(async () => new EmptyStore()) }
+})
 
 vi.mock(
     '@/lib/tauri/platform',
@@ -70,6 +86,7 @@ vi.mock(
     () =>
         ({
             clampRecentWorkspaceLimit: vi.fn((limit: number) => limit),
+            clearWorkspaceStore: vi.fn(async () => undefined),
             getRecentWorkspaces: vi.fn(async () => []),
             addRecentWorkspace: vi.fn(async () => []),
             removeRecentWorkspace: vi.fn(async () => []),
@@ -81,5 +98,7 @@ vi.mock(
             setFolderToggles: vi.fn(async () => undefined),
             getRecentFiles: vi.fn(async () => []),
             addRecentFile: vi.fn(async () => []),
+            renameRecentFiles: vi.fn(async () => []),
+            removeRecentFiles: vi.fn(async () => []),
         }) satisfies typeof import('@/lib/tauri/store')
 )

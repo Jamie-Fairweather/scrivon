@@ -40,12 +40,28 @@ export type WorkspaceCoordinatorRefs = {
      * those copies are gone from disk, so discarded or saved text isn't offered back on the next launch.
      */
     releaseAllTabs: MutableRefObject<() => Promise<void>>
+    /**
+     * Keeps a copy of every tab's unsaved text again, as typing does: for when releaseAllTabs ran but the
+     * tabs stayed open after all (an app update that failed to install).
+     */
+    backUpUnsavedTabs: MutableRefObject<() => void>
     remapTabsAfterRename: MutableRefObject<(oldPath: string, newPath: string, newName: string) => void>
     closeTabsForDelete: MutableRefObject<(path: string, isDirectory: boolean) => void>
     requestCanvasFit: MutableRefObject<() => void>
     /** Closes every tab, dropping its leftovers as closing a tab does; for a folder switch or close after confirmCloseTabs. */
     clearTabs: MutableRefObject<() => void>
     setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => void>
+    /**
+     * Replaces the tab's text with its file as it is on disk now, dropping the tab's unsaved edits, their
+     * copy and its "couldn't save" notice: the user chose Reload over a change made outside Scrivon.
+     * Throws when the file can't be read; the tab is then left as it was.
+     */
+    reloadTabFromDisk: MutableRefObject<(id: string) => Promise<void>>
+    /**
+     * Reads again the open files without edits whose file another app changed since (git, a sync tool), so
+     * they never show old text. Tabs with edits, read-only tabs and deleted files are left alone.
+     */
+    reloadChangedTabs: MutableRefObject<() => Promise<void>>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
     revealInEditor: MutableRefObject<(path: string, line: number, column: number, length?: number) => void>
@@ -68,11 +84,14 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         getUnsavedContent: { current: () => undefined },
         confirmCloseTabs: { current: async () => true },
         releaseAllTabs: { current: async () => {} },
+        backUpUnsavedTabs: { current: () => {} },
         remapTabsAfterRename: { current: () => {} },
         closeTabsForDelete: { current: () => {} },
         requestCanvasFit: { current: () => {} },
         clearTabs: { current: () => {} },
         setTabsFromWorkspace: { current: () => {} },
+        reloadTabFromDisk: { current: async () => {} },
+        reloadChangedTabs: { current: async () => {} },
         persistWorkspaceTabSession: { current: async () => {} },
         openFile: { current: async () => {} },
         revealInEditor: { current: () => {} },

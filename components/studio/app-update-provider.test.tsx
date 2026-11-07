@@ -3,36 +3,35 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getVersion } from '@tauri-apps/api/app'
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { useDocumentSave, useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
-import type { DocumentTab } from '@/lib/workspace/types'
-import { AppUpdateProvider, SAVE_BEFORE_INSTALL_TIMEOUT_MS, useAppUpdate } from './app-update-provider'
+import { AppUpdateProvider, useAppUpdate, type UpdateProgress } from './app-update-provider'
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn(async () => '1.0.0') }))
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn(async () => undefined) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentSave: vi.fn(),
-    useDocumentTabs: vi.fn(),
     useWorkspaceCoordinator: vi.fn(),
 }))
 vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
 vi.mock('@/lib/updater/release-notes', () => ({ fetchUpdateReleaseNotes: vi.fn(async () => null) }))
 vi.mock('@/lib/updater/update-toast', () => ({ showUpdateAvailableToast: vi.fn(), dismissUpdateToast: vi.fn() }))
 
-const flushAllSaves = vi.fn<() => Promise<boolean>>()
+const confirmCloseTabs = vi.fn<() => Promise<boolean>>()
+const releaseAllTabs = vi.fn<() => Promise<void>>()
+const backUpUnsavedTabs = vi.fn<() => void>()
 const persistWorkspaceTabSession = vi.fn<() => Promise<void>>()
-let autosaveEnabled = true
 
-function mockTabs(tabs: Partial<DocumentTab>[]) {
-    vi.mocked(useDocumentTabs).mockReturnValue({ tabs } as unknown as ReturnType<typeof useDocumentTabs>)
+/** How many times the installer was started. */
+function installCalls(): number {
+    return vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'install_app_update').length
 }
 
 function mockSettings(checkOnLaunch: boolean) {
@@ -47,15 +46,15 @@ beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(isTauri).mockReturnValue(false)
     mockSettings(true)
-    flushAllSaves.mockResolvedValue(true)
+    confirmCloseTabs.mockResolvedValue(true)
+    releaseAllTabs.mockResolvedValue(undefined)
     persistWorkspaceTabSession.mockResolvedValue(undefined)
-    autosaveEnabled = true
-    mockTabs([])
     const coordinator = createWorkspaceCoordinatorRefs()
+    coordinator.confirmCloseTabs.current = confirmCloseTabs
+    coordinator.releaseAllTabs.current = releaseAllTabs
+    coordinator.backUpUnsavedTabs.current = backUpUnsavedTabs
     coordinator.persistWorkspaceTabSession.current = persistWorkspaceTabSession
-    coordinator.getAutosaveEnabled.current = () => autosaveEnabled
     vi.mocked(useWorkspaceCoordinator).mockReturnValue(coordinator)
-    vi.mocked(useDocumentSave).mockReturnValue({ flushAllSaves } as unknown as ReturnType<typeof useDocumentSave>)
     vi.mocked(invoke).mockResolvedValue(undefined)
     vi.mocked(getVersion).mockResolvedValue('1.0.0')
 })
@@ -65,15 +64,15 @@ afterEach(() => {
 })
 
 describe('AppUpdateProvider installUpdate', () => {
-    it('saves open files and the tab session before running the installer', async () => {
+    it('deals with open files as closing the window does, then installs', async () => {
         const calls: string[] = []
-        flushAllSaves.mockImplementation(async () => {
-            calls.push('flushAllSaves')
-            return true
-        })
-        persistWorkspaceTabSession.mockImplementation(async () => {
-            calls.push('persistWorkspaceTabSession')
-        })
+        const record = (name: string) => async () => {
+            calls.push(name)
+            return name === 'confirmCloseTabs' ? true : undefined
+        }
+        confirmCloseTabs.mockImplementation(record('confirmCloseTabs') as () => Promise<boolean>)
+        releaseAllTabs.mockImplementation(record('releaseAllTabs') as () => Promise<void>)
+        persistWorkspaceTabSession.mockImplementation(record('persistWorkspaceTabSession') as () => Promise<void>)
         vi.mocked(invoke).mockImplementation(async (cmd: string) => {
             calls.push(cmd)
         })
@@ -84,110 +83,58 @@ describe('AppUpdateProvider installUpdate', () => {
         const { result } = renderHook(() => useAppUpdate(), { wrapper })
         await act(() => result.current.installUpdate())
 
-        expect(calls).toEqual(['flushAllSaves', 'persistWorkspaceTabSession', 'install_app_update', 'relaunch'])
+        // releaseAllTabs drops the copies of edits that were saved or thrown away, so they aren't offered back.
+        expect(calls).toEqual(['confirmCloseTabs', 'releaseAllTabs', 'persistWorkspaceTabSession', 'install_app_update', 'relaunch'])
     })
 
-    it('does not install when an open file fails to save, until the user says install anyway', async () => {
-        flushAllSaves.mockResolvedValue(false)
+    it('does not install when the user cancels a question about the open files, and Install works again', async () => {
+        confirmCloseTabs.mockResolvedValueOnce(false)
 
         const { result } = renderHook(() => useAppUpdate(), { wrapper })
         await act(() => result.current.installUpdate())
 
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
-        expect(result.current.installBlocker).toEqual({ reason: 'save-failed' })
-        expect(result.current.installing).toBe(false)
+        expect(releaseAllTabs).not.toHaveBeenCalled()
+        expect(installCalls()).toBe(0)
+        expect(result.current.installPhase).toBe('idle')
 
-        await act(() => result.current.installUpdate({ unsaved: 'discard' }))
-
-        expect(flushAllSaves).toHaveBeenCalledTimes(1)
-        expect(invoke).toHaveBeenCalledWith('install_app_update')
-        expect(result.current.installBlocker).toBeNull()
-    })
-
-    it('treats a save that throws as a failed save', async () => {
-        flushAllSaves.mockRejectedValue(new Error('disk gone'))
-
-        const { result } = renderHook(() => useAppUpdate(), { wrapper })
         await act(() => result.current.installUpdate())
-
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
-        expect(result.current.installBlocker).toEqual({ reason: 'save-failed' })
+        expect(invoke).toHaveBeenCalledWith('install_app_update', { onProgress: expect.any(Channel) })
     })
 
-    it('stops waiting for a save that hangs, so the dialog can be closed again', async () => {
-        vi.useFakeTimers()
-        flushAllSaves.mockReturnValue(new Promise<boolean>(() => {}))
+    it('ignores a second press while the first is still saving', async () => {
+        let finishSaving!: (ok: boolean) => void
+        confirmCloseTabs.mockReturnValueOnce(new Promise((resolve) => (finishSaving = resolve)))
 
         const { result } = renderHook(() => useAppUpdate(), { wrapper })
-        let install: Promise<void> = Promise.resolve()
+        let first!: Promise<void>
         act(() => {
-            install = result.current.installUpdate()
+            first = result.current.installUpdate()
         })
-        expect(result.current.installing).toBe(true)
-
+        expect(result.current.installPhase).toBe('saving')
+        await act(() => result.current.installUpdate())
         await act(async () => {
-            await vi.advanceTimersByTimeAsync(SAVE_BEFORE_INSTALL_TIMEOUT_MS)
-            await install
+            finishSaving(true)
+            await first
         })
 
-        expect(result.current.installing).toBe(false)
-        expect(result.current.installBlocker).toEqual({ reason: 'save-failed' })
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
+        expect(confirmCloseTabs).toHaveBeenCalledTimes(1)
+        expect(invoke).toHaveBeenCalledTimes(1)
     })
 
-    it('asks before saving edited files when autosave is off', async () => {
-        autosaveEnabled = false
-        mockTabs([
-            { id: 'a', name: 'notes.md', isDirty: true },
-            { id: 'b', name: 'flow.mmd', isDirty: false },
-            { id: 'c', name: 'sample.mmd', isDirty: true, readOnly: true },
-        ])
-
-        const { result } = renderHook(() => useAppUpdate(), { wrapper })
-        await act(() => result.current.installUpdate())
-
-        expect(result.current.installBlocker).toEqual({ reason: 'unsaved', fileNames: ['notes.md'] })
-        expect(result.current.installing).toBe(false)
-        expect(flushAllSaves).not.toHaveBeenCalled()
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
-
-        await act(() => result.current.installUpdate({ unsaved: 'save' }))
-
-        expect(flushAllSaves).toHaveBeenCalledTimes(1)
-        expect(invoke).toHaveBeenCalledWith('install_app_update')
-    })
-
-    it("installs without writing edited files when the user picks Don't save", async () => {
-        autosaveEnabled = false
-        mockTabs([{ id: 'a', name: 'notes.md', isDirty: true }])
-
-        const { result } = renderHook(() => useAppUpdate(), { wrapper })
-        await act(() => result.current.installUpdate({ unsaved: 'discard' }))
-
-        expect(flushAllSaves).not.toHaveBeenCalled()
-        expect(invoke).toHaveBeenCalledWith('install_app_update')
-    })
-
-    it('installs straight away with autosave off when nothing is edited', async () => {
-        autosaveEnabled = false
-        mockTabs([{ id: 'a', name: 'notes.md', isDirty: false }])
-
-        const { result } = renderHook(() => useAppUpdate(), { wrapper })
-        await act(() => result.current.installUpdate())
-
-        expect(result.current.installBlocker).toBeNull()
-        expect(invoke).toHaveBeenCalledWith('install_app_update')
-    })
-
-    it('tells the user when the install fails and lets them try again', async () => {
-        vi.mocked(invoke).mockRejectedValue('Download failed')
+    it('tells the user when the install fails, gives unsaved edits their copies back, and lets them try again', async () => {
+        vi.mocked(invoke).mockRejectedValueOnce('Download failed')
 
         const { result } = renderHook(() => useAppUpdate(), { wrapper })
         await act(() => result.current.installUpdate())
 
         expect(notifyError).toHaveBeenCalledWith("Couldn't install the update", 'Download failed')
         expect(relaunch).not.toHaveBeenCalled()
-        expect(result.current.installing).toBe(false)
+        expect(result.current.installPhase).toBe('idle')
+        expect(backUpUnsavedTabs).toHaveBeenCalledTimes(1)
+
+        await act(() => result.current.installUpdate())
+        expect(invoke).toHaveBeenCalledTimes(2)
+        expect(relaunch).toHaveBeenCalledTimes(1)
     })
 
     async function openUpdateDialogInUi() {
@@ -218,36 +165,90 @@ describe('AppUpdateProvider installUpdate', () => {
         return user
     }
 
-    it("asks in the update dialog about unsaved files with autosave off, and installs on Don't save", async () => {
-        autosaveEnabled = false
-        mockTabs([{ id: 'a', name: 'notes.md', isDirty: true }])
+    it('says it is saving files while it does, and only then that it is installing', async () => {
+        let finishSaving!: (ok: boolean) => void
+        confirmCloseTabs.mockReturnValueOnce(new Promise((resolve) => (finishSaving = resolve)))
         const user = await openUpdateDialogInUi()
+        let finishInstall!: () => void
+        vi.mocked(invoke).mockImplementation((cmd: string) =>
+            cmd === 'install_app_update'
+                ? new Promise<undefined>((resolve) => (finishInstall = () => resolve(undefined)))
+                : Promise.resolve(undefined)
+        )
 
         await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
 
-        expect(await screen.findByText('Save changes before installing?')).toBeInTheDocument()
-        expect(screen.getByText(/notes\.md/)).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Save and install' })).toBeInTheDocument()
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
+        expect(await screen.findByRole('button', { name: /Saving files…/ })).toBeDisabled()
+        expect(screen.getByText('Saving open files…')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Later' })).toBeDisabled()
+        expect(installCalls()).toBe(0)
 
-        await user.click(screen.getByRole('button', { name: "Don't save" }))
-
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('install_app_update'))
-        expect(flushAllSaves).not.toHaveBeenCalled()
+        await act(async () => {
+            finishSaving(true)
+        })
+        expect(await screen.findByRole('button', { name: /Downloading…/ })).toBeDisabled()
+        await act(async () => {
+            finishInstall()
+        })
     })
 
-    it('shows the save warning in the update dialog and installs on "Install anyway"', async () => {
-        flushAllSaves.mockResolvedValue(false)
+    it('shows how far the download has got, then that it is installing, with no close button meanwhile', async () => {
+        const user = await openUpdateDialogInUi()
+        let progress!: Channel<UpdateProgress>
+        vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+            if (cmd !== 'install_app_update') return Promise.resolve(undefined)
+            progress = (args as { onProgress: Channel<UpdateProgress> }).onProgress
+            return new Promise<undefined>(() => {})
+        })
+        expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
+
+        await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
+        await waitFor(() => expect(installCalls()).toBe(1))
+        expect(screen.getByText('Downloading…', { selector: 'p' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
+
+        const total = 13_002_342
+        act(() => progress.onmessage({ event: 'started', total }))
+        expect(screen.getByText('Downloading 0.0 / 12.4 MB')).toBeInTheDocument()
+        act(() => progress.onmessage({ event: 'progress', downloaded: 3_355_443, total }))
+        expect(screen.getByText('Downloading 3.2 / 12.4 MB')).toBeInTheDocument()
+        expect(screen.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', expect.stringMatching(/^25\.8/))
+        // A screen reader is told the step once, not each of the many changes of the byte count.
+        const announced = () => [...document.querySelectorAll('[aria-live]')].map((region) => region.textContent)
+        expect(announced()).toEqual(['Downloading the update'])
+        expect(screen.getByText('Downloading 3.2 / 12.4 MB').closest('[aria-live]')).toBeNull()
+
+        act(() => progress.onmessage({ event: 'installing' }))
+        expect(screen.getByText('Installing…', { selector: 'p' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Installing…/ })).toBeDisabled()
+        expect(announced()).toEqual(['Installing the update'])
+    })
+
+    it('shows the size downloaded so far when the server gives no total', async () => {
+        const user = await openUpdateDialogInUi()
+        let progress!: Channel<UpdateProgress>
+        vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+            if (cmd !== 'install_app_update') return Promise.resolve(undefined)
+            progress = (args as { onProgress: Channel<UpdateProgress> }).onProgress
+            return new Promise<undefined>(() => {})
+        })
+
+        await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
+        await waitFor(() => expect(installCalls()).toBe(1))
+        act(() => progress.onmessage({ event: 'progress', downloaded: 5 * 1024 * 1024, total: null }))
+
+        expect(screen.getByText('Downloading 5.0 MB…')).toBeInTheDocument()
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    })
+
+    it('goes back to Install and restart when the user cancels a question about the open files', async () => {
+        confirmCloseTabs.mockResolvedValueOnce(false)
         const user = await openUpdateDialogInUi()
 
         await user.click(await screen.findByRole('button', { name: 'Install and restart' }))
 
-        expect(await screen.findByText("Some open files couldn't be saved")).toBeInTheDocument()
-        expect(invoke).not.toHaveBeenCalledWith('install_app_update')
-
-        await user.click(screen.getByRole('button', { name: 'Install anyway' }))
-
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('install_app_update'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Install and restart' })).toBeEnabled())
+        expect(installCalls()).toBe(0)
     })
 })
 

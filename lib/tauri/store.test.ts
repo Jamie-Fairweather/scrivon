@@ -2,15 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { notifyWarning } from '@/lib/notify'
 
 /**
- * A stand-in for tauri-plugin-store that behaves like the real one: `disk` holds each file's text,
- * init() loads it and quietly starts empty when it can't, reload() reports why, and save() writes the
- * whole store back.
+ * A stand-in for tauri-plugin-store that behaves like the real one: `disk` holds each file's text. The app
+ * shell opens each store once at startup, loading its file and quietly starting empty when it can't, and the
+ * webview can only get those (there is no `load` here, so the module must never try to open one itself).
+ * reload() reports why a file couldn't be read, and save() writes the whole store back.
  */
 const fake = vi.hoisted(() => ({
     disk: new Map<string, string>(),
+    /** The stores the app shell holds in memory. They outlive a reload of the window. */
     caches: new Map<string, Map<string, unknown>>(),
+    /** Store files the app shell couldn't open at startup. */
+    notOpened: new Set<string>(),
     saveError: null as unknown,
-    initError: null as unknown,
+    openError: null as unknown,
+    /** The name the app shell gave a damaged workspace.json it moved aside at startup (take_store_recovery). */
+    keptAs: null as string | null,
 }))
 
 function parseStoreFile(path: string): Record<string, unknown> {
@@ -26,22 +32,11 @@ function parseStoreFile(path: string): Record<string, unknown> {
     return parsed as Record<string, unknown>
 }
 
-vi.mock('@tauri-apps/plugin-store', () => ({
-    LazyStore: class {
+vi.mock('@tauri-apps/plugin-store', () => {
+    class FakeStore {
         constructor(private readonly path: string) {}
         private get cache(): Map<string, unknown> {
             return fake.caches.get(this.path)!
-        }
-        async init() {
-            if (fake.initError) throw fake.initError
-            if (fake.caches.has(this.path)) return
-            const cache = new Map<string, unknown>()
-            try {
-                for (const [key, value] of Object.entries(parseStoreFile(this.path))) cache.set(key, value)
-            } catch {
-                // The real plugin ignores this too.
-            }
-            fake.caches.set(this.path, cache)
         }
         async reload() {
             for (const [key, value] of Object.entries(parseStoreFile(this.path))) this.cache.set(key, value)
@@ -64,11 +59,39 @@ vi.mock('@tauri-apps/plugin-store', () => ({
         async length() {
             return this.cache.size
         }
+        async clear() {
+            this.cache.clear()
+        }
         async save() {
             if (fake.saveError) throw fake.saveError
             fake.disk.set(this.path, JSON.stringify(Object.fromEntries(this.cache)))
         }
-    },
+    }
+    return {
+        getStore: async (path: string) => {
+            if (fake.openError) throw fake.openError
+            if (fake.notOpened.has(path)) return null
+            if (!fake.caches.has(path)) {
+                const cache = new Map<string, unknown>()
+                try {
+                    for (const [key, value] of Object.entries(parseStoreFile(path))) cache.set(key, value)
+                } catch {
+                    // The real plugin ignores this too.
+                }
+                fake.caches.set(path, cache)
+            }
+            return new FakeStore(path)
+        },
+    }
+})
+
+vi.mock('@tauri-apps/api/core', () => ({
+    invoke: vi.fn(async (command: string) => {
+        if (command !== 'take_store_recovery') throw new Error(`unexpected command ${command}`)
+        const name = fake.keptAs
+        fake.keptAs = null
+        return name
+    }),
 }))
 
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: vi.fn(() => true) }))
@@ -98,8 +121,10 @@ describe('workspace store', () => {
     beforeEach(() => {
         fake.disk.clear()
         fake.caches.clear()
+        fake.notOpened.clear()
         fake.saveError = null
-        fake.initError = null
+        fake.openError = null
+        fake.keptAs = null
         vi.mocked(notifyWarning).mockClear()
         vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     })
@@ -140,6 +165,48 @@ describe('workspace store', () => {
             expect(await store.getRecentWorkspaces()).toEqual([])
             expect(notifyWarning).not.toHaveBeenCalled()
             expect(onDisk('workspace.backup.json')).toEqual({ snapshot: SAVED })
+        })
+
+        it('is filled from the copy when the app shell kept it aside, and says where it went', async () => {
+            // The app shell moved the damaged file away before the store opened, so it reads as missing.
+            fake.keptAs = 'workspace.json.corrupt-1731000000'
+            fake.disk.set('workspace.backup.json', JSON.stringify({ snapshot: SAVED }))
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            expect(onDisk('workspace.json')).toEqual(SAVED)
+            expect(notifyWarning).toHaveBeenCalledTimes(1)
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Recent folders restored',
+                expect.objectContaining({ description: expect.stringContaining('kept as workspace.json.corrupt-1731000000') })
+            )
+
+            // The name is handed out once: the next launch reads the restored file without a word.
+            vi.mocked(notifyWarning).mockClear()
+            fake.caches.clear()
+            expect(await (await launch()).getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            expect(notifyWarning).not.toHaveBeenCalled()
+        })
+
+        it('says the lists start empty and where the damaged file went when there is no copy', async () => {
+            fake.keptAs = 'workspace.json.corrupt-1731000000'
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Recent folders were reset',
+                expect.objectContaining({ description: expect.stringContaining('kept as workspace.json.corrupt-1731000000') })
+            )
+        })
+
+        it('starts quietly when it cannot ask whether the file was kept aside', async () => {
+            const { invoke } = await import('@tauri-apps/api/core')
+            vi.mocked(invoke).mockRejectedValueOnce(new Error('no such command'))
+            fake.disk.set('workspace.backup.json', JSON.stringify({ snapshot: SAVED }))
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(notifyWarning).not.toHaveBeenCalled()
         })
 
         it('reads the file once however many callers ask for it at the same time', async () => {
@@ -263,6 +330,95 @@ describe('workspace store', () => {
         })
     })
 
+    describe('recent files after a rename or delete', () => {
+        const RECENT = ['C:\\notes\\a.md', 'C:\\notes\\docs\\b.md', 'C:\\notes\\docs\\deep\\c.md', 'C:\\notes\\docs.md']
+
+        async function launchWithRecent(paths: unknown[] = RECENT) {
+            fake.disk.set('workspace.json', JSON.stringify({ 'recent-files:C:\\notes': paths }))
+            return launch()
+        }
+
+        it('moves a renamed file to its new path, in the same place in the list', async () => {
+            const store = await launchWithRecent()
+
+            expect(await store.renameRecentFiles('C:\\notes', 'C:\\notes\\docs\\b.md', 'C:\\notes\\docs\\ideas.md')).toEqual([
+                'C:\\notes\\a.md',
+                'C:\\notes\\docs\\ideas.md',
+                'C:\\notes\\docs\\deep\\c.md',
+                'C:\\notes\\docs.md',
+            ])
+            expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(await store.getRecentFiles('C:\\notes'))
+        })
+
+        it('moves every file inside a renamed folder, and only those', async () => {
+            const store = await launchWithRecent()
+
+            await store.renameRecentFiles('C:\\notes', 'C:\\notes\\docs', 'C:\\notes\\manual')
+
+            expect(await store.getRecentFiles('C:\\notes')).toEqual([
+                'C:\\notes\\a.md',
+                'C:\\notes\\manual\\b.md',
+                'C:\\notes\\manual\\deep\\c.md',
+                'C:\\notes\\docs.md',
+            ])
+        })
+
+        it('matches Windows paths whatever their case or separators', async () => {
+            const store = await launchWithRecent(['c:/Notes/Docs/B.md', 'C:\\notes\\a.md'])
+
+            await store.renameRecentFiles('C:\\notes', 'C:\\NOTES\\docs', 'C:\\notes\\manual')
+            expect(await store.getRecentFiles('C:\\notes')).toEqual(['C:\\notes\\manual\\B.md', 'C:\\notes\\a.md'])
+
+            await store.removeRecentFiles('C:\\notes', 'c:/notes/A.MD')
+            expect(await store.getRecentFiles('C:\\notes')).toEqual(['C:\\notes\\manual\\B.md'])
+        })
+
+        it('drops a deleted file, or every file inside a deleted folder', async () => {
+            const store = await launchWithRecent()
+
+            expect(await store.removeRecentFiles('C:\\notes', 'C:\\notes\\a.md')).toEqual([
+                'C:\\notes\\docs\\b.md',
+                'C:\\notes\\docs\\deep\\c.md',
+                'C:\\notes\\docs.md',
+            ])
+            expect(await store.removeRecentFiles('C:\\notes', 'C:\\notes\\docs')).toEqual(['C:\\notes\\docs.md'])
+            expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(['C:\\notes\\docs.md'])
+        })
+
+        it('writes nothing when no recent file was affected', async () => {
+            const stored = [null, 'C:\\notes\\a.md']
+            const store = await launchWithRecent(stored)
+
+            await store.renameRecentFiles('C:\\notes', 'C:\\notes\\other.md', 'C:\\notes\\x.md')
+            await store.removeRecentFiles('C:\\notes', 'C:\\notes\\gone')
+
+            expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(stored)
+        })
+    })
+
+    describe('resetting from a crash screen', () => {
+        it('empties workspace.json on disk, and leaves the copies of unsaved edits alone', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.disk.set('unsaved-changes.json', JSON.stringify({ 'C:\\notes\\a.md': 'draft' }))
+            const store = await launch()
+
+            await store.clearWorkspaceStore()
+
+            expect(onDisk('workspace.json')).toEqual({})
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(onDisk('unsaved-changes.json')).toEqual({ 'C:\\notes\\a.md': 'draft' })
+        })
+
+        it('lets the caller say why when the file cannot be written', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            const store = await launch()
+            fake.saveError = 'There is not enough space on the disk. (os error 112)'
+
+            await expect(store.clearWorkspaceStore()).rejects.toBe('There is not enough space on the disk. (os error 112)')
+            expect(notifyWarning).not.toHaveBeenCalled()
+        })
+    })
+
     describe('the recent folders limit', () => {
         it('keeps as many folders as the limit it is given', async () => {
             fake.disk.set('workspace.json', JSON.stringify({ 'recent-workspaces': ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d'] }))
@@ -302,12 +458,32 @@ describe('workspace store', () => {
 
         it('tries to open the store again after a failed start instead of failing for the whole session', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))
-            fake.initError = 'no app data folder'
+            fake.openError = 'no app data folder'
             const store = await launch()
 
             await expect(store.getRecentWorkspaces()).rejects.toBe('no app data folder')
-            fake.initError = null
+            fake.openError = null
             expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+        })
+
+        it('reports a store the app did not open at startup, and tries again next time', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.notOpened.add('workspace.json')
+            const store = await launch()
+
+            await expect(store.getRecentWorkspaces()).rejects.toThrow("Scrivon couldn't open workspace.json.")
+            fake.notOpened.clear()
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+        })
+
+        it('still reads workspace.json when its copy was not opened', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.notOpened.add('workspace.backup.json')
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            await vi.waitFor(() => expect(console.warn).toHaveBeenCalledWith("Couldn't update the copy of workspace.json", expect.any(Error)))
+            expect(notifyWarning).not.toHaveBeenCalled()
         })
     })
 })

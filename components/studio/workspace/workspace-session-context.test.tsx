@@ -1,7 +1,21 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import {
+    exists,
+    lstat,
+    mkdir,
+    readDir,
+    readFile,
+    readTextFile,
+    remove,
+    rename,
+    stat,
+    watchImmediate,
+    writeFile,
+    writeTextFile,
+    type WatchEvent,
+} from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import {
     confirmCloseAfterSaveFailure,
@@ -21,9 +35,12 @@ import {
     getFolderToggles,
     getRecentWorkspaces,
     getWorkspaceTabSession,
+    removeRecentFiles,
     removeRecentWorkspace,
+    renameRecentFiles,
     setFolderToggles,
 } from '@/lib/tauri/store'
+import type { FileNode } from '@/lib/workspace/types'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
@@ -44,6 +61,8 @@ vi.mock('@/lib/tauri/store', () => ({
     setWorkspaceTabSession: vi.fn(async () => undefined),
     getRecentFiles: vi.fn(async () => []),
     addRecentFile: vi.fn(async () => []),
+    renameRecentFiles: vi.fn(async () => []),
+    removeRecentFiles: vi.fn(async () => []),
     getFolderToggles: vi.fn(async () => []),
     setFolderToggles: vi.fn(async () => undefined),
 }))
@@ -69,7 +88,7 @@ vi.mock('@/lib/tauri/dialog', () => ({
     showError: vi.fn(async () => undefined),
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
-    confirmOverwriteDiskChange: vi.fn(async () => false),
+    confirmOverwriteDiskChange: vi.fn(async () => 'keep' as const),
     confirmDeleteHiddenFolders: vi.fn(async () => false),
     confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
     confirmOpenLargeFile: vi.fn(async () => false),
@@ -673,6 +692,206 @@ describe('renaming', () => {
     })
 })
 
+describe('recent files', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        mountDisk(createWindowsDisk({ 'C:\\ws\\notes.md': 'NOTES', 'C:\\ws\\docs\\a.md': 'A' }))
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    it('follow a renamed file or folder, and leave a deleted one', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'ideas.md', false)
+        })
+        expect(renameRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\notes.md', 'C:\\ws\\ideas.md')
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\docs', true)
+        })
+        expect(removeRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\docs')
+    })
+
+    it('stay as they were when the rename or delete fails', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        vi.mocked(rename).mockRejectedValueOnce('Access is denied. (os error 5)')
+        vi.mocked(remove).mockRejectedValueOnce('Access is denied. (os error 5)')
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'ideas.md', false)
+        })
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\notes.md', false)
+        })
+
+        expect(renameRecentFiles).not.toHaveBeenCalled()
+        expect(removeRecentFiles).not.toHaveBeenCalled()
+    })
+
+    it('never make a rename or delete fail when they cannot be updated', async () => {
+        vi.mocked(renameRecentFiles).mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        vi.mocked(removeRecentFiles).mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'ideas.md', false)
+        })
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\ideas.md', false)
+        })
+
+        expect(notifyError).not.toHaveBeenCalled()
+        await waitFor(() => expect(warn).toHaveBeenCalledWith("Couldn't update recent files", expect.anything()))
+        warn.mockRestore()
+    })
+})
+
+describe('reading only the folder an action changed', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\sub\\a.mmd': 'graph TD', 'C:\\ws\\other\\deep\\b.md': '# B', 'C:\\ws\\top.md': '# Top' })
+        mountDisk(disk)
+    })
+
+    /** The folders listed while `action` ran. */
+    async function foldersReadDuring(result: { current: ReturnType<typeof useHarness> }, action: () => Promise<void>) {
+        vi.mocked(readDir).mockClear()
+        await act(action)
+        return vi.mocked(readDir).mock.calls.map(([path]) => String(path))
+    }
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    const namesIn = (result: { current: ReturnType<typeof useHarness> }, folder: string) =>
+        (result.current.session.tree.find((n) => n.name === folder) as Extract<FileNode, { kind: 'directory' }>).children.map((n) => n.name)
+
+    it('creates, duplicates, renames and deletes in a folder without reading the rest again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        const other = result.current.session.tree.find((n) => n.name === 'other')
+
+        expect(await foldersReadDuring(result, () => result.current.session.createFile('C:\\ws\\sub', 'new.md', '# New'))).toEqual(['C:\\ws\\sub'])
+        expect(namesIn(result, 'sub')).toEqual(['a.mmd', 'new.md'])
+
+        expect(await foldersReadDuring(result, () => result.current.session.createFolder('C:\\ws\\sub', 'drafts'))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+        expect(await foldersReadDuring(result, () => result.current.session.duplicateFile('C:\\ws\\sub\\a.mmd'))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+        expect(await foldersReadDuring(result, () => result.current.session.renameEntry('C:\\ws\\sub\\new.md', 'renamed.md', false))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+        expect(await foldersReadDuring(result, () => result.current.session.deleteEntry('C:\\ws\\sub\\a copy.mmd', false))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+
+        expect(namesIn(result, 'sub')).toEqual(['drafts', 'a.mmd', 'renamed.md'])
+        // The folders around it are the same objects, so their rows don't draw again.
+        expect(result.current.session.tree.find((n) => n.name === 'other')).toBe(other)
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('reads the whole tree for a change at the top of the folder, or in a folder it never read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        expect(await foldersReadDuring(result, () => result.current.session.deleteEntry('C:\\ws\\top.md', false))).toContain('C:\\ws\\other\\deep')
+        expect(result.current.session.tree.map((n) => n.name)).toEqual(['other', 'sub'])
+    })
+
+    /** Makes the next listing of `folder` wait until the test lets it finish; later ones don't wait. */
+    function holdNextListing(folder: string) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        let held = false
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (!held && String(dir) === folder) {
+                held = true
+                await done
+            }
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        return finish
+    }
+
+    it('still shows what a read of the whole tree it stopped would have shown', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        // A git pull adds a file elsewhere, and coming back to the window starts reading the folder again.
+        await disk.write('C:\\ws\\other\\pulled.md', '# Pulled')
+        const finish = holdNextListing('C:\\ws')
+        act(() => windowFocus.handler!({ payload: true }))
+
+        // The user creates a file before that read is done.
+        await act(() => result.current.session.createFile('C:\\ws\\sub', 'new.md', '# New'))
+        await act(async () => finish())
+
+        expect(namesIn(result, 'sub')).toEqual(['a.mmd', 'new.md'])
+        expect(namesIn(result, 'other')).toEqual(['deep', 'pulled.md'])
+    })
+
+    it('reads again the folder of an earlier action whose read it stopped', async () => {
+        await disk.write('C:\\ws\\sub\\keep.md', '# Keep')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        const finish = holdNextListing('C:\\ws\\sub')
+
+        // A delete in one folder, then a new file in another before the first folder is read again.
+        let deleting!: Promise<void>
+        act(() => {
+            deleting = result.current.session.deleteEntry('C:\\ws\\sub\\a.mmd', false)
+        })
+        await waitFor(() => expect(readDir).toHaveBeenCalledWith('C:\\ws\\sub'))
+        await act(() => result.current.session.createFile('C:\\ws\\other', 'new.md', '# New'))
+        await act(async () => {
+            finish()
+            await deleting
+        })
+
+        expect(namesIn(result, 'sub')).toEqual(['keep.md'])
+        expect(namesIn(result, 'other')).toEqual(['deep', 'new.md'])
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('reads the whole tree when reading just the folder fails', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        vi.mocked(readDir).mockRejectedValueOnce('The network path was not found. (os error 53)')
+
+        const read = await foldersReadDuring(result, () => result.current.session.createFile('C:\\ws\\sub', 'new.md', '# New'))
+
+        expect(read).toContain('C:\\ws')
+        expect(namesIn(result, 'sub')).toEqual(['a.mmd', 'new.md'])
+    })
+})
+
 describe('file system errors', () => {
     let disk: ReturnType<typeof createWindowsDisk>
 
@@ -942,7 +1161,7 @@ describe('changes made outside Scrivon', () => {
         // A long delay keeps the autosave timer out of the way; the tests save when they choose to.
         settingsState.autosave = { enabled: true, delayMs: 60_000 }
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue('keep')
         disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine v1' })
         mountDisk(disk)
     })
@@ -997,7 +1216,7 @@ describe('changes made outside Scrivon', () => {
         expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
 
         // Try Again on the notice asks once more, and Overwrite saves.
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('overwrite')
         await expect(save()).resolves.toBe(true)
         expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
         expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: false, saveError: undefined })
@@ -1006,6 +1225,206 @@ describe('changes made outside Scrivon', () => {
         act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
         await expect(save()).resolves.toBe(true)
         expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows the other version and drops the edits when the user picks Reload', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('reload')
+
+        // A close waiting on this save can go ahead: nothing is left to save.
+        await expect(save()).resolves.toBe(true)
+
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'edited in VS Code', isDirty: false, isSaving: false })
+        expect(result.current.tabs.tabs[0]?.saveError).toBeUndefined()
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+        expect(notifyError).not.toHaveBeenCalled()
+
+        // The reloaded file is the version the tab knows now, so the next save doesn't ask.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS ON TOP'))
+        await expect(save()).resolves.toBe(true)
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS ON TOP')
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the edits when Reload is picked but the file can no longer be read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('reload')
+        vi.mocked(readFile).mockRejectedValueOnce('The process cannot access the file because it is being used by another process. (os error 32)')
+
+        await expect(save()).resolves.toBe(false)
+
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'MY EDITS', isDirty: true })
+        expect(notifyError).toHaveBeenCalledWith(
+            "Couldn't save notes.md",
+            expect.anything(),
+            expect.objectContaining({ description: expect.stringContaining("Couldn't reload it.") })
+        )
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        // Typing doesn't ask again after every pause.
+        act(() => coordinatorOut.current!.flushSaveOnTabLeave.current('C:\\ws\\notes.md'))
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the new text of an open file without edits that another app changed, when the window gets focus', async () => {
+        await disk.write('C:\\ws\\other.md', 'other v1')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\other.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\other.md', 'MY EDITS'))
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        await disk.write('C:\\ws\\notes.md', 'pulled by git')
+        await disk.write('C:\\ws\\other.md', 'other v2 from git')
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'pulled by git', isDirty: false }))
+        // The tab with edits keeps them; saving it asks about the change.
+        expect(result.current.tabs.tabs[1]).toMatchObject({ content: 'MY EDITS', isDirty: true })
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        // The new text is the version the tab knows now, so editing and saving it doesn't ask.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'pulled by git, then edited'))
+        await expect(save()).resolves.toBe(true)
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    describe('while the window stays focused', () => {
+        let report: ((event: WatchEvent) => void) | undefined
+        const unwatch = vi.fn()
+
+        beforeEach(() => {
+            report = undefined
+            vi.mocked(watchImmediate).mockImplementation(async (_path, cb) => {
+                report = cb
+                return unwatch
+            })
+        })
+
+        afterEach(() => {
+            vi.mocked(watchImmediate).mockReset()
+        })
+
+        async function openWatched(result: { current: ReturnType<typeof useHarness> }) {
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(report).toBeDefined())
+        }
+
+        it('shows files another app adds, and stops watching when the folder closes', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            expect(watchImmediate).toHaveBeenCalledWith('C:\\ws', expect.any(Function), { recursive: true })
+
+            await disk.write('C:\\ws\\from-sync.md', '# new')
+            await act(async () => {
+                report!({ type: { create: { kind: 'any' } }, paths: ['C:\\ws\\from-sync.md'], attrs: null })
+            })
+            await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-sync.md', 'notes.md']))
+
+            await act(async () => {
+                await result.current.session.closeWorkspace()
+            })
+            expect(unwatch).toHaveBeenCalled()
+        })
+
+        it('shows the new text of an open file another app saved, without reading the folder again, and ignores .git', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            const readsBefore = vi.mocked(readDir).mock.calls.length
+
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\.git\\index'], attrs: null })
+            })
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+            // Saved the way Scrivon saves: a temporary file renamed over it.
+            await act(async () => {
+                report!({
+                    type: { modify: { kind: 'rename', mode: 'both' } },
+                    paths: ['C:\\ws\\.scrivon-save-x1.tmp', 'C:\\ws\\notes.md'],
+                    attrs: null,
+                })
+            })
+
+            await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
+            expect(readDir).toHaveBeenCalledTimes(readsBefore)
+        })
+
+        it('still reads the folder on focus where it cannot be watched', async () => {
+            vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            await disk.write('C:\\ws\\from-git.md', '# new')
+
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+
+            await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
+            expect(notifyError).not.toHaveBeenCalled()
+        })
+
+        it("doesn't watch a folder too big to show it all, such as a drive, but still reads it on focus", async () => {
+            const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+            vi.mocked(readDir).mockImplementation((async (dir: string) => {
+                if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+                if (dir === 'D:\\big') return Array.from({ length: 50_001 }, (_, i) => entry(`f${i}.md`, false))
+                if (dir === 'D:\\sub') return [entry('deeper', true)]
+                return [entry('x.md', false)]
+            }) as unknown as typeof readDir)
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await act(async () => {
+                await result.current.session.openWorkspace('D:\\')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            expect(watchImmediate).not.toHaveBeenCalled()
+            const reads = vi.mocked(readDir).mock.calls.length
+
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+
+            await waitFor(() => expect(vi.mocked(readDir).mock.calls.length).toBeGreaterThan(reads))
+        })
+    })
+
+    it('leaves an open file without edits as it is when another app deleted it', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        await disk.write('C:\\ws\\kept.md', 'still here')
+        await disk.remove('C:\\ws\\notes.md')
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+
+        await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['kept.md']))
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'mine v1', isDirty: false })])
     })
 
     it('asks before bringing back a file deleted in another app', async () => {
@@ -1017,7 +1436,7 @@ describe('changes made outside Scrivon', () => {
         expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'deleted')
         expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
 
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('overwrite')
         await expect(save()).resolves.toBe(true)
         expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
     })
@@ -1080,7 +1499,7 @@ describe('unsaved text kept from a crash', () => {
         vi.clearAllMocks()
         settingsState.autosave = { enabled: false, delayMs: 400 }
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue('keep')
         disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'on disk', 'C:\\ws\\other.md': 'same' })
         mountDisk(disk)
     })
@@ -1327,6 +1746,103 @@ describe('opening folders one after another', () => {
         expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
         expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\small\\b.md'])
         expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('stops reading the earlier folder once another one is picked', async () => {
+        await disk.write('C:\\big\\sub\\deep.md', 'D')
+        const finishBig = slowFolder('C:\\big')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let openingBig!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\small')
+        })
+        await act(async () => {
+            finishBig()
+            await openingBig
+        })
+
+        // C:\big itself had been asked for already; nothing inside it is read after the switch.
+        expect(readDir).not.toHaveBeenCalledWith('C:\\big\\sub')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('says, until closed, when a folder has too many files to show them all', async () => {
+        const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+            if (dir === 'D:\\big') return Array.from({ length: 50_001 }, (_, i) => entry(`f${i}.md`, false))
+            if (dir === 'D:\\sub') return [entry('deeper', true)]
+            return [entry('x.md', false)]
+        }) as unknown as typeof readDir)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('D:\\')
+        })
+
+        expect(readDir).not.toHaveBeenCalledWith('D:\\sub\\deeper')
+        expect(result.current.session.tree[1]).toMatchObject({ name: 'sub', children: [{ name: 'deeper', children: [], truncated: true }] })
+        expect(notifyWarning).toHaveBeenCalledWith(
+            'D:\\ has too many files to show them all',
+            expect.objectContaining({ id: 'folder-too-big', timeout: 0, description: expect.stringContaining('50,000') })
+        )
+
+        await act(async () => {
+            await result.current.session.closeWorkspace()
+        })
+        expect(dismissNotification).toHaveBeenCalledWith('folder-too-big')
+    })
+
+    it('says when the open folder grows too big to show it all, takes that back once it shrinks, and says it again when reopened', async () => {
+        const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+        let files = 3
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+            if (dir === 'D:\\big') return Array.from({ length: files }, (_, i) => entry(`f${i}.md`, false))
+            if (dir === 'D:\\sub') return [entry('deeper', true)]
+            return [entry('x.md', false)]
+        }) as unknown as typeof readDir)
+        const tooBigNotices = () => vi.mocked(notifyWarning).mock.calls.filter(([, options]) => options?.id === 'folder-too-big').length
+        const takenBack = () => vi.mocked(dismissNotification).mock.calls.filter(([id]) => id === 'folder-too-big').length
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('D:\\')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        expect(tooBigNotices()).toBe(0)
+
+        // Another app filled a folder while Scrivon was in the background.
+        files = 50_001
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(tooBigNotices()).toBe(1))
+        expect(result.current.session.tree[1]).toMatchObject({ children: [{ name: 'deeper', truncated: true }] })
+
+        // Read again, still too big: a notice the user closed doesn't keep coming back.
+        await act(async () => {
+            await result.current.session.refreshTree()
+        })
+        expect(tooBigNotices()).toBe(1)
+
+        // Opening it again says it again, as the first open does.
+        await act(async () => {
+            await result.current.session.openWorkspace('D:\\')
+        })
+        expect(tooBigNotices()).toBe(2)
+
+        files = 3
+        const before = takenBack()
+        await act(async () => {
+            await result.current.session.refreshTree()
+        })
+        expect(takenBack()).toBe(before + 1)
+        expect(result.current.session.tree[1]).toMatchObject({ children: [{ name: 'deeper', children: [{ name: 'x.md' }] }] })
     })
 
     it('opens the folder clicked last when it is picked while a slow save holds up leaving the open one', async () => {

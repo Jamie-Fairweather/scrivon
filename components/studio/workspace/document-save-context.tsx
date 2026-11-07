@@ -5,7 +5,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
 import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
-import { confirmOverwriteDiskChange, type DiskChange } from '@/lib/tauri/dialog'
+import { confirmOverwriteDiskChange, type DiskChange, type DiskChangeChoice } from '@/lib/tauri/dialog'
 import { DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
 import { tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileStamp } from '@/lib/workspace/types'
@@ -127,7 +127,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
     const diskQuestion = useRef<Promise<unknown>>(Promise.resolve())
     const openDiskQuestions = useRef(0)
 
-    const askToOverwrite = useCallback((fileName: string, change: DiskChange): Promise<boolean> => {
+    const askAboutDiskChange = useCallback((fileName: string, change: DiskChange): Promise<DiskChangeChoice> => {
         openDiskQuestions.current += 1
         const answer = diskQuestion.current.then(() => confirmOverwriteDiskChange(fileName, change))
         diskQuestion.current = answer.catch(() => undefined)
@@ -157,9 +157,19 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                     stamp = await writeWorkspaceFile(tab.path, content, { format: tab.format, expected: disk ? disk.stamp : undefined })
                 } catch (err) {
                     if (!(err instanceof DiskChangedError) || !disk) throw err
-                    if (!(await askToOverwrite(tab.name, err.change))) {
-                        disk.conflict = err.change
-                        throw err
+                    const choice = await askAboutDiskChange(tab.name, err.change)
+                    if (choice !== 'overwrite') disk.conflict = err.change
+                    if (choice === 'keep') throw err
+                    if (choice === 'reload') {
+                        // The tab then shows the other version, with no edits, so there is nothing left to save (and a
+                        // close waiting on this can go ahead). If it can't be read, the edits stay and so does the conflict.
+                        try {
+                            await coordinator.reloadTabFromDisk.current(id)
+                        } catch (readErr) {
+                            const why = errorMessage(readErr, '')
+                            throw new Error(why ? `Couldn't reload it. ${why}` : "Couldn't reload it.")
+                        }
+                        return true
                     }
                     stamp = await writeWorkspaceFile(tab.path, content, { format: tab.format })
                 }
@@ -200,7 +210,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                 return false
             }
         },
-        [askToOverwrite, clearBackup, coordinator, setTabs, tabsRef]
+        [askAboutDiskChange, clearBackup, coordinator, setTabs, tabsRef]
     )
 
     // Tabs whose file is being renamed or deleted. A save asked for meanwhile waits, then goes to wherever

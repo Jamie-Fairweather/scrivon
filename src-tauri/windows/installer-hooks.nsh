@@ -11,6 +11,9 @@
 ; one, and removes the old program and uninstaller. It deletes only those
 ; files, and removes the folder only if it is then empty.
 ;
+; It also puts the app's taskbar ID on the shortcuts that open it (see
+; SCRIVON_TAG_SHORTCUT).
+;
 ; This file is included before the template defines PRODUCTNAME and friends,
 ; so only the macro bodies (expanded where they are inserted) may use them.
 
@@ -25,6 +28,21 @@
     Pop $R8
     ${If} $R8 = 1
       !insertmacro SetShortcutTarget "${lnk}" "$INSTDIR\${MAINBINARYNAME}.exe"
+      !insertmacro SetLnkAppUserModelId "${lnk}"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; Puts the app's taskbar ID (AppUserModelID, the bundle identifier) on `lnk` if
+; it opens the installed program. The app gives its windows that ID
+; (set_taskbar_id in src-tauri/src/lib.rs), and Windows only shows a window on
+; a pinned icon whose shortcut carries the same one. An update doesn't make the
+; shortcuts again, so ones made before the ID was used never got it.
+!macro SCRIVON_TAG_SHORTCUT lnk
+  ${If} ${FileExists} "${lnk}"
+    !insertmacro IsShortcutTarget "${lnk}" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $R8
+    ${If} $R8 = 1
       !insertmacro SetLnkAppUserModelId "${lnk}"
     ${EndIf}
   ${EndIf}
@@ -57,4 +75,10 @@
       DeleteRegKey /ifempty HKCU "${SCRIVON_OLD_MANUKEY}"
     ${EndIf}
   ${EndIf}
+
+  ; Whether or not there was an old copy, so shortcuts that already open this
+  ; one get the ID too.
+  !insertmacro SCRIVON_TAG_SHORTCUT "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+  !insertmacro SCRIVON_TAG_SHORTCUT "$DESKTOP\${PRODUCTNAME}.lnk"
+  !insertmacro SCRIVON_TAG_SHORTCUT "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\${PRODUCTNAME}.lnk"
 !macroend

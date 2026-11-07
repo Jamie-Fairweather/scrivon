@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile, stat } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
-import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
+import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { DocumentTabsProvider, useActiveTabId, useDocumentTabActions, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
@@ -308,6 +308,42 @@ describe('DocumentTabsProvider', () => {
         expect(result.current.tabs[0]).toMatchObject({ content: 'Café!', isDirty: true })
     })
 
+    it('still lets the user edit a read-only file after its notice was closed', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const big = { isFile: true, isDirectory: false, isSymlink: false, size: 6 * 1024 * 1024, mtime: null, nlink: null }
+        vi.mocked(stat).mockResolvedValue(big as never)
+        vi.mocked(confirmOpenLargeFile).mockResolvedValue(true)
+        vi.mocked(readFile)
+            .mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+            .mockResolvedValueOnce(new TextEncoder().encode('# log'))
+            .mockResolvedValueOnce(new TextEncoder().encode('PK\0\0data'))
+        const { result } = renderHook(() => ({ tabs: useDocumentTabs(), actions: useDocumentTabActions() }), {
+            wrapper: createTabsWrapper({ workspaceRoot: '/ws' }),
+        })
+        for (const path of ['/ws/old.md', '/ws/big.md', '/ws/data.md']) {
+            await act(async () => {
+                await result.current.tabs.openFile(path)
+            })
+        }
+        expect(result.current.tabs.tabs.map((t) => t.readOnly)).toEqual([true, true, true])
+        vi.mocked(stat).mockReset()
+
+        act(() => result.current.actions.makeTabEditable('/ws/old.md'))
+        // Typing works straight away, before React draws again.
+        act(() => {
+            result.current.actions.makeTabEditable('/ws/big.md')
+            result.current.actions.updateTabContent('/ws/big.md', '# log!')
+        })
+        act(() => result.current.actions.makeTabEditable('/ws/data.md'))
+
+        const [old, large, binary] = result.current.tabs.tabs
+        expect(old).toMatchObject({ readOnly: false, encodingIssue: undefined, format: { encoding: 'utf-8', bom: false } })
+        expect(large).toMatchObject({ readOnly: false, largeFile: undefined, content: '# log!', isDirty: true })
+        // Editing a file that looks binary could damage it, so it stays read-only.
+        expect(binary).toMatchObject({ readOnly: true, encodingIssue: 'binary' })
+        expect(dismissNotification).toHaveBeenCalledWith('read-only:/ws/big.md')
+    })
+
     it('keeps the encoding of a UTF-16 file on its tab', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
         vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0xff, 0xfe, 0x41, 0x00]))
@@ -415,6 +451,31 @@ describe('DocumentTabsProvider', () => {
         })
 
         expect(showError).toHaveBeenCalledWith('Open failed', 'Permission denied')
+    })
+
+    it('drops a file that is not there from the recent files, but not one that is only locked', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ workspaceRoot: 'C:\\ws' }),
+        })
+
+        vi.mocked(readFile).mockRejectedValueOnce(
+            'failed to open file at path: C:\\ws\\gone.md with error: The system cannot find the file specified. (os error 2)'
+        )
+        await act(async () => {
+            await result.current.openFile('C:\\ws\\gone.md')
+        })
+        expect(removeRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\gone.md')
+
+        vi.mocked(removeRecentFiles).mockClear()
+        vi.mocked(readFile).mockRejectedValueOnce(
+            'failed to open file at path: C:\\ws\\busy.md with error: The process cannot access the file because it is being used by another process. (os error 32)'
+        )
+        await act(async () => {
+            await result.current.openFile('C:\\ws\\busy.md')
+        })
+        expect(removeRecentFiles).not.toHaveBeenCalled()
+        expect(showError).toHaveBeenCalledTimes(2)
     })
 
     it('opens the file without an error when remembering the open tabs fails', async () => {
@@ -1612,6 +1673,27 @@ describe('changes to several tabs at once', () => {
             expect.objectContaining({ id: '/ws/b.mmd', content: 'typed in b', isDirty: true }),
         ])
         expect(result.current.activeTabId).toBe('/ws/renamed.mmd')
+    })
+
+    it('keeps a keystroke made in the same moment as the saved tabs are put back', async () => {
+        const initial = { tabs: [tab('/ws/opened.mmd', 'opened.mmd')], activeTabId: '/ws/opened.mmd' }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+
+        act(() => {
+            result.current.updateTabContent('/ws/opened.mmd', 'typed while restoring')
+            coordinator.setTabsFromWorkspace.current(
+                [tab('/ws/restored.mmd', 'restored.mmd'), tab('/ws/opened.mmd', 'opened.mmd')],
+                '/ws/restored.mmd'
+            )
+        })
+
+        expect(result.current.tabs).toEqual([
+            expect.objectContaining({ id: '/ws/restored.mmd' }),
+            expect.objectContaining({ id: '/ws/opened.mmd', content: 'typed while restoring', isDirty: true }),
+        ])
+        expect(result.current.activeTabId).toBe('/ws/opened.mmd')
     })
 
     it('never saves the same file twice in the list of open tabs', async () => {

@@ -1,11 +1,13 @@
 'use client'
 
-import { Component, useState, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useEffect, useState, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
 import { TITLEBAR_ABOVE_DIALOGS_CLASS, WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
 import { Button } from '@/components/ui/button'
 import { APP_NAME } from '@/lib/app-branding'
 import { APP_VERSION } from '@/lib/legal/third-party-licenses'
+import { errorMessage } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
+import { clearWorkspaceStore } from '@/lib/tauri/store'
 import { cn } from '@/lib/utils'
 
 export type StudioErrorFallbackProps = {
@@ -68,23 +70,63 @@ export class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, Stu
     }
 }
 
+/** How long "Copied" or "Couldn't copy" shows before the button reads "Copy error details" again. */
+const COPY_STATUS_MS = 2000
+
 export function CopyErrorDetailsButton({ details }: { details: string }) {
-    const [copied, setCopied] = useState(false)
+    const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+    useEffect(() => {
+        if (status === 'idle') return
+        const timer = setTimeout(() => setStatus('idle'), COPY_STATUS_MS)
+        return () => clearTimeout(timer)
+    }, [status])
+
+    const copy = async () => {
+        try {
+            // Missing where the page isn't allowed to use the clipboard.
+            if (!navigator.clipboard?.writeText) throw new Error('No clipboard')
+            await navigator.clipboard.writeText(details)
+            setStatus('copied')
+        } catch {
+            setStatus('failed')
+        }
+    }
 
     return (
-        <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-                void navigator.clipboard
-                    ?.writeText(details)
-                    .then(() => setCopied(true))
-                    .catch(() => setCopied(false))
-            }}
-        >
-            {copied ? 'Copied' : 'Copy error details'}
+        <Button type="button" variant="ghost" onClick={() => void copy()}>
+            {status === 'copied' ? 'Copied' : status === 'failed' ? "Couldn't copy" : 'Copy error details'}
         </Button>
     )
+}
+
+export const RESET_WORKSPACE_LABEL = 'Reset recent folders and tabs'
+
+/**
+ * Why "Reset recent folders and tabs" didn't work, shown on the screen itself: the last-resort screen has
+ * no notifications to show it in.
+ */
+export function ResetWorkspaceFailedNote({ message }: { message: string }) {
+    return (
+        <p role="alert" className="w-full text-sm break-words text-destructive-foreground">
+            Couldn&apos;t reset recent folders and tabs. {message}
+        </p>
+    )
+}
+
+/**
+ * Empties the stored recent folders and open tabs (workspace.json), then reloads: a way out when something
+ * kept there makes the app fail every time it starts. Returns the reason when it couldn't be emptied.
+ */
+export async function resetWorkspaceAndReload(): Promise<string | null> {
+    try {
+        await clearWorkspaceStore()
+    } catch (err) {
+        console.warn("Couldn't reset workspace.json", err)
+        return errorMessage(err)
+    }
+    window.location.reload()
+    return null
 }
 
 /**
@@ -117,13 +159,34 @@ export function StudioCrashScreen({ error, children }: { error: Error; children:
     )
 }
 
-/** Last-resort fallback: nothing else is available, so all it can do is reload. */
+/**
+ * Last-resort fallback: nothing else is available, so all it can do is reload, after emptying the recent
+ * folders and tabs if something kept there is what keeps failing.
+ */
 export function StudioReloadFallback({ error, details }: StudioErrorFallbackProps) {
+    const [resetting, setResetting] = useState(false)
+    const [resetFailed, setResetFailed] = useState<string | null>(null)
+
+    const reset = async () => {
+        setResetting(true)
+        setResetFailed(null)
+        const problem = await resetWorkspaceAndReload()
+        if (problem === null) return
+        setResetting(false)
+        setResetFailed(problem)
+    }
+
     return (
         <StudioCrashScreen error={error}>
-            <Button type="button" onClick={() => window.location.reload()}>
+            {resetFailed !== null ? <ResetWorkspaceFailedNote message={resetFailed} /> : null}
+            <Button type="button" disabled={resetting} onClick={() => window.location.reload()}>
                 Reload
             </Button>
+            {isTauri() ? (
+                <Button type="button" variant="outline" disabled={resetting} onClick={() => void reset()}>
+                    {resetting ? 'Resetting…' : RESET_WORKSPACE_LABEL}
+                </Button>
+            ) : null}
             <CopyErrorDetailsButton details={details} />
         </StudioCrashScreen>
     )

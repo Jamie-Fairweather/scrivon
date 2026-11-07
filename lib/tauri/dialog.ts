@@ -228,23 +228,38 @@ export async function confirmKeptChangesWithoutFolder(folderName: string, fileNa
 export type DiskChange = 'changed' | 'deleted'
 
 /**
- * Asks before a save replaces a file someone else changed, or puts back a file someone deleted.
- * Resolves true only when the user picks Overwrite (or Save Again); anything else keeps the file as it is.
+ * What to do about it: save the user's version over it (or, for a deleted file, there again), open the
+ * version now on disk instead (only for a changed file), or leave both as they are for now.
  */
-export async function confirmOverwriteDiskChange(fileName: string, change: DiskChange): Promise<boolean> {
-    const changed = change === 'changed'
-    const title = changed ? 'File changed on disk' : 'File deleted'
-    const body = changed
-        ? `${fileName} was changed outside Scrivon since you opened it.\n\nOverwrite it with your version? The other changes will be lost.`
-        : `${fileName} was deleted or moved outside Scrivon.\n\nSave your version there again?`
-    const confirm = changed ? 'Overwrite' : 'Save Again'
+export type DiskChangeChoice = 'overwrite' | 'reload' | 'keep'
+
+/**
+ * Asks before a save replaces a file someone else changed, or puts back a file someone deleted. For a
+ * changed file the user can also reload it, which drops their edits. Anything but a button counts as keep.
+ */
+export async function confirmOverwriteDiskChange(fileName: string, change: DiskChange): Promise<DiskChangeChoice> {
     const keep = "Don't Save"
+    if (change === 'changed') {
+        const choice = await askThreeWay(
+            'File changed on disk',
+            `${fileName} was changed outside Scrivon since you opened it.\n\n` +
+                'Overwrite saves your version, and the other changes are lost. Reload opens the other version, and your changes are lost.',
+            { yes: 'Overwrite', no: 'Reload', cancel: keep }
+        )
+        if (choice === 'yes') return 'overwrite'
+        if (choice === 'no') return 'reload'
+        return 'keep'
+    }
+
+    const title = 'File deleted'
+    const body = `${fileName} was deleted or moved outside Scrivon.\n\nSave your version there again?`
+    const confirm = 'Save Again'
 
     if (!isTauri()) {
-        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
-        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}. Cancel: ${keep}.`)
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return 'keep'
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}. Cancel: ${keep}.`) ? 'overwrite' : 'keep'
     }
 
     const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: keep } })
-    return result === confirm || result === 'Ok'
+    return result === confirm || result === 'Ok' ? 'overwrite' : 'keep'
 }

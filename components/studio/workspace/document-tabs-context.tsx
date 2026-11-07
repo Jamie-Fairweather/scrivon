@@ -18,8 +18,18 @@ import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/exa
 import { dismissNotification, notifyError, notifyWarning } from '@/lib/notify'
 import { settleUnsavedBackups } from '@/lib/tauri/backups'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { getBaseName, getWorkspaceFileSize, isSupportedDocument, normalizePath, readWorkspaceTextFile, samePath } from '@/lib/tauri/fs'
-import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
+import {
+    getBaseName,
+    getWorkspaceFileSize,
+    isFileMissingError,
+    isSupportedDocument,
+    normalizePath,
+    readStamp,
+    readWorkspaceTextFile,
+    samePath,
+    stampChanged,
+} from '@/lib/tauri/fs'
+import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
@@ -39,13 +49,52 @@ type DocumentTabsContextValue = {
     closeTab: (id: string) => Promise<void>
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
+    /**
+     * Lets the user edit a tab that opened read-only for a reason they may accept: a file that isn't UTF-8
+     * (saved as UTF-8 from then on) or a very large one. Does nothing for a file that looks binary.
+     */
+    makeTabEditable: (id: string) => void
 }
 
 /** What can be done with the tabs. These functions stay the same while the user types. */
 export type DocumentTabActions = Pick<
     DocumentTabsContextValue,
-    'openFile' | 'openExample' | 'setActiveTab' | 'updateTabContent' | 'closeTab' | 'closeOtherTabs' | 'closeAllTabs'
+    'openFile' | 'openExample' | 'setActiveTab' | 'updateTabContent' | 'closeTab' | 'closeOtherTabs' | 'closeAllTabs' | 'makeTabEditable'
 >
+
+/** Why a tab opened read-only, and the label of the button that lets the user edit it anyway, if there is one. */
+export type ReadOnlyReason = { text: string; editLabel: string | null }
+
+/**
+ * Why a file opened read-only: its bytes couldn't be read safely as text, and editing could damage them, or
+ * it is so big that editing it would be slow. Null for a tab that isn't read-only for either reason.
+ */
+export function readOnlyReason(tab: DocumentTab): ReadOnlyReason | null {
+    if (tab.encodingIssue === 'legacy-encoding') {
+        return {
+            text: "It isn't saved as UTF-8, so it's shown as Windows-1252 and left as it is. If you edit it, it will be saved as UTF-8.",
+            editLabel: 'Edit as UTF-8',
+        }
+    }
+    if (tab.encodingIssue) {
+        return { text: "It looks like a binary file or uses a text encoding Scrivon can't read, so it's left as it is.", editLabel: null }
+    }
+    if (tab.largeFile) {
+        // From when it was read: a read-only tab is never saved, so this doesn't change under it.
+        const size = tab.disk?.stamp?.size
+        return { text: `It's ${size ? formatFileSize(size) : 'very large'}, which is big enough to make editing slow.`, editLabel: 'Edit Anyway' }
+    }
+    return null
+}
+
+/** The tab once the user chose to edit it anyway. */
+function withEditingAllowed(t: DocumentTab): DocumentTab {
+    if (t.encodingIssue === 'legacy-encoding') {
+        return { ...t, readOnly: false, encodingIssue: undefined, largeFile: undefined, format: DEFAULT_TEXT_FORMAT }
+    }
+    if (t.largeFile && !t.encodingIssue) return { ...t, readOnly: false, largeFile: undefined }
+    return t
+}
 
 const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
 const DocumentTabActionsContext = createContext<DocumentTabActions | null>(null)
@@ -149,69 +198,85 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [workspaceRoot]
     )
 
+    /** Drops a file that turned out not to be there from the folder's recent files; best-effort too. */
+    const forgetRecentFile = useCallback(
+        (path: string) => {
+            if (!workspaceRoot) return
+            void removeRecentFiles(workspaceRoot, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
+        },
+        [workspaceRoot]
+    )
+
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { persistWorkspaceTabSession: persistTabSession })
     }, [coordinator, persistTabSession])
 
-    /** Lets the user edit a file that isn't UTF-8 after all; from then on it is saved as UTF-8. */
-    const editAsUtf8 = useCallback(
+    const makeTabEditable = useCallback(
         (id: string) => {
             dismissNotification(readOnlyNoticeId(id))
-            setTabs((prev) =>
-                prev.map((t) =>
-                    t.id === id && t.encodingIssue === 'legacy-encoding'
-                        ? { ...t, readOnly: false, encodingIssue: undefined, largeFile: undefined, format: DEFAULT_TEXT_FORMAT }
-                        : t
-                )
-            )
+            const allow = (t: DocumentTab) => (t.id === id ? withEditingAllowed(t) : t)
+            // The ref too, so typing straight away isn't turned away as read-only.
+            tabsRef.current = tabsRef.current.map(allow)
+            setTabs((prev) => prev.map(allow))
         },
-        [setTabs]
+        [setTabs, tabsRef]
     )
 
-    /** Lets the user edit a very large file anyway, knowing it may be slow. */
-    const editLargeFile = useCallback(
-        (id: string) => {
-            dismissNotification(readOnlyNoticeId(id))
-            setTabs((prev) => prev.map((t) => (t.id === id && t.largeFile && !t.encodingIssue ? { ...t, readOnly: false, largeFile: undefined } : t)))
+    /** Says why a file opened read-only. The bar above the editor says it too, for as long as the tab is open. */
+    const explainReadOnlyFile = useCallback(
+        (tab: DocumentTab) => {
+            const reason = readOnlyReason(tab)
+            if (!reason) return
+            notifyWarning(`${tab.name} is read-only`, {
+                id: readOnlyNoticeId(tab.id),
+                description: reason.text,
+                timeout: 0,
+                ...(reason.editLabel ? { action: { label: reason.editLabel, onClick: () => makeTabEditable(tab.id) } } : {}),
+            })
         },
-        [setTabs]
+        [makeTabEditable]
     )
 
     /**
-     * Says why a file opened read-only: its bytes couldn't be read safely as text, and editing could damage
-     * them, or it is so big that editing it would be slow.
+     * Puts the file as it is on disk now in the tab, unedited. With `onlyIfUntouched`, the tab is left as it
+     * is when the user typed in it or saved it while the file was being read, so a reload nobody asked for
+     * can never drop typing. Without it the user chose to drop their edits, so their pending save, their
+     * copy and their "couldn't save" notice go too. Resolves false when the tab was left as it is.
      */
-    const explainReadOnlyFile = useCallback(
-        (tab: DocumentTab) => {
-            const id = readOnlyNoticeId(tab.id)
-            if (!tab.encodingIssue) {
-                if (!tab.largeFile) return
-                const size = tab.disk?.stamp?.size
-                notifyWarning(`${tab.name} is read-only`, {
-                    id,
-                    description: `It's ${size ? formatFileSize(size) : 'very large'}, which is big enough to make editing slow.`,
-                    timeout: 0,
-                    action: { label: 'Edit Anyway', onClick: () => editLargeFile(tab.id) },
-                })
-                return
-            }
-            if (tab.encodingIssue === 'legacy-encoding') {
-                notifyWarning(`${tab.name} is read-only`, {
-                    id,
-                    description:
-                        "It isn't saved as UTF-8, so it's shown as Windows-1252 and left as it is. If you edit it, it will be saved as UTF-8.",
-                    timeout: 0,
-                    action: { label: 'Edit as UTF-8', onClick: () => editAsUtf8(tab.id) },
-                })
-                return
-            }
-            notifyWarning(`${tab.name} is read-only`, {
-                id,
-                description: "It looks like a binary file or uses a text encoding Scrivon can't read, so it's left as it is.",
-                timeout: 0,
-            })
+    const reloadTab = useCallback(
+        async (id: string, onlyIfUntouched: boolean): Promise<boolean> => {
+            const before = tabsRef.current.find((t) => t.id === id)
+            if (!before) return false
+            const fresh = tabFromFile(before.path, await readWorkspaceTextFile(before.path))
+            const now = tabsRef.current.find((t) => t.id === id)
+            if (!now) return false
+            if (onlyIfUntouched && (now.isDirty || now.content !== before.content || now.disk?.stamp !== before.disk?.stamp)) return false
+            if (!onlyIfUntouched) coordinator.cancelScheduledSave.current(id)
+            const reloaded = (t: DocumentTab): DocumentTab =>
+                t.id === id
+                    ? {
+                          ...t,
+                          content: fresh.content,
+                          format: fresh.format,
+                          readOnly: fresh.readOnly,
+                          encodingIssue: fresh.encodingIssue,
+                          largeFile: fresh.largeFile,
+                          disk: fresh.disk,
+                          isDirty: false,
+                          isSaving: false,
+                          saveError: undefined,
+                      }
+                    : t
+            // The ref changes straight away, so a save or restore that runs before React re-renders sees the new text.
+            tabsRef.current = tabsRef.current.map(reloaded)
+            setTabs((prev) => prev.map(reloaded))
+            dismissNotification(readOnlyNoticeId(id))
+            // The other app may have saved it in a way Scrivon opens read-only (not UTF-8, say).
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (tab?.readOnly) explainReadOnlyFile(tab)
+            return true
         },
-        [editAsUtf8, editLargeFile]
+        [coordinator, explainReadOnlyFile, setTabs, tabsRef]
     )
 
     /**
@@ -236,6 +301,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 // The copies are gone from disk before the window closes, so text that was saved, or that the
                 // user chose not to save, isn't offered back on the next launch.
                 await settleUnsavedBackups()
+            },
+            backUpUnsavedTabs: () => {
+                for (const tab of tabsRef.current) {
+                    if (tab.isDirty && !tab.readOnly) coordinator.scheduleBackup.current(tab.id)
+                }
             },
             remapTabsAfterRename: (oldPath, newPath, newName) => {
                 const prevTabs = tabsRef.current
@@ -284,15 +354,36 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             setTabsFromWorkspace: (nextTabs, nextActiveId) => {
                 // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.
                 const opened = tabsRef.current
-                const restored = nextTabs.filter((t) => !opened.some((o) => samePath(o.path, t.path)))
-                const merged = [...restored, ...opened]
-                tabsRef.current = merged
-                setTabs(merged)
+                const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !current.some((o) => samePath(o.path, t.path)))
+                const restored = notOpen(opened)
+                tabsRef.current = [...restored, ...opened]
+                // Merged into the latest state, so a keystroke queued in the same update isn't lost.
+                setTabs((prev) => [...notOpen(prev), ...prev])
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
                 for (const tab of restored) explainReadOnlyFile(tab)
             },
+            reloadTabFromDisk: async (id) => {
+                await reloadTab(id, false)
+            },
+            reloadChangedTabs: async () => {
+                const unedited = tabsRef.current.filter((t) => !t.isDirty && !t.isSaving && !t.readOnly && t.disk?.stamp && !isExampleTabId(t.id))
+                await Promise.all(
+                    unedited.map(async (tab) => {
+                        const now = await readStamp(tab.path)
+                        // A deleted file stays open as it was: saving it asks first. A file that grew very large isn't
+                        // read without asking, as opening one isn't.
+                        if (!now || !stampChanged(tab.disk!.stamp!, now) || isLargeFile(now.size)) return
+                        try {
+                            await reloadTab(tab.id, true)
+                        } catch (err) {
+                            // Shown as it was; saving it later asks about the change.
+                            console.warn(`Couldn't reload ${tab.name}`, err)
+                        }
+                    })
+                )
+            },
         })
-    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs])
+    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab])
 
     // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
     const pendingOpens = useRef(new Map<string, Promise<void>>())
@@ -335,6 +426,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
                     read = tabFromFile(path, await readWorkspaceTextFile(path))
                 } catch (err) {
+                    // Only a file that isn't there leaves the list; a locked one may open next time.
+                    if (isFileMissingError(err)) forgetRecentFile(path)
                     await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
                     return
                 }
@@ -359,7 +452,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             void open.finally(() => pendingOpens.current.delete(path))
             return open
         },
-        [coordinator, persistTabSession, recordRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
+        [coordinator, persistTabSession, recordRecentFile, forgetRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
     )
 
     const openExample = useCallback(
@@ -411,7 +504,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             const tab = tabsRef.current.find((t) => t.id === id)
             if (tab?.readOnly) return
             // A save error stays until a save works, so typing doesn't hide that edits aren't reaching the disk.
-            setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content, isDirty: true } : t)))
+            const typed = (t: DocumentTab) => (t.id === id ? { ...t, content, isDirty: true } : t)
+            // The ref changes straight away too, so a save or restore finishing before React draws again sees this
+            // keystroke (a save would otherwise think the tab clean and drop the copy of it).
+            tabsRef.current = tabsRef.current.map(typed)
+            setTabs((prev) => prev.map(typed))
             coordinator.scheduleSave.current(id)
             coordinator.scheduleBackup.current(id)
         },
@@ -551,8 +648,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     }, [coordinator, openFile])
 
     const actions = useMemo<DocumentTabActions>(
-        () => ({ openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs }),
-        [openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs]
+        () => ({ openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs, makeTabEditable }),
+        [openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs, makeTabEditable]
     )
 
     const value = useMemo(() => ({ ...actions, tabs, activeTabId, activeTab }), [actions, tabs, activeTabId, activeTab])

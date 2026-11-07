@@ -1,4 +1,4 @@
-import { getBaseName, getParentPath, samePath } from '@/lib/tauri/fs'
+import { getBaseName, getParentPath, isPathInside, isWindowsPath, normalizePath, samePath } from '@/lib/tauri/fs'
 import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -127,9 +127,16 @@ export function collectUnreadableFolders(nodes: FileNode[]): FileNode[] {
     return found
 }
 
+/** True when part of the tree was left unread because the folder has too many files and folders to list them all. */
+export function isTreeTruncated(nodes: FileNode[]): boolean {
+    return nodes.some((node) => node.kind === 'directory' && (node.truncated === true || isTreeTruncated(node.children)))
+}
+
 function keepUnchangedNode(old: FileNode, node: FileNode): FileNode {
     if (old.kind === 'file' || node.kind === 'file') return old.kind === node.kind && old.name === node.name ? old : node
-    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside) return node
+    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside || old.truncated !== node.truncated) {
+        return node
+    }
     const children = keepUnchangedNodes(old.children, node.children)
     return children === old.children ? old : { ...node, children }
 }
@@ -149,6 +156,77 @@ export function keepUnchangedNodes(prev: FileNode[], next: FileNode[]): FileNode
         return kept
     })
     return same ? prev : merged
+}
+
+/**
+ * True when changes another app made (see watchWorkspace) may add something to the file tree of `rootPath`
+ * or take something away: a new path in a folder the tree lists, or a gone path the tree has. A save of a
+ * file already listed, or a change in a folder the tree leaves out, doesn't need the folder read again.
+ */
+export function changeAltersTree(
+    tree: FileNode[],
+    rootPath: string,
+    change: { readonly added: readonly string[]; readonly removed: readonly string[] }
+): boolean {
+    if (change.added.length === 0 && change.removed.length === 0) return false
+    // Windows paths ignore letter case, like samePath.
+    const key = (path: string) => {
+        const normalized = normalizePath(path)
+        return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized
+    }
+    const listed = new Set<string>()
+    const listedFolders = new Set<string>([key(rootPath)])
+    const walk = (nodes: FileNode[]) => {
+        for (const node of nodes) {
+            listed.add(key(node.path))
+            if (node.kind !== 'directory') continue
+            // An unreadable folder, or one left unread in a folder too big to list, shows nothing inside it
+            // however often it is read.
+            if (!node.unreadable && !node.truncated) listedFolders.add(key(node.path))
+            walk(node.children)
+        }
+    }
+    walk(tree)
+    return (
+        change.removed.some((path) => listed.has(key(path))) ||
+        change.added.some((path) => !listed.has(key(path)) && listedFolders.has(key(getParentPath(path))))
+    )
+}
+
+/**
+ * True when `folderPath` is the root or a folder in the tree whose entries were read, so reading just that
+ * folder again can update the tree (see replaceChildren). False for a folder that is missing, couldn't be
+ * read, or was left unread in a folder too big to list: the whole tree has to be read then.
+ */
+export function canReplaceChildren(tree: FileNode[], rootPath: string, folderPath: string): boolean {
+    if (samePath(folderPath, rootPath)) return true
+    const folder = findNodeByPath(tree, folderPath)
+    return folder?.kind === 'directory' && !folder.unreadable && !folder.truncated
+}
+
+/**
+ * The tree with the entries of `folderPath` (the root, or a folder in it) replaced by `children`, that
+ * folder read again. Nodes that didn't change stay the same objects (as keepUnchangedNodes), and so do the
+ * folders around it, so only that folder's rows draw again. Null when canReplaceChildren says no.
+ */
+export function replaceChildren(tree: FileNode[], rootPath: string, folderPath: string, children: FileNode[]): FileNode[] | null {
+    if (samePath(folderPath, rootPath)) return keepUnchangedNodes(tree, children)
+    if (!canReplaceChildren(tree, rootPath, folderPath)) return null
+    const walk = (nodes: FileNode[]): FileNode[] => {
+        let changed = false
+        const next = nodes.map((node) => {
+            if (node.kind !== 'directory') return node
+            let kept: FileNode[]
+            if (samePath(node.path, folderPath)) kept = keepUnchangedNodes(node.children, children)
+            else if (isPathInside(folderPath, node.path)) kept = walk(node.children)
+            else return node
+            if (kept === node.children) return node
+            changed = true
+            return { ...node, children: kept }
+        })
+        return changed ? next : nodes
+    }
+    return walk(tree)
 }
 
 export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {

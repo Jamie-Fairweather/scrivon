@@ -3,17 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const stored = vi.hoisted(() => ({ value: undefined as unknown }))
 
 vi.mock('@tauri-apps/plugin-store', () => ({
-    LazyStore: class {
-        init = async () => undefined
-        get = async () => stored.value
-        set = async () => undefined
-        save = async () => undefined
-        reload = async () => undefined
-        length = async () => (stored.value === undefined ? 0 : 1)
-        entries = async () => (stored.value === undefined ? [] : [['recent-workspaces', stored.value]])
-        keys = async () => []
-        delete = async () => false
-    },
+    getStore: async () => ({
+        get: async () => stored.value,
+        set: async () => undefined,
+        save: async () => undefined,
+        reload: async () => undefined,
+        length: async () => (stored.value === undefined ? 0 : 1),
+        entries: async () => (stored.value === undefined ? [] : [['recent-workspaces', stored.value]]),
+        keys: async () => [],
+        delete: async () => false,
+    }),
 }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
 
