@@ -14,19 +14,59 @@ class FakeUri {
     }
 }
 
+/** Monaco's EndOfLinePreference and EndOfLineSequence values. */
+const EOL_PREFERENCE = { TextDefined: 0, LF: 1, CRLF: 2 }
+const EOL_SEQUENCE = { LF: 0, CRLF: 1 }
+
 class FakeModel {
     disposed = false
     readonly listeners = new Set<Listener>()
     options: { tabSize?: number; indentSize?: number | 'tabSize'; insertSpaces?: boolean } = {}
+    private lines: string[] = []
+    /** Like Monaco, one line ending for the whole buffer: the one most line breaks use. */
+    eol: '\n' | '\r\n' = '\n'
     constructor(
-        public value: string,
+        value: string,
         public readonly uri: FakeUri
-    ) {}
-    getValue() {
+    ) {
+        this.value = value
+    }
+    get value() {
+        return this.lines.join(this.eol)
+    }
+    set value(text: string) {
+        this.lines = text.split(/\r\n|\r|\n/)
+        const crlf = text.split('\r\n').length - 1
+        // With no line break at all, Monaco's default.
+        this.eol = crlf > (this.lines.length - 1) / 2 ? '\r\n' : '\n'
+    }
+    getValue(preference = EOL_PREFERENCE.TextDefined) {
+        if (preference === EOL_PREFERENCE.LF) return this.lines.join('\n')
+        if (preference === EOL_PREFERENCE.CRLF) return this.lines.join('\r\n')
         return this.value
     }
     setValue(value: string) {
         this.value = value
+        this.listeners.forEach((l) => l())
+    }
+    getEOL() {
+        return this.eol
+    }
+    /** The order of undo-stack calls, so a test can check a change is its own undo step. */
+    readonly undoCalls: string[] = []
+    pushStackElement() {
+        this.undoCalls.push('pushStackElement')
+    }
+    /** Changes only the line ending, as an undo step (Monaco tells listeners). */
+    pushEOL(sequence: number) {
+        this.undoCalls.push('pushEOL')
+        this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
+        this.listeners.forEach((l) => l())
+    }
+    /** Real Monaco skips the undo stack here, so a later undo garbles the text. Never call it. */
+    setEOL(sequence: number) {
+        this.undoCalls.push('setEOL')
+        this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
         this.listeners.forEach((l) => l())
     }
     dispose() {
@@ -43,7 +83,7 @@ class FakeModel {
     }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
-        const line = this.value.split('\n')[range.startLineNumber - 1] ?? ''
+        const line = this.lines[range.startLineNumber - 1] ?? ''
         return line.slice(range.startColumn - 1, range.endColumn - 1)
     }
 }
@@ -152,7 +192,8 @@ const fakeMonaco = {
     KeyCode: { F1: 59 },
     KeyMod: { CtrlCmd: 2048 },
     editor: {
-        EndOfLinePreference: { TextDefined: 0, LF: 1, CRLF: 2 },
+        EndOfLinePreference: EOL_PREFERENCE,
+        EndOfLineSequence: EOL_SEQUENCE,
         EditorOption: { readOnly: 0 },
         create: (_container: HTMLElement, options: { model: FakeModel } & Record<string, unknown>) => {
             const editor = new FakeEditor(options.model, options)
@@ -388,6 +429,62 @@ describe('CodeEditorPanel models', () => {
         expect(updateTabContent).toHaveBeenLastCalledWith(v2, 'notes v2!')
     })
 
+    it.each([
+        ['CRLF to LF', 'one\r\ntwo\r\n', 'one\ntwo\n'],
+        ['LF to CRLF', 'one\ntwo\n', 'one\r\ntwo\r\n'],
+    ])('takes on line endings another program changed (%s), so the next edit keeps them', async (_, before, after) => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, before)], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const model = editor.getModel()!
+
+        // The file was reloaded from disk: the same text with other line endings, and still clean.
+        setTabs(view, { tabs: [tab(a, after)], activeTabId: a })
+        expect(updateTabContent).not.toHaveBeenCalled()
+        // The buffer (and its undo history) is kept.
+        expect(editor.getModel()).toBe(model)
+        // The change is its own undo step. setEOL would leave the undo history counting the old line
+        // endings, and Ctrl+Z would then put earlier edits in the wrong place.
+        expect(model.undoCalls).toEqual(['pushStackElement', 'pushEOL', 'pushStackElement'])
+
+        act(() => editor.type('x'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, `${after}x`)
+    })
+
+    it('takes on changed line endings when switching back to a tab whose file was reloaded', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'one\r\ntwo'), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        setTabs(view, { tabs: [tab(a, 'one\r\ntwo'), tab(b, 'B')], activeTabId: b })
+
+        setTabs(view, { tabs: [tab(a, 'one\ntwo'), tab(b, 'B')], activeTabId: b })
+        setTabs(view, { tabs: [tab(a, 'one\ntwo'), tab(b, 'B')], activeTabId: a })
+        expect(editor.getModel()!.undoCalls).toEqual(['pushStackElement', 'pushEOL', 'pushStackElement'])
+
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'one\ntwo!')
+    })
+
+    it('keeps the buffer of a file with mixed line endings when switching tabs', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const mixed = 'one\r\ntwo\nthree\r\n'
+        tabsState = { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const model = editor.getModel()!
+        const setValue = vi.spyOn(model, 'setValue')
+
+        setTabs(view, { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: b })
+        setTabs(view, { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: a })
+
+        // Monaco evened the endings out on purpose; replacing the buffer would wipe its undo history.
+        expect(editor.getModel()).toBe(model)
+        expect(setValue).not.toHaveBeenCalled()
+        expect(model.undoCalls).toEqual([])
+        expect(updateTabContent).not.toHaveBeenCalled()
+    })
+
     it('does not undo keystrokes the tab has not shown yet', async () => {
         const a = '/w/a.md'
         tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
@@ -604,6 +701,25 @@ describe('CodeEditorPanel unicode highlighting', () => {
 
         setTabs(view, { tabs: [tab(a, 'Я і ти'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.unicodeHighlight).toEqual({ ambiguousCharacters: false, invisibleCharacters: true, nonBasicASCII: false })
+    })
+
+    it('leaves Unicode line and paragraph separators in the file instead of removing them', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'from a PDF next end')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options.unusualLineTerminators).toBe('off')
+    })
+})
+
+describe('CodeEditorPanel suggestions', () => {
+    it('offers no word suggestions while writing, and Enter never accepts one', async () => {
+        tabsState = { tabs: [tab('/w/notes.md', 'then there'), tab('/w/other.md', 'theory')], activeTabId: '/w/notes.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options).toMatchObject({
+            quickSuggestions: false,
+            wordBasedSuggestions: 'off',
+            suggestOnTriggerCharacters: false,
+            acceptSuggestionOnEnter: 'off',
+        })
     })
 })
 
@@ -831,17 +947,76 @@ describe('CodeEditorPanel search hits', () => {
         expect(editor.focused).toBe(true)
     })
 
-    it('selects the hit once its file becomes the active tab', async () => {
+    it('selects the hit in the file the palette just opened, before the panel has shown it', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { editor } = await mountEditor()
+
+        // The open has finished but the panel hasn't drawn its tab yet; the jump's render shows both.
+        act(() => {
+            tabsState = { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b }
+            coordinatorHandlers.revealInEditor!(b, 3, 2, 6)
+        })
+        expect(editor.getValue()).toBe('x\ny\n find me')
+        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+        expect(editor.focused).toBe(true)
+    })
+
+    it('selects the hit once its file is the active tab', async () => {
         const a = '/w/a.md'
         const b = '/w/b.md'
         tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
         const { view, editor } = await mountEditor()
 
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
+        act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
+        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+    })
+
+    it("forgets a hit whose file didn't open, so opening it by hand later leaves the cursor and focus alone", async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // b.md couldn't be read (or the open lost to a newer one), so a.md still shows.
         act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
         expect(editor.selection).toBeNull()
 
+        // Later b.md is opened from the explorer, where the keyboard is meant to stay.
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
-        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+        expect(editor.selection).toBeNull()
+        expect(editor.focused).toBe(false)
+    })
+
+    it('forgets the hit when another file shows before it, even if the hit was for a file showing later', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const c = '/w/c.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C')], activeTabId: c })
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C'), tab(b, 'x\ny\n find me')], activeTabId: b })
+
+        expect(editor.selection).toBeNull()
+        expect(editor.focused).toBe(false)
+    })
+
+    it.each([
+        ['letter case', String.raw`C:\w\Notes.md`],
+        ['separators', 'C:/w/notes.md'],
+    ])('finds the tab when the hit spells its path with different %s', async (_, hitPath) => {
+        const path = String.raw`C:\w\notes.md`
+        tabsState = { tabs: [tab(path, 'one\nsee TODO here')], activeTabId: path }
+        const { editor } = await mountEditor()
+
+        act(() => coordinatorHandlers.revealInEditor!(hitPath, 2, 5, 4))
+
+        expect(editor.selection).toEqual({ startLineNumber: 2, startColumn: 5, endLineNumber: 2, endColumn: 9 })
+        expect(editor.focused).toBe(true)
     })
 
     it('selects the hit in the new editor when no tab was open', async () => {

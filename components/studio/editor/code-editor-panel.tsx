@@ -79,6 +79,17 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
         invisibleCharacters: false,
         nonBasicASCII: false,
     },
+    // Monaco would otherwise delete U+2028/U+2029 (common in text from PDFs, Word or the web) from
+    // the user's file without asking: its prompt goes through window.confirm, which the Tauri dialog
+    // plugin replaces with an async function, and Monaco reads the Promise it gets back as a yes.
+    unusualLineTerminators: 'off',
+    // Word suggestions off, as in VS Code for Markdown: prose isn't code, and Enter must always
+    // start a new line rather than swap the word just typed for one from another file.
+    quickSuggestions: false,
+    wordBasedSuggestions: 'off',
+    suggestOnTriggerCharacters: false,
+    acceptSuggestionOnEnter: 'off',
+    snippetSuggestions: 'none',
     scrollbar: {
         vertical: 'auto',
         // Only appears when a line is wider than the pane (word wrap off or at a column).
@@ -121,6 +132,16 @@ function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column:
 function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.detectIndentation(true, tabSize)
     model.updateOptions({ tabSize, indentSize: tabSize })
+}
+
+/**
+ * The one line ending `text` uses, or null when it has no line break or mixes them. Monaco gives a buffer
+ * one line ending, so a file that mixes them is evened out on purpose and is left that way.
+ */
+function lineEndingOf(text: string): '\r\n' | '\n' | null {
+    if (!/[\r\n]/.test(text)) return null
+    if (!/\r(?!\n)|(?<!\r)\n/.test(text)) return '\r\n'
+    return text.includes('\r') ? null : '\n'
 }
 
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
@@ -210,18 +231,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     // A hidden editor keeps its buffer, but can't take focus and has no visible selection.
     const openRef = useRef(open)
 
+    // The palette jumps once the hit's file has opened. Like the focus request below, the render this
+    // starts already has the open's change of tab, so the effect further down sees which file shows.
+    const [revealRequest, setRevealRequest] = useState(0)
     const revealPosition = useCallback((path: string, line: number, column: number, length?: number) => {
-        const editor = editorRef.current
-        const activePath = activeTabIdRef.current
-
-        // Waits until the hit's file is the active tab and the editor is ready and showing.
-        if (!editor || !openRef.current || activePath !== path) {
-            pendingRevealRef.current = { path, line, column, length }
-            return
-        }
-
-        revealMatch(editor, line, column, length)
-        pendingRevealRef.current = null
+        pendingRevealRef.current = { path, line, column, length }
+        setRevealRequest((n) => n + 1)
     }, [])
 
     // Fills the palette's search box, so it must be text the user can see.
@@ -269,12 +284,22 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         else pendingFocusRef.current = null
     }, [shownTabId, focusRequest, focusPendingTab])
 
+    // A search hit is kept the same way: only while its file is the tab showing, waiting for the editor
+    // to load or be shown (a hidden one can't take focus). If the file didn't open or another tab shows,
+    // the hit is dropped, so opening that file later doesn't jump to an old line and take the keyboard.
     useEffect(() => {
         openRef.current = open
         const pending = pendingRevealRef.current
-        if (!pending || !open || activeTab?.path !== pending.path || !editorRef.current) return
-        revealPosition(pending.path, pending.line, pending.column, pending.length)
-    }, [open, activeTab?.path, revealPosition])
+        if (!pending) return
+        if (!isTab(shownTabId, pending.path)) {
+            pendingRevealRef.current = null
+            return
+        }
+        const editor = editorRef.current
+        if (!open || !editor) return
+        pendingRevealRef.current = null
+        revealMatch(editor, pending.line, pending.column, pending.length)
+    }, [open, shownTabId, revealRequest])
 
     // Measure the row shared with the preview, so a saved width that no longer fits (smaller
     // window or monitor) is shown narrower instead of pushing the preview off-screen. The
@@ -439,7 +464,24 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         const tab = given ?? activeTabRef.current
         const monaco = monacoRef.current
         if (!model || !tab || !monaco) return
-        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) return
+        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) {
+            // The same text, but another program may have changed only its line endings (the file was
+            // reloaded). Take them on, or the next keystroke would save the old ones over every line.
+            // The change goes on the undo stack as its own step, as VS Code does: Ctrl+Z first puts the
+            // old line endings back, then undoes earlier edits. Don't use setEOL: it skips the undo
+            // stack, so undoing an earlier edit would land in the wrong place and garble the text.
+            const eol = lineEndingOf(tab.content)
+            if (eol === null || model.getEOL() === eol) return
+            suppressChangeRef.current = true
+            try {
+                model.pushStackElement()
+                model.pushEOL(eol === '\r\n' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
+                model.pushStackElement()
+            } finally {
+                suppressChangeRef.current = false
+            }
+            return
+        }
         suppressChangeRef.current = true
         try {
             model.setValue(tab.content)
@@ -544,7 +586,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             applyToAttachedModel()
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
-            if (pending && openRef.current && activeTabIdRef.current === pending.path) {
+            if (pending && openRef.current && isTab(activeTabIdRef.current, pending.path)) {
                 revealMatch(editor, pending.line, pending.column, pending.length)
                 pendingRevealRef.current = null
             }

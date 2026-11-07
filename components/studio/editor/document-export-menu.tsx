@@ -20,6 +20,27 @@ const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
     { label: '4×', scale: 4 },
 ]
 
+type ExportOffState = {
+    tabKind: ReturnType<typeof documentKind>
+    exporting: boolean
+    hasMarkdown: boolean
+    hasDiagramSource: boolean
+    diagramError: boolean
+    isPending: boolean
+}
+
+/** Why the Export button is off, shown in its tooltip and read out as its description. */
+function exportOffReason({ tabKind, exporting, hasMarkdown, hasDiagramSource, diagramError, isPending }: ExportOffState): string {
+    if (!tabKind) return 'Open a document to export'
+    if (exporting) return 'Exporting…'
+    if (tabKind === 'markdown' && !hasMarkdown) return 'Nothing to export: the document is empty'
+    // A Mermaid file, or the Mermaid block expanded in a Markdown file.
+    if (!hasDiagramSource) return 'Nothing to export: the diagram is empty'
+    if (diagramError) return 'Fix the diagram error to export'
+    if (isPending) return 'Drawing the diagram…'
+    return 'No diagram to export'
+}
+
 export function DocumentExportMenu() {
     const { activeTab, activeTabId } = useDocumentTabs()
     const { expanded } = useMarkdownExpand()
@@ -65,7 +86,9 @@ export function DocumentExportMenu() {
     // With no Markdown or Mermaid tab open the menu would have nothing in it.
     const triggerDisabled =
         !tabKind || exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
-    const triggerTitle = tabKind ? 'Export document' : 'Open a document to export'
+    const triggerTitle = triggerDisabled
+        ? exportOffReason({ tabKind, exporting, hasMarkdown, hasDiagramSource, diagramError: Boolean(currentError), isPending })
+        : 'Export document'
     // The button is aria-disabled rather than disabled, so it can still be focused or hovered to say why.
     // The menu stays shut while it is off, and shuts if it goes off while open.
     if (menuOpen && triggerDisabled) setMenuOpen(false)
@@ -74,7 +97,7 @@ export function DocumentExportMenu() {
         <>
             <Menu open={menuOpen} onOpenChange={(next) => setMenuOpen(next && !triggerDisabled)}>
                 {/* The tooltip's trigger renders the menu's trigger, which renders the button, so both work on one button. */}
-                <IconTooltip label={triggerTitle}>
+                <IconTooltip label={triggerTitle} description={triggerDisabled ? triggerTitle : undefined}>
                     <MenuTrigger
                         render={
                             <Button
