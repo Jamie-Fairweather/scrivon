@@ -1681,6 +1681,26 @@ describe('renderExportDocx', () => {
         expect(notifyWarning).not.toHaveBeenCalled()
     })
 
+    it('redraws an opaque WebP picture as a JPEG, and keeps PNG for see-through pictures and SVG art', async () => {
+        const webp = dataUrl('image/webp', WEBP)
+        const svg = `data:image/svg+xml,${encodeURIComponent(svgMarkup('width="40" height="20"'))}`
+        const redraw = async (url: string, lastAlpha: number) => {
+            stubImageDecoding(lastAlpha)
+            const { xml, names } = await render(`![pic](${url})`)
+            return { types: [...encodings], media: mediaFiles(names), size: drawingSize(xml, 'pic') }
+        }
+        // A photo with no see-through pixels would be a lossless PNG of many megabytes.
+        expect(await redraw(webp, 255)).toEqual({
+            types: ['image/jpeg'],
+            media: [expect.stringMatching(/\.jpe?g$/)],
+            size: { width: 640, height: 480 },
+        })
+        // One see-through pixel, in the last rows, keeps it a PNG so the page shows through as in the PDF.
+        expect(await redraw(webp, 254)).toEqual({ types: ['image/png'], media: [expect.stringMatching(/\.png$/)], size: { width: 640, height: 480 } })
+        // Vector art stays a sharp PNG, without its pixels being read.
+        expect(await redraw(svg, 255)).toEqual({ types: ['image/png'], media: [expect.stringMatching(/\.png$/)], size: { width: 40, height: 20 } })
+    })
+
     it('draws an SVG logo that runs to the paper edges for the page width, so it stays sharp', async () => {
         const canvases = stubImageDecoding()
         const svgLogo = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup('viewBox="0 0 120 40"'))}`
@@ -1849,9 +1869,17 @@ function svgMarkup(attributes: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}><rect width="10" height="10"/></svg>`
 }
 
-/** Fake `<img>` and canvas. Every picture is 640×480; `broken` data fails to load. Each canvas hands back a PNG of its own size. */
-function stubImageDecoding() {
+/** The file types each canvas from {@link stubImageDecoding} was asked to write, in order. */
+const encodings: string[] = []
+
+/**
+ * Fake `<img>` and canvas. Every picture is 640×480; `broken` data fails to load. Each canvas hands back a PNG of its
+ * own size, or a JPEG when asked for one. Every pixel is opaque but the last, which has `lastAlpha`: see-through unless
+ * a test says otherwise, so only a scan of the whole picture finds it.
+ */
+function stubImageDecoding(lastAlpha = 0) {
     const canvases: { width: number; height: number }[] = []
+    encodings.length = 0
     class FakeImage {
         naturalWidth = 0
         naturalHeight = 0
@@ -1872,10 +1900,19 @@ function stubImageDecoding() {
             const canvas = {
                 width: 0,
                 height: 0,
-                getContext: () => ({ drawImage() {} }),
-                toBlob(callback: (blob: Blob | null) => void) {
+                getContext: () => ({
+                    drawImage() {},
+                    getImageData(_x: number, top: number, width: number, height: number) {
+                        const data = new Uint8ClampedArray(width * height * 4).fill(255)
+                        if (top + height >= canvas.height) data[data.length - 1] = lastAlpha
+                        return { data }
+                    },
+                }),
+                toBlob(callback: (blob: Blob | null) => void, type = 'image/png') {
                     canvases.push({ width: canvas.width, height: canvas.height })
-                    callback(new Blob([Uint8Array.from(sizedPng(canvas.width, canvas.height))]))
+                    encodings.push(type)
+                    const bytes = type === 'image/jpeg' ? jpeg(sof(canvas.height, canvas.width)) : sizedPng(canvas.width, canvas.height)
+                    callback(new Blob([Uint8Array.from(bytes)]))
                 },
             }
             return canvas

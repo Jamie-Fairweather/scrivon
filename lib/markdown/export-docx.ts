@@ -419,7 +419,7 @@ function decodeDataUrl(dataUrl: string): Uint8Array | null {
 /** Image bytes Word can embed, and the size the PDF shows the picture at (null when the file doesn't say). */
 type DecodedImage = { kind: ImageKind; bytes: Uint8Array; size: { width: number; height: number } | null }
 
-/** A data URL as Word-ready bytes: as is for PNG/JPEG/GIF/BMP, else the PNG {@link convertImages} made from it. */
+/** A data URL as Word-ready bytes: as is for PNG/JPEG/GIF/BMP, else the PNG or JPEG {@link convertImages} made from it. */
 function decodeImage(converted: Map<string, DecodedImage>, dataUrl: string): DecodedImage | null {
     const redrawn = converted.get(dataUrl.trim())
     if (redrawn) return redrawn
@@ -469,11 +469,29 @@ function svgSize(markup: string): { width: number; height: number } | null {
 
 const SVG_DATA_URL = /^data:image\/svg\+xml[;,]/i
 
+/** Rows of pixels read at a time when a redrawn picture is checked for see-through parts, so a big one isn't copied whole. */
+const ALPHA_BAND_ROWS = 256
+
+/** Whether every pixel on the canvas is fully opaque. False when the pixels can't be read, so the picture stays a PNG. */
+function canvasIsOpaque(ctx: CanvasRenderingContext2D, width: number, height: number): boolean {
+    try {
+        for (let top = 0; top < height; top += ALPHA_BAND_ROWS) {
+            const { data } = ctx.getImageData(0, top, width, Math.min(ALPHA_BAND_ROWS, height - top))
+            for (let index = 3; index < data.length; index += 4) if (data[index]! < 255) return false
+        }
+        return true
+    } catch {
+        return false
+    }
+}
+
 /**
- * Draws an image Word can't take (SVG, WebP…) as a PNG, the way the PDF's `<img>` shows it. Null where that fails.
+ * Draws an image Word can't take (SVG, WebP…) the way the PDF's `<img>` shows it. Null where that fails.
+ * A picture with no see-through parts becomes a JPEG, since a photo as a lossless PNG can be many megabytes;
+ * SVG art and pictures with transparency become a PNG.
  * `size` stays the image's own size; `shownWidth` is a wider size it will be stretched to, so vector art is drawn for that.
  */
-async function redrawAsPng(dataUrl: string, shownWidth = 0): Promise<DecodedImage | null> {
+async function redrawForWord(dataUrl: string, shownWidth = 0): Promise<DecodedImage | null> {
     if (typeof document === 'undefined' || typeof globalThis.Image === 'undefined') return null
     const bytes = decodeDataUrl(dataUrl)
     if (!bytes || imageKind(bytes)) return null
@@ -491,9 +509,15 @@ async function redrawAsPng(dataUrl: string, shownWidth = 0): Promise<DecodedImag
         const ctx = canvas.getContext('2d')
         if (!ctx) return null
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/png'))
+        const jpeg = !svg && canvasIsOpaque(ctx, canvas.width, canvas.height)
+        const blob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob((value) => resolve(value), jpeg ? 'image/jpeg' : 'image/png', jpeg ? 0.9 : undefined)
+        )
         if (!blob) return null
-        return { kind: 'png', bytes: new Uint8Array(await blob.arrayBuffer()), size }
+        const redrawn = new Uint8Array(await blob.arrayBuffer())
+        // A browser that can't write JPEG hands back a PNG instead, so the bytes say which it is.
+        const kind = imageKind(redrawn)
+        return kind ? { kind, bytes: redrawn, size } : null
     } catch {
         return null
     }
@@ -518,7 +542,7 @@ async function convertImages(exportDocument: ExportDocument): Promise<Map<string
         [...urls]
             .filter((url) => url.startsWith('data:'))
             .map(async (url) => {
-                const image = await redrawAsPng(url)
+                const image = await redrawForWord(url)
                 if (image) converted.set(url, image)
             })
     )
@@ -1649,7 +1673,7 @@ async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx:
     const maxWidth = bleed ? Math.max(1, Math.floor(state.pageWidthTwip / 15)) : state.contentPx
     // A logo that ignores margins is stretched to the page width, so an SVG one is drawn again for that width, not its own small size.
     const logoUrl = assets.logoDataUrl.trim()
-    const stretched = bleed && SVG_DATA_URL.test(logoUrl) ? await redrawAsPng(logoUrl, maxWidth) : null
+    const stretched = bleed && SVG_DATA_URL.test(logoUrl) ? await redrawForWord(logoUrl, maxWidth) : null
     const { bytes, kind, size: intrinsic } = stretched ?? state.logo
     const maxHeight = mmToPx(LOGO_MAX_HEIGHT_MM)
     let width = maxWidth
