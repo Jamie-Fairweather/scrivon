@@ -183,6 +183,20 @@ describe('buildPdfExportCss', () => {
         expect(css).toMatch(/\.pdf-toc-page h1 \{[^}]*font-size: [\d.]+em;/)
     })
 
+    it('puts a bulleted task’s checkbox in place of its bullet, and keeps a numbered task’s number (N32)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).toContain('ul > li.task-list-item { list-style: none; }')
+        // No rule takes the number off a numbered task.
+        expect(css).not.toMatch(/(^|[\n,])\s*(ol > )?li\.task-list-item \{[^}]*list-style/)
+        // The box moves back into the bullet's place, in a tight list or the first paragraph of a loose one.
+        expect(css).toMatch(
+            /ul > li\.task-list-item > input\[type="checkbox"\],\s*ul > li\.task-list-item > p:first-child > input\[type="checkbox"\] \{ margin-inline-start: -1\.25rem; \}/
+        )
+        expect(css).toMatch(
+            /\n\s*li\.task-list-item > input\[type="checkbox"\],\s*li\.task-list-item > p:first-child > input\[type="checkbox"\] \{ margin-block: 0; margin-inline: 0 0\.25rem; vertical-align: middle; \}/
+        )
+    })
+
     it('honours markdown table column alignment', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
         expect(css).not.toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*text-align: left;/)

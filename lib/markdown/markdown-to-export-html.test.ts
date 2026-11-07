@@ -791,6 +791,18 @@ SHIKI_FAIL
         expect(html).not.toMatch(/\.pdf-body img \{[^}]*width: auto/)
     })
 
+    it('marks task items and keeps their checkboxes, which the stylesheet puts in place of the bullet (N32)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('- [ ] Milk\n- [x] Bread\n\n1. [ ] One\n\nText\n\n- [ ] Loose\n\n- [x] Items', {
+            assets: EMPTY_ASSETS,
+        })
+        expect(html).toContain('<ul class="contains-task-list">\n<li class="task-list-item" dir="auto"><input type="checkbox" disabled> Milk</li>')
+        expect(html).toContain('<li class="task-list-item" dir="auto"><input type="checkbox" checked disabled> Bread</li>')
+        expect(html).toContain('<ol class="contains-task-list">\n<li class="task-list-item" dir="auto"><input type="checkbox" disabled> One</li>')
+        expect(html).toMatch(/<li class="task-list-item" dir="auto">\s*<p dir="auto"><input type="checkbox" disabled> Loose<\/p>/)
+        expect(html).toContain('ul > li.task-list-item { list-style: none; }')
+    })
+
     it('keeps only safe links live, and points #heading links at the heading however they are written (S10, B55)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(

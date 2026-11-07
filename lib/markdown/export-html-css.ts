@@ -473,6 +473,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   /* Each item steps in from its own start side, so a right-to-left item in a left-to-right list keeps its bullet on the page. */
   ul, ol { margin: 0 0 0.75rem; padding-inline-start: 0; }
   li { margin: 0.25rem 0; margin-inline-start: 1.25rem; word-break: break-word; }
+  /* A bulleted task's checkbox sits where its bullet would, as in the preview and Word; a numbered one keeps its number. */
+  ul > li.task-list-item { list-style: none; }
+  li.task-list-item > input[type="checkbox"],
+  li.task-list-item > p:first-child > input[type="checkbox"] { margin-block: 0; margin-inline: 0 0.25rem; vertical-align: middle; }
+  ul > li.task-list-item > input[type="checkbox"],
+  ul > li.task-list-item > p:first-child > input[type="checkbox"] { margin-inline-start: -1.25rem; }
   blockquote {
     margin: 0 0 0.75rem;
     padding-inline-start: 1rem;
