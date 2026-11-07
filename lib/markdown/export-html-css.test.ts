@@ -197,6 +197,12 @@ describe('buildPdfExportCss', () => {
         )
     })
 
+    it('hides the footnotes heading meant for screen readers and sets the notes apart with a rule (N34)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        expect(css).toContain('.pdf-body section.footnotes > #footnote-label { display: none; }')
+        expect(css).toMatch(/\.pdf-body section\.footnotes \{[^}]*border-top: 1px solid #e5e5e5;/)
+    })
+
     it('honours markdown table column alignment', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
         expect(css).not.toMatch(/table:not\(\.pdf-chrome-table\) td \{[^}]*text-align: left;/)

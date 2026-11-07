@@ -492,6 +492,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     font-style: italic;
   }
   hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; }
+  /*
+   * The footnotes' "Footnotes" heading is for screen readers only, as in the preview: printed, it would be an
+   * English heading in any document, and a new page with 'New page from heading'. A rule sets the notes apart instead.
+   */
+  .pdf-body section.footnotes > #footnote-label { display: none; }
+  .pdf-body section.footnotes { margin-top: 1.5rem; padding-top: 0.75rem; border-top: 1px solid #e5e5e5; font-size: 0.9em; }
   a { color: ${links}; text-decoration: underline; }
   .export-article :not(pre) > code {
     font-family: ${profile.typography.monoFont};

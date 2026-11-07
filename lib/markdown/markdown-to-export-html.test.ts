@@ -791,6 +791,18 @@ SHIKI_FAIL
         expect(html).not.toMatch(/\.pdf-body img \{[^}]*width: auto/)
     })
 
+    it('keeps the screen-reader-only footnotes heading out of the printed page, and off a page of its own (N34)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.flow.newPageFromHeading = 2
+        const { html } = await markdownToExportHtml('# Title\n\nText[^1]\n\n[^1]: Note.', { profile, assets: EMPTY_ASSETS })
+        // The heading stays for the footnote links' aria-describedby, but has no box: it can't print or start a page.
+        expect(html).toMatch(/<section data-footnotes class="footnotes"><h2 class="sr-only" id="footnote-label"[^>]*>Footnotes<\/h2>/)
+        expect(html).toContain('aria-describedby="footnote-label"')
+        expect(html).toContain('.pdf-body section.footnotes > #footnote-label { display: none; }')
+        expect(html).toContain('.pdf-body h1, .pdf-body h2 { break-before: page;')
+    })
+
     it('keeps a raw HTML paragraph’s own alignment when body text is justified (N33)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
