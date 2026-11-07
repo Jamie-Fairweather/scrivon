@@ -8,7 +8,7 @@
 
 **Mermaid & markdown on your machine.**
 
-Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.mmd` or `.md` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
+Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.md`, `.mmd` or `.mermaid` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
 
 <p align="center">
   <img src="preview.png" alt="Scrivon — workspace, Monaco editor, and live diagram or Markdown preview" width="900" />
@@ -63,7 +63,7 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 
 1. Download the latest installer from [Releases](https://github.com/Jamie-Fairweather/scrivon/releases).
 2. Launch Scrivon and choose **Open Folder**.
-3. Select a directory containing `.md` and/or `.mmd` files.
+3. Select a folder containing `.md`, `.mmd` or `.mermaid` files.
 4. Edit in the center pane; the preview updates as you type.
     - **Diagram files** — Preview renders on the canvas.
     - **Markdown files** — Preview shows rendered Markdown; use **Expand** on a `mermaid` block to open it on the canvas.
