@@ -102,6 +102,8 @@ const KEYBOARD_RESIZE_STEP = 16
 const KEYBOARD_RESIZE_BIG_STEP = 64
 /** How many of the editor's own edits are remembered while waiting for the tab to show them. */
 const MAX_UNSEEN_EDITS = 20
+/** How long the "Ctrl+M: Tab moves focus" hint stays up after the editor gains focus or the mode switches. */
+const TAB_FOCUS_HINT_MS = 5000
 
 /** Selects a search hit (a bare caret when it has no length), scrolls it into view and focuses the editor. */
 function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column: number, length = 0) {
@@ -155,6 +157,16 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const unseenEditsRef = useRef<{ tabId: string | null; texts: string[] }>({ tabId: null, texts: [] })
     const pendingRevealRef = useRef<{ path: string; line: number; column: number; length?: number } | null>(null)
     const [editorFocused, setEditorFocused] = useState(false)
+    // The Tab key hint sits over the text, so it shows only for a while each time the editor gains focus or
+    // Ctrl+M switches the mode, not the whole time the user types. Each of those starts a new showing.
+    const [hintShowing, setHintShowing] = useState(0)
+    const [hintShowingDone, setHintShowingDone] = useState(0)
+    const showHintAgain = useCallback(() => setHintShowing((n) => n + 1), [])
+    useEffect(() => {
+        if (!editorFocused) return
+        const timer = setTimeout(() => setHintShowingDone(hintShowing), TAB_FOCUS_HINT_MS)
+        return () => clearTimeout(timer)
+    }, [editorFocused, hintShowing])
 
     // The setting picks what Tab does when the editor starts. Ctrl+M (Monaco's own toggle) can still
     // switch it while typing, so the hint and the editor's name follow Monaco's mode, not the setting.
@@ -169,7 +181,10 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 if (cancelled) return
                 tabFocus.setTabFocusMode(tabMovesFocusSetting)
                 setTabMovesFocus(tabFocus.getTabFocusMode())
-                subscription = tabFocus.onDidChangeTabFocus(setTabMovesFocus)
+                subscription = tabFocus.onDidChangeTabFocus((mode) => {
+                    setTabMovesFocus(mode)
+                    showHintAgain()
+                })
             })
             // Monaco failed to load, so there is no editor to set it on.
             .catch(() => {})
@@ -177,7 +192,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             cancelled = true
             subscription?.dispose()
         }
-    }, [tabMovesFocusSetting])
+    }, [tabMovesFocusSetting, showHintAgain])
 
     // Each open tab gets its own Monaco model; see lib/monaco/model-keys.ts.
     const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs])
@@ -484,7 +499,10 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 if (editorRef.current === editor) editorRef.current = null
                 setEditorFocused(false)
             })
-            editor.onDidFocusEditorText(() => setEditorFocused(true))
+            editor.onDidFocusEditorText(() => {
+                setEditorFocused(true)
+                showHintAgain()
+            })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
@@ -510,7 +528,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
     )
 
     useEffect(() => {
@@ -554,7 +572,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 )}
                 {/* Tab indents here, so say on screen how to leave with the keyboard. Screen readers
                     hear it in the editor's name instead. Clear of the scrollbars. */}
-                {editorPath && editorFocused ? (
+                {editorPath && editorFocused && hintShowingDone !== hintShowing ? (
                     <div
                         aria-hidden
                         data-slot="editor-tab-focus-hint"

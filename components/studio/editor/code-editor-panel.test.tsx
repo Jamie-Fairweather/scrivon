@@ -503,6 +503,35 @@ describe('CodeEditorPanel Tab key', () => {
         act(() => editor.blurText())
         expect(hint(view)).toBeNull()
     })
+
+    it("hides the hint after a few seconds, so it doesn't sit over the text while typing", async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        await waitFor(() => expect(tabFocus.setTabFocusMode).toHaveBeenCalled())
+        vi.useFakeTimers()
+        try {
+            act(() => editor.focusText())
+            act(() => vi.advanceTimersByTime(4900))
+            expect(hint(view)).not.toBeNull()
+            act(() => vi.advanceTimersByTime(100))
+            expect(hint(view)).toBeNull()
+
+            // Ctrl+M shows it again with the new mode, for a while.
+            act(() => tabFocus.setTabFocusMode(true))
+            expect(hint(view)?.textContent).toBe('Tab moves focus · Ctrl+M to indent')
+            act(() => vi.advanceTimersByTime(5000))
+            expect(hint(view)).toBeNull()
+
+            // So does coming back to the editor.
+            act(() => editor.blurText())
+            act(() => editor.focusText())
+            expect(hint(view)).not.toBeNull()
+            act(() => vi.advanceTimersByTime(5000))
+            expect(hint(view)).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
 })
 
 describe('CodeEditorPanel unicode highlighting', () => {
