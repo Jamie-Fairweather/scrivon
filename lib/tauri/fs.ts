@@ -261,8 +261,20 @@ async function replaceFile(tempPath: string, path: string): Promise<void> {
     }
 }
 
+/** Windows file attributes that a file put in place of the original wouldn't have. */
+const FILE_ATTRIBUTE_HIDDEN = 0x2
+const FILE_ATTRIBUTE_SYSTEM = 0x4
+
+type FileOnDisk = {
+    /** Written straight into the file rather than replaced; see inspectFile. */
+    inPlace: boolean
+    /** Its Unix permission bits (macOS, Linux), which the file that replaces it is given too. */
+    mode?: number
+    stamp: FileStamp
+}
+
 /** What is at `path` now, or null when nothing is. */
-async function inspectFile(path: string): Promise<{ link: boolean; stamp: FileStamp } | null> {
+async function inspectFile(path: string): Promise<FileOnDisk | null> {
     let info: Awaited<ReturnType<typeof lstat>>
     try {
         info = await lstat(path)
@@ -270,15 +282,29 @@ async function inspectFile(path: string): Promise<{ link: boolean; stamp: FileSt
         if (!(await exists(path))) return null
         throw err
     }
-    // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file it points to.
-    const link = info.isSymlink || (info.nlink ?? 1) > 1
-    if (!info.isSymlink) return { link, stamp: stampOf(info) }
+    // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file
+    // it points to. A hidden or system file is too, since the new file would show up without those marks.
+    const attributes = info.fileAttributes ?? 0
+    const inPlace = info.isSymlink || (info.nlink ?? 1) > 1 || (attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) !== 0
+    const mode = typeof info.mode === 'number' ? info.mode & 0o7777 : undefined
+    if (!info.isSymlink) return { inPlace, mode, stamp: stampOf(info) }
     try {
-        return { link, stamp: stampOf(await stat(path)) }
+        return { inPlace, stamp: stampOf(await stat(path)) }
     } catch {
         // The link points at a file that is gone.
         return null
     }
+}
+
+/**
+ * Access denied, or the file is open in another program that doesn't let it be replaced (Windows errors 5,
+ * 32 and 33; EPERM and EACCES elsewhere). Writing straight into the file can still work then.
+ */
+const CANNOT_REPLACE = /\(os error (?:1|5|13|32|33)\)/
+
+function cannotReplace(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+    return CANNOT_REPLACE.test(message)
 }
 
 export type WriteWorkspaceFileOptions = {
@@ -295,7 +321,9 @@ export type WriteWorkspaceFileOptions = {
  * Saves text in the file's own encoding. The bytes go to a temporary file next to it, which then replaces
  * the file in one step. So a save that fails or is cut short (full disk, unplugged drive, crash) leaves the
  * old version, never an empty or half-written file. If the write or the replace fails, the temporary file is removed.
- * Resolves to the saved file's new stamp (null if it couldn't be read).
+ * Where a file can be changed but not replaced (no right to add files to its folder, or another program has
+ * it open), it is written in place as before, rather than never saving. Resolves to the saved file's new
+ * stamp (null if it couldn't be read).
  */
 export async function writeWorkspaceFile(
     path: string,
@@ -309,13 +337,14 @@ export async function writeWorkspaceFile(
         if (expected && stampChanged(expected, current.stamp)) throw new DiskChangedError(path, 'changed')
     }
     const bytes = encodeText(content, format)
-    if (current?.link) {
+    if (current?.inPlace) {
         await writeFile(path, bytes)
         return readStamp(path)
     }
     const tempPath = saveTempPath(path)
     try {
-        await writeFile(tempPath, bytes, { createNew: true })
+        // A private (600) note or a script (755) stays that way.
+        await writeFile(tempPath, bytes, current?.mode === undefined ? { createNew: true } : { createNew: true, mode: current.mode })
         await replaceFile(tempPath, path)
     } catch (err) {
         // A write cut short (full disk, drive gone) can leave part of the temporary file behind too.
@@ -324,7 +353,9 @@ export async function writeWorkspaceFile(
         } catch {
             // Never created, or already gone with the drive.
         }
-        throw err
+        if (!current || !cannotReplace(err)) throw err
+        console.warn(`Couldn't replace ${path}, so it is written in place`, err)
+        await writeFile(path, bytes)
     }
     return readStamp(path)
 }

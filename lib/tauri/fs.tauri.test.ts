@@ -99,14 +99,49 @@ describe('workspace fs (Tauri)', () => {
     })
 
     it('leaves the old file alone and removes the temporary one when it cannot be replaced', async () => {
-        renameMock.mockRejectedValue('Access is denied. (os error 5)')
-        await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('Access is denied. (os error 5)')
+        renameMock.mockRejectedValue('The specified network name is no longer available. (os error 64)')
+        await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('The specified network name is no longer available. (os error 64)')
         const { tempPath } = lastSave()
         expect(tempPath).toMatch(/^C:\\ws\\\.scrivon-save-[a-z0-9]+\.tmp$/)
         expect(renameMock).toHaveBeenCalledTimes(5)
         expect(removeMock).toHaveBeenCalledWith(tempPath, { recursive: false })
         // Nothing was ever written to the real file.
         expect(writeFileMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('writes in place when another program keeps the file from being replaced', async () => {
+        renameMock.mockRejectedValue('The process cannot access the file because it is being used by another process. (os error 32)')
+        await writeWorkspaceFile('C:\\ws\\notes.md', 'new')
+        expect(renameMock).toHaveBeenCalledTimes(5)
+        expect(removeMock).toHaveBeenCalledTimes(1)
+        expect(writeFileMock).toHaveBeenLastCalledWith('C:\\ws\\notes.md', new TextEncoder().encode('new'))
+    })
+
+    it('writes in place when it may change the file but not add one next to it', async () => {
+        writeFileMock.mockRejectedValueOnce('failed to open file: Permission denied (os error 13)')
+        await writeWorkspaceFile('/ws/shared.md', 'new')
+        expect(renameMock).not.toHaveBeenCalled()
+        expect(writeFileMock).toHaveBeenLastCalledWith('/ws/shared.md', new TextEncoder().encode('new'))
+    })
+
+    it('still fails, without touching the file, when there is nothing there to write into', async () => {
+        lstatMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
+        writeFileMock.mockRejectedValueOnce('Access is denied. (os error 5)')
+        await expect(writeWorkspaceFile('C:\\ws\\new.md', 'new')).rejects.toBe('Access is denied. (os error 5)')
+        expect(writeFileMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the Unix permissions of the file it replaces', async () => {
+        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: 1, mode: 0o100600 })
+        await writeWorkspaceFile('/home/me/private.md', 'secret')
+        expect(lastSave().options).toEqual({ createNew: true, mode: 0o600 })
+    })
+
+    it('writes a hidden or system file in place, so it keeps those marks', async () => {
+        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null, fileAttributes: 0x22 })
+        await writeWorkspaceFile('C:\\ws\\.notes.md', 'text')
+        expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\.notes.md', new TextEncoder().encode('text'))
+        expect(renameMock).not.toHaveBeenCalled()
     })
 
     it('removes the temporary file when writing it fails part way', async () => {

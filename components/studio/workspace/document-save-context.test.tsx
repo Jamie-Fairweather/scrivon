@@ -187,7 +187,7 @@ describe('DocumentSaveProvider', () => {
     })
 
     it('keeps the real error text when a save fails', async () => {
-        vi.mocked(writeFile).mockRejectedValueOnce('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValueOnce('The network path was not found. (os error 53)')
         const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
         await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
 
@@ -197,7 +197,7 @@ describe('DocumentSaveProvider', () => {
         })
 
         expect(ok).toBe(false)
-        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: true, saveError: 'Access is denied. (os error 5)' })
+        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: true, saveError: 'The network path was not found. (os error 53)' })
     })
 })
 
@@ -211,7 +211,7 @@ describe('save error notices', () => {
     })
 
     async function failingTab() {
-        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('The network path was not found. (os error 53)')
         const rendered = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
         await waitFor(() => expect(rendered.result.current.tabs.tabs).toHaveLength(1))
         const save = async () => {
@@ -229,9 +229,9 @@ describe('save error notices', () => {
         await save()
 
         expect(notifyError).toHaveBeenCalledTimes(1)
-        expect(notifyError).toHaveBeenCalledWith("Couldn't save a.mmd", 'Access is denied. (os error 5)', {
+        expect(notifyError).toHaveBeenCalledWith("Couldn't save a.mmd", 'The network path was not found. (os error 53)', {
             id: 'save-error:/ws/a.mmd',
-            description: 'Access is denied. (os error 5)',
+            description: 'The network path was not found. (os error 53)',
             timeout: 0,
             action: { label: 'Try Again', onClick: expect.any(Function) },
         })
@@ -247,7 +247,7 @@ describe('save error notices', () => {
 
         act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'more text'))
 
-        expect(result.current.tabs.tabs[0]?.saveError).toBe('Access is denied. (os error 5)')
+        expect(result.current.tabs.tabs[0]?.saveError).toBe('The network path was not found. (os error 53)')
     })
 
     it('saves again from the notice and reports a new failure', async () => {
