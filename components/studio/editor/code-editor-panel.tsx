@@ -12,7 +12,7 @@ import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
-import { useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
+import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
@@ -131,7 +131,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
-    const { open: openPalette } = useCommandPalette()
+    // The panel also works on its own (without a palette above it, the right-click entry does nothing).
+    const openPalette = useOptionalCommandPalette()?.open
     // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
     const openPaletteRef = useRef(openPalette)
     useEffect(() => {
@@ -481,7 +482,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 ?.load(`16px ${fontFamily}`)
                 .then(() => monaco.editor.remeasureFonts())
                 .catch(() => {})
-            const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current())
+            const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()

@@ -18,9 +18,17 @@ type CommandPaletteContextValue = {
 const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(null)
 
 export function useCommandPalette(): CommandPaletteContextValue {
-    const ctx = useContext(CommandPaletteContext)
+    const ctx = useOptionalCommandPalette()
     if (!ctx) throw new Error('useCommandPalette must be used within CommandPaletteProvider')
     return ctx
+}
+
+/**
+ * The palette, or null when there is no CommandPaletteProvider above. For parts that work without
+ * it and only offer the palette as a shortcut, such as the editor's right-click 'Command Palette'.
+ */
+export function useOptionalCommandPalette(): CommandPaletteContextValue | null {
+    return useContext(CommandPaletteContext)
 }
 
 /**

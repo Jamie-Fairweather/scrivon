@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CommandPaletteProvider, useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
+import { CommandPaletteProvider, useCommandPalette, useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { notifyError } from '@/lib/notify'
@@ -243,5 +243,20 @@ describe('CommandPaletteProvider when the palette fails to draw', () => {
         act(() => palette.openMode('all'))
         expect(await screen.findByRole('combobox')).toHaveValue('')
         expect(notifyError).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('useOptionalCommandPalette', () => {
+    it('gives null outside the provider, where useCommandPalette throws', () => {
+        expect(renderHook(() => useOptionalCommandPalette()).result.current).toBeNull()
+        expect(() => renderHook(() => useCommandPalette())).toThrow('useCommandPalette must be used within CommandPaletteProvider')
+    })
+
+    it('gives the palette inside the provider', () => {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useOptionalCommandPalette(), {
+            wrapper: ({ children }) => <CommandPaletteProvider coordinator={coordinator}>{children}</CommandPaletteProvider>,
+        })
+        expect(result.current?.open).toEqual(expect.any(Function))
     })
 })

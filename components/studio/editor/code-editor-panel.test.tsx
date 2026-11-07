@@ -255,8 +255,10 @@ let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings } }),
 }))
-const palette = { open: vi.fn() }
-vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({ useCommandPalette: () => ({ open: palette.open }) }))
+const palette = { open: vi.fn(), provided: true }
+vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
+    useOptionalCommandPalette: () => (palette.provided ? { open: palette.open } : null),
+}))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
@@ -294,6 +296,7 @@ beforeEach(() => {
     tabFocus.setTabFocusMode.mockClear()
     fakeMonaco.editor.registerCommand.mockClear()
     palette.open = vi.fn()
+    palette.provided = true
 })
 
 describe('CodeEditorPanel models', () => {
@@ -431,6 +434,15 @@ describe('CodeEditorPanel right-click Command Palette', () => {
         expect(palette.open).toHaveBeenCalledTimes(1)
         expect(first).toHaveBeenCalledTimes(1)
         expect(fakeMonaco.editor.registerCommand).toHaveBeenCalledTimes(1)
+    })
+
+    it('still shows the editor with no palette above it, and then the entry does nothing', async () => {
+        palette.provided = false
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        await mountEditor()
+
+        expect(() => quickCommand().run(undefined)).not.toThrow()
+        expect(palette.open).not.toHaveBeenCalled()
     })
 
     it('gives the command back to Monaco when the editor is thrown away', async () => {
