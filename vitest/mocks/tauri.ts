@@ -31,7 +31,19 @@ vi.mock('@tauri-apps/api/core', async () => {
     return {
         // The app's save command (src-tauri/src/atomic_write.rs, sent by writeWorkspaceFile in lib/tauri/fs.ts)
         // writes through the plugin-fs mock here, so a test sees every save as a writeFile of the file itself.
+        // Its rename command (renameWorkspacePath) is a rename there, refused like the real one when something
+        // is already at the new path, unless only the letter case changes.
         invoke: vi.fn(async (command: string, args?: unknown) => {
+            if (command === 'rename_workspace_path') {
+                const { oldPath, newPath } = args as { oldPath: string; newPath: string }
+                if (oldPath.toLowerCase() !== newPath.toLowerCase() && (await fs.exists(newPath))) {
+                    throw /^(?:[a-zA-Z]:|\\\\)/.test(newPath)
+                        ? 'Cannot create a file when that file already exists. (os error 183)'
+                        : 'File exists (os error 17)'
+                }
+                await fs.rename(oldPath, newPath)
+                return undefined
+            }
             if (command !== 'save_workspace_file' || !ArrayBuffer.isView(args)) return undefined
             const body = new Uint8Array(args.buffer, args.byteOffset, args.byteLength)
             const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)

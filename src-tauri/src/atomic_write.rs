@@ -4,6 +4,9 @@
 //! step is ReplaceFileW, which keeps what makes the file that file: its
 //! permissions (ACLs), attributes, creation time and alternate data streams.
 //! A plain rename would give it a new identity and drop all of those.
+//!
+//! Renaming a file or folder lives here too: it checks where the paths really
+//! are the same way, and never replaces what is already at the new path.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -59,7 +62,7 @@ fn save_allowed(
 fn allowed_target(path: &Path, is_allowed: impl Fn(&Path) -> bool) -> Result<PathBuf, String> {
     let refused = || {
         format!(
-            "Scrivon can only save files in a folder you opened: {}",
+            "Scrivon can only change files in a folder you opened: {}",
             path.display()
         )
     };
@@ -83,6 +86,157 @@ fn allowed_target(path: &Path, is_allowed: impl Fn(&Path) -> bool) -> Result<Pat
         return Err(refused());
     }
     Ok(target)
+}
+
+/// Renames (or moves) a file or folder inside a folder the user opened. It
+/// never replaces what is already at the new path, as the file plugin's rename
+/// would: a file a sync client, git or another editor put there a moment
+/// earlier would be lost. A change of letter case only still works.
+///
+/// When the new path is taken it fails with "(os error 183)" or "(os error 80)"
+/// on Windows and "(os error 17)" elsewhere (PathExistsError in lib/tauri/fs.ts).
+#[tauri::command]
+pub async fn rename_workspace_path(
+    app: tauri::AppHandle,
+    old_path: PathBuf,
+    new_path: PathBuf,
+) -> Result<(), String> {
+    let scope = app.fs_scope();
+    // Finding where the paths really are reads the disk (slow on a network drive).
+    tauri::async_runtime::spawn_blocking(move || {
+        rename_allowed(&old_path, &new_path, |target| scope.is_allowed(target))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+/// Renames `from` to `to` when `is_allowed` (the file scope) lets the window
+/// change both where they really are.
+fn rename_allowed(
+    from: &Path,
+    to: &Path,
+    is_allowed: impl Fn(&Path) -> bool,
+) -> Result<(), String> {
+    let from = allowed_target(from, &is_allowed)?;
+    let to = allowed_target(to, &is_allowed)?;
+    move_no_replace(&from, &to).map_err(|err| err.to_string())
+}
+
+/// Moves `from` to `to` in one step, unless something is already at `to`
+/// (ERROR_ALREADY_EXISTS). Without MOVEFILE_REPLACE_EXISTING, Windows still
+/// renames a file or folder to its own name in another letter case.
+#[cfg(windows)]
+fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain([0]).collect() };
+    let (existing, new) = (wide(from), wide(to));
+    // No flags: nothing is replaced, and nothing is copied to another drive
+    // (the plugin's rename couldn't move to another drive either).
+    // SAFETY: both are NUL-terminated UTF-16 strings that outlive the call.
+    let ok = unsafe { MoveFileExW(existing.as_ptr(), new.as_ptr(), 0) };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Moves `from` to `to` in one step, unless something is already at `to`
+/// (EEXIST).
+#[cfg(unix)]
+fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    const EEXIST: i32 = 17;
+
+    // A change of letter case on a drive that ignores case: `to` is `from`
+    // itself, which a no-replace rename would take for something else.
+    if same_entry_in_new_case(from, to) {
+        return fs::rename(from, to);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        const EINVAL: i32 = 22;
+        const ENOSYS: i32 = 38;
+        match rename_no_replace(from, to) {
+            // A drive that can't refuse in the same step (some network drives),
+            // or too old a kernel: checked just before instead, as the page did.
+            Err(err) if matches!(err.raw_os_error(), Some(EINVAL | ENOSYS)) => {}
+            result => return result,
+        }
+    }
+    if fs::symlink_metadata(to).is_ok() {
+        return Err(io::Error::from_raw_os_error(EEXIST));
+    }
+    fs::rename(from, to)
+}
+
+/// True when `to` is `from` with its name in another letter case and the
+/// drive finds the very same entry under both names.
+#[cfg(unix)]
+fn same_entry_in_new_case(from: &Path, to: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let lower = |path: &Path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+    };
+    if from == to || from.parent() != to.parent() || lower(from) != lower(to) {
+        return false;
+    }
+    match (fs::symlink_metadata(from), fs::symlink_metadata(to)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+/// rename(2) that fails with EEXIST instead of replacing what is at `to`.
+#[cfg(target_os = "linux")]
+fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::ffi::{c_char, c_int, c_uint, CString};
+    use std::os::unix::ffi::OsStrExt;
+
+    extern "C" {
+        fn renameat2(
+            old_dir: c_int,
+            old_path: *const c_char,
+            new_dir: c_int,
+            new_path: *const c_char,
+            flags: c_uint,
+        ) -> c_int;
+    }
+    const AT_FDCWD: c_int = -100;
+    const RENAME_NOREPLACE: c_uint = 1;
+
+    let old_path = CString::new(from.as_os_str().as_bytes())?;
+    let new_path = CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both are NUL-terminated strings that outlive the call.
+    let ok = unsafe {
+        renameat2(
+            AT_FDCWD,
+            old_path.as_ptr(),
+            AT_FDCWD,
+            new_path.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    };
+    if ok == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(windows, unix)))]
+fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    if fs::symlink_metadata(to).is_ok() {
+        return Err(io::ErrorKind::AlreadyExists.into());
+    }
+    fs::rename(from, to)
 }
 
 fn parse_body(body: &[u8]) -> Result<(PathBuf, &[u8]), String> {
@@ -647,5 +801,82 @@ mod tests {
         let mut not_utf8 = 2u32.to_le_bytes().to_vec();
         not_utf8.extend_from_slice(&[0xff, 0xfe]);
         assert!(parse_body(&not_utf8).is_err());
+    }
+
+    /// The errors lib/tauri/fs.ts turns into PathExistsError.
+    fn says_the_new_path_is_taken(err: &str) -> bool {
+        if cfg!(windows) {
+            err.ends_with("(os error 183)") || err.ends_with("(os error 80)")
+        } else {
+            err.ends_with("(os error 17)")
+        }
+    }
+
+    #[test]
+    fn refuses_to_rename_onto_a_file_or_folder_that_is_there() {
+        let dir = TempDir::new();
+        let (draft, last) = (dir.0.join("draft.md"), dir.0.join("final.md"));
+        fs::write(&draft, "DRAFT").unwrap();
+        fs::write(&last, "FINAL").unwrap();
+        let (docs, manual) = (dir.0.join("docs"), dir.0.join("manual"));
+        fs::create_dir(&docs).unwrap();
+        // Empty, so a plain rename of a folder would replace it on Linux and macOS.
+        fs::create_dir(&manual).unwrap();
+
+        for (from, to) in [(&draft, &last), (&docs, &manual), (&draft, &manual)] {
+            let refused = rename_allowed(from, to, |_| true).unwrap_err();
+            assert!(says_the_new_path_is_taken(&refused), "{refused}");
+        }
+
+        assert_eq!(dir.names(), ["docs", "draft.md", "final.md", "manual"]);
+        assert_eq!(fs::read_to_string(&draft).unwrap(), "DRAFT");
+        assert_eq!(fs::read_to_string(&last).unwrap(), "FINAL");
+    }
+
+    #[test]
+    fn renames_a_file_to_its_own_name_in_another_letter_case() {
+        let dir = TempDir::new();
+        fs::write(dir.0.join("notes.md"), "NOTES").unwrap();
+
+        rename_allowed(&dir.0.join("notes.md"), &dir.0.join("Notes.md"), |_| true).unwrap();
+
+        assert_eq!(dir.names(), ["Notes.md"]);
+        assert_eq!(fs::read_to_string(dir.0.join("Notes.md")).unwrap(), "NOTES");
+    }
+
+    #[test]
+    fn renames_a_folder_with_everything_in_it() {
+        let dir = TempDir::new();
+        fs::create_dir_all(dir.0.join("docs").join("deep")).unwrap();
+        fs::write(dir.0.join("docs").join("deep").join("a.md"), "A").unwrap();
+
+        rename_allowed(&dir.0.join("docs"), &dir.0.join("manual"), |_| true).unwrap();
+
+        assert_eq!(dir.names(), ["manual"]);
+        let moved = dir.0.join("manual").join("deep").join("a.md");
+        assert_eq!(fs::read_to_string(moved).unwrap(), "A");
+    }
+
+    #[test]
+    fn renames_only_inside_the_opened_folder() {
+        let dir = TempDir::new();
+        let opened = dir.0.join("opened");
+        fs::create_dir(&opened).unwrap();
+        fs::write(opened.join("notes.md"), "NOTES").unwrap();
+        fs::write(dir.0.join("outside.md"), "OUTSIDE").unwrap();
+
+        // Out of it with a `..` or by its path, and into it from outside.
+        for (from, to) in [
+            (opened.join("notes.md"), opened.join("..").join("moved.md")),
+            (opened.join("notes.md"), dir.0.join("moved.md")),
+            (dir.0.join("outside.md"), opened.join("moved.md")),
+        ] {
+            let refused = rename_allowed(&from, &to, inside(&opened)).unwrap_err();
+            assert!(refused.contains("folder you opened"), "{refused}");
+        }
+
+        assert_eq!(dir.names(), ["opened", "outside.md"]);
+        assert!(opened.join("notes.md").exists());
+        assert!(!opened.join("moved.md").exists());
     }
 }

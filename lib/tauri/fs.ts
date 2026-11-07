@@ -4,7 +4,6 @@ import {
     writeFile,
     writeTextFile,
     mkdir,
-    rename,
     remove,
     stat,
     lstat,
@@ -461,9 +460,18 @@ export async function createWorkspaceFile(path: string, content: string, format?
 }
 
 /**
- * Renames a file or folder. The plugin's rename replaces a file already at the target, so this throws
- * PathExistsError instead. A change of letter case only (`a.md` -> `A.md`) is one entry on Windows and
- * macOS, so it is allowed unless the folder holds another entry with exactly the new name (Linux).
+ * What the app's rename command fails with when something is already at the new path: Windows errors 80
+ * and 183, EEXIST (17) elsewhere (src-tauri/src/atomic_write.rs).
+ */
+function isPathTakenError(err: unknown, path: string): boolean {
+    return (isWindowsPath(path) ? /\(os error (?:80|183)\)/ : /\(os error 17\)/).test(errorText(err))
+}
+
+/**
+ * Renames a file or folder through the app's rename command, which never replaces a file or folder already
+ * at the target, even one that turns up a moment before (a sync client, git): this throws PathExistsError
+ * instead. A change of letter case only (`a.md` -> `A.md`) is one entry on Windows and macOS, so it is
+ * allowed unless the folder holds another entry with exactly the new name (Linux).
  */
 export async function renameWorkspacePath(oldPath: string, newPath: string): Promise<void> {
     if (!isTauri()) return
@@ -475,10 +483,13 @@ export async function renameWorkspacePath(oldPath: string, newPath: string): Pro
         if (oldName === newName) return
         const entries = await readDir(parent)
         if (entries.some((entry) => entry.name === newName)) throw new PathExistsError(newPath)
-    } else if (await exists(newPath)) {
-        throw new PathExistsError(newPath)
     }
-    await rename(oldPath, newPath)
+    try {
+        await invoke('rename_workspace_path', { oldPath: normalizePath(oldPath), newPath: normalizePath(newPath) })
+    } catch (err) {
+        if (isPathTakenError(err, newPath)) throw new PathExistsError(newPath)
+        throw err
+    }
 }
 
 /**

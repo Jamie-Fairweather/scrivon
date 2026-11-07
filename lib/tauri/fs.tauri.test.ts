@@ -8,7 +8,6 @@ const {
     writeFileMock,
     writeTextFileMock,
     mkdirMock,
-    renameMock,
     removeMock,
     copyFileMock,
     statMock,
@@ -24,7 +23,6 @@ const {
     writeFileMock: vi.fn(),
     writeTextFileMock: vi.fn(),
     mkdirMock: vi.fn(),
-    renameMock: vi.fn(),
     removeMock: vi.fn(),
     copyFileMock: vi.fn(),
     statMock: vi.fn(),
@@ -49,7 +47,6 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     writeFile: writeFileMock,
     writeTextFile: writeTextFileMock,
     mkdir: mkdirMock,
-    rename: renameMock,
     remove: removeMock,
     copyFile: copyFileMock,
     stat: statMock,
@@ -87,7 +84,6 @@ describe('workspace fs (Tauri)', () => {
         isTauriMock.mockReturnValue(true)
         existsMock.mockResolvedValue(false)
         lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null })
-        renameMock.mockResolvedValue(undefined)
         invokeMock.mockResolvedValue(undefined)
     })
 
@@ -114,7 +110,6 @@ describe('workspace fs (Tauri)', () => {
         // Sent as raw bytes, not a JSON list of numbers.
         expect(invokeMock.mock.calls[0]![1]).toBeInstanceOf(Uint8Array)
         expect(writeFileMock).not.toHaveBeenCalled()
-        expect(renameMock).not.toHaveBeenCalled()
     })
 
     it('sends a path with any letters in it, in the one form the app uses', async () => {
@@ -254,7 +249,7 @@ describe('workspace fs (Tauri)', () => {
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
         await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
-        expect(renameMock).toHaveBeenCalledWith('/ws/old.mmd', '/ws/new.mmd')
+        expect(invokeMock).toHaveBeenCalledWith('rename_workspace_path', { oldPath: '/ws/old.mmd', newPath: '/ws/new.mmd' })
         expect(removeMock).toHaveBeenCalledWith('/ws/new.mmd', { recursive: false })
         // A byte-for-byte copy that refuses to replace an existing file (copyFile would replace it).
         expect(readFileMock).toHaveBeenCalledWith('/ws/source.mmd')
@@ -302,18 +297,33 @@ describe('workspace fs (Tauri)', () => {
         await expect(listFolderNames('/ws')).resolves.toEqual(['a.md', 'sub'])
     })
 
-    it('refuses to rename onto a file or folder that already exists', async () => {
-        existsMock.mockResolvedValue(true)
+    it('renames through the app, which refuses a file or folder already at the new path', async () => {
+        invokeMock.mockRejectedValueOnce('Cannot create a file when that file already exists. (os error 183)')
+        await expect(renameWorkspacePath('C:\\ws\\draft.md', 'C:/ws/final.md')).rejects.toEqual(new PathExistsError('C:/ws/final.md'))
+        // Sent in the one form the app uses. The app checks what is there in the same step as the rename.
+        expect(invokeMock).toHaveBeenCalledExactlyOnceWith('rename_workspace_path', { oldPath: 'C:\\ws\\draft.md', newPath: 'C:\\ws\\final.md' })
+        expect(existsMock).not.toHaveBeenCalled()
+
+        invokeMock.mockRejectedValueOnce('The file exists. (os error 80)')
         await expect(renameWorkspacePath('C:\\ws\\draft.md', 'C:\\ws\\final.md')).rejects.toBeInstanceOf(PathExistsError)
-        expect(existsMock).toHaveBeenCalledWith('C:\\ws\\final.md')
-        expect(renameMock).not.toHaveBeenCalled()
+        invokeMock.mockRejectedValueOnce('File exists (os error 17)')
+        await expect(renameWorkspacePath('/ws/draft.md', '/ws/final.md')).rejects.toBeInstanceOf(PathExistsError)
+    })
+
+    it('passes on any other error from renaming', async () => {
+        invokeMock.mockRejectedValueOnce('Access is denied. (os error 5)')
+        await expect(renameWorkspacePath('C:\\ws\\draft.md', 'C:\\ws\\final.md')).rejects.toBe('Access is denied. (os error 5)')
+        // Error 17 on Windows is a move to another drive, not a taken name.
+        const otherDrive = 'The system cannot move the file to a different disk drive. (os error 17)'
+        invokeMock.mockRejectedValueOnce(otherDrive)
+        await expect(renameWorkspacePath('C:\\ws\\draft.md', 'D:\\ws\\draft.md')).rejects.toBe(otherDrive)
     })
 
     it('lets a change of letter case through, even though Windows says the new name exists', async () => {
         existsMock.mockResolvedValue(true)
         readDirMock.mockResolvedValue([{ name: 'notes.md', isDirectory: false, isFile: true, isSymlink: false }])
         await renameWorkspacePath('C:\\ws\\notes.md', 'C:\\ws\\Notes.md')
-        expect(renameMock).toHaveBeenCalledWith('C:\\ws\\notes.md', 'C:\\ws\\Notes.md')
+        expect(invokeMock).toHaveBeenCalledWith('rename_workspace_path', { oldPath: 'C:\\ws\\notes.md', newPath: 'C:\\ws\\Notes.md' })
     })
 
     it('refuses a change of letter case when another entry has exactly that name (Linux)', async () => {
@@ -323,7 +333,7 @@ describe('workspace fs (Tauri)', () => {
         ])
         await expect(renameWorkspacePath('/ws/notes.md', '/ws/Notes.md')).rejects.toBeInstanceOf(PathExistsError)
         await renameWorkspacePath('/ws/notes.md', '/ws/notes.md')
-        expect(renameMock).not.toHaveBeenCalled()
+        expect(invokeMock).not.toHaveBeenCalled()
     })
 
     it('builds a sorted workspace tree and skips ignored directories', async () => {
@@ -661,10 +671,10 @@ describe('workspace fs (Tauri)', () => {
         expect(writeTextFileMock).not.toHaveBeenCalled()
         expect(writeFileMock).not.toHaveBeenCalled()
         expect(mkdirMock).not.toHaveBeenCalled()
-        expect(renameMock).not.toHaveBeenCalled()
         expect(removeMock).not.toHaveBeenCalled()
         expect(copyFileMock).not.toHaveBeenCalled()
         expect(statMock).not.toHaveBeenCalled()
+        expect(invokeMock).not.toHaveBeenCalled()
     })
 })
 
