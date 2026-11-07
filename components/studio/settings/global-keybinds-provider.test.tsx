@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ isDesktop: true, workspaceRoot: 'C:/work' }),
-    useDocumentTabs: () => ({ activeTabId: 'C:/work/a.mmd' }),
+    useActiveTabId: () => 'C:/work/a.mmd',
     useDocumentSave: () => ({ flushSave: vi.fn(), flushAllSaves: vi.fn() }),
     useStudioLayout: () => ({
         layout: { explorerOpen: true, editorOpen: true },

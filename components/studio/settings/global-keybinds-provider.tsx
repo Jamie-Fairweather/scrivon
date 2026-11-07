@@ -6,13 +6,7 @@ import type { PaletteMode } from '@/components/studio/command-palette/types'
 import { useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import {
-    useCanvasFit,
-    useDocumentSave,
-    useDocumentTabs,
-    useStudioLayout,
-    useWorkspaceSession,
-} from '@/components/studio/workspace/workspace-provider'
+import { useActiveTabId, useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 type GlobalKeybindsProviderProps = {
     children: ReactNode
@@ -20,7 +14,8 @@ type GlobalKeybindsProviderProps = {
 
 export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps) {
     const { isDesktop, workspaceRoot } = useWorkspaceSession()
-    const { activeTabId } = useDocumentTabs()
+    // Only the open tab's id, so typing in it doesn't draw this again and rebuild every handler.
+    const activeTabId = useActiveTabId()
     const { flushSave, flushAllSaves } = useDocumentSave()
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
