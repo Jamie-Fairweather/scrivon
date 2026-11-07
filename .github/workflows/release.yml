@@ -143,8 +143,9 @@ jobs:
                   else
                     gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false -f make_latest=legacy --silent
                   fi
-                  echo "Published v${{ needs.release.outputs.version }}"
+                  echo "Published v${VERSION}"
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RELEASE_ID: ${{ steps.gh_release.outputs.id }}
                   PRERELEASE: ${{ steps.gh_release.outputs.prerelease }}
+                  VERSION: ${{ needs.release.outputs.version }}
