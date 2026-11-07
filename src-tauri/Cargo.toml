@@ -1,6 +1,6 @@
 [package]
 name = "scrivon"
-version = "1.5.0-rc.4"
+version = "1.5.0"
 description = "Local-first editor for Mermaid diagrams and Markdown"
 authors = ["Jamie Fairweather"]
 license = "MIT"
