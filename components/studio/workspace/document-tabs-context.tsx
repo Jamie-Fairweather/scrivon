@@ -298,6 +298,15 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [coordinator]
     )
 
+    // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
+    const pendingOpens = useRef(new Map<string, Promise<void>>())
+    // The file or tab the user asked for last: an open that finishes after it doesn't take the focus away.
+    const lastRequestedRef = useRef<string | null>(null)
+
+    // Goes up whenever every tab goes (a folder switch or close): a file still being read for the folder that
+    // was open then doesn't open in the next one, or save its tab list under the old folder.
+    const tabsGeneration = useRef(0)
+
     useEffect(() => {
         registerCoordinatorRefs(coordinator, {
             releaseAllTabs: async () => {
@@ -345,6 +354,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
             clearTabs: () => {
                 releaseTabs(tabsRef.current)
+                tabsGeneration.current += 1
+                pendingOpens.current.clear()
+                lastRequestedRef.current = null
                 // The refs change straight away, so anything that runs before React re-renders sees no tabs.
                 tabsRef.current = []
                 activeTabIdRef.current = null
@@ -389,11 +401,6 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         })
     }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab])
 
-    // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
-    const pendingOpens = useRef(new Map<string, Promise<void>>())
-    // The file or tab the user asked for last: an open that finishes after it doesn't take the focus away.
-    const lastRequestedRef = useRef<string | null>(null)
-
     const openFile = useCallback(
         async (requestedPath: string) => {
             const fileName = getBaseName(requestedPath)
@@ -421,20 +428,27 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
             if (previousId && previousId !== path) coordinator.flushSaveOnTabLeave.current(previousId)
 
+            const generation = tabsGeneration.current
+            const stale = () => generation !== tabsGeneration.current
             const open = (async () => {
                 // Only reading the file can make the open fail; remembering it afterwards is best-effort.
                 let read: DocumentTab
                 try {
                     // A huge file can make the app stop responding for a while, so the user decides before it is read.
                     const size = await getWorkspaceFileSize(path)
+                    if (stale()) return
                     if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
+                    if (stale()) return
                     read = tabFromFile(path, await readWorkspaceTextFile(path))
                 } catch (err) {
+                    if (stale()) return
                     // Only a file that isn't there leaves the list; a locked one may open next time.
                     if (isFileMissingError(err)) forgetRecentFile(path)
                     await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
                     return
                 }
+                // The folder it was in was switched or closed while it was read.
+                if (stale()) return
                 // Restoring a folder's tabs may have opened it meanwhile; that tab is kept, never a second copy.
                 const alreadyOpen = tabsRef.current.find((t) => samePath(t.path, path))
                 const tab = alreadyOpen ?? read
@@ -453,7 +467,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 if (isLatest) recordRecentFile(tab.id)
             })()
             pendingOpens.current.set(path, open)
-            void open.finally(() => pendingOpens.current.delete(path))
+            void open.finally(() => {
+                // Not a newer open of the same path, started after the folder changed.
+                if (pendingOpens.current.get(path) === open) pendingOpens.current.delete(path)
+            })
             return open
         },
         [coordinator, persistTabSession, recordRecentFile, forgetRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]

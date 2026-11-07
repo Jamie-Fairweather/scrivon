@@ -1692,6 +1692,60 @@ describe('opening files that are slow to read', () => {
         expect(result.current.activeTabId).toBe('/ws/small.md')
     })
 
+    it('drops a file still being read when its folder is switched, and keeps the old folder’s tab list', async () => {
+        const finish = slowRead('/ws/big.md')
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const options: WrapperOptions = { coordinator, workspaceRoot: '/ws' }
+        const { result, rerender } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper(options) })
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1))
+        // Open Recent: the tabs go, the next folder opens and its saved tabs come back before the read ends.
+        act(() => coordinator.clearTabs.current())
+        options.workspaceRoot = '/other'
+        rerender()
+        act(() => coordinator.setTabsFromWorkspace.current([tab('/other/notes.md', 'notes.md')], '/other/notes.md'))
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/other/notes.md'])
+        expect(result.current.activeTabId).toBe('/other/notes.md')
+        expect(setWorkspaceTabSession).not.toHaveBeenCalledWith('/ws', expect.anything())
+        expect(addRecentFile).not.toHaveBeenCalled()
+
+        // Clicking it again reads it afresh instead of waiting on the dropped read.
+        await act(async () => {
+            await result.current.openFile('/ws/big.md')
+        })
+        expect(readFile).toHaveBeenCalledTimes(2)
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/other/notes.md', '/ws/big.md'])
+    })
+
+    it('drops a file still being read when the folder is closed', async () => {
+        const finish = slowRead('/ws/big.md')
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ coordinator, workspaceRoot: '/ws' }) })
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        act(() => coordinator.clearTabs.current())
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs).toEqual([])
+        expect(result.current.activeTabId).toBeNull()
+        expect(setWorkspaceTabSession).not.toHaveBeenCalled()
+    })
+
     it('keeps the tab the user switched to while another file was still being read', async () => {
         const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')], activeTabId: '/ws/a.mmd' }
         const finish = slowRead('/ws/big.md')
