@@ -1,5 +1,5 @@
-import { act, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 
@@ -32,6 +32,11 @@ function tab(name: string, content: string): DocumentTab {
     return { id: name, path: `D:\\docs\\${name}`, name, content, isDirty: false, isSaving: false }
 }
 
+beforeAll(() => {
+    // happy-dom has no Web Animations API; Base UI menus ask for running animations.
+    Element.prototype.getAnimations ??= () => []
+})
+
 describe('DocumentExportMenu', () => {
     beforeEach(() => {
         tabs.activeTab = null
@@ -55,21 +60,48 @@ describe('DocumentExportMenu', () => {
         expect(lastDialog()?.allowRemoteImages).toBe(false)
     })
 
-    it('disables the export button when no document is open, instead of opening an empty menu', () => {
+    it('turns the export button off when no document is open, instead of opening an empty menu', async () => {
         render(<DocumentExportMenu />)
         const button = screen.getByRole('button', { name: 'Export document' })
-        expect(button).toBeDisabled()
-        expect(button).toHaveAttribute('title', 'Open a document to export')
+        // Off but still focusable, so a keyboard user can hear why.
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        expect(button).not.toBeDisabled()
+        expect(button).not.toHaveAttribute('title')
+
+        act(() => button.focus())
+        expect(await screen.findByText('Open a document to export')).toBeInTheDocument()
+
+        fireEvent.click(button)
+        expect(screen.queryByRole('menu')).toBeNull()
     })
 
-    it('enables the export button for a markdown document', () => {
+    it('turns the export button on for a markdown document', async () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         render(<DocumentExportMenu />)
         const button = screen.getByRole('button', { name: 'Export document' })
-        expect(button).not.toBeDisabled()
-        expect(button).toHaveAttribute('title', 'Export document')
+        expect(button).not.toHaveAttribute('aria-disabled')
+        expect(button).not.toHaveAttribute('title')
         // The export dialog gets the file's path so its save dialog starts in the same folder.
         expect(dialogProps.current?.tabPath).toBe('D:\\docs\\notes.md')
+
+        act(() => button.focus())
+        expect(await screen.findByText('Export document')).toBeInTheDocument()
+
+        fireEvent.click(button)
+        expect(await screen.findByRole('menuitem', { name: 'Save PDF' })).toBeInTheDocument()
+    })
+
+    it('shuts the open menu when the export button turns off', async () => {
+        tabs.activeTab = tab('notes.md', '# Notes')
+        const view = render(<DocumentExportMenu />)
+        fireEvent.click(screen.getByRole('button', { name: 'Export document' }))
+        expect(await screen.findByRole('menuitem', { name: 'Save PDF' })).toBeInTheDocument()
+
+        // An empty document has nothing to export.
+        tabs.activeTab = tab('notes.md', '')
+        view.rerender(<DocumentExportMenu />)
+        await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Save PDF' })).toBeNull())
+        expect(screen.getByRole('button', { name: 'Export document' })).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('does not pop the export dialog open again after a switch to a non-markdown tab and back', () => {

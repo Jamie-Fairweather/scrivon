@@ -11,6 +11,7 @@ import type { ExportFormat } from '@/lib/markdown/export-document'
 import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
 import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
+import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
 
 const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
@@ -38,6 +39,7 @@ export function DocumentExportMenu() {
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+    const [menuOpen, setMenuOpen] = useState(false)
     // The dialog only exists for a Markdown tab. Switching away drops it, so drop its open flag too;
     // otherwise it would pop open by itself the next time a Markdown tab is active.
     if (pdfDialogOpen && !isMarkdownTab) setPdfDialogOpen(false)
@@ -64,15 +66,29 @@ export function DocumentExportMenu() {
     const triggerDisabled =
         !tabKind || exporting || (isMermaidTab && diagramDisabled) || (isMarkdownTab && pdfDisabled && (!showDiagramExport || diagramDisabled))
     const triggerTitle = tabKind ? 'Export document' : 'Open a document to export'
+    // The button is aria-disabled rather than disabled, so it can still be focused or hovered to say why.
+    // The menu stays shut while it is off, and shuts if it goes off while open.
+    if (menuOpen && triggerDisabled) setMenuOpen(false)
 
     return (
         <>
-            <Menu>
-                <MenuTrigger
-                    render={<Button variant="ghost" size="icon-sm" aria-label="Export document" title={triggerTitle} disabled={triggerDisabled} />}
-                >
-                    {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                </MenuTrigger>
+            <Menu open={menuOpen} onOpenChange={(next) => setMenuOpen(next && !triggerDisabled)}>
+                {/* The tooltip's trigger renders the menu's trigger, which renders the button, so both work on one button. */}
+                <IconTooltip label={triggerTitle}>
+                    <MenuTrigger
+                        render={
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Export document"
+                                aria-disabled={triggerDisabled || undefined}
+                                className="aria-disabled:cursor-default aria-disabled:opacity-64 aria-disabled:hover:bg-transparent"
+                            />
+                        }
+                    >
+                        {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                    </MenuTrigger>
+                </IconTooltip>
                 <MenuPopup align="end" className="min-w-44">
                     <MenuGroup>
                         {isMarkdownTab ? (
