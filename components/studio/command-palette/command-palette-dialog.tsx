@@ -82,14 +82,16 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                 {item.detail ? (
                     <span className="min-w-0 flex-1">
                         <span className="block truncate">{item.label}</span>
-                        <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>
+                        <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">{item.detail}</span>
                     </span>
                 ) : (
                     <span className="flex-1 truncate">{item.label}</span>
                 )}
                 {/* Shown in the row (not a tooltip) so keyboard and screen-reader users get it too. */}
                 {item.disabled && item.disabledReason ? (
-                    <span className="ms-2 shrink-0 text-xs text-muted-foreground">{item.disabledReason}</span>
+                    <span className="ms-2 shrink-0 text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
+                        {item.disabledReason}
+                    </span>
                 ) : null}
                 {item.shortcut ? <CommandShortcut>{item.shortcut}</CommandShortcut> : null}
             </CommandItem>
@@ -102,7 +104,9 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                 <DocumentIcon kind={item.documentKind} />
                 <span className="min-w-0 flex-1">
                     <span className="block truncate">{item.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{item.relativePath}</span>
+                    <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
+                        {item.relativePath}
+                    </span>
                 </span>
                 {item.isDirty ? (
                     <>
@@ -125,7 +129,9 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                 )}
                 <span className="min-w-0 flex-1">
                     <span className="block truncate">{item.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{item.relativePath}</span>
+                    <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
+                        {item.relativePath}
+                    </span>
                 </span>
             </CommandItem>
         )
@@ -137,7 +143,7 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                 <FolderIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1">
                     <span className="block truncate">{item.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{item.path}</span>
+                    <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">{item.path}</span>
                 </span>
             </CommandItem>
         )
@@ -152,9 +158,11 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                 <span className="block truncate">
                     {item.name}
                     {/* The folder tells apart files with the same name, e.g. docs/README.md and api/README.md. */}
-                    {folder ? <span className="text-xs text-muted-foreground"> {folder}</span> : null} · {item.line}:{item.column}
+                    {folder ? (
+                        <span className="text-xs text-muted-foreground in-data-highlighted:text-accent-foreground"> {folder}</span>
+                    ) : null} · {item.line}:{item.column}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
+                <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
                     {highlightPreview(item.preview, item.previewMatchStart, item.length)}
                 </span>
             </span>
@@ -370,14 +378,14 @@ export function CommandPaletteDialog({
                         </div>
                         <div className="flex items-center gap-2">
                             {textUnreadableFiles > 0 ? (
-                                <span className="text-muted-foreground/80">
+                                <span className="text-muted-foreground">
                                     {textUnreadableFiles === 1 ? "1 file couldn't be read" : `${textUnreadableFiles} files couldn't be read`}
                                 </span>
                             ) : null}
                             {textCapped ? (
-                                <span className="text-muted-foreground/80">Showing first {MAX_HITS} matches — refine query</span>
+                                <span className="text-muted-foreground">Showing first {MAX_HITS} matches — refine query</span>
                             ) : textTruncatedFiles > 0 ? (
-                                <span className="text-muted-foreground/80">Showing up to {MAX_HITS_PER_FILE} matches per file</span>
+                                <span className="text-muted-foreground">Showing up to {MAX_HITS_PER_FILE} matches per file</span>
                             ) : null}
                             <Kbd>Esc</Kbd>
                             <span>Close</span>

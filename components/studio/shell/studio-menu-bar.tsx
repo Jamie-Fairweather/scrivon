@@ -143,7 +143,12 @@ export function StudioMenuBar() {
                                                         )}
                                                         <span className="truncate">{getBaseName(path)}</span>
                                                         {location && (
-                                                            <span className="ms-auto truncate ps-4 text-xs text-muted-foreground">{location}</span>
+                                                            <span
+                                                                className="ms-auto truncate ps-4 text-xs text-muted-foreground
+                                                                    in-data-highlighted:text-accent-foreground"
+                                                            >
+                                                                {location}
+                                                            </span>
                                                         )}
                                                     </MenuItem>
                                                 )

@@ -244,6 +244,23 @@ describe('CommandPaletteDialog same-named files', () => {
     })
 })
 
+describe('CommandPaletteDialog secondary text', () => {
+    it("switches secondary lines to the highlighted row's text colour, so they stay readable on its fill", () => {
+        const withDetail: ActionPaletteItem = { ...saveAll, value: 'action:recent', detail: 'C:\\work\\docs' }
+        renderDialog({ groups: [{ id: 'mixed', label: 'Results', items: [withDetail, dirtyTab] }] })
+
+        const secondary = screen.getAllByRole('option').flatMap((option) => [...option.querySelectorAll('span.text-muted-foreground')])
+        // The detail and the reason it is off, and the tab's path.
+        expect(secondary).toHaveLength(3)
+        for (const span of secondary) expect(span).toHaveClass('in-data-highlighted:text-accent-foreground')
+    })
+
+    it('does not fade the status line below the muted text colour', () => {
+        renderDialog({ mode: 'text', query: 'oauth', textCapped: true, textTruncatedFiles: 2, textUnreadableFiles: 1 })
+        expect(document.querySelector('[class*="text-muted-foreground/"]')).toBeNull()
+    })
+})
+
 describe('CommandPaletteDialog icons', () => {
     it('shows the document icon for an upper-case .MD tab', () => {
         const tab: PaletteItem = {

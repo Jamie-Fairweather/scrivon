@@ -23,7 +23,7 @@ export function WelcomeScreen() {
                 <div className="flex flex-col items-center gap-2 text-center">
                     <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
                     <p className="max-w-md text-sm text-muted-foreground">{APP_TAGLINE}</p>
-                    <p className="max-w-md text-sm text-muted-foreground/80">
+                    <p className="max-w-md text-sm text-muted-foreground">
                         Open a folder to browse {supportedExtensionsLabel('and')} files, edit in the editor, and preview diagrams or rendered
                         Markdown.
                     </p>

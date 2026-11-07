@@ -36,7 +36,7 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogP
                     <DialogTitle>About {APP_NAME}</DialogTitle>
                     <DialogDescription>
                         {APP_TAGLINE}
-                        <span className="mt-1 block text-muted-foreground/80">Version {APP_VERSION}</span>
+                        <span className="mt-1 block text-muted-foreground">Version {APP_VERSION}</span>
                     </DialogDescription>
                 </DialogHeader>
                 <DialogPanel className="space-y-3 pt-0">
@@ -59,7 +59,7 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogP
                             Source code on GitHub
                         </a>
                     </p>
-                    <p className="text-xs text-muted-foreground/80">{APP_COPYRIGHT}</p>
+                    <p className="text-xs text-muted-foreground">{APP_COPYRIGHT}</p>
                 </DialogPanel>
                 <DialogFooter variant="bare">
                     <Button type="button" variant="ghost" onClick={() => void copyVersionInfo()}>
