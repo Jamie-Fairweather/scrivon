@@ -25,12 +25,20 @@ import {
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath } from '@/lib/tauri/scope'
 import { deleteUnsavedBackup, listUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
-import { addRecentWorkspace, clampRecentWorkspaceLimit, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
+import {
+    addRecentWorkspace,
+    clampRecentWorkspaceLimit,
+    getFolderToggles,
+    getRecentWorkspaces,
+    getWorkspaceTabSession,
+    removeRecentWorkspace,
+    setFolderToggles,
+} from '@/lib/tauri/store'
 import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
-import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
+import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -43,6 +51,14 @@ type WorkspaceSessionContextValue = {
     /** The folder being opened right now (reading a big one takes a while), or null. */
     openingWorkspace: string | null
     tree: FileNode[]
+    /**
+     * The folders the user opened or closed in the file tree, by path; the rest follow the tree's default.
+     * Kept here rather than in the tree, so hiding the explorer or switching to Examples doesn't lose them,
+     * and remembered for each folder. They follow a rename and are dropped on delete.
+     */
+    folderToggles: ReadonlyMap<string, boolean>
+    /** Opens or closes a folder in the file tree, and remembers the choice. Stays the same function throughout. */
+    setFolderExpanded: (path: string, expanded: boolean) => void
     recentWorkspaces: string[]
     pickAndOpenWorkspace: () => Promise<void>
     openWorkspace: (path: string) => Promise<void>
@@ -132,6 +148,33 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [workspaceRoot])
 
     const openWorkspaceRef = useRef<(path: string) => Promise<void>>(async () => {})
+
+    const [folderToggles, setFolderTogglesState] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+    // The ref is the latest value, so changes made one after another (a rename, then a click) build on each other.
+    const folderTogglesRef = useRef(folderToggles)
+
+    /** Changes which folders are open; with `root`, also remembers them for that folder (best-effort). */
+    const updateFolderToggles = useCallback((root: string | null, update: (prev: ReadonlyMap<string, boolean>) => ReadonlyMap<string, boolean>) => {
+        const next = update(folderTogglesRef.current)
+        if (next === folderTogglesRef.current) return
+        folderTogglesRef.current = next
+        setFolderTogglesState(next)
+        if (root) void setFolderToggles(root, next).catch((err: unknown) => console.warn("Couldn't remember which folders are open", err))
+    }, [])
+
+    const setFolderExpanded = useCallback(
+        (path: string, expanded: boolean) => {
+            const key = normalizePath(path)
+            updateFolderToggles(workspaceRootRef.current, (prev) => {
+                if (prev.get(key) === expanded) return prev
+                const next = new Map(prev)
+                // The latest choice goes last, so the newest are the ones kept if the list is ever cut.
+                next.delete(key)
+                return next.set(key, expanded)
+            })
+        },
+        [updateFolderToggles]
+    )
 
     useEffect(() => {
         void getRecentWorkspaces()
@@ -350,6 +393,16 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 coordinator.clearTabs.current()
                 warnAboutUnreadableFolders(nextTree)
                 void leaving?.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
+                // The new folder's tree opens folders as it had them last time.
+                updateFolderToggles(null, () => new Map())
+                void getFolderToggles(path)
+                    .then((stored) => {
+                        if (!isCurrent() || stored.length === 0) return
+                        // A folder opened or closed while these were read keeps that newer choice, and the
+                        // merged list is saved again, since that click saved only its own part.
+                        updateFolderToggles(folderTogglesRef.current.size > 0 ? path : null, (prev) => new Map([...stored, ...prev]))
+                    })
+                    .catch((err: unknown) => console.warn("Couldn't read which folders were open", err))
                 void addRecentWorkspace(path, maxRecentFolders)
                     .then((recents) => {
                         if (isCurrent()) setRecentWorkspaces(recents)
@@ -369,7 +422,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 }
             }
         },
-        [isDesktop, recentWorkspaces, maxRecentFolders, removeRecent, restoreTabSession, refreshTree, coordinator]
+        [isDesktop, recentWorkspaces, maxRecentFolders, removeRecent, restoreTabSession, refreshTree, updateFolderToggles, coordinator]
     )
 
     useEffect(() => {
@@ -398,9 +451,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         workspaceRootRef.current = null
         setWorkspaceRoot(null)
         setTree([])
+        // Already remembered for the folder as each was opened or closed.
+        updateFolderToggles(null, () => new Map())
         coordinator.clearTabs.current()
         await leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
-    }, [coordinator])
+    }, [coordinator, updateFolderToggles])
 
     const suggestName = useCallback(
         (parentPath: string, name: string) =>
@@ -495,7 +550,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 // The tabs follow straight away; reading the file list again can take a while.
                 coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
                 whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
-                if (isDirectory) explainIfHidden(parent, newName)
+                if (isDirectory) {
+                    // The folder and the ones inside it stay open or closed as they were.
+                    updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
+                    explainIfHidden(parent, newName)
+                }
             } catch (err) {
                 notifyError(failed, err)
             } finally {
@@ -503,7 +562,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
             await refreshTree()
         },
-        [getNameError, refreshTree, explainIfHidden, coordinator]
+        [getNameError, refreshTree, explainIfHidden, updateFolderToggles, coordinator]
     )
 
     const deleteEntry = useCallback(
@@ -516,6 +575,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await removeWorkspacePath(path, { recursive: isDirectory })
                 coordinator.closeTabsForDelete.current(path, isDirectory)
                 whereNow = () => null
+                // A new folder made later with the same name starts as any other.
+                if (isDirectory) updateFolderToggles(workspaceRootRef.current, (prev) => dropPathKeysAfterDelete(prev, path))
             } catch (err) {
                 // Its tabs stay open: the file (or some of the folder) may still be there.
                 notifyError(`Couldn't delete ${getBaseName(path)}`, err)
@@ -524,7 +585,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
             await refreshTree()
         },
-        [refreshTree, coordinator]
+        [refreshTree, updateFolderToggles, coordinator]
     )
 
     const openFile = useCallback((path: string) => coordinator.openFile.current(path), [coordinator])
@@ -560,6 +621,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceName,
             openingWorkspace,
             tree,
+            folderToggles,
+            setFolderExpanded,
             recentWorkspaces: visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,
@@ -582,6 +645,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceName,
             openingWorkspace,
             tree,
+            folderToggles,
+            setFolderExpanded,
             visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,

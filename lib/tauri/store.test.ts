@@ -191,6 +191,7 @@ describe('workspace store', () => {
             'recent-workspaces': ['C:\\notes', 'D:\\work'],
             'open-tabs:C:\\notes': { tabIds: ['C:\\notes\\private.md'], activeTabId: 'C:\\notes\\private.md' },
             'last-file:C:\\notes': 'C:\\notes\\private.md',
+            'open-folders:C:\\notes': [['C:\\notes\\private', false]],
             'recent-files:c:/Notes': ['c:/Notes/private.md'],
             'open-tabs:D:\\work': { tabIds: ['D:\\work\\plan.md'], activeTabId: 'D:\\work\\plan.md' },
             'recent-files:D:\\work': ['D:\\work\\plan.md'],
@@ -220,6 +221,45 @@ describe('workspace store', () => {
             expect(Object.keys(saved).filter((key) => key.includes('D:\\work'))).toEqual([])
             expect(saved['recent-workspaces']).toEqual(['E:\\new', 'C:\\notes'])
             expect(saved['open-tabs:C:\\notes']).toEqual(KEPT['open-tabs:C:\\notes'])
+        })
+    })
+
+    describe('folders opened and closed in the file tree', () => {
+        it('remembers them for each folder, skipping entries that are not a path and open or closed', async () => {
+            fake.disk.set(
+                'workspace.json',
+                JSON.stringify({
+                    'open-folders:C:\\notes': [
+                        ['C:/notes/docs', false],
+                        ['C:\\notes\\deep', true],
+                        'junk',
+                        [3, true],
+                        ['C:\\notes\\x', 'yes'],
+                        ['', true],
+                    ],
+                })
+            )
+            const store = await launch()
+
+            expect(await store.getFolderToggles('C:\\notes')).toEqual([
+                ['C:\\notes\\docs', false],
+                ['C:\\notes\\deep', true],
+            ])
+            expect(await store.getFolderToggles('D:\\work')).toEqual([])
+
+            await store.setFolderToggles('D:\\work', new Map([['D:\\work\\plans', true]]))
+            expect(onDisk('workspace.json')?.['open-folders:D:\\work']).toEqual([['D:\\work\\plans', true]])
+        })
+
+        it('keeps the latest 500 when there are more', async () => {
+            const store = await launch()
+            const many = new Map(Array.from({ length: 600 }, (_, i) => [`C:\\notes\\f${i}`, true] as [string, boolean]))
+
+            await store.setFolderToggles('C:\\notes', many)
+
+            const saved = await store.getFolderToggles('C:\\notes')
+            expect(saved).toHaveLength(500)
+            expect(saved[0]).toEqual(['C:\\notes\\f100', true])
         })
     })
 

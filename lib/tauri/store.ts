@@ -9,7 +9,10 @@ const RECENT_KEY = 'recent-workspaces'
 const RECENT_FILES_PREFIX = 'recent-files:'
 const LAST_FILE_PREFIX = 'last-file:'
 const OPEN_TABS_PREFIX = 'open-tabs:'
+const OPEN_FOLDERS_PREFIX = 'open-folders:'
 const MAX_RECENT_FILES = 20
+/** Folders opened or closed by hand that are remembered per workspace; the oldest choices go first. */
+const MAX_FOLDER_TOGGLES = 500
 
 /** The recent folders limit from settings, kept to 1-50 like the settings screen allows. */
 export function clampRecentWorkspaceLimit(limit: number): number {
@@ -163,7 +166,7 @@ export async function getRecentWorkspaces(): Promise<string[]> {
  * files, which name the user's files. Keys written with other separators or letter case go too.
  */
 async function forgetWorkspace(s: LazyStore, root: string): Promise<void> {
-    const prefixes = [OPEN_TABS_PREFIX, LAST_FILE_PREFIX, RECENT_FILES_PREFIX]
+    const prefixes = [OPEN_TABS_PREFIX, OPEN_FOLDERS_PREFIX, LAST_FILE_PREFIX, RECENT_FILES_PREFIX]
     for (const key of await s.keys()) {
         const prefix = prefixes.find((p) => key.startsWith(p))
         if (prefix && samePath(key.slice(prefix.length), root)) await s.delete(key)
@@ -236,6 +239,31 @@ export async function setWorkspaceTabSession(workspaceRoot: string, session: Wor
     } else {
         await s.delete(`${LAST_FILE_PREFIX}${workspaceRoot}`)
     }
+    await saveStore(s)
+}
+
+/**
+ * The folders the user opened or closed in this workspace's file tree, as `[path, open]` pairs; every
+ * other folder follows the tree's default. Entries that aren't such a pair are skipped.
+ */
+export async function getFolderToggles(workspaceRoot: string): Promise<Array<[string, boolean]>> {
+    const s = await getStore()
+    if (!s) return []
+    const stored = await s.get<unknown>(`${OPEN_FOLDERS_PREFIX}${workspaceRoot}`)
+    if (!Array.isArray(stored)) return []
+    const toggles = new Map<string, boolean>()
+    for (const entry of stored) {
+        if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[0].trim() || typeof entry[1] !== 'boolean') continue
+        toggles.set(normalizePath(entry[0]), entry[1])
+    }
+    return [...toggles]
+}
+
+/** Remembers the folders the user opened or closed, keeping the latest choices when there are very many. */
+export async function setFolderToggles(workspaceRoot: string, toggles: ReadonlyMap<string, boolean>): Promise<void> {
+    const s = await getStore()
+    if (!s) return
+    await s.set(`${OPEN_FOLDERS_PREFIX}${workspaceRoot}`, [...toggles].slice(-MAX_FOLDER_TOGGLES))
     await saveStore(s)
 }
 

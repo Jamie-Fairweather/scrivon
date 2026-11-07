@@ -7,7 +7,14 @@ import { confirmCloseAfterSaveFailure, confirmOverwriteDiskChange, confirmUnsave
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
-import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
+import {
+    addRecentWorkspace,
+    getFolderToggles,
+    getRecentWorkspaces,
+    getWorkspaceTabSession,
+    removeRecentWorkspace,
+    setFolderToggles,
+} from '@/lib/tauri/store'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
@@ -28,6 +35,8 @@ vi.mock('@/lib/tauri/store', () => ({
     setWorkspaceTabSession: vi.fn(async () => undefined),
     getRecentFiles: vi.fn(async () => []),
     addRecentFile: vi.fn(async () => []),
+    getFolderToggles: vi.fn(async () => []),
+    setFolderToggles: vi.fn(async () => undefined),
 }))
 
 vi.mock('@/lib/tauri/backups', () => ({
@@ -1447,5 +1456,107 @@ describe('recent folders', () => {
         expect(confirmUnsavedChanges).not.toHaveBeenCalled()
         expect(readDir).toHaveBeenCalledWith('C:\\ws')
         expect(addRecentWorkspace).toHaveBeenCalledWith('C:\\ws', 10)
+    })
+})
+
+describe('folders opened and closed in the file tree', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\docs\\deep\\a.md': 'A', 'C:\\ws\\notes\\b.md': 'B', 'C:\\other\\c.md': 'C' })
+        mountDisk(disk)
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }, path = 'C:\\ws') {
+        await act(async () => {
+            await result.current.session.openWorkspace(path)
+        })
+    }
+
+    it('keeps each choice for as long as the folder is open, and remembers it for next time', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs\\deep', true))
+
+        expect([...result.current.session.folderToggles]).toEqual([
+            ['C:\\ws\\docs', false],
+            ['C:\\ws\\docs\\deep', true],
+        ])
+        expect(vi.mocked(setFolderToggles).mock.calls.at(-1)).toEqual(['C:\\ws', result.current.session.folderToggles])
+    })
+
+    it('opens a folder with the choices remembered for it, and the next folder without them', async () => {
+        vi.mocked(getFolderToggles).mockImplementation(async (root) => (root === 'C:\\ws' ? [['C:\\ws\\docs', false]] : []))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await waitFor(() => expect(result.current.session.folderToggles.get('C:\\ws\\docs')).toBe(false))
+
+        await open(result, 'C:\\other')
+
+        expect(result.current.session.folderToggles.size).toBe(0)
+    })
+
+    it('keeps a choice made while the remembered ones are still being read', async () => {
+        let finishReading!: (toggles: Array<[string, boolean]>) => void
+        vi.mocked(getFolderToggles).mockImplementation(() => new Promise((resolve) => (finishReading = resolve)))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', true))
+        await act(async () =>
+            finishReading([
+                ['C:\\ws\\docs', false],
+                ['C:\\ws\\notes', false],
+            ])
+        )
+
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({ 'C:\\ws\\docs': true, 'C:\\ws\\notes': false })
+        expect(vi.mocked(setFolderToggles).mock.calls.at(-1)).toEqual(['C:\\ws', result.current.session.folderToggles])
+    })
+
+    it('moves the choices with a renamed folder and drops them for a deleted one', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', true))
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs\\deep', false))
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\notes', false))
+
+        // The stand-in disk renames files only; this moves a folder and what is in it.
+        vi.mocked(rename).mockImplementation(async (from, to) => {
+            const prefix = `${String(from)}\\`.toLowerCase()
+            for (const [key, file] of [...disk.contents]) {
+                if (!key.startsWith(prefix)) continue
+                disk.contents.delete(key)
+                const path = `${String(to)}${file.path.slice(String(from).length)}`
+                disk.contents.set(path.toLowerCase(), { path, text: file.text })
+            }
+        })
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\docs', 'manual', true)
+        })
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({
+            'C:\\ws\\manual': true,
+            'C:\\ws\\manual\\deep': false,
+            'C:\\ws\\notes': false,
+        })
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\notes', true)
+        })
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({ 'C:\\ws\\manual': true, 'C:\\ws\\manual\\deep': false })
+    })
+
+    it('keeps the same function to call, so tree rows that use it are not drawn again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        const first = result.current.session.setFolderExpanded
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+
+        expect(result.current.session.setFolderExpanded).toBe(first)
     })
 })

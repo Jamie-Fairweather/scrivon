@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { remapPathAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from './tab-paths'
+import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from './tab-paths'
 import type { DocumentTab } from './types'
 
 function tab(id: string, path: string, name = id): DocumentTab {
@@ -82,5 +82,31 @@ describe('remapPathAfterRename', () => {
         expect(remapPathAfterRename('C:\\ws\\Docs\\a\\b.md', 'c:/ws/docs', 'C:\\ws\\manual')).toBe('C:\\ws\\manual\\a\\b.md')
         expect(remapPathAfterRename('/ws/docs-old/x.md', '/ws/docs', '/ws/manual')).toBe('/ws/docs-old/x.md')
         expect(remapPathAfterRename('example:flow', '/ws/docs', '/ws/manual')).toBe('example:flow')
+    })
+})
+
+describe('remapPathKeysAfterRename', () => {
+    it('moves the entries for a renamed folder and everything inside it', () => {
+        const toggles = new Map([
+            ['C:\\ws\\docs', true],
+            ['C:\\ws\\docs\\deep', true],
+            ['C:\\ws\\docs-old', false],
+        ])
+        expect([...remapPathKeysAfterRename(toggles, 'C:\\ws\\Docs', 'C:\\ws\\manual')]).toEqual([
+            ['C:\\ws\\manual', true],
+            ['C:\\ws\\manual\\deep', true],
+            ['C:\\ws\\docs-old', false],
+        ])
+    })
+})
+
+describe('dropPathKeysAfterDelete', () => {
+    it('drops the entries for a deleted folder and everything inside it', () => {
+        const toggles = new Map([
+            ['/ws/docs', true],
+            ['/ws/docs/deep', false],
+            ['/ws/docs-old', true],
+        ])
+        expect([...dropPathKeysAfterDelete(toggles, '/ws/docs')]).toEqual([['/ws/docs-old', true]])
     })
 })
