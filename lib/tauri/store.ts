@@ -47,16 +47,13 @@ const STORE_UNREADABLE_NOTICE_ID = 'workspace-store-unreadable'
 
 const STORE_SAVE_FAILED_NOTICE_ID = 'workspace-store-save-failed'
 
-let storeReady: Promise<Store> | null = null
+let storeReady: Promise<Store | null> | null = null
 let saveFailureShown = false
-/**
- * workspace.json is there but couldn't be read (another program holds it, or it is on a network drive that is
- * offline). Until it reads, nothing in the store is changed: the store plugin saves itself soon after any change,
- * and that would put an empty list over the file. Each use of the store tries reading it again.
- */
-let storeUnreadable = false
-let readingAgain = false
 
+/**
+ * The store; null outside the desktop app, and for the rest of the run when workspace.json couldn't be read
+ * (see leaveUnreadableStore): the lists are then empty, and nothing is saved.
+ */
 async function getStore(): Promise<Store | null> {
     if (!isTauri()) return null
     storeReady ??= openStore().catch((err: unknown) => {
@@ -64,15 +61,7 @@ async function getStore(): Promise<Store | null> {
         storeReady = null
         throw err
     })
-    const s = await storeReady
-    if (storeUnreadable) readStoreAgain(s)
-    return s
-}
-
-/** The store, for a change; null while workspace.json couldn't be read (see `storeUnreadable`). */
-async function getWritableStore(): Promise<Store | null> {
-    const s = await getStore()
-    return s && !storeUnreadable ? s : null
+    return storeReady
 }
 
 /**
@@ -114,8 +103,15 @@ async function readStoreFile(s: Store): Promise<unknown> {
     }
 }
 
-async function openStore(): Promise<Store> {
-    const s = await openAppStore(STORE_PATH)
+/** Null when workspace.json can't be used this run (see leaveUnreadableStore). */
+async function openStore(): Promise<Store | null> {
+    const s = await getAppStore(STORE_PATH)
+    if (!s) {
+        // The app shell couldn't open it at startup, or it was closed earlier in this run because it couldn't be
+        // read (and the window was reloaded since).
+        warnStoreUnreadable(new Error("Scrivon couldn't open workspace.json."))
+        return null
+    }
     // Opening ignores a file it can't read or parse and starts empty; reading the file again says why.
     let readError = await readStoreFile(s)
     for (let tries = 0; readError !== null && FILE_BUSY.test(errorMessage(readError, '')) && tries < BUSY_RETRIES; tries++) {
@@ -129,37 +125,34 @@ async function openStore(): Promise<Store> {
         // Missing because the app shell moved a damaged file aside, or simply not there yet (a first launch).
         const keptAs = await takeDamagedStoreName()
         if (keptAs) await recoverStore(s, readError, keptAs)
-    } else await leaveUnreadableStore(s, readError)
+    } else if (await leaveUnreadableStore(s, readError)) return null
     return s
 }
 
 /**
  * workspace.json is there but couldn't be read just now (locked, or on a network drive that is offline). It is
- * left as it is, and nothing in the store changes until it reads (see `storeUnreadable`).
+ * left as it is: for the rest of this run nothing is read from it or saved to it. Not saving isn't enough, as
+ * the store plugin also saves every store it has open when the app quits, and this one is empty: once the file
+ * can be written again, that would put an empty list over it. So the store is closed, which the plugin skips.
+ * Returns false when the store can be used after all.
  */
-async function leaveUnreadableStore(s: Store, readError: unknown): Promise<void> {
+async function leaveUnreadableStore(s: Store, readError: unknown): Promise<boolean> {
     console.warn("Couldn't read workspace.json", readError)
     // Still held from earlier in this run (the window was reloaded): that came from the file, so it can be saved.
-    if ((await s.length()) > 0) return
-    storeUnreadable = true
-    notifyWarning("Couldn't read recent folders", {
-        id: STORE_UNREADABLE_NOTICE_ID,
-        description: `${errorMessage(readError)} Scrivon left the file as it is. Until it can read it, recent folders and open tabs won't be remembered. Your documents aren't affected.`,
-    })
+    if ((await s.length()) > 0) return false
+    try {
+        await s.close()
+    } catch (err) {
+        console.warn("Couldn't close workspace.json", err)
+    }
+    warnStoreUnreadable(readError)
+    return true
 }
 
-/** Tries reading an unreadable workspace.json again in the background, one try at a time. */
-function readStoreAgain(s: Store): void {
-    if (readingAgain) return
-    readingAgain = true
-    void (async () => {
-        const readError = await readStoreFile(s)
-        // Read, or gone (so there is nothing to put an empty list over): changes are saved as usual again.
-        if (readError !== null && !FILE_MISSING.test(errorMessage(readError, ''))) return
-        storeUnreadable = false
-        if (readError === null) await keepStoreBackup(s)
-    })().finally(() => {
-        readingAgain = false
+function warnStoreUnreadable(err: unknown): void {
+    notifyWarning("Couldn't read recent folders", {
+        id: STORE_UNREADABLE_NOTICE_ID,
+        description: `${errorMessage(err)} The file was left as it is, and recent folders and open tabs won't be remembered until Scrivon is restarted. Your documents aren't affected.`,
     })
 }
 
@@ -255,12 +248,12 @@ function toPathList(value: unknown): string[] {
  * the copies of unsaved edits (lib/tauri/backups.ts) are kept. Errors reach the caller.
  */
 export async function clearWorkspaceStore(): Promise<void> {
+    if (!isTauri()) return
     const s = await getStore()
-    if (!s) return
+    // Nothing from it is in use this run, and it is left alone (see leaveUnreadableStore).
+    if (!s) throw new Error("Scrivon couldn't read them when it started, so it left them as they are.")
     await s.clear()
     await s.save()
-    // Emptied as asked, so whatever the file held no longer needs keeping.
-    storeUnreadable = false
 }
 
 export async function getRecentWorkspaces(): Promise<string[]> {
@@ -283,7 +276,7 @@ async function forgetWorkspace(s: Store, root: string): Promise<void> {
 
 /** Puts a folder first in the recent folders, keeping at most `limit` (the live setting). */
 export async function addRecentWorkspace(path: string, limit: number): Promise<string[]> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return []
 
     const current = await getRecentWorkspaces()
@@ -296,7 +289,7 @@ export async function addRecentWorkspace(path: string, limit: number): Promise<s
 }
 
 export async function removeRecentWorkspace(path: string): Promise<string[]> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return []
 
     const next = (await getRecentWorkspaces()).filter((p) => !samePath(p, path))
@@ -314,7 +307,7 @@ export async function getLastOpenedFile(workspaceRoot: string): Promise<string |
 }
 
 export async function setLastOpenedFile(workspaceRoot: string, filePath: string): Promise<void> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return
     await s.set(`${LAST_FILE_PREFIX}${workspaceRoot}`, filePath)
     await saveStore(s)
@@ -338,7 +331,7 @@ export async function getWorkspaceTabSession(workspaceRoot: string): Promise<Wor
 }
 
 export async function setWorkspaceTabSession(workspaceRoot: string, session: WorkspaceTabSession): Promise<void> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return
 
     await s.set(`${OPEN_TABS_PREFIX}${workspaceRoot}`, session)
@@ -369,7 +362,7 @@ export async function getFolderToggles(workspaceRoot: string): Promise<Array<[st
 
 /** Remembers the folders the user opened or closed, keeping the latest choices when there are very many. */
 export async function setFolderToggles(workspaceRoot: string, toggles: ReadonlyMap<string, boolean>): Promise<void> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return
     await s.set(`${OPEN_FOLDERS_PREFIX}${workspaceRoot}`, [...toggles].slice(-MAX_FOLDER_TOGGLES))
     await saveStore(s)
@@ -382,7 +375,7 @@ export async function getRecentFiles(workspaceRoot: string): Promise<string[]> {
 }
 
 export async function addRecentFile(workspaceRoot: string, filePath: string): Promise<string[]> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return []
 
     const path = normalizePath(filePath)
@@ -395,7 +388,7 @@ export async function addRecentFile(workspaceRoot: string, filePath: string): Pr
 
 /** Moves a renamed file in the folder's recent files to its new path, or every file inside a renamed folder. */
 export async function renameRecentFiles(workspaceRoot: string, oldPath: string, newPath: string): Promise<string[]> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return []
 
     const current = await getRecentFiles(workspaceRoot)
@@ -408,7 +401,7 @@ export async function renameRecentFiles(workspaceRoot: string, oldPath: string, 
  * dead entries don't take up the list and a new file made later at the same path doesn't show up in it.
  */
 export async function removeRecentFiles(workspaceRoot: string, deletedPath: string): Promise<string[]> {
-    const s = await getWritableStore()
+    const s = await getStore()
     if (!s) return []
 
     const current = await getRecentFiles(workspaceRoot)

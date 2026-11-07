@@ -6,7 +6,8 @@ import { notifyWarning } from '@/lib/notify'
  * shell opens each store once at startup, loading its file and quietly starting empty when it can't, and the
  * webview can only get those (there is no `load` here, so the module must never try to open one itself).
  * reload() reports why a file couldn't be read, and save() writes the whole store back. workspace.json also saves
- * itself soon after any change, as the app shell sets it up to; `runAutoSave` does that here.
+ * itself soon after any change, as the app shell sets it up to; `runAutoSave` does that here. Every store still
+ * open is saved as the app quits (`quitApp`). A store the webview closes is gone from the app shell for the run.
  */
 const fake = vi.hoisted(() => ({
     disk: new Map<string, string>(),
@@ -22,6 +23,8 @@ const fake = vi.hoisted(() => ({
     held: new Map<string, { error: string; times: number }>(),
     /** Stores changed since they were last saved, which the store plugin saves by itself soon after. */
     autoSavePending: new Set<string>(),
+    /** Stores the webview closed: the app shell no longer has them, until the app starts again. */
+    closed: new Set<string>(),
 }))
 
 /** Fails while another program holds the file, counting the try. */
@@ -50,6 +53,7 @@ vi.mock('@tauri-apps/plugin-store', () => {
     class FakeStore {
         constructor(private readonly path: string) {}
         private get cache(): Map<string, unknown> {
+            if (fake.closed.has(this.path)) throw `The store ${this.path} was closed.`
             return fake.caches.get(this.path)!
         }
         async reload() {
@@ -89,11 +93,15 @@ vi.mock('@tauri-apps/plugin-store', () => {
             fake.autoSavePending.delete(this.path)
             fake.disk.set(this.path, JSON.stringify(Object.fromEntries(this.cache)))
         }
+        async close() {
+            fake.closed.add(this.path)
+            fake.autoSavePending.delete(this.path)
+        }
     }
     return {
         getStore: async (path: string) => {
             if (fake.openError) throw fake.openError
-            if (fake.notOpened.has(path)) return null
+            if (fake.notOpened.has(path) || fake.closed.has(path)) return null
             if (!fake.caches.has(path)) {
                 const cache = new Map<string, unknown>()
                 try {
@@ -130,6 +138,19 @@ async function launch() {
     return import('./store')
 }
 
+/**
+ * The store plugin's save, as the app quits, of every store it still has open (its RunEvent::Exit handler): the
+ * whole store is written, changed or not. The next launch starts with nothing in memory.
+ */
+function quitApp(): void {
+    for (const [path, cache] of fake.caches) {
+        if (!fake.closed.has(path) && !fake.held.get(path)?.times) fake.disk.set(path, JSON.stringify(Object.fromEntries(cache)))
+    }
+    fake.caches.clear()
+    fake.closed.clear()
+    fake.autoSavePending.clear()
+}
+
 /** The store plugin's own save soon after a change, which the module can't stop once it is due. */
 function runAutoSave(): void {
     for (const path of fake.autoSavePending) {
@@ -158,6 +179,7 @@ describe('workspace store', () => {
         fake.keptAs = null
         fake.held.clear()
         fake.autoSavePending.clear()
+        fake.closed.clear()
         vi.mocked(notifyWarning).mockClear()
         vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     })
@@ -294,21 +316,32 @@ describe('workspace store', () => {
                 "Couldn't read recent folders",
                 expect.objectContaining({ description: expect.stringContaining('(os error 32)') })
             )
+
+            // Nor does the store plugin's save of every store as the app quits.
+            quitApp()
+            expect(onDisk('workspace.json')).toEqual(SAVED)
+            // The next launch reads it as usual.
+            expect(await (await launch()).getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            await vi.waitFor(() => expect(onDisk('workspace.backup.json')).toEqual({ snapshot: SAVED }))
         })
 
-        it('saves changes as usual once the file can be read again', async () => {
+        it('leaves the file alone for the rest of the run, even once it can be written again', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))
             fake.held.set('workspace.json', { error: OFFLINE, times: Number.POSITIVE_INFINITY })
             const store = await launch()
             expect(await store.getRecentWorkspaces()).toEqual([])
 
-            // The network drive is back: the next use of the store reads it.
+            // The network drive is back, but what this run holds didn't come from the file.
             fake.held.clear()
-            await vi.waitFor(async () => expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work']))
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(await store.addRecentWorkspace('E:\\new', 10)).toEqual([])
+            // The window is reloaded: still nothing to save over the file.
+            const reloaded = await launch()
+            expect(await reloaded.getWorkspaceTabSession('C:\\notes')).toBeNull()
+            await reloaded.setWorkspaceTabSession('C:\\notes', { tabIds: [], activeTabId: null })
+            quitApp()
 
-            expect(await store.addRecentWorkspace('E:\\new', 10)).toEqual(['E:\\new', 'C:\\notes', 'D:\\work'])
-            expect(onDisk('workspace.json')).toEqual({ ...SAVED, 'recent-workspaces': ['E:\\new', 'C:\\notes', 'D:\\work'] })
-            await vi.waitFor(() => expect(onDisk('workspace.backup.json')).toEqual({ snapshot: SAVED }))
+            expect(onDisk('workspace.json')).toEqual(SAVED)
         })
 
         it('does not wait to try again when the drive is offline', async () => {
@@ -318,8 +351,9 @@ describe('workspace store', () => {
             const store = await launch()
 
             expect(await store.getRecentWorkspaces()).toEqual([])
-            // Once by the app shell, once by the module, and once more as the store was used: no quick tries again.
-            expect(100 - held.times).toBe(3)
+            expect(await store.getRecentFiles('C:\\notes')).toEqual([])
+            // Once by the app shell and once by the module: no quick tries again.
+            expect(100 - held.times).toBe(2)
         })
     })
 
@@ -518,6 +552,17 @@ describe('workspace store', () => {
             await expect(store.clearWorkspaceStore()).rejects.toBe('There is not enough space on the disk. (os error 112)')
             expect(notifyWarning).not.toHaveBeenCalled()
         })
+
+        it('leaves a file it could not read alone, and says why', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.held.set('workspace.json', { error: 'Access is denied. (os error 5)', times: Number.POSITIVE_INFINITY })
+            const store = await launch()
+
+            await expect(store.clearWorkspaceStore()).rejects.toThrow("Scrivon couldn't read them when it started, so it left them as they are.")
+            fake.held.clear()
+            quitApp()
+            expect(onDisk('workspace.json')).toEqual(SAVED)
+        })
     })
 
     describe('the recent folders limit', () => {
@@ -567,14 +612,20 @@ describe('workspace store', () => {
             expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
         })
 
-        it('reports a store the app did not open at startup, and tries again next time', async () => {
+        it('gets by without a store the app did not open at startup, and says so once', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))
             fake.notOpened.add('workspace.json')
             const store = await launch()
 
-            await expect(store.getRecentWorkspaces()).rejects.toThrow("Scrivon couldn't open workspace.json.")
-            fake.notOpened.clear()
-            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(await store.getWorkspaceTabSession('C:\\notes')).toBeNull()
+            expect(await store.addRecentWorkspace('E:\\new', 10)).toEqual([])
+            expect(onDisk('workspace.json')).toEqual(SAVED)
+            expect(notifyWarning).toHaveBeenCalledTimes(1)
+            expect(notifyWarning).toHaveBeenCalledWith(
+                "Couldn't read recent folders",
+                expect.objectContaining({ description: expect.stringContaining("Scrivon couldn't open workspace.json.") })
+            )
         })
 
         it('still reads workspace.json when its copy was not opened', async () => {
