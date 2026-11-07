@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, type FocusEvent } from 'react'
+import { useEffect, useMemo, useRef, type FocusEvent } from 'react'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import { usePanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
 import { MarkdownExpandProvider } from '@/components/studio/markdown/markdown-expand-context'
 import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
@@ -58,6 +59,9 @@ export function StudioLayout() {
     const { layout } = useStudioLayout()
     const editorLayout = useEditorPanelLayout()
     const { rootRef, onFocus } = useKeepFocusInStudio(tabs.map((t) => t.id).join('\n'), layout.explorerOpen, layout.editorOpen)
+    const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
+    // Kept here because the canvas below unmounts while a Markdown tab shows.
+    const canvasViews = usePanZoomMemory(openTabIds)
 
     useWindowCloseHandler()
 
@@ -89,7 +93,7 @@ export function StudioLayout() {
                             {viewerKind === 'markdown' ? (
                                 <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
                             ) : (
-                                <MermaidCanvas source={activeTab?.content ?? ''} />
+                                <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
                             )}
                         </div>
                     </div>

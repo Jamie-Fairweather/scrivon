@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, renderHook } from '@testing-library/react'
 import { useRef } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
@@ -7,7 +7,9 @@ import {
     interpretWheel,
     pinchTransform,
     usePanZoom,
+    usePanZoomMemory,
     zoomAround,
+    type PanZoomMemory,
     type WheelInput,
 } from '@/components/studio/canvas/use-pan-zoom'
 
@@ -97,10 +99,10 @@ describe('zoom helpers', () => {
     })
 })
 
-function Canvas() {
+function Canvas({ tabId = 'a.mmd', memory }: { tabId?: string; memory?: PanZoomMemory }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
-    const { handlers } = usePanZoom(containerRef, transformRef, 'a.mmd', ['a.mmd'])
+    const { handlers } = usePanZoom(containerRef, transformRef, tabId, ['a.mmd', 'b.mmd'], memory)
     return (
         <div ref={containerRef} data-testid="container" {...handlers}>
             <div ref={transformRef} data-testid="content" />
@@ -176,5 +178,40 @@ describe('usePanZoom', () => {
         fireEvent.pointerMove(container, { pointerId: 1, clientX: 90, clientY: 90 })
 
         expect(getByTestId('content').style.transform).toBe('translate(30px, -20px) scale(1)')
+    })
+
+    it('keeps each view in the given memory, so a canvas mounted again shows it as it was left (N05)', () => {
+        const memory: PanZoomMemory = new Map()
+        const first = render(<Canvas memory={memory} />)
+        dispatchWheel(first.getByTestId('container'), { deltaX: 5, deltaY: 40, wheelDeltaY: -40 })
+        first.unmount()
+
+        const again = render(<Canvas memory={memory} />)
+        expect(again.getByTestId('content').style.transform).toBe('translate(-5px, -40px) scale(1)')
+
+        again.rerender(<Canvas memory={memory} tabId="b.mmd" />)
+        expect(again.getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1)')
+    })
+
+    it('forgets the view when the canvas goes away and has no memory of its own', () => {
+        const first = render(<Canvas />)
+        dispatchWheel(first.getByTestId('container'), { deltaX: 5, deltaY: 40, wheelDeltaY: -40 })
+        first.unmount()
+
+        expect(render(<Canvas />).getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1)')
+    })
+})
+
+describe('usePanZoomMemory', () => {
+    it('forgets the view of a tab that closed, so the file is fitted afresh when it opens again (N05)', () => {
+        const view = renderHook(({ openTabIds }) => usePanZoomMemory(openTabIds), { initialProps: { openTabIds: ['a.mmd', 'b.mmd'] } })
+        const memory = view.result.current
+        memory.set('a.mmd', { x: 1, y: 2, scale: 3 })
+        memory.set('b.mmd', { x: 4, y: 5, scale: 6 })
+
+        view.rerender({ openTabIds: ['a.mmd'] })
+
+        expect(view.result.current).toBe(memory)
+        expect([...memory.keys()]).toEqual(['a.mmd'])
     })
 })
