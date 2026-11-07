@@ -1,5 +1,21 @@
 # Scrivon full app audit (6 November 2026)
 
+## Fix status (7 November 2026)
+
+The fixes are on branch `t3/full-app-audit`. They were done in three rounds, and each round was checked by independent reviewers.
+
+- **Problems (338, not counting the 50 missing features):** an independent final review confirmed 330 fixed. Of the other 9, it found 7 only partly done, and the third round finished those. Only two are left, and both are yours to decide: code signing (S06) and the installer's publisher name (R16).
+- **New problems found by the final review (75):** 45 of these were caused by the fixes themselves. 72 are fixed. Three need a new Rust command, which that round wasn't allowed to add:
+    - Deleting a big folder runs on the window's main thread, so the app can stall (N65).
+    - Checking whether open files changed on disk also runs on that thread (N66).
+    - When a file can't be replaced, the fallback save isn't flushed to disk (N59, partly fixed).
+- **Known gaps left:**
+    - With "Hide footer on title page and contents", the last contents page still shows the footer bar. Fixing it needs a change in the Rust page-number stamper.
+    - After renaming or deleting in the explorer, focus waits up to 5 seconds for the tree to update. The proper fix belongs in the workspace session code.
+- **Missing features (F list):** none were built. They're for the owner to pick.
+- **Checks (all passing):** 2378 frontend tests (coverage about 94%; the minimum is now set just under that), 158 Rust tests, type check, ESLint, Clippy with warnings treated as errors, cargo fmt, the Tauri version check, and `next build`.
+- **Still needs a person:** [manual-checklist.md](manual-checklist.md) lists what tests can't cover. It's a one-off click-through in the real Windows app.
+
 ## Overview
 
 Scrivon's main idea works: you open a folder, edit Markdown and Mermaid side by side, see a live preview, and export to SVG, PNG, PDF and Word. But the audit confirmed 388 problems, and the most serious group is about losing or overwriting work. Installing an update, autosaving while you type, creating or renaming files, reopening a file, closing tabs and changing settings can all silently throw away text or replace another file. When something does go wrong, the error is usually hidden in a tooltip or the developer console, so people don't find out until it's too late. On top of that, the code editor is downloaded from the internet at runtime, so it doesn't work offline, and a few Rust commands and the release pipeline give out more access than they should. PDF and Word exports have many layout bugs (cut-off code, shrinking pages, missing images). Most of the rest is polish: keyboard and screen-reader access, everyday features people expect from an editor, small UI inconsistencies, and some dead code. The good news is that 7 of the 9 critical problems are marked as small fixes, so the worst risks can be closed quickly.
