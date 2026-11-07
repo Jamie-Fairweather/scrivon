@@ -103,6 +103,29 @@ describe('semantic-release plugins', () => {
         expect(await analyze('docs: update readme')).toBeNull()
     })
 
+    it('writes the release notes with the conventionalcommits preset', async () => {
+        // conventional-changelog-conventionalcommits 10 needs a newer changelog writer than
+        // @semantic-release/release-notes-generator 14 has, and then every release fails at this
+        // step while analyzeCommits above still passes.
+        type NotesPlugin = { generateNotes: (config: PluginOptions, context: Record<string, unknown>) => Promise<string> }
+        const { generateNotes } = await importPlugin<NotesPlugin>('@semantic-release/release-notes-generator')
+        const notes = await generateNotes(pluginOptions('@semantic-release/release-notes-generator'), {
+            cwd: repoRoot,
+            logger: silentLogger,
+            options: { repositoryUrl: 'https://github.com/Jamie-Fairweather/scrivon.git' },
+            lastRelease: { gitTag: 'v1.5.0', version: '1.5.0' },
+            nextRelease: { gitTag: 'v1.6.0', version: '1.6.0' },
+            commits: [
+                { hash: 'a1', message: 'feat(editor): add a minimap toggle' },
+                { hash: 'b2', message: 'fix: keep unsaved tabs' },
+            ].map((commit) => ({ ...commit, commit: { short: commit.hash, long: commit.hash } })),
+        })
+
+        expect(notes).toContain('1.6.0')
+        expect(notes).toMatch(/### Features[\s\S]*add a minimap toggle/)
+        expect(notes).toMatch(/### Bug Fixes[\s\S]*keep unsaved tabs/)
+    })
+
     it('commits every file sync-version.mjs rewrites, Cargo.lock included', () => {
         expect(pluginOptions('@semantic-release/git').assets).toEqual(
             expect.arrayContaining([
