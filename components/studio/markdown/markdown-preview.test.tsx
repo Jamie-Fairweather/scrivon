@@ -124,6 +124,17 @@ describe('MarkdownPreview', () => {
         expect(screen.getByText('Set by the document')).toHaveAttribute('dir', 'ltr')
     })
 
+    it('tags the document with its language, as the PDF is, so kanji take Japanese glyph shapes (B104)', () => {
+        const { container, rerender } = preview('# 会議の議事録\n\n今日は新しい機能について話し合いました。')
+        expect(container.querySelector('article')).toHaveAttribute('lang', 'ja')
+
+        rerender(<MarkdownPreview source={'---\nlang: zh-Hant\n---\n# 會議記錄'} tabId="doc.md" {...callbacks} />)
+        expect(container.querySelector('article')).toHaveAttribute('lang', 'zh-Hant')
+
+        rerender(<MarkdownPreview source="# Notes" tabId="doc.md" {...callbacks} />)
+        expect(container.querySelector('article')).toHaveAttribute('lang', 'en')
+    })
+
     it('shows bold next to Japanese punctuation as bold, as export does (B76)', () => {
         const { container } = preview('**「重要」**です。これは**テスト。**です。')
         expect(Array.from(container.querySelectorAll('strong')).map((node) => node.textContent)).toEqual(['「重要」', 'テスト。'])

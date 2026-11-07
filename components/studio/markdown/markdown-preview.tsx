@@ -17,7 +17,7 @@ import {
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
 import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
-import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
+import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
@@ -318,6 +318,8 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
+    // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
+    const lang = useMemo(() => markdownPreviewLang(source), [source])
     // Safe raw HTML first, then the numbering, so the sanitizer can't strip the blocks' data properties. Per
     // document, so each block's id is matched against the blocks this document showed last time.
     const rehypePlugins = useMemo(
@@ -347,7 +349,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
-            <article className="w-full max-w-3xl min-w-0 break-words">
+            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words">
                 <RemoteImagesContext.Provider value={remoteImages}>{markdown}</RemoteImagesContext.Provider>
             </article>
         </div>
