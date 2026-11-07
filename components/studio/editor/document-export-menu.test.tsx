@@ -94,7 +94,9 @@ describe('DocumentExportMenu', () => {
         expect(await screen.findByText('Export document', inTooltip)).toBeInTheDocument()
 
         fireEvent.click(button)
-        expect(await screen.findByRole('menuitem', { name: 'Save PDF' })).toBeInTheDocument()
+        // Both document exports are marked as beta.
+        expect(await screen.findByRole('menuitem', { name: 'Save PDF Beta' })).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Save Word Beta' })).toBeInTheDocument()
     })
 
     it.each([
@@ -125,12 +127,12 @@ describe('DocumentExportMenu', () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         const view = render(<DocumentExportMenu />)
         fireEvent.click(screen.getByRole('button', { name: 'Export document' }))
-        expect(await screen.findByRole('menuitem', { name: 'Save PDF' })).toBeInTheDocument()
+        expect(await screen.findByRole('menuitem', { name: 'Save PDF Beta' })).toBeInTheDocument()
 
         // An empty document has nothing to export.
         tabs.activeTab = tab('notes.md', '')
         view.rerender(<DocumentExportMenu />)
-        await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Save PDF' })).toBeNull())
+        await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Save PDF Beta' })).toBeNull())
         expect(screen.getByRole('button', { name: 'Export document' })).toHaveAttribute('aria-disabled', 'true')
     })
 

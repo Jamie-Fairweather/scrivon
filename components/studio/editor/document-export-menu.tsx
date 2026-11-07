@@ -11,6 +11,7 @@ import type { ExportFormat } from '@/lib/markdown/export-document'
 import type { PngExportScale } from '@/lib/mermaid/export'
 import { notifyError } from '@/lib/notify'
 import { documentKind } from '@/lib/workspace/file-types'
+import { BetaBadge } from '@/components/ui/beta-badge'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
@@ -136,6 +137,7 @@ export function DocumentExportMenu() {
                                     }}
                                 >
                                     Save PDF
+                                    <BetaBadge className="ms-auto" />
                                 </MenuItem>
                                 <MenuItem
                                     disabled={pdfDisabled}
@@ -145,6 +147,7 @@ export function DocumentExportMenu() {
                                     }}
                                 >
                                     Save Word
+                                    <BetaBadge className="ms-auto" />
                                 </MenuItem>
                             </>
                         ) : null}

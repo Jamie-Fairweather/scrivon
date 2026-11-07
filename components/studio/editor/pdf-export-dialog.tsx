@@ -9,6 +9,7 @@ import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } fr
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { BetaBadge } from '@/components/ui/beta-badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -207,7 +208,10 @@ function PdfExportForm({
     return (
         <>
             <DialogHeader>
-                <DialogTitle>Export document</DialogTitle>
+                <DialogTitle className="flex items-center gap-2">
+                    Export document
+                    <BetaBadge />
+                </DialogTitle>
                 <DialogDescription>Choose a format, profile, and optional title metadata for this export.</DialogDescription>
                 {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
                 {spaceNote ? <p className="text-xs text-warning-foreground">{spaceNote}</p> : null}
