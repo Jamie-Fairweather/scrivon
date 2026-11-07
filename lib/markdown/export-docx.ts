@@ -961,9 +961,14 @@ function collectDefinitions(tree: ExportDocument['tree']): Map<string, string> {
     return urls
 }
 
+/** Word's own bookmark for the start of the document. */
+const TOP_OF_DOCUMENT = '_top'
+
 /**
  * A link: to a heading's bookmark for `#heading` (matched as {@link resolveHeadingAnchor} does), else to its web,
  * email or relative address. A link the preview would leave dead (`javascript:`, `file:`…) keeps its words as plain text.
+ * A bare `#` goes to the top of the document, as in the PDF: a link with no anchor is written as a link to a
+ * relationship that doesn't exist, and Word then calls the whole file unreadable.
  */
 function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks) {
     const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
@@ -971,8 +976,11 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     if (href === null) return renderInlines(state, node.children, marks)
     const inner = renderInlines(state, node.children, { ...marks, link: true })
     if (inner.length === 0) return []
-    if (href.startsWith('#'))
-        return [new InternalHyperlink({ anchor: anchorFor(state, resolveHeadingAnchor(href.slice(1), state.bookmarks)), children: inner })]
+    if (href.startsWith('#')) {
+        const fragment = href.slice(1)
+        const anchor = (fragment && anchorFor(state, resolveHeadingAnchor(fragment, state.bookmarks))) || TOP_OF_DOCUMENT
+        return [new InternalHyperlink({ anchor, children: inner })]
+    }
     return [new ExternalHyperlink({ link: href, children: inner })]
 }
 

@@ -140,7 +140,26 @@ function assertWellFormed(part: string, xml: string): void {
     if (roots !== 1) throw problem('no root element', 0)
 }
 
-/** Unzips a .docx. Every XML part is checked with {@link assertWellFormed}, so each test also checks Word can open the file. */
+/**
+ * The relationship ids (`r:id`, `r:embed`, `r:link`) parts use that their own `.rels` file doesn't define, as
+ * `part: id`. Word reports a file with one as unreadable content and offers to repair it.
+ */
+function danglingRelationships(parts: Record<string, string>): string[] {
+    const dangling: string[] = []
+    for (const [name, xml] of Object.entries(parts)) {
+        if (!name.endsWith('.xml')) continue
+        const slash = name.lastIndexOf('/') + 1
+        const rels = parts[`${name.slice(0, slash)}_rels/${name.slice(slash)}.rels`] ?? ''
+        const ids = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((match) => match[1]))
+        for (const [, id] of xml.matchAll(/\br:(?:id|embed|link)="([^"]*)"/g)) if (!ids.has(id)) dangling.push(`${name}: ${id}`)
+    }
+    return dangling
+}
+
+/**
+ * Unzips a .docx. Every XML part is checked with {@link assertWellFormed}, and every relationship id it uses with
+ * {@link danglingRelationships}, so each test also checks Word can open the file.
+ */
 function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Record<string, string> } {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
     const names: string[] = []
@@ -164,6 +183,7 @@ function readDocx(data: Uint8Array): { xml: string; names: string[]; parts: Reco
         }
         offset = start + compressed
     }
+    expect(danglingRelationships(parts)).toEqual([])
     return { xml: xml.join('\n'), names, parts }
 }
 
@@ -351,6 +371,16 @@ describe('renderExportDocx', () => {
         expect(() =>
             assertWellFormed('test.xml', '<?xml version="1.0"?>\n<w:a xmlns:w="x" w:b="&amp;&#10;"><!-- c --><w:c/>2 &gt; 1 😀</w:a>')
         ).not.toThrow()
+    })
+
+    it('finds relationship ids that no .rels file defines', () => {
+        expect(
+            danglingRelationships({
+                'word/document.xml': '<w:hyperlink r:id="rId1"/><a:hlinkClick r:id="rId9"/><a:blip r:embed="rId2"/>',
+                'word/_rels/document.xml.rels': '<Relationship Id="rId1"/><Relationship Id="rId2"/>',
+                'word/footnotes.xml': '<w:hyperlink r:id="rId1"/>',
+            })
+        ).toEqual(['word/document.xml: rId9', 'word/footnotes.xml: rId1'])
     })
 
     it('writes the body: marks, links, images, lists, tables, code, diagrams, and notes', async () => {
@@ -1671,6 +1701,18 @@ describe('renderExportDocx', () => {
         expect(body.match(/<w:hyperlink /g)).toHaveLength(4 + 2)
         expect(rels).toContain('Target="https://example.com/safe" TargetMode="External"')
         expect(rels).toContain('Target="other.md" TargetMode="External"')
+    })
+
+    it('sends a link to just "#" to the top of the document, so Word finds no broken link in the file (N36)', async () => {
+        // readDocx fails on a hyperlink whose relationship id points at nothing, which an empty anchor wrote.
+        const { parts } = await render(
+            ['# [Back](#)', '', 'Go [to the top](#) or [up][t].', '', '[t]: #', '', 'A note[^n].', '', '[^n]: Back [to top](#).'].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        // `_top` is Word's own bookmark for the start of the document, where the PDF's `#` goes too.
+        expect(body.match(/w:anchor="_top"/g)).toHaveLength(3)
+        expect(parts['word/footnotes.xml']).toContain('w:anchor="_top"')
+        expect(body).not.toMatch(/<w:hyperlink [^>]*r:id=/)
     })
 
     it('keeps the real side margins when a bar ignores them, so footnotes stay off the paper edge', async () => {
