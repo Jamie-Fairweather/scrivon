@@ -167,7 +167,9 @@ export const UNSUPPORTED_FILE_NAME_MESSAGE = 'File name must end with .md, .mmd 
 export function entryNameError(name: string, kind: FileNode['kind'], siblings: FileNode[], ignorePath?: string): string | null {
     const invalid = validateFileName(name)
     if (invalid) return invalid
-    if (kind === 'file' && !isSupportedDocument(name.trim())) return UNSUPPORTED_FILE_NAME_MESSAGE
+    // A file Scrivon doesn't open (an image, say) can be renamed to anything; only a document has to stay one.
+    const renamingOtherFile = ignorePath !== undefined && !isSupportedDocument(getBaseName(ignorePath))
+    if (kind === 'file' && !renamingOtherFile && !isSupportedDocument(name.trim())) return UNSUPPORTED_FILE_NAME_MESSAGE
     const clash = findNameClash(siblings, name, ignorePath)
     return clash ? nameTakenMessage(clash) : null
 }

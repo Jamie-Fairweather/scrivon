@@ -224,4 +224,10 @@ describe('entryNameError', () => {
     it('lets a renamed entry keep its own name in another letter case', () => {
         expect(entryNameError('Diagram.mmd', 'file', docs, '/ws/docs/diagram.mmd')).toBeNull()
     })
+
+    it('lets a file Scrivon does not open be renamed to any name, but keeps a document a document', () => {
+        expect(entryNameError('logo.png', 'file', docs, '/ws/docs/logo.PNG')).toBeNull()
+        expect(entryNameError('logo-dark.png', 'file', docs, '/ws/docs/logo.png')).toBeNull()
+        expect(entryNameError('diagram.txt', 'file', docs, '/ws/docs/diagram.mmd')).toBe('File name must end with .md, .mmd or .mermaid.')
+    })
 })

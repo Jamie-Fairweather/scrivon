@@ -28,7 +28,7 @@ import { deleteUnsavedBackup, listUnsavedBackups, type UnsavedBackup } from '@/l
 import { addRecentWorkspace, clampRecentWorkspaceLimit, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
 import { tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifyWarning } from '@/lib/notify'
-import { isMarkdownFile } from '@/lib/workspace/file-types'
+import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { childrenOf, collectUnreadableFolders, entryNameError, uniqueFileName, uniqueNewName } from '@/lib/workspace/paths'
 import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
@@ -546,7 +546,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshTree()
                 return
             }
-            await Promise.all([refreshTree(), coordinator.openFile.current(destPath)])
+            // A copy of a file Scrivon doesn't open (an image, say) just shows up in the list.
+            await Promise.all([refreshTree(), isSupportedDocument(destPath) ? coordinator.openFile.current(destPath) : null])
         },
         [refreshTree, coordinator]
     )

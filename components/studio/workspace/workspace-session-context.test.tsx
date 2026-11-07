@@ -621,6 +621,22 @@ describe('renaming', () => {
         expect(result.current.tabs.tabs.map((t) => t.name)).toEqual(['Draft.md'])
         expect(notifyError).not.toHaveBeenCalled()
     })
+
+    it('renames a file Scrivon does not open to any name, such as fixing its letter case', async () => {
+        await disk.write('C:\\ws\\logo.PNG', 'PNG BYTES')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWithDraftTab(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\logo.PNG', 'logo.png', false)
+        })
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\logo.png', 'logo-dark.png', false)
+        })
+
+        expect(await disk.read('C:\\ws\\logo-dark.png')).toBe('PNG BYTES')
+        expect(notifyError).not.toHaveBeenCalled()
+    })
 })
 
 describe('file system errors', () => {
@@ -804,6 +820,21 @@ describe('duplicating', () => {
         expect(await disk.read('C:\\ws\\notes copy 2.md')).toBe('UNSAVED EDITS')
         expect(await disk.read('C:\\ws\\notes.md')).toBe('SAVED')
         expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({ isDirty: true, content: 'UNSAVED EDITS' })
+    })
+
+    it('copies a file Scrivon does not open without trying to open the copy', async () => {
+        await disk.write('C:\\ws\\logo.png', 'PNG BYTES')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.duplicateFile('C:\\ws\\logo.png')
+        })
+
+        expect(await disk.read('C:\\ws\\logo copy.png')).toBe('PNG BYTES')
+        expect(showError).not.toHaveBeenCalled()
+        expect(notifyError).not.toHaveBeenCalled()
+        expect(result.current.tabs.tabs).toEqual([])
     })
 })
 
