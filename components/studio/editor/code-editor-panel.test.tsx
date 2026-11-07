@@ -220,6 +220,7 @@ vi.mock('next/dynamic', () => ({
 type TabsState = { tabs: DocumentTab[]; activeTabId: string | null }
 let tabsState: TabsState = { tabs: [], activeTabId: null }
 const updateTabContent = vi.fn()
+const makeTabEditable = vi.fn()
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
@@ -228,6 +229,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         activeTab: tabsState.tabs.find((t) => t.id === tabsState.activeTabId) ?? null,
         updateTabContent,
     }),
+    useDocumentTabActions: () => ({ makeTabEditable }),
     useWorkspaceCoordinator: () => ({}),
 }))
 
@@ -289,6 +291,7 @@ beforeEach(() => {
     models.clear()
     editors.length = 0
     updateTabContent.mockReset()
+    makeTabEditable.mockReset()
     defineMonacoDiagramTheme.mockClear()
     theme = LIGHT_THEME
     editorSettings = DEFAULT_EDITOR_SETTINGS
@@ -409,6 +412,30 @@ describe('CodeEditorPanel accessibility', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.ariaLabel).toMatch(/^b\.mmd, Mermaid editor\./)
+    })
+})
+
+describe('CodeEditorPanel read-only reason', () => {
+    it('says above the editor why a file is read-only, and lets the user edit it as UTF-8', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [{ ...tab(a, 'café'), readOnly: true, encodingIssue: 'legacy-encoding' }], activeTabId: a }
+        // A read-only tab takes no edits, so wait for the editor itself rather than its change listener.
+        const view = render(<Panel />)
+        await waitFor(() => expect(editors).toHaveLength(1))
+
+        const bar = view.getByRole('status')
+        expect(bar).toHaveTextContent('Read-only.')
+        expect(bar).toHaveTextContent("It isn't saved as UTF-8")
+        expect(view.container.querySelector('[data-slot="code-editor"]')?.firstElementChild).toBe(bar)
+
+        fireEvent.click(view.getByRole('button', { name: 'Edit as UTF-8' }))
+        expect(makeTabEditable).toHaveBeenCalledWith(a)
+    })
+
+    it('shows no bar for a file that can be edited', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view } = await mountEditor()
+        expect(view.queryByRole('status')).not.toBeInTheDocument()
     })
 })
 

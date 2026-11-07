@@ -9,6 +9,7 @@ const tab: DocumentTab = { id: '/w/a.md', path: '/w/a.md', name: 'a.md', content
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs: [tab], activeTabId: tab.id, activeTab: tab, updateTabContent: () => {} }),
+    useDocumentTabActions: () => ({ makeTabEditable: vi.fn() }),
     useWorkspaceCoordinator: () => ({}),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))

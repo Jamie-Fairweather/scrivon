@@ -15,6 +15,7 @@ import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/wo
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
+import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -550,6 +551,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             style={{ width: shownWidth }}
             inert={!open}
         >
+            <ReadOnlyReasonBar />
             {/* data-find-overflow-host: lets the find box's tooltips past this clip (app/globals.css). */}
             <div className="relative min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (
