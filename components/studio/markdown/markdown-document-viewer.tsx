@@ -75,6 +75,19 @@ function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | n
 }
 
 /**
+ * Moves focus to the section a link led to, as following a link in a browser moves where Tab carries on from, so
+ * the next Tab goes into that section and a screen reader reads it. A heading or footnote can't normally take
+ * focus, so it can until focus leaves it again.
+ */
+function focusAnchorTarget(target: HTMLElement): void {
+    if (target.tabIndex < 0 && !target.hasAttribute('tabindex')) {
+        target.setAttribute('tabindex', '-1')
+        target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true })
+    }
+    target.focus({ preventScroll: true })
+}
+
+/**
  * Whether a `#fragment` that nothing in the document has means its top, as in a browser: `#top` in any letter case,
  * as in a README's `[Back to top](#top)`.
  */
@@ -251,6 +264,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             const target = findAnchorTarget(scrollAreaRef.current, id)
             if (target) {
                 target.scrollIntoView({ block: 'start' })
+                focusAnchorTarget(target)
                 return
             }
             const viewport = isTopOfDocument(id) ? scrollViewport(scrollAreaRef.current) : null
@@ -359,9 +373,15 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             const root = scrollAreaRef.current
             // The same file however its path is written: openFile tidies the path it was given into the tab's id.
             const opened = pendingAnchor && tabId && isSamePath(pendingAnchor.tabId, tabId) ? pendingAnchor : null
-            if (root && opened && findAnchorTarget(root, opened.id)) {
+            const anchorTarget = root && opened ? findAnchorTarget(root, opened.id) : null
+            if (root && opened && anchorTarget) {
                 // Held there while the diagrams above it are drawn, which would push it down or out of view.
-                return holdAnchorInView(root, opened.id)
+                const stopHolding = holdAnchorInView(root, opened.id)
+                // Only when focus went down with the link that was followed, or is still in the preview; never pull
+                // it out of the editor.
+                const focused = document.activeElement
+                if (!focused || focused === document.body || root.contains(focused)) focusAnchorTarget(anchorTarget)
+                return stopHolding
             }
             // A link such as `other.md#top`, with nothing in it called that, opens it at the top.
             if (opened && tabId && isTopOfDocument(opened.id)) scrollTopByTab.delete(tabId)

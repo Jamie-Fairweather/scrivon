@@ -465,6 +465,31 @@ describe('MarkdownDocumentViewer', () => {
             expect(openUrl).not.toHaveBeenCalled()
         })
 
+        it('moves focus to the section or footnote it scrolled to, so Tab carries on from there (N28)', () => {
+            const { container } = render(viewer(DOC_A, source))
+            const heading = container.querySelector<HTMLElement>('h1')!
+            const below = screen.getByRole('link', { name: 'below' })
+            below.focus()
+            fireEvent.click(below)
+            expect(heading).toHaveFocus()
+            expect(heading).toHaveAttribute('tabindex', '-1')
+
+            // Focusable only until focus leaves it again.
+            const footnoteRef = container.querySelector<HTMLElement>('a[data-footnote-ref]')!
+            footnoteRef.focus()
+            expect(heading).not.toHaveAttribute('tabindex')
+            fireEvent.click(footnoteRef)
+            const note = container.querySelector<HTMLElement>('#user-content-fn-1')!
+            expect(note).toHaveFocus()
+            expect(note).toHaveAttribute('tabindex', '-1')
+
+            // Back from the footnote to its marker, a link that takes focus as it is.
+            fireEvent.click(note.querySelector<HTMLElement>('a[data-footnote-backref]')!)
+            expect(footnoteRef).toHaveFocus()
+            expect(footnoteRef).not.toHaveAttribute('tabindex')
+            expect(note).not.toHaveAttribute('tabindex')
+        })
+
         it('follows a README’s GitHub-style table of contents', () => {
             const readme = [
                 '- [a](#foo--bar)',
@@ -570,6 +595,24 @@ describe('MarkdownDocumentViewer', () => {
             rerender(viewer(DOC_OTHER, '# Intro\n\n## Part'))
             expect(scrollIntoView).toHaveBeenCalledTimes(1)
             expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
+            // The link that was followed went with the old document, so focus starts again at the section (N28).
+            expect(container.querySelector('h2#user-content-part')).toHaveFocus()
+        })
+
+        it('leaves focus where it is when it has moved out of the preview by the time the linked document opens (N28)', () => {
+            const { container, rerender } = render(viewer(DOC_A, source))
+            fireEvent.click(screen.getByRole('link', { name: 'setup' }))
+            const editor = document.createElement('textarea')
+            document.body.append(editor)
+            try {
+                editor.focus()
+                workspace.tabs = [fileTab(DOC_A), fileTab(DOC_OTHER)]
+                rerender(viewer(DOC_OTHER, '# Intro\n\n## Part'))
+                expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-part')])
+                expect(editor).toHaveFocus()
+            } finally {
+                editor.remove()
+            }
         })
 
         it('still scrolls to the #fragment of a file the explorer doesn’t list, once its tab opens under the tidied path (N23)', () => {
