@@ -40,6 +40,7 @@ const NETWORK_PATH = /^[\\/]{2}/
 const NETWORK_SHARE = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/
 const URL_SCHEME = /^[a-zA-Z][a-zA-Z\d+.-]*:/
 const DATA_IMAGE = /^\s*data:image\//i
+const TEL_LINK = /^\s*tel:/i
 
 function decode(text: string): string {
     try {
@@ -67,12 +68,14 @@ export function anchorKey(text: string): string {
 
 /**
  * Keeps Windows paths such as `C:\docs\a.md` (react-markdown's default would blank them, reading `C:` as an
- * unsafe URL scheme) and an `<img>`'s inline `data:image/…` picture (which can't run scripts there, and which the
- * PDF shows too), and otherwise applies react-markdown's safe default. `key` and `node` are the attribute and
- * element react-markdown passes.
+ * unsafe URL scheme), phone links (`tel:`, which the app hands to the system like web and email links) and an
+ * `<img>`'s inline `data:image/…` picture (which can't run scripts there, and which the PDF shows too), and
+ * otherwise applies react-markdown's safe default. `key` and `node` are the attribute and element react-markdown
+ * passes.
  */
 export function markdownUrlTransform(url: string, key?: string, node?: Readonly<Element>): string {
     if (WINDOWS_ABSOLUTE_HREF.test(url)) return url
+    if (key === 'href' && TEL_LINK.test(url)) return url
     if (key === 'src' && node?.tagName === 'img' && DATA_IMAGE.test(url)) return url
     return defaultUrlTransform(url)
 }

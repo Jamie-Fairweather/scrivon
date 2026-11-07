@@ -33,7 +33,8 @@ const ANY_ELEMENT_ATTRIBUTES = (defaultSchema.attributes?.['*'] ?? []).filter((a
  * defaultSchema, which has details, summary, kbd, sub, sup, br, ins and img) plus mark, with images keeping their
  * size and alignment and paragraphs and blocks their alignment. Scripts, frames, styles and event handlers never
  * get through, and their contents are dropped rather than shown as text. Comments are dropped too. Links and images
- * may only point at web, email, relative or Windows-path addresses (images may also be data: URLs).
+ * may only point at web, relative or Windows-path addresses; links may also be email and phone (tel:) links, and
+ * images data: URLs.
  *
  * `<source>` is left out: its `srcset` would load a web image past the preview's and the PDF's web-image block,
  * which only look at `<img src>`. A `<picture>` then shows its `<img>`, which they do check.
@@ -50,7 +51,7 @@ const baseSchema: SanitizeSchema = {
     },
     protocols: {
         ...defaultSchema.protocols,
-        href: ['http', 'https', 'mailto', ...DRIVE_LETTERS],
+        href: ['http', 'https', 'mailto', 'tel', ...DRIVE_LETTERS],
         src: ['http', 'https', 'data', ...DRIVE_LETTERS],
     },
     strip: ['script', 'style', 'iframe', 'noscript', 'template', 'object', 'embed'],

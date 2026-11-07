@@ -44,4 +44,10 @@ describe('previewHtmlPlugins', () => {
         expect(previewHtml('[x](javascript:alert(1))')).toBe('<p><a>x</a></p>')
         expect(rawPasses.count).toBe(0)
     })
+
+    it('keeps phone links, which the preview hands to the system like web and email links (N26)', () => {
+        expect(previewHtml('[call](tel:+442012345678) <a href="tel:+15550100">desk</a>')).toBe(
+            '<p><a href="tel:+442012345678">call</a> <a href="tel:+15550100">desk</a></p>'
+        )
+    })
 })

@@ -212,4 +212,11 @@ describe('markdownUrlTransform', () => {
         expect(markdownUrlTransform('data:text/html;base64,PHNjcmlwdD4=', 'src', element('img'))).toBe('')
         expect(markdownUrlTransform(png)).toBe('')
     })
+
+    it('keeps phone links, which the preview hands to the system (N26)', () => {
+        const link: Element = { type: 'element', tagName: 'a', properties: {}, children: [] }
+        expect(markdownUrlTransform('tel:+442012345678', 'href', link)).toBe('tel:+442012345678')
+        expect(markdownUrlTransform('TEL:+1-555-0100', 'href', link)).toBe('TEL:+1-555-0100')
+        expect(markdownUrlTransform('tel:+442012345678', 'src', { ...link, tagName: 'img' })).toBe('')
+    })
 })

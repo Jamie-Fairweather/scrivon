@@ -654,6 +654,21 @@ describe('MarkdownDocumentViewer', () => {
             expect(openUrl).toHaveBeenCalledWith('https://example.com')
         })
 
+        it('hands phone links, written in Markdown or HTML, to the system (N26)', () => {
+            vi.mocked(isTauri).mockReturnValue(true)
+            render(viewer(DOC_A, 'Call [the office](tel:+442012345678) or <a href="tel:+15550100">the desk</a>.'))
+            for (const [name, url] of [
+                ['the office', 'tel:+442012345678'],
+                ['the desk', 'tel:+15550100'],
+            ] as const) {
+                const link = screen.getByRole('link', { name })
+                expect(link).toHaveAttribute('href', url)
+                fireEvent.click(link)
+                expect(openUrl).toHaveBeenLastCalledWith(url)
+            }
+            expect(notifyInfo).not.toHaveBeenCalled()
+        })
+
         it('shows other linked files in the file explorer instead of running them', () => {
             render(viewer(DOC_A, source))
             fireEvent.click(screen.getByRole('link', { name: 'chart' }))
