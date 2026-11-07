@@ -67,10 +67,16 @@ function openDetails(hast: HastRoot): void {
  * so `#Résumé` or a percent-encoded fragment reaches the heading. A link the preview would leave dead (`javascript:`,
  * `file:`, a Windows path or network share), or one with no address, prints as its words alone, as in Word: the
  * stylesheet colours and underlines every <a>, so it would look clickable. The Contents page is built separately.
+ * An old-style `<a name="install">` anchor gets its name as its id, the only one the page may keep (see
+ * exportSanitizeSchema), so `#install` links still reach it.
  */
 function resolveLinks(hast: HastRoot): void {
     const ids = new Set<string>()
     visit(hast, 'element', (node: Element) => {
+        if (node.tagName === 'a' && node.properties.name !== undefined) {
+            if (node.properties.id === undefined) node.properties.id = node.properties.name
+            delete node.properties.name
+        }
         if (typeof node.properties.id === 'string') ids.add(node.properties.id)
     })
     visit(hast, 'element', (node: Element) => {

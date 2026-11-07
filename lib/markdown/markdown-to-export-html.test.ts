@@ -655,6 +655,33 @@ SHIKI_FAIL
         expect(html).toContain('<a href="other.md">doc</a>')
     })
 
+    it('lets no raw HTML stand in for what Scrivon’s own scripts read on the export page (review)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml(
+            [
+                '# Install',
+                '',
+                '<img name="readyState" src="a.png" alt="a"> <img name="fonts" id="querySelector" src="b.png" alt="b">',
+                '',
+                '<span id="__scrivonExportFonts">c</span> <a name="__scrivonExportWritten">d</a> <span id="__SCRIVONx">e</span>',
+                '',
+                '<a name="old-anchor"></a>Old. <a name="named" id="kept">f</a> [to old](#old-anchor) [to Old](#Old-Anchor) [top](#install)',
+            ].join('\n'),
+            { assets: EMPTY_ASSETS }
+        )
+        const body = html.slice(html.indexOf('<body>'))
+        // No element has a name, so none can replace document.readyState, document.fonts or document.querySelector.
+        expect(body).not.toMatch(/\sname="/)
+        expect(body).toContain('<img src="a.png" alt="a">')
+        expect(body).toContain('<img id="querySelector" src="b.png" alt="b">')
+        // Nor an id that would stand in for the exporter's own window values.
+        expect(body).not.toMatch(/__scrivon/i)
+        expect(body).toContain('<span>c</span> <span>d</span> <span>e</span>')
+        // Old-style <a name> anchors become ids, so links still reach them; an id the anchor already has wins.
+        expect(body).toContain('<span id="old-anchor"></span>Old. <span id="kept">f</span>')
+        expect(body).toContain('<a href="#old-anchor">to old</a> <a href="#old-anchor">to Old</a> <a href="#install">top</a>')
+    })
+
     it('says a diagram with nothing to draw yet is empty, as Word does, instead of printing an empty box (U39)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(['Before.', '', '```mermaid', 'graph TD EMPTY', '```', '', 'After.'].join('\n'))

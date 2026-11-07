@@ -47,8 +47,26 @@ const baseSchema: SanitizeSchema = {
  */
 export const previewSanitizeSchema: SanitizeSchema = baseSchema
 
-/** For the PDF, a document of its own: ids stay as written, so `#heading` links and the Contents page reach them. */
-export const exportSanitizeSchema: SanitizeSchema = { ...baseSchema, clobber: [] }
+/** Any value but one starting `__scrivon`, the prefix of the globals Scrivon's own scripts keep on the export page. */
+const NOT_A_PAGE_GLOBAL = /^(?!__scrivon)/i
+
+/**
+ * For the PDF, a document of its own: ids stay as written, so `#heading` links and the Contents page reach them.
+ * Scrivon still runs scripts on that page (the exporter's ready check, the print dialog's), so nothing in the
+ * document may stand in for what they read. No element keeps a `name`, as `<img name="readyState">` would replace
+ * `document.readyState` (an <img> with a name is also found on `document` by its id). Old-style `<a name>` anchors
+ * keep theirs only until it becomes their id (resolveLinks). And no id or name starts `__scrivon`, as
+ * `<span id="__scrivonExportFonts">` would stand in for that `window` value.
+ */
+export const exportSanitizeSchema: SanitizeSchema = {
+    ...baseSchema,
+    clobber: [],
+    attributes: {
+        ...baseSchema.attributes,
+        '*': [...ANY_ELEMENT_ATTRIBUTES.filter((attribute) => attribute !== 'name' && attribute !== 'id'), ['id', NOT_A_PAGE_GLOBAL]],
+        a: [...(baseSchema.attributes?.a ?? []), ['name', NOT_A_PAGE_GLOBAL]],
+    },
+}
 
 /**
  * Raw HTML in the preview: parsed into real elements, then cleaned. Footnote ids are left unprefixed here
