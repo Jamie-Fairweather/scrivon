@@ -952,6 +952,56 @@ describe('renderExportDocx', () => {
         expect(body).toContain('>Bell</w:t>')
     })
 
+    it('aligns Markdown inside a <div align> left open across blocks, and HTML in list items and footnotes (review)', async () => {
+        const { parts } = await render(
+            [
+                '<div align="center">',
+                '',
+                `<img src="${dataUrl('image/png', sizedPng(64, 32))}" alt="Logo">`,
+                '',
+                '# Scrivon',
+                '',
+                'A fast diagram editor.',
+                '',
+                '<div>',
+                '',
+                'Nested inherits.',
+                '',
+                '</div>',
+                '',
+                '<div align="left">',
+                '',
+                'Left inside.',
+                '',
+                '</div>',
+                '',
+                'Centred again.',
+                '',
+                '</div>',
+                '<!-- <div align="right"> -->',
+                '',
+                'After the div.',
+                '',
+                '- <p align="center">Centred item</p>',
+                '',
+                'Noted[^n].',
+                '',
+                '[^n]: <p align="right">Right note</p>',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const centred = '<w:jc w:val="center"/>'
+        for (const words of ['Scrivon', 'A fast diagram editor.', 'Nested inherits.', 'Centred again.', 'Centred item']) {
+            expect(blockWith(body, words), words).toContain(centred)
+        }
+        const logo = body.indexOf('descr="Logo"')
+        expect(body.slice(body.lastIndexOf('<w:p>', logo), logo)).toContain(centred)
+        expect(blockWith(body, 'Left inside.')).toContain('<w:jc w:val="start"/>')
+        // The div ends at its </div>; a tag in a comment opens nothing.
+        expect(blockWith(body, 'After the div.')).not.toContain('<w:jc ')
+        expect(blockWith(parts['word/footnotes.xml']!, 'Right note')).toContain('<w:jc w:val="end"/>')
+    })
+
     it('draws a raw HTML picture at the width or height it gives, as the PDF does (review)', async () => {
         const picture = dataUrl('image/png', sizedPng(64, 32))
         const { xml } = await render(

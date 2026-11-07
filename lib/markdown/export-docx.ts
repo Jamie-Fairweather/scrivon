@@ -489,20 +489,60 @@ function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
 /** Where raw HTML is a block of its own. Anywhere else it is a tag inside a line of text. */
 const HTML_BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition'])
 
+/** A `<div …>` or `</div>` tag in raw HTML, quoted attributes and all. */
+const DIV_TAG = /<(\/?)div\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi
+const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g
+const ALIGN_ATTRIBUTE = /\balign\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
+const HTML_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify'])
+
+/**
+ * Lines up the Markdown inside a `<div align>` that raw HTML leaves open across blocks, as the PDF does: the README
+ * wrapper `<div align="center">`, a blank line, a heading and text, a blank line, then `</div>`. The PDF reads all
+ * the raw HTML of a document as one, so the div holds the blocks between; Word cleans each HTML block alone. So
+ * paragraphs and headings between get the div's alignment, and each HTML block between is read inside the divs
+ * still open before it: the opening tags returned for it here, for {@link expandHtml}.
+ */
+function openDivs(tree: Root): WeakMap<Html, string> {
+    const prefixes = new WeakMap<Html, string>()
+    visit(tree, (parent) => {
+        if (!HTML_BLOCK_PARENTS.has(parent.type) || !('children' in parent)) return
+        // The alignment each open div asks for, outermost first. One that asks for none takes its parent's.
+        const open: (string | undefined)[] = []
+        for (const child of parent.children as RootContent[]) {
+            const align = open.findLast((value) => value !== undefined)
+            if (child.type === 'html') {
+                if (open.length > 0) prefixes.set(child, open.map((value) => (value ? `<div align="${value}">` : '<div>')).join(''))
+                for (const [, closing, attributes] of child.value.replace(HTML_COMMENT, '').matchAll(DIV_TAG)) {
+                    const own = ALIGN_ATTRIBUTE.exec(attributes!)
+                    const value = (own?.[1] ?? own?.[2] ?? own?.[3])?.trim().toLowerCase()
+                    if (closing) open.pop()
+                    else open.push(value && HTML_ALIGNMENTS.has(value) ? value : undefined)
+                }
+            } else if (align && (child.type === 'paragraph' || child.type === 'heading')) {
+                child.data = { ...child.data, hProperties: { ...child.data?.hProperties, align } }
+            }
+        }
+    })
+    return prefixes
+}
+
 /**
  * Swaps raw HTML in `tree` for the Markdown it shows, as the preview and PDF show it: a block becomes a paragraph
- * per line (keeping a `<p align>`'s alignment), and a tag in a line its picture or line break. Only tags, comments
+ * per line (keeping a `<p align>`'s alignment, or that of a div left open around it: see {@link openDivs}), and a
+ * tag in a line its picture or line break. Only tags, comments
  * and what the PDF drops (scripts, styles) are left out. The rest of the Word export then needs no HTML of its own,
  * so the page estimate, pictures, language guess and text direction all count it.
  */
 function expandHtml(tree: Root): void {
     const cleaned = new Map<string, HastRoot>()
+    const prefixes = openDivs(tree)
     visit(tree, 'html', (node: Html, index, parent) => {
         if (!parent || index === undefined) return
-        let hast = cleaned.get(node.value)
+        const value = (prefixes.get(node) ?? '') + node.value
+        let hast = cleaned.get(value)
         if (!hast) {
-            hast = htmlCleaner.runSync({ type: 'root', children: [{ type: 'html', value: node.value }] }) as HastRoot
-            cleaned.set(node.value, hast)
+            hast = htmlCleaner.runSync({ type: 'root', children: [{ type: 'html', value }] }) as HastRoot
+            cleaned.set(value, hast)
         }
         const lines = htmlLines(hast)
         // A tag in a line of text holds no words of its own: at most a picture or a line break, kept as they are.
@@ -1379,8 +1419,11 @@ function paragraphOptions(state: RenderState) {
     }
 }
 
-/** The alignment a paragraph from raw HTML asks for, such as `<p align="center">`, as Word's. Undefined when it asks for none. */
-function htmlAlignment(node: MdParagraph, rtl: boolean) {
+/**
+ * The alignment raw HTML asks for, as Word's: a paragraph of it such as `<p align="center">`, or a paragraph or
+ * heading in a `<div align>` (see {@link openDivs}). Undefined when it asks for none.
+ */
+function htmlAlignment(node: MdParagraph | Heading, rtl: boolean) {
     const align = node.data?.hProperties?.align
     if (align === 'justify') return AlignmentType.JUSTIFIED
     return align === 'left' || align === 'center' || align === 'right' ? cellAlignment(align, rtl) : undefined
@@ -1409,11 +1452,13 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     // A heading in a quote keeps its colour and is italic, as in the PDF.
     const size = headingHalfPoints(state, depth)
     const inlines = renderInlines(state, node.children, { headingSize: size, italics: state.quoteDepth > 0 || undefined })
+    const rtl = bidi(plainText(node))
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
         keepNext: true,
-        bidirectional: bidi(plainText(node)),
+        alignment: htmlAlignment(node, rtl === true),
+        bidirectional: rtl,
         spacing: {
             ...HEADING_SPACING[depth - 1],
             line: lineBoxTwip(size, state.document.profile.typography.lineHeight),
@@ -1482,12 +1527,14 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
             // The item's text starts a list step in, so its pictures are fitted to the width left from there.
             const inlines = withExtraLeft(state, LIST_STEP * (depth + 1), () => renderInlines(state, child.children, quoteMarks(state)))
             if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix, quoteMarks(state)))
+            const rtl = bidi(plainText(child))
             blocks.push(
                 new Paragraph({
                     spacing: { after: 60, ...bodyLineSpacing(state) },
                     indent,
                     border: quoteBorder(state),
-                    bidirectional: bidi(plainText(child)),
+                    alignment: htmlAlignment(child, rtl === true),
+                    bidirectional: rtl,
                     numbering: bare || markerPlaced ? undefined : { reference, level: 0 },
                     children: inlines,
                 })
@@ -1795,8 +1842,16 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     return blocks
 }
 
-function footnoteParagraph(children: ReturnType<typeof renderInlines>, text: string): Paragraph {
-    return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, bidirectional: bidi(text), children })
+/** A paragraph of a footnote. `node` is the Markdown one it stands for, if any, whose raw HTML may align it. */
+function footnoteParagraph(children: ReturnType<typeof renderInlines>, text: string, node?: MdParagraph): Paragraph {
+    const rtl = bidi(text)
+    return new Paragraph({
+        style: 'FootnoteText',
+        spacing: { after: 60 },
+        alignment: node && htmlAlignment(node, rtl === true),
+        bidirectional: rtl,
+        children,
+    })
 }
 
 /** Word footnotes hold only paragraphs, so a table in one is written a row per line, its cells split by bars. */
@@ -1822,7 +1877,7 @@ async function renderFootnote(state: RenderState, node: FootnoteDefinition): Pro
     try {
         const paragraphs: Paragraph[] = []
         for (const child of node.children) {
-            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children), plainText(child)))
+            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children), plainText(child), child))
             else for (const block of await renderBlocks(state, [child])) if (block instanceof Paragraph) paragraphs.push(block)
         }
         return paragraphs.length > 0 ? paragraphs : [footnoteParagraph([textRun(state, ' ')], '')]
