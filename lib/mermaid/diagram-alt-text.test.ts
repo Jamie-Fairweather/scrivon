@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diagramAltText, stripAccessibilityLines } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
 
 describe('diagramAltText', () => {
     it("uses the diagram's own accTitle and accDescr", () => {
@@ -68,23 +68,25 @@ describe('diagramAltText', () => {
     })
 })
 
-describe('stripAccessibilityLines', () => {
-    it('takes out accTitle, accDescr and accDescr blocks, which the renderer would draw as boxes', () => {
-        expect(stripAccessibilityLines('flowchart TD\n  accTitle: Login flow\n  accDescr: How a user signs in\n  A[Start] --> B[End]')).toBe(
-            'flowchart TD\n  A[Start] --> B[End]'
-        )
-        expect(stripAccessibilityLines('flowchart TD\n  accDescr {\n    multi\n    line }\n  A --> B')).toBe('flowchart TD\n  A --> B')
-        expect(stripAccessibilityLines('stateDiagram-v2\n  ACCTITLE : States\n  accDescr { one line }\n  [*] --> Idle')).toBe(
-            'stateDiagram-v2\n  [*] --> Idle'
-        )
-        // Diagram text after a block's closing brace stays.
-        expect(stripAccessibilityLines('graph TD\n  accDescr { note } A --> B')).toBe('graph TD\n A --> B')
+describe('diagramAltText and the renderer read the accessibility lines the same way', () => {
+    it('names the diagram after the same-line description block from the text that follows it', () => {
+        // The renderer keeps 'A --> B' after the closing brace, so the alt text names its nodes too.
+        expect(diagramAltText('graph TD\n  accDescr { note } A[Alpha] --> B[Beta]')).toEqual({ name: 'Flowchart', description: 'note' })
+        expect(diagramAltText('graph TD\n  accDescr {\n    still typing\n  A[Alpha] --> B[Beta]')).toEqual({
+            name: 'Flowchart',
+            description: 'Flowchart: Alpha, Beta',
+        })
     })
 
-    it('keeps every other line as it is, and a block that never closes', () => {
-        const plain = '%%{init: {"theme": "dark"}}%%\nflowchart LR\n  %% accTitle: in a comment\n  A[accTitle] --> B\n'
-        expect(stripAccessibilityLines(plain)).toBe(plain)
-        const open = 'flowchart TD\n  accDescr {\n  A --> B'
-        expect(stripAccessibilityLines(open)).toBe(open)
+    it('reads only the keywords as Mermaid writes them, as the renderer does', () => {
+        // The renderer draws 'ACCTITLE' as a state, so the alt text doesn't read it as a title.
+        expect(diagramAltText('stateDiagram-v2\n  ACCTITLE : States\n  [*] --> Idle')).toEqual({
+            name: 'State diagram',
+            description: 'State diagram: Idle',
+        })
+        expect(diagramAltText('graph TD\n  %% accTitle: in a comment\n  A[Start] --> B[End]')).toEqual({
+            name: 'Flowchart',
+            description: 'Flowchart: Start, End',
+        })
     })
 })

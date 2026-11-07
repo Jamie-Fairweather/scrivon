@@ -73,7 +73,7 @@ import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
-import { diagramAltText, stripAccessibilityLines, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
@@ -653,7 +653,6 @@ type RenderState = {
     bodyHalfPoints: number
     contentPx: number
     contentTwip: number
-    pageWidthPx: number
     pageWidthTwip: number
     /** Extra left indent, in twips, for blocks nested in list items and quotes. */
     extraLeft: number
@@ -752,7 +751,6 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         bodyHalfPoints: Math.round(profile.typography.bodySizePt * 2),
         contentPx: mmToPx(widthMm - profile.page.marginsMm.left - profile.page.marginsMm.right),
         contentTwip: widthTwip - marginLeft - marginRight,
-        pageWidthPx: mmToPx(widthMm),
         pageWidthTwip: widthTwip,
         extraLeft: 0,
         quoteDepth: 0,
@@ -2098,8 +2096,8 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     const text = node.value.replace(/\n$/, '')
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         try {
-            // The alt text comes from the accTitle and accDescr lines, which the renderer would draw as stray boxes.
-            const svg = renderMermaidDiagramForExport(stripAccessibilityLines(text), profile.content.mermaidThemeId)
+            // The renderer leaves out the accTitle and accDescr lines; the alt text reads them.
+            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
             return {
                 kind: 'diagram',
                 png: await diagramPng(svg, profile.content.mermaidThemeId),

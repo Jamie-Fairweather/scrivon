@@ -483,9 +483,12 @@ describe('renderExportDocx', () => {
             ].join('\n')
         )
         expect(xml).toContain('name="Login flow" descr="Login flow. How a user signs in"')
-        // The renderer would draw the accTitle and accDescr lines as boxes, so it gets the diagram without them.
-        expect(renderMermaidDiagramForExport).toHaveBeenCalledWith('flowchart TD\n  A --> B', expect.anything())
-        expect(renderMermaidDiagramForExport.mock.calls.some(([source]) => /acc(Title|Descr)/.test(source))).toBe(false)
+        // The renderer leaves the accTitle and accDescr lines out itself (lib/mermaid/accessibility.test.ts), the same
+        // way for the preview, the PDF and Word, so Word hands it the diagram as written rather than stripping it twice.
+        expect(renderMermaidDiagramForExport).toHaveBeenCalledWith(
+            'flowchart TD\n  accTitle: Login flow\n  accDescr: How a user signs in\n  A --> B',
+            expect.anything()
+        )
         expect(xml).toContain('name="Sequence diagram" descr="Sequence diagram: Alice, Bob"')
         // No alt text in the Markdown means none in Word too, as with the PDF's alt="", not the word 'image'.
         expect(xml).toContain('name="Picture" descr=""')
