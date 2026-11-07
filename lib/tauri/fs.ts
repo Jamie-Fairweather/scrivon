@@ -68,10 +68,13 @@ const SKIP_DIRS = new Set([
 const isDotNetProject = (name: string) => /\.(cs|fs|vb)proj$/.test(name)
 
 /**
- * Build output folders whose names are ordinary words. Each is skipped only next to the project file of a
- * tool that makes it, so a writer's own 'build', 'dist' or 'target' folder still shows. Names are lower case.
+ * Build output folders whose names are ordinary words, plus AppData. Each is skipped only next to the file
+ * that marks what made it: a tool's project file, or for AppData the NTUSER.DAT of a user's home folder,
+ * which holds every app's own files and never documents. So a writer's own 'build', 'dist', 'target' or
+ * 'AppData' folder still shows. Names are lower case.
  */
 const BUILD_OUTPUT_DIRS = new Map<string, (siblingName: string) => boolean>([
+    ['appdata', (name) => name === 'ntuser.dat'],
     ['target', (name) => name === 'cargo.toml' || name === 'pom.xml'],
     ['dist', (name) => name === 'package.json' || name === 'pyproject.toml' || name === 'setup.py'],
     [
@@ -83,10 +86,7 @@ const BUILD_OUTPUT_DIRS = new Map<string, (siblingName: string) => boolean>([
     ['pods', (name) => name === 'podfile'],
 ])
 
-/**
- * Windows system folders at the top of a drive, plus AppData in a user's home folder. Most can only be
- * read by Windows itself, AppData holds every app's own files, and none hold documents.
- */
+/** Windows system folders at the top of a drive. Most can only be read by Windows itself, and none hold documents. */
 const SKIP_SYSTEM_DIRS = new Set([
     'system volume information',
     '$recycle.bin',
@@ -95,7 +95,6 @@ const SKIP_SYSTEM_DIRS = new Set([
     '$winreagent',
     '$sysreset',
     'config.msi',
-    'appdata',
 ])
 
 /**

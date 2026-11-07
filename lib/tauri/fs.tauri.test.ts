@@ -415,15 +415,36 @@ describe('workspace fs (Tauri)', () => {
         const skipped = ['.venv', '__pycache__', '.gradle', 'AppData', 'Node_Modules']
         readDirMock.mockImplementation(async (dirPath: string) => {
             if (dirPath === 'C:\\Users\\me') {
-                return [...skipped, 'Documents'].map((name) => ({ name, isDirectory: true, isFile: false, isSymlink: false }))
+                return [
+                    ...[...skipped, 'Documents'].map((name) => ({ name, isDirectory: true, isFile: false, isSymlink: false })),
+                    { name: 'NTUSER.DAT', isDirectory: false, isFile: true, isSymlink: false },
+                ]
             }
             return [{ name: 'notes.md', isDirectory: false, isFile: true, isSymlink: false }]
         })
 
         const tree = await listWorkspaceTree('C:\\Users\\me')
 
-        expect(tree.map((node) => node.name)).toEqual(['Documents'])
+        expect(tree.map((node) => node.name)).toEqual(['Documents', 'NTUSER.DAT'])
         expect(readDirMock).toHaveBeenCalledTimes(2)
+    })
+
+    it("shows a folder named AppData that isn't the one in a user's home folder", async () => {
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\work\\guide') return [{ name: 'AppData', isDirectory: true, isFile: false, isSymlink: false }]
+            return [{ name: 'storage.md', isDirectory: false, isFile: true, isSymlink: false }]
+        })
+
+        const tree = await listWorkspaceTree('C:\\work\\guide')
+
+        expect(tree).toEqual([
+            {
+                kind: 'directory',
+                name: 'AppData',
+                path: 'C:\\work\\guide\\AppData',
+                children: [{ kind: 'file', name: 'storage.md', path: 'C:\\work\\guide\\AppData\\storage.md' }],
+            },
+        ])
     })
 
     it('shows build, dist and target folders unless they sit next to the project file that makes them', async () => {
