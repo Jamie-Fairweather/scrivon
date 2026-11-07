@@ -285,6 +285,27 @@
     }
 }
 
+/* Windows "Animation effects" off: toasts don't shake, slide or bounce, popups and dialogs don't
+   zoom, and accordions don't grow. Fades and loading spinners (animate-spin) stay. Not a blanket
+   rule, which would stop the spinners too. Unlayered so it beats the utilities. */
+@media (prefers-reduced-motion: reduce) {
+    .animate-toast-error-odd,
+    .animate-toast-error-even,
+    .animate-toast-success-odd,
+    .animate-toast-success-even {
+        animation: none;
+    }
+    [data-slot='toast-viewport'] [data-position],
+    [data-slot$='-popup'] {
+        transition-property: opacity;
+    }
+    [data-slot='accordion-panel'],
+    [data-slot='accordion-indicator'],
+    [data-slot='collapsible-panel'] {
+        transition: none;
+    }
+}
+
 /* Windows Contrast Themes (forced colors) remove box-shadow focus rings and author
    backgrounds, so focus, highlighted rows and switch state would all vanish.
    System colours are kept in forced colors mode. Unlayered so it beats `outline-none`. */
