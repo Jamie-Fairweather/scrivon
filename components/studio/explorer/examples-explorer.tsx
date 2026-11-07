@@ -68,7 +68,8 @@ export function ExamplesExplorer() {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <ScrollArea className="min-h-0 flex-1">
+            {/* Every category and example is a button of its own, so the scroll box isn't a Tab stop. */}
+            <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
                 {APP_EXAMPLE_CATEGORIES.map((category) => {
                     const examples = byCategory.get(category) ?? []
                     if (examples.length === 0) return null

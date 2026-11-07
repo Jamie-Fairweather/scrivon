@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { WorkspaceExplorer } from './workspace-explorer'
@@ -36,5 +36,24 @@ describe('WorkspaceExplorer', () => {
 
         expect(screen.getByRole('button', { name: 'Type x' })).toBeInTheDocument()
         expect(useWorkspaceSession).not.toHaveBeenCalled()
+    })
+
+    it('keeps the scroll box out of the Tab order when the file list is long enough to scroll', async () => {
+        // The test DOM lays nothing out, so every box is made taller inside than out, as a long list is.
+        const sizes = [
+            vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100),
+            vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000),
+            vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100),
+            vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(100),
+        ]
+        try {
+            render(<WorkspaceExplorer />)
+            const viewport = document.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
+            await waitFor(() => expect(viewport).toHaveAttribute('data-has-overflow-y'))
+
+            expect(viewport.tabIndex).toBe(-1)
+        } finally {
+            for (const size of sizes) size.mockRestore()
+        }
     })
 })
