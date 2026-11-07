@@ -15,6 +15,7 @@
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tauri::Manager;
 
@@ -25,6 +26,12 @@ const STORE_FILE: &str = "workspace.json";
 /// Where WebView2 keeps localStorage inside the app's local data folder. The
 /// page's origin (http://tauri.localhost) didn't change, so its keys still match.
 const LOCAL_STORAGE: [&str; 3] = ["EBWebView", "Default", "Local Storage"];
+/// The old version's window may still be closing, and holding the settings
+/// files, when this one starts (right after an update, say). Their copy is
+/// tried a few times, since it can only happen before this window opens:
+/// WebView2 then starts a new profile, which is never replaced.
+const SETTINGS_COPY_ATTEMPTS: u32 = 5;
+const SETTINGS_COPY_RETRY: Duration = Duration::from_millis(200);
 
 /// The data folders before and after the rename: roaming (the store files) and
 /// local (the WebView2 profile).
@@ -48,11 +55,11 @@ pub fn migrate(app: &tauri::App) {
         })
     })();
     if let Some(folders) = folders {
-        migrate_folders(&folders);
+        migrate_folders(&folders, SETTINGS_COPY_RETRY);
     }
 }
 
-fn migrate_folders(folders: &Folders) {
+fn migrate_folders(folders: &Folders, settings_retry: Duration) {
     let marker = folders.new_roaming.join(MARKER);
     if marker.exists() {
         return;
@@ -71,19 +78,42 @@ fn migrate_folders(folders: &Folders) {
     let old_storage = local_storage(&folders.old_local);
     let new_storage = local_storage(&folders.new_local);
     if old_storage.is_dir() && is_missing_or_empty(&new_storage) {
-        if let Err(err) = copy_into_place(&old_storage, &new_storage, copy_dir) {
+        let copied = retried(SETTINGS_COPY_ATTEMPTS, settings_retry, || {
+            copy_into_place(&old_storage, &new_storage, copy_dir)
+        });
+        if let Err(err) = copied {
             eprintln!("Could not copy the settings from {OLD_IDENTIFIER}: {err}");
             copied_all = false;
         }
     }
 
-    // After a failed copy (the old version still running, say) the next launch
-    // tries again; it still never replaces data that is there by then.
+    // After a failed copy the next launch tries again, but only for what is
+    // still missing then, since it never replaces data. That usually still
+    // includes the recent folders, but not the settings: WebView2 starts a new
+    // profile as soon as the window opens.
     if copied_all {
         if let Err(err) =
             fs::create_dir_all(&folders.new_roaming).and_then(|()| fs::write(&marker, b""))
         {
             eprintln!("Could not note that the old settings were copied: {err}");
+        }
+    }
+}
+
+/// Runs `step` up to `attempts` times, `wait` apart, until it works.
+fn retried(
+    attempts: u32,
+    wait: Duration,
+    mut step: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    let mut attempt = 1;
+    loop {
+        match step() {
+            Err(_) if attempt < attempts => {
+                attempt += 1;
+                std::thread::sleep(wait);
+            }
+            result => return result,
         }
     }
 }
@@ -221,7 +251,7 @@ mod tests {
         let folders = temp.folders();
         old_install(&folders);
 
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         assert_eq!(
             read(&folders.new_roaming.join(STORE_FILE)).as_deref(),
@@ -256,7 +286,7 @@ mod tests {
         old_install(&folders);
         fs::create_dir_all(local_storage(&folders.new_local)).unwrap();
 
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         assert_eq!(
             read(
@@ -282,7 +312,7 @@ mod tests {
             "new",
         );
 
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         assert_eq!(
             read(&folders.new_roaming.join(STORE_FILE)).as_deref(),
@@ -298,12 +328,12 @@ mod tests {
         let temp = TempDir::new();
         let folders = temp.folders();
         old_install(&folders);
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         // The user cleared their recent folders, then started Scrivon again.
         fs::remove_file(folders.new_roaming.join(STORE_FILE)).unwrap();
         fs::remove_dir_all(local_storage(&folders.new_local)).unwrap();
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         assert!(!folders.new_roaming.join(STORE_FILE).exists());
         assert!(!local_storage(&folders.new_local).exists());
@@ -314,7 +344,7 @@ mod tests {
         let temp = TempDir::new();
         let folders = temp.folders();
 
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         assert!(folders.new_roaming.join(MARKER).exists());
         assert!(!folders.new_roaming.join(STORE_FILE).exists());
@@ -338,30 +368,109 @@ mod tests {
         assert!(!to.with_file_name("Local Storage.migrating").exists());
     }
 
+    /// Opens `path` the way a program does that lets nothing else read it.
+    #[cfg(windows)]
+    fn hold(path: &Path) -> fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(path)
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn copies_the_settings_once_the_old_window_closing_lets_go_of_them() {
+        let temp = TempDir::new();
+        let folders = temp.folders();
+        old_install(&folders);
+        let current = local_storage(&folders.old_local)
+            .join("leveldb")
+            .join("CURRENT");
+        let held = hold(&current);
+        let closing = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+
+        migrate_folders(&folders, Duration::from_millis(200));
+        closing.join().unwrap();
+
+        assert_eq!(
+            read(
+                &local_storage(&folders.new_local)
+                    .join("leveldb")
+                    .join("CURRENT")
+            )
+            .as_deref(),
+            Some("MANIFEST-000001")
+        );
+        assert!(folders.new_roaming.join(MARKER).exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn recent_folders_that_could_not_be_copied_are_tried_again_next_launch() {
+        let temp = TempDir::new();
+        let folders = temp.folders();
+        old_install(&folders);
+        let held = hold(&folders.old_roaming.join(STORE_FILE));
+
+        migrate_folders(&folders, Duration::ZERO);
+
+        assert!(!folders.new_roaming.join(MARKER).exists());
+        assert!(!folders.new_roaming.join(STORE_FILE).exists());
+
+        drop(held);
+        migrate_folders(&folders, Duration::ZERO);
+
+        assert_eq!(
+            read(&folders.new_roaming.join(STORE_FILE)).as_deref(),
+            Some(r#"{"recent-workspaces":["C:\\notes"]}"#)
+        );
+        assert!(folders.new_roaming.join(MARKER).exists());
+    }
+
     // On Windows a path through a file reads as missing, so the copy is tried
     // and fails; elsewhere it reads as "has data" and is skipped.
     #[cfg(windows)]
     #[test]
-    fn a_copy_that_fails_is_tried_again_next_time() {
+    fn settings_that_could_not_be_copied_never_replace_the_profile_started_since() {
         let temp = TempDir::new();
         let folders = temp.folders();
         old_install(&folders);
         // A file where the new profile's folder should be makes the copy fail.
         write(&folders.new_local.join("EBWebView"), "in the way");
 
-        migrate_folders(&folders);
+        migrate_folders(&folders, Duration::ZERO);
 
         assert!(!folders.new_roaming.join(MARKER).exists());
         // The other copy still happened.
         assert!(folders.new_roaming.join(STORE_FILE).exists());
 
+        // The window opened, and WebView2 started a profile of its own, which
+        // holds whatever the user has set since.
         fs::remove_file(folders.new_local.join("EBWebView")).unwrap();
-        migrate_folders(&folders);
+        let leveldb = local_storage(&folders.new_local).join("leveldb");
+        write(&leveldb.join("CURRENT"), "new");
+        migrate_folders(&folders, Duration::ZERO);
 
-        assert!(local_storage(&folders.new_local)
-            .join("leveldb")
-            .join("CURRENT")
-            .exists());
+        assert_eq!(read(&leveldb.join("CURRENT")).as_deref(), Some("new"));
+        assert!(!leveldb.join("000003.log").exists());
         assert!(folders.new_roaming.join(MARKER).exists());
+    }
+
+    #[test]
+    fn gives_up_on_a_step_that_keeps_failing() {
+        let mut tries = 0;
+
+        let result = retried(5, Duration::ZERO, || {
+            tries += 1;
+            Err(io::Error::other("still held"))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(tries, 5);
     }
 }
