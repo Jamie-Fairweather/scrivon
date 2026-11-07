@@ -56,6 +56,9 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
     const inputId = useId()
     const errorId = useId()
     const pendingRef = useRef<((value: string | null) => void) | null>(null)
+    // Only the field's first focus after the prompt opens selects the name. Focus comes back to it when the user
+    // switches back to the window, and selecting then would let the next key replace what they typed.
+    const selectOnFocusRef = useRef(false)
 
     const [open, setOpen] = useState(false)
     const [request, setRequest] = useState<NamePromptOptions>({ title: '' })
@@ -78,6 +81,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                 pendingRef.current(null)
             }
             pendingRef.current = resolve
+            selectOnFocusRef.current = true
             setRequest(options)
             setValue(options.defaultValue ?? '')
             setOpen(true)
@@ -126,7 +130,11 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     id={inputId}
                                     nativeInput
                                     onChange={(e) => setValue(e.target.value)}
-                                    onFocus={(e) => selectNameWithoutExtension(e.target, extension)}
+                                    onFocus={(e) => {
+                                        if (!selectOnFocusRef.current) return
+                                        selectOnFocusRef.current = false
+                                        selectNameWithoutExtension(e.target, extension)
+                                    }}
                                     placeholder={placeholder}
                                     value={value}
                                 />

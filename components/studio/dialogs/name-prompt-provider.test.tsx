@@ -83,6 +83,25 @@ describe('NamePromptProvider', () => {
         expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'notes.md'.length])
     })
 
+    it('selects the name only when it opens, not each time focus comes back (switching back to the window)', async () => {
+        const { input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram 2.mmd' })
+        fireEvent.focus(input)
+
+        fireEvent.change(input, { target: { value: 'login flow.mmd' } })
+        input.setSelectionRange(10, 10)
+        fireEvent.blur(input)
+        fireEvent.focus(input)
+        expect([input.selectionStart, input.selectionEnd]).toEqual([10, 10])
+
+        // Opened again, it selects the name again.
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        await waitFor(() => expect(screen.queryByLabelText('Name')).not.toBeInTheDocument())
+        fireEvent.click(screen.getByText('Open'))
+        const again = (await screen.findByLabelText('Name')) as HTMLInputElement
+        fireEvent.focus(again)
+        expect([again.selectionStart, again.selectionEnd]).toEqual([0, 'diagram 2'.length])
+    })
+
     it('shows the description and button label it is given', async () => {
         await openPrompt({ title: 'Rename "notes.md"', description: 'Choose a new name for this file.', submitLabel: 'Rename' })
 
