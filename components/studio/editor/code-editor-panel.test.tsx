@@ -708,6 +708,12 @@ describe('CodeEditorPanel unicode highlighting', () => {
         const { editor } = await mountEditor()
         expect(editor.options.unusualLineTerminators).toBe('off')
     })
+
+    it('selects the word on double-click, even next to a bracket or quote', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'See [the docs](https://example.com) and "this".')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options.doubleClickSelectsBlock).toBe(false)
+    })
 })
 
 describe('CodeEditorPanel suggestions', () => {

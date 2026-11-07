@@ -3,8 +3,8 @@ import { APP_THEME_IDS, isLightTheme } from '@/lib/theme/catalog'
 import { MONACO_DIAGRAM_THEME_ID, buildMonacoDiagramTheme, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { resolveThemeTokensForId } from '@/lib/theme/resolve-theme-tokens'
 import { hexColorMix } from '@/lib/theme/color-mix'
-import { TokenTheme } from 'monaco-editor/esm/vs/editor/common/languages/supports/tokenization.js'
-import { vs, vs_dark } from 'monaco-editor/esm/vs/editor/standalone/common/themes.js'
+import { TokenTheme } from 'monaco-editor/editor/common/languages/supports/tokenization.js'
+import { vs, vs_dark } from 'monaco-editor/editor/standalone/common/themes.js'
 
 // Monaco throws "Illegal value for token color" for anything else in a token rule.
 const TOKEN_COLOR = /^#?[0-9a-f]{6}([0-9a-f]{2})?$/i

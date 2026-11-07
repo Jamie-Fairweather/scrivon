@@ -2,8 +2,9 @@ import type { Element, ElementContent, Root } from 'hast'
 import { visit } from 'unist-util-visit'
 
 function isMermaidCode(code: Element): boolean {
-    const classes = code.properties.className
-    const list = Array.isArray(classes) ? classes : typeof classes === 'string' ? classes.split(/\s+/) : []
+    // Typed as a string list, but a plugin can still leave a plain string here, so check both.
+    const classes: unknown = code.properties.className
+    const list: unknown[] = Array.isArray(classes) ? classes : typeof classes === 'string' ? classes.split(/\s+/) : []
     return list.some((name) => /^language-mermaid$/i.test(String(name)))
 }
 

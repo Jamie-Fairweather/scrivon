@@ -558,8 +558,9 @@ describe('renderExportDocx', () => {
             expect.anything()
         )
         expect(xml).toContain('name="Sequence diagram" descr="Sequence diagram: Alice, Bob"')
-        // No alt text in the Markdown means none in Word too, as with the PDF's alt="", not the word 'image'.
-        expect(xml).toContain('name="Picture" descr=""')
+        // No alt text in the Markdown means none in Word too, as with the PDF's alt="", not the word 'image'. docx 9.15+
+        // leaves an empty descr out, which the Word format reads as descr="".
+        expect(xml).toMatch(/<wp:docPr id="\d+" name="Picture"(?: descr="")?\/>/)
         expect(xml).not.toContain('descr="image"')
         expect(xml).not.toContain('descr="Diagram"')
     })

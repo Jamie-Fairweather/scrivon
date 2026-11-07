@@ -79,7 +79,8 @@ vi.mock('@tauri-apps/plugin-store', () => {
         save = vi.fn(async () => undefined)
         onKeyChange = vi.fn(async () => () => undefined)
         onChange = vi.fn(async () => () => undefined)
-        close = vi.fn(async () => undefined)
+        close = vi.fn(async () => undefined);
+        [Symbol.asyncDispose] = vi.fn(async () => undefined)
     }
     return { getStore: vi.fn(async () => new EmptyStore()) }
 })

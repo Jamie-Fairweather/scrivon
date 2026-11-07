@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // (Monaco's real opener service, used in the last test, needs a window.)
-import { URI } from 'monaco-editor/esm/vs/base/common/uri.js'
-import { OpenerService } from 'monaco-editor/esm/vs/editor/browser/services/openerService.js'
+import { URI } from 'monaco-editor/base/common/uri.js'
+import { OpenerService } from 'monaco-editor/editor/browser/services/openerService.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LinkOpenerService, LinkTarget } from './link-opener'
 
