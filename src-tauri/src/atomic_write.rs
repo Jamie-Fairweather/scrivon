@@ -207,13 +207,53 @@ fn with_retries(mut step: impl FnMut() -> io::Result<()>) -> io::Result<()> {
 }
 
 fn is_busy(err: &io::Error) -> bool {
-    // Windows: access denied, sharing violation, lock violation.
-    cfg!(windows) && matches!(err.raw_os_error(), Some(5 | 32 | 33))
+    // Windows: access denied, sharing violation, lock violation, and "unable to
+    // remove the file to be replaced" (ReplaceFileW, when another program has it
+    // open; both files keep their names then).
+    cfg!(windows) && matches!(err.raw_os_error(), Some(5 | 32 | 33 | 1175))
 }
 
 /// Puts `temp` in the place of `path`, keeping the file's identity.
 #[cfg(windows)]
 fn replace(path: &Path, temp: &Path) -> io::Result<()> {
+    swap_in(path, temp, replace_file)
+}
+
+/// Runs `replace_file` (ReplaceFileW), and deals with it failing.
+#[cfg(any(windows, test))]
+fn swap_in(
+    path: &Path,
+    temp: &Path,
+    replace_file: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+
+    let Err(err) = replace_file(path, temp) else {
+        return Ok(());
+    };
+    // Tried again in a moment, and then written in place by the page (lib/tauri/fs.ts).
+    if is_busy(&err) {
+        return Err(err);
+    }
+    // Deleted since it was checked: there is nothing to keep, so it is simply put there.
+    if err.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) && !path.exists() {
+        return fs::rename(temp, path);
+    }
+    // Some network, virtual and cloud drives can't replace a file at all (not
+    // supported, invalid parameter). A rename still swaps the new text in whole,
+    // as saves did before; the file just loses its ACLs and other streams.
+    if path.exists() && temp.exists() {
+        eprintln!(
+            "Couldn't replace {} keeping its identity ({err}), so the new version is renamed over it",
+            path.display()
+        );
+        return fs::rename(temp, path);
+    }
+    Err(err)
+}
+
+#[cfg(windows)]
+fn replace_file(path: &Path, temp: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     #[link(name = "kernel32")]
@@ -231,7 +271,6 @@ fn replace(path: &Path, temp: &Path) -> io::Result<()> {
     // can't be merged is still saved, as a rename would have saved it.
     const REPLACEFILE_IGNORE_MERGE_ERRORS: u32 = 0x2;
     const REPLACEFILE_IGNORE_ACL_ERRORS: u32 = 0x4;
-    const ERROR_FILE_NOT_FOUND: i32 = 2;
 
     let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain([0]).collect() };
     let (replaced, replacement) = (wide(path), wide(temp));
@@ -248,14 +287,10 @@ fn replace(path: &Path, temp: &Path) -> io::Result<()> {
         )
     };
     if ok != 0 {
-        return Ok(());
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
-    let err = io::Error::last_os_error();
-    // Deleted since it was checked: there is nothing to keep, so it is simply put there.
-    if err.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) && !path.exists() {
-        return fs::rename(temp, path);
-    }
-    Err(err)
 }
 
 #[cfg(not(windows))]
@@ -411,6 +446,90 @@ mod tests {
 
         assert_eq!(dir.names(), ["notes.md"]);
         assert!(path.is_dir());
+    }
+
+    /// `notes.md` holding "old text", and its new version written next to it.
+    fn file_and_new_version(dir: &TempDir) -> (PathBuf, PathBuf) {
+        let path = dir.0.join("notes.md");
+        fs::write(&path, "old text").unwrap();
+        let temp = write_temp(&path, b"new text").unwrap();
+        (path, temp)
+    }
+
+    #[test]
+    fn renames_over_the_file_on_a_drive_that_cannot_replace_one() {
+        // Not supported, invalid parameter, invalid function.
+        for code in [50, 87, 1] {
+            let dir = TempDir::new();
+            let (path, temp) = file_and_new_version(&dir);
+
+            swap_in(&path, &temp, |_, _| Err(io::Error::from_raw_os_error(code))).unwrap();
+
+            assert_eq!(fs::read_to_string(&path).unwrap(), "new text");
+            assert_eq!(dir.names(), ["notes.md"]);
+        }
+    }
+
+    #[test]
+    fn puts_the_new_version_there_when_the_file_was_deleted_meanwhile() {
+        let dir = TempDir::new();
+        let (path, temp) = file_and_new_version(&dir);
+
+        swap_in(&path, &temp, |path, _| {
+            fs::remove_file(path).unwrap();
+            Err(io::Error::from_raw_os_error(2))
+        })
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new text");
+        assert_eq!(dir.names(), ["notes.md"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn leaves_a_busy_file_as_it_is_for_another_try() {
+        // Sharing violation; unable to remove the file to be replaced.
+        for code in [32, 1175] {
+            let dir = TempDir::new();
+            let (path, temp) = file_and_new_version(&dir);
+
+            let err =
+                swap_in(&path, &temp, |_, _| Err(io::Error::from_raw_os_error(code))).unwrap_err();
+
+            assert!(is_busy(&err));
+            assert_eq!(fs::read_to_string(&path).unwrap(), "old text");
+            assert!(temp.exists());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn leaves_a_file_another_program_holds_open_to_be_written_in_place() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_WRITE: u32 = 0x2;
+        let dir = TempDir::new();
+        let path = dir.0.join("notes.md");
+        fs::write(&path, "old text").unwrap();
+        // Open in a program that lets others read and write it, but not replace it.
+        let held = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&path)
+            .unwrap();
+
+        let err = save(&path, b"new text").unwrap_err();
+
+        // One of the errors the page writes the file in place for (CANNOT_REPLACE
+        // in lib/tauri/fs.ts), and writing it in place works.
+        assert!(
+            matches!(err.raw_os_error(), Some(1 | 5 | 13 | 32 | 33 | 1175)),
+            "{err}"
+        );
+        assert_eq!(dir.names(), ["notes.md"]);
+        write_in_place(&path, b"new text").unwrap();
+        drop(held);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new text");
     }
 
     #[cfg(windows)]

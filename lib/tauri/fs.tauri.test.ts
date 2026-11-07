@@ -135,6 +135,11 @@ describe('workspace fs (Tauri)', () => {
         invokeMock.mockRejectedValue('The process cannot access the file because it is being used by another process. (os error 32)')
         await writeWorkspaceFile('C:\\ws\\notes.md', 'new')
         expect(writeFileMock).toHaveBeenCalledExactlyOnceWith('C:\\ws\\notes.md', new TextEncoder().encode('new'))
+
+        // What replacing a file another program has open can also fail with.
+        invokeMock.mockRejectedValue('Unable to remove the file to be replaced. (os error 1175)')
+        await writeWorkspaceFile('C:\\ws\\notes.md', 'newer')
+        expect(writeFileMock).toHaveBeenLastCalledWith('C:\\ws\\notes.md', new TextEncoder().encode('newer'))
     })
 
     it('writes in place when it may change the file but not add one next to it', async () => {

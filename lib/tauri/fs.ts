@@ -388,9 +388,10 @@ async function inspectFile(path: string): Promise<FileOnDisk | null> {
 
 /**
  * Access denied, or the file is open in another program that doesn't let it be replaced (Windows errors 5,
- * 32 and 33; EPERM and EACCES elsewhere). Writing straight into the file can still work then.
+ * 32, 33 and 1175, "unable to remove the file to be replaced"; EPERM and EACCES elsewhere). Writing straight
+ * into the file can still work then.
  */
-const CANNOT_REPLACE = /\(os error (?:1|5|13|32|33)\)/
+const CANNOT_REPLACE = /\(os error (?:1|5|13|32|33|1175)\)/
 
 function cannotReplace(err: unknown): boolean {
     return CANNOT_REPLACE.test(errorText(err))
