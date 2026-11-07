@@ -361,14 +361,8 @@ function saveRequestBody(path: string, bytes: Uint8Array): Uint8Array {
     return body
 }
 
-type FileOnDisk = {
-    /** Written straight into the file rather than replaced; see inspectFile. */
-    inPlace: boolean
-    stamp: FileStamp
-}
-
-/** What is at `path` now, or null when nothing is. */
-async function inspectFile(path: string): Promise<FileOnDisk | null> {
+/** The stamp of the file at `path` now (for a link, of the file it points to), or null when nothing is there. */
+async function inspectFile(path: string): Promise<FileStamp | null> {
     let info: Awaited<ReturnType<typeof lstat>>
     try {
         info = await lstat(path)
@@ -376,13 +370,9 @@ async function inspectFile(path: string): Promise<FileOnDisk | null> {
         if (!(await exists(path))) return null
         throw err
     }
-    // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file
-    // it points to. (A hard link is written through as well; the save command checks that, since only it can tell
-    // on Windows.) A hidden or system file is replaced like any other: ReplaceFileW keeps those marks.
-    const inPlace = info.isSymlink || (info.nlink ?? 1) > 1
-    if (!info.isSymlink) return { inPlace, stamp: stampOf(info) }
+    if (!info.isSymlink) return stampOf(info)
     try {
-        return { inPlace, stamp: stampOf(await stat(path)) }
+        return stampOf(await stat(path))
     } catch {
         // The link points at a file that is gone.
         return null
@@ -414,10 +404,11 @@ export type WriteWorkspaceFileOptions = {
  * Saves text in the file's own encoding. The app's save command writes the bytes to a temporary file next
  * to it, flushes them to the disk, and then puts that file in its place in one step (on Windows keeping its
  * permissions, attributes and other streams). So a save that fails or is cut short (full disk, unplugged
- * drive, crash, power cut) leaves the old version, never an empty or half-written file. Where a file can be
- * changed but not replaced (no right to add files to its folder, or another program has it open), it is
- * written in place as before, rather than never saving. Resolves to the saved file's new stamp (null if it
- * couldn't be read).
+ * drive, crash, power cut) leaves the old version, never an empty or half-written file. A link (or a hard
+ * link) isn't replaced, which would cut it off from the file it points to: the command writes it through and
+ * flushes that too. Where a file can be changed but not replaced (no right to add files to its folder, or
+ * another program has it open), it is written in place as before, rather than never saving. Resolves to the
+ * saved file's new stamp (null if it couldn't be read).
  */
 export async function writeWorkspaceFile(
     path: string,
@@ -428,13 +419,9 @@ export async function writeWorkspaceFile(
     const current = await inspectFile(path)
     if (expected !== undefined) {
         if (!current) throw new DiskChangedError(path, 'deleted')
-        if (expected && stampChanged(expected, current.stamp)) throw new DiskChangedError(path, 'changed')
+        if (expected && stampChanged(expected, current)) throw new DiskChangedError(path, 'changed')
     }
     const bytes = encodeText(content, format)
-    if (current?.inPlace) {
-        await writeFile(path, bytes)
-        return readStamp(path)
-    }
     try {
         // It removes its temporary file itself when anything fails.
         await invoke('save_workspace_file', saveRequestBody(normalizePath(path), bytes))

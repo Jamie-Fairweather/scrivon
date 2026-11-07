@@ -161,11 +161,27 @@ describe('workspace fs (Tauri)', () => {
         expect(writeFileMock).not.toHaveBeenCalled()
     })
 
-    it('writes through a link instead of replacing it with a plain file', async () => {
+    it('leaves a link to the save command, which writes through it and flushes it to the disk', async () => {
         lstatMock.mockResolvedValue({ isFile: false, isDirectory: false, isSymlink: true, size: 1, mtime: null, nlink: null })
-        statMock.mockResolvedValue({ size: 4, mtime: null })
-        await writeWorkspaceFile('/ws/linked.md', 'text')
-        expect(writeFileMock).toHaveBeenCalledWith('/ws/linked.md', new TextEncoder().encode('text'))
+        statMock.mockResolvedValue({ size: 4, mtime: new Date(1000) })
+        await expect(writeWorkspaceFile('/ws/linked.md', 'text', { expected: { size: 4, mtimeMs: 1000 } })).resolves.toEqual({
+            size: 4,
+            mtimeMs: 1000,
+        })
+        expect(lastSave()).toEqual({ path: '/ws/linked.md', bytes: new TextEncoder().encode('text') })
+        // Not the file plugin's write, which is never flushed.
+        expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('checks a link against the file it points to, and treats a link to nothing as gone', async () => {
+        lstatMock.mockResolvedValue({ isFile: false, isDirectory: false, isSymlink: true, size: 1, mtime: null, nlink: null })
+        statMock.mockResolvedValue({ size: 9, mtime: new Date(5000) })
+        await expect(writeWorkspaceFile('/ws/linked.md', 'text', { expected: { size: 4, mtimeMs: 1000 } })).rejects.toMatchObject({
+            change: 'changed',
+        })
+
+        statMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
+        await expect(writeWorkspaceFile('/ws/linked.md', 'text', { expected: null })).rejects.toMatchObject({ change: 'deleted' })
         expect(invokeMock).not.toHaveBeenCalled()
     })
 
