@@ -66,6 +66,7 @@ import {
     duplicateWorkspaceFile,
     findHiddenFolders,
     getWorkspaceFileSize,
+    isFileMissingError,
     joinPath,
     listFolderNames,
     listWorkspaceTree,
@@ -731,5 +732,15 @@ describe('watching the opened folder', () => {
         const stop = await watchWorkspace('/ws', vi.fn())
         stop()
         expect(watchMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('isFileMissingError', () => {
+    it('is true only for a file or folder that is not there', () => {
+        expect(isFileMissingError('failed to open file: The system cannot find the file specified. (os error 2)')).toBe(true)
+        expect(isFileMissingError(new Error('The system cannot find the path specified. (os error 3)'))).toBe(true)
+        expect(isFileMissingError('The process cannot access the file because it is being used by another process. (os error 32)')).toBe(false)
+        expect(isFileMissingError('Access is denied. (os error 5)')).toBe(false)
+        expect(isFileMissingError({ code: 2 })).toBe(false)
     })
 })

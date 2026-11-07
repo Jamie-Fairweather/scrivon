@@ -21,6 +21,7 @@ import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChang
 import {
     getBaseName,
     getWorkspaceFileSize,
+    isFileMissingError,
     isSupportedDocument,
     normalizePath,
     readStamp,
@@ -28,7 +29,7 @@ import {
     samePath,
     stampChanged,
 } from '@/lib/tauri/fs'
-import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
+import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
@@ -154,6 +155,15 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         (path: string) => {
             if (!workspaceRoot) return
             void addRecentFile(workspaceRoot, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
+        },
+        [workspaceRoot]
+    )
+
+    /** Drops a file that turned out not to be there from the folder's recent files; best-effort too. */
+    const forgetRecentFile = useCallback(
+        (path: string) => {
+            if (!workspaceRoot) return
+            void removeRecentFiles(workspaceRoot, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
         },
         [workspaceRoot]
     )
@@ -412,6 +422,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     if (isLargeFile(size) && !(await confirmOpenLargeFile(fileName, formatFileSize(size)))) return
                     read = tabFromFile(path, await readWorkspaceTextFile(path))
                 } catch (err) {
+                    // Only a file that isn't there leaves the list; a locked one may open next time.
+                    if (isFileMissingError(err)) forgetRecentFile(path)
                     await showError('Open failed', err instanceof Error ? err.message : 'Could not read file')
                     return
                 }
@@ -436,7 +448,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             void open.finally(() => pendingOpens.current.delete(path))
             return open
         },
-        [coordinator, persistTabSession, recordRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
+        [coordinator, persistTabSession, recordRecentFile, forgetRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
     )
 
     const openExample = useCallback(

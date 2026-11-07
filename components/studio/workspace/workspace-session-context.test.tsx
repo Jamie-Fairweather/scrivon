@@ -35,7 +35,9 @@ import {
     getFolderToggles,
     getRecentWorkspaces,
     getWorkspaceTabSession,
+    removeRecentFiles,
     removeRecentWorkspace,
+    renameRecentFiles,
     setFolderToggles,
 } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
@@ -59,6 +61,8 @@ vi.mock('@/lib/tauri/store', () => ({
     setWorkspaceTabSession: vi.fn(async () => undefined),
     getRecentFiles: vi.fn(async () => []),
     addRecentFile: vi.fn(async () => []),
+    renameRecentFiles: vi.fn(async () => []),
+    removeRecentFiles: vi.fn(async () => []),
     getFolderToggles: vi.fn(async () => []),
     setFolderToggles: vi.fn(async () => undefined),
 }))
@@ -685,6 +689,72 @@ describe('renaming', () => {
 
         expect(await disk.read('C:\\ws\\logo-dark.png')).toBe('PNG BYTES')
         expect(notifyError).not.toHaveBeenCalled()
+    })
+})
+
+describe('recent files', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        mountDisk(createWindowsDisk({ 'C:\\ws\\notes.md': 'NOTES', 'C:\\ws\\docs\\a.md': 'A' }))
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    it('follow a renamed file or folder, and leave a deleted one', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'ideas.md', false)
+        })
+        expect(renameRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\notes.md', 'C:\\ws\\ideas.md')
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\docs', true)
+        })
+        expect(removeRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\docs')
+    })
+
+    it('stay as they were when the rename or delete fails', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        vi.mocked(rename).mockRejectedValueOnce('Access is denied. (os error 5)')
+        vi.mocked(remove).mockRejectedValueOnce('Access is denied. (os error 5)')
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'ideas.md', false)
+        })
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\notes.md', false)
+        })
+
+        expect(renameRecentFiles).not.toHaveBeenCalled()
+        expect(removeRecentFiles).not.toHaveBeenCalled()
+    })
+
+    it('never make a rename or delete fail when they cannot be updated', async () => {
+        vi.mocked(renameRecentFiles).mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        vi.mocked(removeRecentFiles).mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'ideas.md', false)
+        })
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\ideas.md', false)
+        })
+
+        expect(notifyError).not.toHaveBeenCalled()
+        await waitFor(() => expect(warn).toHaveBeenCalledWith("Couldn't update recent files", expect.anything()))
+        warn.mockRestore()
     })
 })
 

@@ -97,5 +97,7 @@ vi.mock(
             setFolderToggles: vi.fn(async () => undefined),
             getRecentFiles: vi.fn(async () => []),
             addRecentFile: vi.fn(async () => []),
+            renameRecentFiles: vi.fn(async () => []),
+            removeRecentFiles: vi.fn(async () => []),
         }) satisfies typeof import('@/lib/tauri/store')
 )

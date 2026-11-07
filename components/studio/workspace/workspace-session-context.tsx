@@ -36,7 +36,9 @@ import {
     getFolderToggles,
     getRecentWorkspaces,
     getWorkspaceTabSession,
+    removeRecentFiles,
     removeRecentWorkspace,
+    renameRecentFiles,
     setFolderToggles,
 } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
@@ -804,6 +806,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 // The tabs follow straight away; reading the file list again can take a while.
                 coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
                 whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
+                // Recent files follow too (best-effort: a store failure never fails the rename).
+                const root = workspaceRootRef.current
+                if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
                 if (isDirectory) {
                     // The folder and the ones inside it stay open or closed as they were.
                     updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
@@ -836,6 +841,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await removeWorkspacePath(path, { recursive: isDirectory })
                 coordinator.closeTabsForDelete.current(path, isDirectory)
                 whereNow = () => null
+                const root = workspaceRootRef.current
+                if (root) void removeRecentFiles(root, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
                 // A new folder made later with the same name starts as any other.
                 if (isDirectory) updateFolderToggles(workspaceRootRef.current, (prev) => dropPathKeysAfterDelete(prev, path))
             } catch (err) {

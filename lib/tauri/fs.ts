@@ -311,6 +311,15 @@ export async function readWorkspaceFile(path: string): Promise<string> {
     return decodeText(await readFile(path)).content
 }
 
+/**
+ * True for the error a read gives when the file, or a folder on its path, isn't there: "(os error 2)" or
+ * "(os error 3)". Not for one that is there but can't be read just now, such as a locked file.
+ */
+export function isFileMissingError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+    return /\(os error [23]\)/.test(message)
+}
+
 export async function getWorkspaceFileSize(path: string): Promise<number | null> {
     if (!isTauri()) return null
     try {

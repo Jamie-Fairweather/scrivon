@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile, stat } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
-import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
+import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import { DocumentTabsProvider, useActiveTabId, useDocumentTabActions, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
@@ -415,6 +415,31 @@ describe('DocumentTabsProvider', () => {
         })
 
         expect(showError).toHaveBeenCalledWith('Open failed', 'Permission denied')
+    })
+
+    it('drops a file that is not there from the recent files, but not one that is only locked', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ workspaceRoot: 'C:\\ws' }),
+        })
+
+        vi.mocked(readFile).mockRejectedValueOnce(
+            'failed to open file at path: C:\\ws\\gone.md with error: The system cannot find the file specified. (os error 2)'
+        )
+        await act(async () => {
+            await result.current.openFile('C:\\ws\\gone.md')
+        })
+        expect(removeRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\gone.md')
+
+        vi.mocked(removeRecentFiles).mockClear()
+        vi.mocked(readFile).mockRejectedValueOnce(
+            'failed to open file at path: C:\\ws\\busy.md with error: The process cannot access the file because it is being used by another process. (os error 32)'
+        )
+        await act(async () => {
+            await result.current.openFile('C:\\ws\\busy.md')
+        })
+        expect(removeRecentFiles).not.toHaveBeenCalled()
+        expect(showError).toHaveBeenCalledTimes(2)
     })
 
     it('opens the file without an error when remembering the open tabs fails', async () => {

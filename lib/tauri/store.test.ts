@@ -327,6 +327,72 @@ describe('workspace store', () => {
         })
     })
 
+    describe('recent files after a rename or delete', () => {
+        const RECENT = ['C:\\notes\\a.md', 'C:\\notes\\docs\\b.md', 'C:\\notes\\docs\\deep\\c.md', 'C:\\notes\\docs.md']
+
+        async function launchWithRecent(paths: unknown[] = RECENT) {
+            fake.disk.set('workspace.json', JSON.stringify({ 'recent-files:C:\\notes': paths }))
+            return launch()
+        }
+
+        it('moves a renamed file to its new path, in the same place in the list', async () => {
+            const store = await launchWithRecent()
+
+            expect(await store.renameRecentFiles('C:\\notes', 'C:\\notes\\docs\\b.md', 'C:\\notes\\docs\\ideas.md')).toEqual([
+                'C:\\notes\\a.md',
+                'C:\\notes\\docs\\ideas.md',
+                'C:\\notes\\docs\\deep\\c.md',
+                'C:\\notes\\docs.md',
+            ])
+            expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(await store.getRecentFiles('C:\\notes'))
+        })
+
+        it('moves every file inside a renamed folder, and only those', async () => {
+            const store = await launchWithRecent()
+
+            await store.renameRecentFiles('C:\\notes', 'C:\\notes\\docs', 'C:\\notes\\manual')
+
+            expect(await store.getRecentFiles('C:\\notes')).toEqual([
+                'C:\\notes\\a.md',
+                'C:\\notes\\manual\\b.md',
+                'C:\\notes\\manual\\deep\\c.md',
+                'C:\\notes\\docs.md',
+            ])
+        })
+
+        it('matches Windows paths whatever their case or separators', async () => {
+            const store = await launchWithRecent(['c:/Notes/Docs/B.md', 'C:\\notes\\a.md'])
+
+            await store.renameRecentFiles('C:\\notes', 'C:\\NOTES\\docs', 'C:\\notes\\manual')
+            expect(await store.getRecentFiles('C:\\notes')).toEqual(['C:\\notes\\manual\\B.md', 'C:\\notes\\a.md'])
+
+            await store.removeRecentFiles('C:\\notes', 'c:/notes/A.MD')
+            expect(await store.getRecentFiles('C:\\notes')).toEqual(['C:\\notes\\manual\\B.md'])
+        })
+
+        it('drops a deleted file, or every file inside a deleted folder', async () => {
+            const store = await launchWithRecent()
+
+            expect(await store.removeRecentFiles('C:\\notes', 'C:\\notes\\a.md')).toEqual([
+                'C:\\notes\\docs\\b.md',
+                'C:\\notes\\docs\\deep\\c.md',
+                'C:\\notes\\docs.md',
+            ])
+            expect(await store.removeRecentFiles('C:\\notes', 'C:\\notes\\docs')).toEqual(['C:\\notes\\docs.md'])
+            expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(['C:\\notes\\docs.md'])
+        })
+
+        it('writes nothing when no recent file was affected', async () => {
+            const stored = [null, 'C:\\notes\\a.md']
+            const store = await launchWithRecent(stored)
+
+            await store.renameRecentFiles('C:\\notes', 'C:\\notes\\other.md', 'C:\\notes\\x.md')
+            await store.removeRecentFiles('C:\\notes', 'C:\\notes\\gone')
+
+            expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(stored)
+        })
+    })
+
     describe('the recent folders limit', () => {
         it('keeps as many folders as the limit it is given', async () => {
             fake.disk.set('workspace.json', JSON.stringify({ 'recent-workspaces': ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d'] }))

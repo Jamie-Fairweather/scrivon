@@ -2,8 +2,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { getStore as getAppStore, type Store } from '@tauri-apps/plugin-store'
 import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
-import { normalizePath, samePath } from '@/lib/tauri/fs'
+import { isPathInside, normalizePath, samePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
+import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 
 const STORE_PATH = 'workspace.json'
 const RECENT_KEY = 'recent-workspaces'
@@ -311,6 +312,37 @@ export async function addRecentFile(workspaceRoot: string, filePath: string): Pr
     const path = normalizePath(filePath)
     const current = await getRecentFiles(workspaceRoot)
     const next = [path, ...current.filter((p) => !samePath(p, path))].slice(0, MAX_RECENT_FILES)
+    await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
+    await saveStore(s)
+    return next
+}
+
+/** Moves a renamed file in the folder's recent files to its new path, or every file inside a renamed folder. */
+export async function renameRecentFiles(workspaceRoot: string, oldPath: string, newPath: string): Promise<string[]> {
+    const s = await getStore()
+    if (!s) return []
+
+    const current = await getRecentFiles(workspaceRoot)
+    const next = toPathList(current.map((p) => remapPathAfterRename(p, oldPath, newPath)))
+    return replaceRecentFiles(s, workspaceRoot, current, next)
+}
+
+/**
+ * Drops a deleted or missing file from the folder's recent files, or every file inside a deleted folder, so
+ * dead entries don't take up the list and a new file made later at the same path doesn't show up in it.
+ */
+export async function removeRecentFiles(workspaceRoot: string, deletedPath: string): Promise<string[]> {
+    const s = await getStore()
+    if (!s) return []
+
+    const current = await getRecentFiles(workspaceRoot)
+    const next = current.filter((p) => !samePath(p, deletedPath) && !isPathInside(p, deletedPath))
+    return replaceRecentFiles(s, workspaceRoot, current, next)
+}
+
+/** Writes a folder's recent files, but only when they changed. */
+async function replaceRecentFiles(s: Store, workspaceRoot: string, current: string[], next: string[]): Promise<string[]> {
+    if (next.length === current.length && next.every((p, i) => p === current[i])) return current
     await s.set(`${RECENT_FILES_PREFIX}${workspaceRoot}`, next)
     await saveStore(s)
     return next
