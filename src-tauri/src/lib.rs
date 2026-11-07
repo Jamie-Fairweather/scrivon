@@ -7,6 +7,7 @@ mod pdf_export;
 mod prevent_browser_shortcuts;
 mod store_recovery;
 mod system_fonts;
+mod system_menu;
 mod updater;
 mod workspace_access;
 
@@ -185,6 +186,7 @@ pub fn run() {
             pdf_export::read_export_image,
             store_recovery::take_store_recovery,
             system_fonts::list_system_fonts,
+            system_menu::show_system_menu,
             updater::check_for_app_update,
             updater::install_app_update,
             updater::take_update_attempt,
