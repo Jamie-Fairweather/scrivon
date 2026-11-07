@@ -807,17 +807,43 @@ describe('CodeEditorPanel focus after opening a file', () => {
     /** The focus waits a frame, for a closing dialog to let go first. */
     const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
 
-    it('focuses the editor once the file it was asked for is showing', async () => {
+    it('focuses the editor on the file that was just opened', async () => {
         const a = '/w/a.md'
         const b = '/w/b.md'
         tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
         const { view, editor } = await mountEditor()
 
+        // Callers ask once the open has finished.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
+        act(() => focusEditorFor(b))
+        await waitFor(() => expect(editor.focused).toBe(true))
+    })
+
+    it("forgets a request for a file that didn't open, so opening it by hand later leaves focus alone", async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // The user said no to opening a large b.md (or it couldn't be read or made), so a.md still shows.
         act(() => focusEditorFor(b))
         await nextFrame()
         expect(editor.focused).toBe(false)
 
+        // Later b.md is opened from the explorer, where the keyboard is meant to stay.
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
+        await nextFrame()
+        await nextFrame()
+        expect(editor.focused).toBe(false)
+    })
+
+    it('finds the tab however its path is written', async () => {
+        const path = String.raw`C:\Notes\Plan.md`
+        tabsState = { tabs: [tab(path, 'A')], activeTabId: path }
+        const { editor } = await mountEditor()
+
+        act(() => focusEditorFor('c:/notes/plan.md'))
+
         await waitFor(() => expect(editor.focused).toBe(true))
     })
 

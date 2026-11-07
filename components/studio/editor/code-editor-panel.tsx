@@ -16,7 +16,7 @@ import { useOptionalCommandPalette } from '@/components/studio/command-palette/c
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
-import { documentKind } from '@/lib/tauri/fs'
+import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
@@ -120,6 +120,11 @@ function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
+/** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
+function isTab(tabId: string | null, path: string): boolean {
+    return tabId !== null && samePath(tabId, path)
+}
+
 function languageForTab(tab: DocumentTab) {
     if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
@@ -211,36 +216,42 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     }, [coordinator, revealPosition, getEditorSelectedText])
 
     // A file just opened or created (from the palette or the explorer's New menu) gets the keyboard once
-    // its tab shows and the editor is ready, so typing goes straight into it.
+    // the editor is ready, so typing goes straight into it.
     const pendingFocusRef = useRef<string | null>(null)
     const focusPendingTab = useCallback(() => {
         const path = pendingFocusRef.current
-        if (!path || !openRef.current || !editorRef.current || activeTabIdRef.current !== path) return
+        if (!path || !openRef.current || !editorRef.current || !isTab(activeTabIdRef.current, path)) return
         pendingFocusRef.current = null
         // A frame later, so a dialog that is closing (the palette, the name prompt) has let go of focus.
         requestAnimationFrame(() => {
-            if (openRef.current && activeTabIdRef.current === path) editorRef.current?.focus()
+            if (openRef.current && isTab(activeTabIdRef.current, path)) editorRef.current?.focus()
         })
     }, [])
 
+    // Callers ask once the open has finished. React applies updates in the order they were made, so the
+    // render this request starts already has the open's change of tab, and the check below sees the result.
+    const [focusRequest, setFocusRequest] = useState(0)
     useEffect(
         () =>
             registerEditorFocus((path) => {
                 // A hidden editor can't take focus; the user is working in the explorer or the preview.
                 if (!openRef.current) return
                 pendingFocusRef.current = path
-                focusPendingTab()
+                setFocusRequest((n) => n + 1)
             }),
-        [focusPendingTab]
+        []
     )
 
-    // When another tab shows instead (the file couldn't be opened, or the user moved on), the request is dropped.
+    // Kept only while its file is the tab showing, which may still be waiting for the editor to load. If
+    // the file didn't open (the user said no to a large file, it couldn't be read or made) or another tab
+    // shows later, the request is dropped, so opening that file by hand later doesn't move the keyboard.
     const shownTabId = activeTab?.id ?? null
     useEffect(() => {
-        if (pendingFocusRef.current === null) return
-        if (shownTabId === pendingFocusRef.current) focusPendingTab()
+        const path = pendingFocusRef.current
+        if (path === null) return
+        if (isTab(shownTabId, path)) focusPendingTab()
         else pendingFocusRef.current = null
-    }, [shownTabId, focusPendingTab])
+    }, [shownTabId, focusRequest, focusPendingTab])
 
     useEffect(() => {
         openRef.current = open

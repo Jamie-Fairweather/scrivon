@@ -15,7 +15,10 @@ export function registerEditorFocus(focus: FocusEditorFor): () => void {
     }
 }
 
-/** Focuses the editor on `path`'s tab: now if it is showing, else as soon as the tab shows and the editor is ready. */
+/**
+ * Call once opening `path` has finished. If its tab is then the one showing, the editor takes focus (now,
+ * or as soon as it has loaded). If the open didn't happen (declined, failed), nothing changes.
+ */
 export function focusEditorFor(path: string): void {
     registered?.(path)
 }
