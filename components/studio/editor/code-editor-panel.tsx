@@ -464,12 +464,16 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) {
             // The same text, but another program may have changed only its line endings (the file was
             // reloaded). Take them on, or the next keystroke would save the old ones over every line.
-            // setEOL keeps the undo history, unlike setValue.
+            // The change goes on the undo stack as its own step, as VS Code does: Ctrl+Z first puts the
+            // old line endings back, then undoes earlier edits. Don't use setEOL: it skips the undo
+            // stack, so undoing an earlier edit would land in the wrong place and garble the text.
             const eol = lineEndingOf(tab.content)
             if (eol === null || model.getEOL() === eol) return
             suppressChangeRef.current = true
             try {
-                model.setEOL(eol === '\r\n' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
+                model.pushStackElement()
+                model.pushEOL(eol === '\r\n' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
+                model.pushStackElement()
             } finally {
                 suppressChangeRef.current = false
             }

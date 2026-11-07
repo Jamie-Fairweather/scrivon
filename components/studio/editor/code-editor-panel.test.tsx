@@ -52,8 +52,20 @@ class FakeModel {
     getEOL() {
         return this.eol
     }
-    /** Changes only the line ending (Monaco tells listeners, but keeps the undo history). */
+    /** The order of undo-stack calls, so a test can check a change is its own undo step. */
+    readonly undoCalls: string[] = []
+    pushStackElement() {
+        this.undoCalls.push('pushStackElement')
+    }
+    /** Changes only the line ending, as an undo step (Monaco tells listeners). */
+    pushEOL(sequence: number) {
+        this.undoCalls.push('pushEOL')
+        this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
+        this.listeners.forEach((l) => l())
+    }
+    /** Real Monaco skips the undo stack here, so a later undo garbles the text. Never call it. */
     setEOL(sequence: number) {
+        this.undoCalls.push('setEOL')
         this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
         this.listeners.forEach((l) => l())
     }
@@ -427,6 +439,9 @@ describe('CodeEditorPanel models', () => {
         expect(updateTabContent).not.toHaveBeenCalled()
         // The buffer (and its undo history) is kept.
         expect(editor.getModel()).toBe(model)
+        // The change is its own undo step. setEOL would leave the undo history counting the old line
+        // endings, and Ctrl+Z would then put earlier edits in the wrong place.
+        expect(model.undoCalls).toEqual(['pushStackElement', 'pushEOL', 'pushStackElement'])
 
         act(() => editor.type('x'))
         expect(updateTabContent).toHaveBeenLastCalledWith(a, `${after}x`)
@@ -441,6 +456,7 @@ describe('CodeEditorPanel models', () => {
 
         setTabs(view, { tabs: [tab(a, 'one\ntwo'), tab(b, 'B')], activeTabId: b })
         setTabs(view, { tabs: [tab(a, 'one\ntwo'), tab(b, 'B')], activeTabId: a })
+        expect(editor.getModel()!.undoCalls).toEqual(['pushStackElement', 'pushEOL', 'pushStackElement'])
 
         act(() => editor.type('!'))
         expect(updateTabContent).toHaveBeenLastCalledWith(a, 'one\ntwo!')
@@ -454,7 +470,6 @@ describe('CodeEditorPanel models', () => {
         const { view, editor } = await mountEditor()
         const model = editor.getModel()!
         const setValue = vi.spyOn(model, 'setValue')
-        const setEOL = vi.spyOn(model, 'setEOL')
 
         setTabs(view, { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: b })
         setTabs(view, { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: a })
@@ -462,7 +477,7 @@ describe('CodeEditorPanel models', () => {
         // Monaco evened the endings out on purpose; replacing the buffer would wipe its undo history.
         expect(editor.getModel()).toBe(model)
         expect(setValue).not.toHaveBeenCalled()
-        expect(setEOL).not.toHaveBeenCalled()
+        expect(model.undoCalls).toEqual([])
         expect(updateTabContent).not.toHaveBeenCalled()
     })
 
