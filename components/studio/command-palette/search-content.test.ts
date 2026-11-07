@@ -22,6 +22,42 @@ describe('buildPreview', () => {
         expect(preview.length).toBeLessThanOrEqual(102)
     })
 
+    /** True when no half of a surrogate pair is left on its own, which would show as a box. */
+    const wellFormed = (text: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)
+
+    it('never cuts an emoji in half at either end, and still highlights the match', () => {
+        const emoji = '\u{1F600}'.repeat(70)
+        const line = `${emoji}needle${emoji}`
+        const matchIndex = line.indexOf('needle')
+
+        // 'needle' is even, so the plain cut lands on the second half of an emoji at both ends.
+        const { preview, matchStart } = buildPreview(line, matchIndex, 6)
+
+        expect(wellFormed(preview)).toBe(true)
+        expect(preview.startsWith('…')).toBe(true)
+        expect(preview.endsWith('…')).toBe(true)
+        expect(preview.slice(matchStart, matchStart + 6)).toBe('needle')
+    })
+
+    it('keeps joined emoji and flags whole', () => {
+        const family = '\u{1F468}‍\u{1F469}‍\u{1F467}'
+        const flag = '\u{1F1EC}\u{1F1E7}'
+        for (const piece of [family, flag]) {
+            const filler = piece.repeat(30)
+            for (let shift = 0; shift < piece.length; shift++) {
+                const line = `${'x'.repeat(shift)}${filler}needle${filler}`
+                const matchIndex = line.indexOf('needle')
+                const { preview, matchStart } = buildPreview(line, matchIndex, 6)
+
+                const inner = preview.replace(/^…/, '').replace(/…$/, '')
+                const before = inner.slice(0, matchStart - (preview.startsWith('…') ? 1 : 0))
+                expect(before.replace(/^x*/, '').length % piece.length).toBe(0)
+                expect(inner.slice(inner.indexOf('needle') + 6).length % piece.length).toBe(0)
+                expect(preview.slice(matchStart, matchStart + 6)).toBe('needle')
+            }
+        }
+    })
+
     it('returns short lines unchanged', () => {
         expect(buildPreview('hello world', 6, 5)).toEqual({ preview: 'hello world', matchStart: 6 })
     })

@@ -68,16 +68,50 @@ export function createContentCache(maxChars = MAX_CACHED_CHARS): ContentCache {
     }
 }
 
+let graphemeSegmenter: Intl.Segmenter | null | undefined
+
+function segmenter(): Intl.Segmenter | null {
+    if (graphemeSegmenter === undefined) {
+        graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
+    }
+    return graphemeSegmenter
+}
+
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff
+const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff
+
+/**
+ * Widens `start..end` so neither end cuts through a character as the user sees it: an emoji (also one
+ * joined from several, or a flag), or a letter with its accents. The whole line is segmented, since a
+ * flag's two halves can only be paired by counting from the start of the line.
+ */
+function widenToWholeCharacters(line: string, start: number, end: number): { start: number; end: number } {
+    const seg = segmenter()
+    if (seg && (start > 0 || end < line.length)) {
+        const segments = seg.segment(line)
+        if (start > 0 && start < line.length) start = segments.containing(start)?.index ?? start
+        if (end > 0 && end < line.length) {
+            const around = segments.containing(end)
+            if (around && around.index < end) end = around.index + around.segment.length
+        }
+    }
+    // Never half of a surrogate pair, which shows as a box, even where grapheme segmenting isn't available.
+    if (start > 0 && isLowSurrogate(line.charCodeAt(start)) && isHighSurrogate(line.charCodeAt(start - 1))) start -= 1
+    if (end > 0 && end < line.length && isHighSurrogate(line.charCodeAt(end - 1)) && isLowSurrogate(line.charCodeAt(end))) end += 1
+    return { start, end }
+}
+
 /** A window of the line around the match, and where the match starts inside it (for highlighting). */
 export function buildPreview(line: string, matchIndex: number, matchLength: number): { preview: string; matchStart: number } {
     const max = PREVIEW_MAX_CHARS
     const half = Math.floor((max - matchLength) / 2)
-    let start = Math.max(0, matchIndex - half)
-    const end = Math.min(line.length, start + max)
+    let cutStart = Math.max(0, matchIndex - half)
+    const cutEnd = Math.min(line.length, cutStart + max)
 
-    if (end - start < max) {
-        start = Math.max(0, end - max)
+    if (cutEnd - cutStart < max) {
+        cutStart = Math.max(0, cutEnd - max)
     }
+    const { start, end } = widenToWholeCharacters(line, cutStart, cutEnd)
 
     let preview = line.slice(start, end)
     let matchStart = matchIndex - start
