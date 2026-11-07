@@ -408,7 +408,7 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
         id: "sample-32",
         category: "sequence",
         title: "Arrow Types",
-        description: "All arrow types: solid `->>` and dashed `-->>` with filled arrowheads, open arrows `-)` .",
+        description: "All arrow types: solid `->>` and dashed `-->>` with filled arrowheads, open arrows `-)`.",
         source: `sequenceDiagram
   A->>B: Solid arrow (sync)
   B-->>A: Dashed arrow (return)
@@ -663,7 +663,7 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
         id: "sample-47",
         category: "class",
         title: "Interface Annotation",
-        description: "Using <\\> annotation above the class name.",
+        description: "Using `<<interface>>` annotation above the class name.",
         source: `classDiagram
   class Serializable {
     <<interface>>
@@ -675,7 +675,7 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
         id: "sample-48",
         category: "class",
         title: "Abstract Annotation",
-        description: "Using <\\> annotation for abstract classes.",
+        description: "Using `<<abstract>>` annotation for abstract classes.",
         source: `classDiagram
   class Shape {
     <<abstract>>
@@ -688,7 +688,7 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
         id: "sample-49",
         category: "class",
         title: "Enum Annotation",
-        description: "Using <\\> annotation for enum types.",
+        description: "Using `<<enumeration>>` annotation for enum types.",
         source: `classDiagram
   class Status {
     <<enumeration>>
@@ -722,7 +722,7 @@ export const CRAFT_EXAMPLES: CraftExample[] = [
     {
         id: "sample-51",
         category: "class",
-        title: "Composition (\\*--)",
+        title: "Composition (*--)",
         description: "Composition — \"owns\" relationship with filled diamond marker.",
         source: `classDiagram
   class Car {

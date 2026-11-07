@@ -1,6 +1,7 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "Scrivon",
+    "mainBinaryName": "scrivon",
     "version": "1.4.2",
     "identifier": "io.github.jamie-fairweather.scrivon",
     "build": {
@@ -15,6 +16,10 @@
                 "title": "Scrivon",
                 "width": 1440,
                 "height": 810,
+                "minWidth": 640,
+                "minHeight": 480,
+                "center": true,
+                "preventOverflow": true,
                 "decorations": false,
                 "backgroundColor": "#161616"
             }
@@ -25,15 +30,36 @@
     },
     "bundle": {
         "active": true,
-        "targets": "all",
+        "targets": [
+            "nsis"
+        ],
         "createUpdaterArtifacts": true,
+        "publisher": "github",
+        "copyright": "Copyright (c) 2026 Jamie Fairweather",
+        "homepage": "https://github.com/Jamie-Fairweather/scrivon",
+        "shortDescription": "Local-first editor for Mermaid diagrams and Markdown",
+        "longDescription": "Scrivon is a desktop editor for Mermaid diagrams and Markdown documents. Open a folder on disk, edit .mmd and .md files, and preview diagrams or rendered Markdown live.",
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",
             "icons/128x128@2x.png",
             "icons/icon.icns",
             "icons/icon.ico"
-        ]
+        ],
+        "windows": {
+            "webviewInstallMode": {
+                "type": "embedBootstrapper"
+            },
+            "wix": {
+                "upgradeCode": "2671e548-9e53-5d3e-93c1-5be896bc07d0"
+            },
+            "nsis": {
+                "installerIcon": "icons/icon.ico",
+                "headerImage": "./windows/nsis-header.bmp",
+                "sidebarImage": "./windows/nsis-sidebar.bmp",
+                "installerHooks": "./windows/installer-hooks.nsh"
+            }
+        }
     },
     "plugins": {
         "updater": {
