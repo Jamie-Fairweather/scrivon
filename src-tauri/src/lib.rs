@@ -106,15 +106,13 @@ fn allow_workspace(
 /// Gives the app's windows the taskbar ID (AppUserModelID) the installer puts on
 /// its shortcuts. Without it, Windows only matches a window to a pinned icon
 /// when the app was started from that shortcut. After an update the installer
-/// starts the exe directly, so the window got a second taskbar button.
+/// starts the exe directly, so the window got a second taskbar button (U91).
 /// Must run before any window exists.
 ///
-/// Not called yet: shortcuts (and pins made from them) migrated by the 1.4.1
-/// rename still carry the old ID, so setting this now would split every launch
-/// from them off their pin. Call it at the top of `run()`, for release builds
-/// only, once the installer re-tags existing shortcuts with the new ID.
+/// Each install also puts the ID on the existing shortcuts and the taskbar pin
+/// (SCRIVON_TAG_SHORTCUT in windows/installer-hooks.nsh), including ones made
+/// before this was used, so they stay matched to the window.
 #[cfg(all(windows, any(test, not(debug_assertions))))]
-#[cfg_attr(not(test), allow(dead_code))]
 fn set_taskbar_id(identifier: &str) {
     #[link(name = "shell32")]
     extern "system" {
@@ -131,6 +129,9 @@ fn set_taskbar_id(identifier: &str) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
+    // Release builds only: a dev build keeps its own taskbar button.
+    #[cfg(all(windows, not(debug_assertions)))]
+    set_taskbar_id(&context.config().identifier);
     crash_report::install(&context.config().identifier);
 
     let result = tauri::Builder::default()
