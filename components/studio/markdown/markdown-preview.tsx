@@ -157,34 +157,38 @@ function fencedCodeBlockId(tabId: string | null, fallbackIndex: number, lang?: s
     return `${tabId ?? 'none'}:${fallbackIndex}:code${lang ? `:${lang}` : ''}`
 }
 
+/**
+ * Text blocks take their direction from their own first letters (dir="auto", before any dir the HTML sets), so an
+ * Arabic or Hebrew paragraph reads right to left with its full stop and bullet on the correct side.
+ */
 const staticMarkdownComponents: Components = {
     h1: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h1 {...rest} className={cn('mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0', className)} />
+        return <h1 dir="auto" {...rest} className={cn('mt-6 mb-4 text-2xl font-semibold tracking-tight text-foreground first:mt-0', className)} />
     },
     h2: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h2 {...rest} className={cn('mt-6 mb-3 text-xl font-semibold text-foreground', className)} />
+        return <h2 dir="auto" {...rest} className={cn('mt-6 mb-3 text-xl font-semibold text-foreground', className)} />
     },
     h3: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h3 {...rest} className={cn('mt-4 mb-2 text-lg font-semibold text-foreground', className)} />
+        return <h3 dir="auto" {...rest} className={cn('mt-4 mb-2 text-lg font-semibold text-foreground', className)} />
     },
     h4: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h4 {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
+        return <h4 dir="auto" {...rest} className={cn('mt-3 mb-2 text-base font-semibold text-foreground', className)} />
     },
     h5: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h5 {...rest} className={cn('mt-3 mb-2 text-sm font-semibold text-foreground', className)} />
+        return <h5 dir="auto" {...rest} className={cn('mt-3 mb-2 text-sm font-semibold text-foreground', className)} />
     },
     h6: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <h6 {...rest} className={cn('mt-3 mb-2 text-xs font-semibold text-muted-foreground', className)} />
+        return <h6 dir="auto" {...rest} className={cn('mt-3 mb-2 text-xs font-semibold text-muted-foreground', className)} />
     },
     p: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <p {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
+        return <p dir="auto" {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
     },
     ul: (props) => {
         const { className, ...rest } = withoutNode(props)
@@ -198,11 +202,13 @@ const staticMarkdownComponents: Components = {
     li: (props) => {
         const { className, ...rest } = withoutNode(props)
         // A task item shows its checkbox where the bullet would be, not as well as it.
-        return <li {...rest} className={cn('break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)} />
+        return <li dir="auto" {...rest} className={cn('break-words', hasClass(className, 'task-list-item') && TASK_LIST_ITEM_CLASS, className)} />
     },
     blockquote: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <blockquote {...rest} className={cn('mb-3 border-l-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
+        return (
+            <blockquote dir="auto" {...rest} className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic', className)} />
+        )
     },
     hr: () => <hr className="my-6 border-border" />,
     // Raw HTML the sanitizer lets through (see previewSanitizeSchema).
@@ -229,12 +235,12 @@ const staticMarkdownComponents: Components = {
     tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
     tr: ({ children }) => <tr className="border-border">{children}</tr>,
     th: ({ children, node }: TableCellProps) => (
-        <th className="px-3 py-2 font-medium text-foreground" style={cellAlignStyle(node?.properties?.align)}>
+        <th dir="auto" className="px-3 py-2 font-medium text-foreground" style={cellAlignStyle(node?.properties?.align)}>
             {children}
         </th>
     ),
     td: ({ children, node }: TableCellProps) => (
-        <td className="px-3 py-2 text-foreground/90" style={cellAlignStyle(node?.properties?.align)}>
+        <td dir="auto" className="px-3 py-2 text-foreground/90" style={cellAlignStyle(node?.properties?.align)}>
             {children}
         </td>
     ),

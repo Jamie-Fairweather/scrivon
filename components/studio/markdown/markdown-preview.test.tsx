@@ -85,6 +85,37 @@ describe('MarkdownPreview', () => {
         })
     })
 
+    it('lets Arabic and Hebrew text blocks take their own direction (B97)', () => {
+        const { container } = preview(
+            [
+                '# مقدمة',
+                '',
+                'مرحبا بالعالم.',
+                '',
+                '- שלום',
+                '',
+                '> ציטוט',
+                '',
+                '| עמודה |',
+                '| --- |',
+                '| ערך |',
+                '',
+                '<p dir="ltr">Set by the document</p>',
+            ].join('\n')
+        )
+        expect(container.querySelector('h1')).toHaveAttribute('dir', 'auto')
+        expect(screen.getByText('مرحبا بالعالم.')).toHaveAttribute('dir', 'auto')
+        expect(container.querySelector('li')).toHaveAttribute('dir', 'auto')
+        const quote = container.querySelector('blockquote')!
+        expect(quote).toHaveAttribute('dir', 'auto')
+        // The bar is on the start side, so it moves to the right of a right-to-left quote.
+        expect(quote).toHaveClass('border-s-2')
+        expect(quote).not.toHaveClass('border-l-2')
+        expect(container.querySelector('th')).toHaveAttribute('dir', 'auto')
+        expect(container.querySelector('td')).toHaveAttribute('dir', 'auto')
+        expect(screen.getByText('Set by the document')).toHaveAttribute('dir', 'ltr')
+    })
+
     it('shows bold next to Japanese punctuation as bold, as export does (B76)', () => {
         const { container } = preview('**「重要」**です。これは**テスト。**です。')
         expect(Array.from(container.querySelectorAll('strong')).map((node) => node.textContent)).toEqual(['「重要」', 'テスト。'])

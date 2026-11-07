@@ -118,7 +118,7 @@ SHIKI_FAIL
         expect(html).toContain('class="pdf-toc-leader"')
         expect(html).toContain('href="#section"')
         expect(html).toContain('>SFT0001<')
-        expect(html).toContain('<h2 id="section"><span class="pdf-heading-mark">SFH0001</span>')
+        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
@@ -155,7 +155,7 @@ SHIKI_FAIL
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         // The stylesheet names the classes too, so look for them on a tag.
         const WIDE_TABLE = /<table class="[^"]*pdf-wide-table/
-        const LONG_WORD_CELL = /<t[hd][^>]*class="pdf-long-word">/g
+        const LONG_WORD_CELL = /<t[hd][^>]*class="pdf-long-word"[^>]*>/g
         const table = (columns: number, cell: (column: number) => string) =>
             [
                 `| ${Array.from({ length: columns }, (_, i) => `H${i}`).join(' | ')} |`,
@@ -175,7 +175,7 @@ SHIKI_FAIL
         // So may a long URL in an otherwise narrow table, while its `I/D` cells keep whole.
         const url = await render(table(3, (i) => (i === 1 ? `https://example.com/${'a'.repeat(100)}` : 'I/D')))
         expect(url.match(LONG_WORD_CELL)).toHaveLength(1)
-        expect(url).toContain('<td class="pdf-long-word"><a href="https://example.com/')
+        expect(url).toContain('<td class="pdf-long-word" dir="auto"><a href="https://example.com/')
         // Too many columns of short words to fit: every cell may break.
         const columns = await render(table(16, () => 'abcdefgh'))
         expect(columns).toContain('<table class="pdf-avoid-break pdf-wide-table">')
@@ -202,7 +202,7 @@ SHIKI_FAIL
         const source = '# A\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```js\nx\n```\n\n- ```js\n  in a list\n  ```\n\n> ```js\n> quoted\n> ```'
         const { html } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
         expect(html).toContain('<div class="mermaid-export pdf-avoid-break"><svg')
-        expect(html).toContain('<li><div class="code-block pdf-avoid-break">')
+        expect(html).toContain('<li dir="auto"><div class="code-block pdf-avoid-break">')
         expect(html).not.toMatch(/<p>\s*<div class="(mermaid-export|code-block)/)
         expect(html).not.toContain('<p></p>')
         expect(html).not.toContain('__SCRIVON_')
@@ -403,7 +403,7 @@ SHIKI_FAIL
                 '<div class="code-block pdf-avoid-break"><pre class="shiki" data-theme="github-light"><code>const a = 1\nconst b = 2</code>'
             )
             expect(html).not.toContain('<p>const a = 1')
-            expect(html).toContain('<p>After</p>')
+            expect(html).toContain('<p dir="auto">After</p>')
         }
     })
 
@@ -499,7 +499,7 @@ SHIKI_FAIL
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
         const { html } = await markdownToExportHtml('# Title\n\n## ![diagram](pic.png)', { profile })
-        expect(html).toContain('<h1 id="title">')
+        expect(html).toContain('<h1 id="title" dir="auto">')
         expect(html).toContain('pdf-heading-mark')
         expect(html).toContain('<img')
         expect(html).not.toMatch(/<h2[^>]*pdf-heading-mark/)
@@ -511,8 +511,8 @@ SHIKI_FAIL
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
         const { html } = await markdownToExportHtml('Setext\n======\n\n```bash\n# install deps\n```\n\n## Still', { profile })
-        expect(html).toContain('<h1 id="setext">')
-        expect(html).toContain('<h2 id="still">')
+        expect(html).toContain('<h1 id="setext" dir="auto">')
+        expect(html).toContain('<h2 id="still" dir="auto">')
         expect(html).toContain('href="#setext"')
         expect(html).toContain('href="#still"')
         expect(html).not.toContain('install-deps')
@@ -527,9 +527,51 @@ SHIKI_FAIL
         const { html } = await markdownToExportHtml('# Pricing <!-- internal: 40% margin -->\n\nSee [the prices](#pricing).', { profile })
         expect(html).not.toContain('<!--')
         expect(html).not.toContain('internal')
-        expect(html).toContain('<h1 id="pricing">')
+        expect(html).toContain('<h1 id="pricing" dir="auto">')
         expect(html).toContain('<span class="pdf-toc-title">Pricing</span>')
         expect(html).toContain('<title>Pricing</title>')
+    })
+
+    it('lets Arabic and Hebrew text blocks take their own direction, but not code or the Contents page (B97)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        const { html } = await markdownToExportHtml(
+            [
+                '# Title',
+                '',
+                '## مقدمة',
+                '',
+                'مرحبا بالعالم.',
+                '',
+                '- שלום',
+                '',
+                '> ציטוט',
+                '',
+                '| עמודה |',
+                '| --- |',
+                '| ערך |',
+                '',
+                '<p dir="ltr">Set by the document</p>',
+                '',
+                '```js',
+                'const a = 1',
+                '```',
+            ].join('\n'),
+            { profile }
+        )
+        expect(html).toContain('<p dir="auto">مرحبا بالعالم.</p>')
+        expect(html).toContain('<li dir="auto">שלום</li>')
+        expect(html).toMatch(/<blockquote dir="auto">\s*<p dir="auto">ציטוט<\/p>/)
+        expect(html).toContain('<th dir="auto">עמודה</th>')
+        expect(html).toContain('<td dir="auto">ערך</td>')
+        expect(html).toContain('<p dir="ltr">Set by the document</p>')
+        // The heading's hidden page mark has its own direction, so dir="auto" reads the Arabic, not the mark.
+        expect(html).toMatch(/<h2 id="مقدمة" dir="auto"><span class="pdf-heading-mark" dir="ltr">/)
+        // The code block still replaces its whole paragraph, and the Contents rows get no direction.
+        expect(html).not.toMatch(/<p[^>]*>\s*<div class="code-block/)
+        expect(html).toContain('<div class="code-block')
+        expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
     })
 
     it('prints bold next to Japanese punctuation as bold (B76)', async () => {
@@ -572,17 +614,17 @@ SHIKI_FAIL
         expect(html).toContain('<img src="pic.png" alt="pic">')
         expect(html).toContain('<a>bad</a>')
         // A page can't be clicked open, so details print open.
-        expect(html).toMatch(/<details open>\s*<summary>More<\/summary>\s*<p>Hidden until opened\.<\/p>/)
+        expect(html).toMatch(/<details open>\s*<summary>More<\/summary>\s*<p dir="auto">Hidden until opened\.<\/p>/)
         // Ids stay as written, so the PDF's own links and Contents page still reach them.
-        expect(html).toContain('<h1 id="title">')
+        expect(html).toContain('<h1 id="title" dir="auto">')
     })
 
     it('keeps table column alignment as the align attribute the stylesheet styles', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |', { assets: EMPTY_ASSETS })
-        expect(html).toContain('<td align="left">1</td>')
-        expect(html).toContain('<td align="center">2</td>')
-        expect(html).toContain('<td align="right">3</td>')
+        expect(html).toContain('<td align="left" dir="auto">1</td>')
+        expect(html).toContain('<td align="center" dir="auto">2</td>')
+        expect(html).toContain('<td align="right" dir="auto">3</td>')
         expect(html).toContain('td[align="right"] { text-align: right; }')
     })
 

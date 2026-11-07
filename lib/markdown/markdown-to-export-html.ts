@@ -5,7 +5,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
+import { SKIP, visit } from 'unist-util-visit'
 import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
 import {
     buildPdfExportCss,
@@ -63,9 +63,29 @@ function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
         node.children.unshift({
             type: 'element',
             tagName: 'span',
-            properties: { className: ['pdf-heading-mark'] },
+            // Its own direction, so dir="auto" on the heading skips the mark's Latin letters and reads the heading's.
+            properties: { className: ['pdf-heading-mark'], dir: 'ltr' },
             children: [{ type: 'text', value: mark }],
         })
+    })
+}
+
+/** The text blocks that take their direction from their own first letters, as in the preview. */
+const AUTO_DIRECTION_TAGS = new Set([...HEADING_TAGS, 'p', 'li', 'blockquote', 'th', 'td'])
+
+/**
+ * Gives each text block dir="auto", so an Arabic or Hebrew paragraph prints right to left with its full stop and
+ * bullet on the correct side. A dir the document's HTML set wins. Code is left alone, and so are the paragraphs
+ * standing in for code blocks and diagrams, which are swapped for their HTML by exact match. The title page,
+ * Contents page and header and footer are built separately, so the stamper still finds their marks.
+ */
+function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>): void {
+    visit(hast, 'element', (node: Element) => {
+        if (node.tagName === 'pre') return SKIP
+        if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
+        const only = node.children.length === 1 ? node.children[0] : undefined
+        if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
+        node.properties.dir = 'auto'
     })
 }
 
@@ -379,6 +399,7 @@ export async function renderExportPdf(document: ExportDocument, { stamped = true
         .runSync(tree) as HastRoot
     openDetails(hast)
     markTables(hast, profile)
+    setTextDirection(hast, new Set(placeholders.keys()))
     if (stamped) addHeadingMarks(hast, tocItems)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
