@@ -59,6 +59,9 @@ vi.mock('@tauri-apps/plugin-store', () => {
         async length() {
             return this.cache.size
         }
+        async clear() {
+            this.cache.clear()
+        }
         async save() {
             if (fake.saveError) throw fake.saveError
             fake.disk.set(this.path, JSON.stringify(Object.fromEntries(this.cache)))
@@ -390,6 +393,29 @@ describe('workspace store', () => {
             await store.removeRecentFiles('C:\\notes', 'C:\\notes\\gone')
 
             expect(onDisk('workspace.json')?.['recent-files:C:\\notes']).toEqual(stored)
+        })
+    })
+
+    describe('resetting from a crash screen', () => {
+        it('empties workspace.json on disk, and leaves the copies of unsaved edits alone', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            fake.disk.set('unsaved-changes.json', JSON.stringify({ 'C:\\notes\\a.md': 'draft' }))
+            const store = await launch()
+
+            await store.clearWorkspaceStore()
+
+            expect(onDisk('workspace.json')).toEqual({})
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(onDisk('unsaved-changes.json')).toEqual({ 'C:\\notes\\a.md': 'draft' })
+        })
+
+        it('lets the caller say why when the file cannot be written', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            const store = await launch()
+            fake.saveError = 'There is not enough space on the disk. (os error 112)'
+
+            await expect(store.clearWorkspaceStore()).rejects.toBe('There is not enough space on the disk. (os error 112)')
+            expect(notifyWarning).not.toHaveBeenCalled()
         })
     })
 

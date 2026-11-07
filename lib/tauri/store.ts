@@ -187,6 +187,18 @@ function toPathList(value: unknown): string[] {
     return paths
 }
 
+/**
+ * Empties workspace.json: the recent folders, and each folder's open tabs, opened folders and recent files.
+ * The crash screens offer it for when something kept there makes Scrivon fail on every start. Documents and
+ * the copies of unsaved edits (lib/tauri/backups.ts) are kept. Errors reach the caller.
+ */
+export async function clearWorkspaceStore(): Promise<void> {
+    const s = await getStore()
+    if (!s) return
+    await s.clear()
+    await s.save()
+}
+
 export async function getRecentWorkspaces(): Promise<string[]> {
     const s = await getStore()
     if (!s) return []

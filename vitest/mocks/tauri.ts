@@ -86,6 +86,7 @@ vi.mock(
     () =>
         ({
             clampRecentWorkspaceLimit: vi.fn((limit: number) => limit),
+            clearWorkspaceStore: vi.fn(async () => undefined),
             getRecentWorkspaces: vi.fn(async () => []),
             addRecentWorkspace: vi.fn(async () => []),
             removeRecentWorkspace: vi.fn(async () => []),
