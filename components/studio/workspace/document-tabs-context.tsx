@@ -288,6 +288,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 // user chose not to save, isn't offered back on the next launch.
                 await settleUnsavedBackups()
             },
+            backUpUnsavedTabs: () => {
+                for (const tab of tabsRef.current) {
+                    if (tab.isDirty && !tab.readOnly) coordinator.scheduleBackup.current(tab.id)
+                }
+            },
             remapTabsAfterRename: (oldPath, newPath, newName) => {
                 const prevTabs = tabsRef.current
                 const nextTabs = remapTabsAfterRename(prevTabs, oldPath, newPath, newName)

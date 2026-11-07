@@ -374,6 +374,34 @@ describe('copies of unsaved text', () => {
         )
     })
 
+    it('keeps the copies again when the tabs stay open after all, as when an update fails to install', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+        const { result } = renderHook(useHarness, {
+            wrapper: createWrapper([tab('/ws/a.mmd'), tab('/ws/b.mmd'), tab('/ws/locked.md', { readOnly: true, isDirty: true })], coordinatorOut),
+        })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(3))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+        await act(async () => {
+            await coordinatorOut.current!.confirmCloseTabs.current()
+            await coordinatorOut.current!.releaseAllTabs.current()
+        })
+        vi.mocked(saveUnsavedBackup).mockClear()
+
+        vi.useFakeTimers()
+        try {
+            act(() => coordinatorOut.current!.backUpUnsavedTabs.current())
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(BACKUP_DELAY_MS)
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+
+        // Only the tab with edits: not the one without, nor text the user can't have typed.
+        expect(saveUnsavedBackup).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: '/ws/a.mmd', content: 'draft' }))
+    })
+
     it("doesn't rewrite the copies when a tab without edits closes", async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: false })]) })
         await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))

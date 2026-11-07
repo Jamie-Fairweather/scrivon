@@ -2,8 +2,8 @@
 
 import { reportLastUpdateAttempt } from '@/lib/updater/update-attempt'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { UpdateAvailableDialog, type AppUpdateInfo, type InstallBlocker } from '@/components/studio/dialogs/update-available-dialog'
-import { useDocumentSave, useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { UpdateAvailableDialog, type AppUpdateInfo, type InstallPhase } from '@/components/studio/dialogs/update-available-dialog'
+import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
@@ -15,35 +15,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 const UPDATE_CHECK_DELAY_MS = 4_000
 
-/** How long installing waits for open files to save (e.g. an offline network drive) before treating it as failed. */
-export const SAVE_BEFORE_INSTALL_TIMEOUT_MS = 10_000
-
-export type InstallUpdateOptions = {
-    /**
-     * Edited files: 'ask' (default) stops to ask first when autosave is off, 'save' saves them,
-     * 'discard' installs without saving them (their unsaved changes are lost).
-     */
-    unsaved?: 'ask' | 'save' | 'discard'
-}
-
-function savedWithin(save: Promise<boolean>, ms: number): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), ms)
-    })
-    return Promise.race([save.catch(() => false), timeout]).finally(() => clearTimeout(timer))
-}
-
 type AppUpdateContextValue = {
     update: AppUpdateInfo | null
     notesLoading: boolean
-    installing: boolean
-    /** Set when an install attempt stopped to ask what to do with open files. */
-    installBlocker: InstallBlocker | null
+    /** What Install is doing: nothing yet, saving the open files (or asking about them), or installing. */
+    installPhase: InstallPhase
     dialogOpen: boolean
     openUpdateDialog: () => void
     dismissUpdateDialog: () => void
-    installUpdate: (options?: InstallUpdateOptions) => Promise<void>
+    installUpdate: () => Promise<void>
 }
 
 const AppUpdateContext = createContext<AppUpdateContextValue | null>(null)
@@ -58,20 +38,13 @@ export function useAppUpdate(): AppUpdateContextValue {
 
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
     const { settings } = useAppSettings()
-    const { flushAllSaves } = useDocumentSave()
-    const { tabs } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
     const [notesLoading, setNotesLoading] = useState(false)
-    const [installing, setInstalling] = useState(false)
-    const [installBlocker, setInstallBlocker] = useState<InstallBlocker | null>(null)
+    const [installPhase, setInstallPhase] = useState<InstallPhase>('idle')
     const [dialogOpen, setDialogOpen] = useState(false)
-    // Read when Install is pressed; a ref so typing doesn't recreate installUpdate.
-    const tabsRef = useRef(tabs)
-
-    useEffect(() => {
-        tabsRef.current = tabs
-    }, [tabs])
+    // Set straight away, so a second press while the first is still saving does nothing.
+    const installRunning = useRef(false)
 
     // The installer runs after the app has closed, so say on the next launch how it went.
     useEffect(() => {
@@ -125,67 +98,57 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     }, [update])
 
     const dismissUpdateDialog = useCallback(() => {
-        if (installing) return
-        setInstallBlocker(null)
+        if (installPhase !== 'idle') return
         setDialogOpen(false)
-    }, [installing])
+    }, [installPhase])
 
-    const installUpdate = useCallback(
-        async ({ unsaved = 'ask' }: InstallUpdateOptions = {}) => {
-            setInstallBlocker(null)
-
-            // With autosave off the user saves by hand, so don't write their edits to disk without asking.
-            if (unsaved === 'ask' && !coordinator.getAutosaveEnabled.current()) {
-                const fileNames = tabsRef.current.filter((t) => t.isDirty && !t.readOnly).map((t) => t.name)
-                if (fileNames.length > 0) {
-                    setInstallBlocker({ reason: 'unsaved', fileNames })
-                    return
-                }
+    const installUpdate = useCallback(async () => {
+        if (installRunning.current) return
+        installRunning.current = true
+        try {
+            // The installer ends the app straight away (on Windows before relaunch() runs), so open files are
+            // dealt with first, exactly as closing the window does: saved, or the user is asked about them (with
+            // autosave off, or when a save fails). Cancel there stops the install.
+            setInstallPhase('saving')
+            if (!(await coordinator.confirmCloseTabs.current())) {
+                setInstallPhase('idle')
+                return
             }
-
-            setInstalling(true)
-
-            // The installer ends the process straight away (on Windows it exits before relaunch() runs),
-            // so the save-on-close handler never fires. Save open files first, the same way closing does.
-            // A save that hangs counts as failed, so the dialog never stays stuck on "Installing…".
-            if (unsaved !== 'discard') {
-                const saved = await savedWithin(flushAllSaves(), SAVE_BEFORE_INSTALL_TIMEOUT_MS)
-                if (!saved) {
-                    setInstallBlocker({ reason: 'save-failed' })
-                    setInstalling(false)
-                    return
-                }
-            }
-
+            // The copies of edits that were saved, or that the user chose not to keep, go now, so the next launch
+            // doesn't offer them back.
+            await coordinator.releaseAllTabs.current()
             try {
                 await coordinator.persistWorkspaceTabSession.current()
             } catch (error) {
                 console.warn('Could not save open tabs before updating:', error)
             }
 
+            setInstallPhase('installing')
             try {
                 await invoke('install_app_update')
                 await relaunch()
             } catch (error) {
                 notifyError("Couldn't install the update", error)
-                setInstalling(false)
+                setInstallPhase('idle')
+                // The app stays open with its tabs, so their unsaved edits get their safety copies back.
+                coordinator.backUpUnsavedTabs.current()
             }
-        },
-        [coordinator, flushAllSaves]
-    )
+        } finally {
+            installRunning.current = false
+        }
+    }, [coordinator])
 
     const value = useMemo(
         () => ({
             update,
             notesLoading,
-            installing,
-            installBlocker,
+            installPhase,
             dialogOpen,
             openUpdateDialog,
             dismissUpdateDialog,
             installUpdate,
         }),
-        [update, notesLoading, installing, installBlocker, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
+        [update, notesLoading, installPhase, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
     )
 
     return (
@@ -195,12 +158,9 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 <UpdateAvailableDialog
                     update={update}
                     notesLoading={notesLoading}
-                    installing={installing}
-                    blocker={installBlocker}
+                    phase={installPhase}
                     onLater={dismissUpdateDialog}
                     onInstall={() => void installUpdate()}
-                    onSaveAndInstall={() => void installUpdate({ unsaved: 'save' })}
-                    onInstallWithoutSaving={() => void installUpdate({ unsaved: 'discard' })}
                 />
             ) : null}
         </AppUpdateContext.Provider>

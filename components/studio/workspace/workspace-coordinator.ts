@@ -40,6 +40,11 @@ export type WorkspaceCoordinatorRefs = {
      * those copies are gone from disk, so discarded or saved text isn't offered back on the next launch.
      */
     releaseAllTabs: MutableRefObject<() => Promise<void>>
+    /**
+     * Keeps a copy of every tab's unsaved text again, as typing does: for when releaseAllTabs ran but the
+     * tabs stayed open after all (an app update that failed to install).
+     */
+    backUpUnsavedTabs: MutableRefObject<() => void>
     remapTabsAfterRename: MutableRefObject<(oldPath: string, newPath: string, newName: string) => void>
     closeTabsForDelete: MutableRefObject<(path: string, isDirectory: boolean) => void>
     requestCanvasFit: MutableRefObject<() => void>
@@ -79,6 +84,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         getUnsavedContent: { current: () => undefined },
         confirmCloseTabs: { current: async () => true },
         releaseAllTabs: { current: async () => {} },
+        backUpUnsavedTabs: { current: () => {} },
         remapTabsAfterRename: { current: () => {} },
         closeTabsForDelete: { current: () => {} },
         requestCanvasFit: { current: () => {} },
