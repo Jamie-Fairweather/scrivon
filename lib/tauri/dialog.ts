@@ -53,12 +53,10 @@ export type OpenFileDialogOptions = {
     filters?: DialogFilter[]
 }
 
-function parentDirectory(path: string): string {
-    const trimmed = path.replace(/[\\/]+$/, '')
-    const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-    return slash <= 0 ? trimmed : trimmed.slice(0, slash)
-}
-
+/**
+ * Asks the user for one file, such as a logo for exports. Nothing is added to the app's file access: the
+ * picked file is read through the export's own command, so its folder doesn't need opening up.
+ */
 export async function pickOpenFile(options: OpenFileDialogOptions = {}): Promise<string | null> {
     if (!isTauri()) return null
 
@@ -71,8 +69,6 @@ export async function pickOpenFile(options: OpenFileDialogOptions = {}): Promise
     })
 
     if (!selected || Array.isArray(selected)) return null
-
-    await allowWorkspacePath(parentDirectory(selected))
     return selected
 }
 
