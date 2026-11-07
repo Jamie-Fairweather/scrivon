@@ -10,6 +10,7 @@ import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import { adoptExportImages } from '@/lib/tauri/export-image-access'
 
 /** Why a shortcut change was refused. */
 export type KeybindRefusal = {
@@ -95,6 +96,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (!loaded.recovery) return
         notifyWarning('Settings could not be read', { id: 'settings-recovered', description: RECOVERY_NOTICES[loaded.recovery], timeout: 0 })
+    }, [loaded])
+
+    // The export only reads images the user chose. Profiles saved before that check name images
+    // the app has no record of, so hand them over; Rust takes them only the first time.
+    useEffect(() => {
+        void adoptExportImages(loaded.settings.pdfExport)
     }, [loaded])
 
     // Without a section, reopen on the one last used rather than jumping back to General.

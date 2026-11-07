@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsProvider, useAppSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
@@ -6,6 +7,7 @@ import { createDefaultSettings } from '@/lib/settings/defaults'
 import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
 import { loadSettings, SETTINGS_BACKUP_KEY } from '@/lib/settings/storage'
 import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
+import { isTauri } from '@/lib/tauri/platform'
 
 vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyWarning: vi.fn() }))
 
@@ -256,6 +258,23 @@ describe('SettingsProvider persistence', () => {
 
         expect(result.current.settings.editor.fontSize).toBe(18)
         expect(notifyWarning).toHaveBeenCalledWith('Settings could not be read', expect.objectContaining({ id: 'settings-recovered' }))
+    })
+
+    it("hands the export profiles' images to Rust when the desktop app starts", () => {
+        const saved = createDefaultSettings(false)
+        saved.pdfExport.profiles[0]!.brand.logoPath = 'C:/brand/cover.png'
+        saved.pdfExport.profiles[0]!.footer.left.imagePath = 'C:/brand/logo.png'
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(saved))
+        vi.mocked(invoke).mockClear()
+        vi.mocked(isTauri).mockReturnValue(true)
+        try {
+            renderSettings()
+        } finally {
+            vi.mocked(isTauri).mockReturnValue(false)
+        }
+
+        expect(invoke).toHaveBeenCalledTimes(1)
+        expect(invoke).toHaveBeenCalledWith('adopt_export_images', { paths: ['C:/brand/cover.png', 'C:/brand/logo.png'] })
     })
 
     it('reloads the latest settings after a restart', () => {

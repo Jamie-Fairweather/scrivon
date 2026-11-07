@@ -2,6 +2,7 @@
 
 import { FolderOpenIcon, XIcon } from 'lucide-react'
 import { pickOpenFile } from '@/lib/tauri/dialog'
+import { rememberExportImage } from '@/lib/tauri/export-image-access'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -52,7 +53,10 @@ export function ImagePathField({
                         defaultPath: value.trim() || undefined,
                         filters: IMAGE_FILTERS,
                     }).then((next) => {
-                        if (next) onChange(next)
+                        if (!next) return
+                        // The export only reads images the user chose, so record this one for later sessions.
+                        void rememberExportImage(next)
+                        onChange(next)
                     })
                 }}
             >

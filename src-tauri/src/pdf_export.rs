@@ -9,6 +9,8 @@ use tauri_plugin_fs::FsExt;
 
 use crate::page_numbers::Stamped;
 
+mod export_image_access;
+
 /// Print-engine settings that accompany the export HTML. Mirrors
 /// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
 #[derive(Debug, Clone, Deserialize)]
@@ -542,16 +544,52 @@ fn content_matches(mime: &str, bytes: &[u8]) -> bool {
 }
 
 /// Read a user-chosen export image. Image paths are saved in PDF profiles and
-/// must keep working after a restart, so this doesn't use the fs scope; instead
-/// it only returns real image files (PNG, JPEG, GIF, WebP or SVG).
+/// must keep working after a restart, so an image is read when the open dialog
+/// has just added it to the fs scope or it was chosen in an earlier session
+/// (see `export_image_access`), and only when it's a real image file (PNG,
+/// JPEG, GIF, WebP or SVG).
 ///
 /// The read runs on a background thread: a plain command runs on the window's
 /// main thread, and an online-only cloud file can take seconds to arrive.
 #[tauri::command]
-pub async fn read_export_image(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || read_image_as_data_url(&path))
+pub async fn read_export_image(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let scope = app.fs_scope();
+        export_image_access::access(&app).approve(&path, |image| scope.is_allowed(image))?;
+        read_image_as_data_url(&path)
+    })
+    .await
+    .map_err(|_| "Could not read image.".to_string())?
+}
+
+/// Records an image the user has just picked with Browse, so the export can
+/// still read it after a restart. Only an image the open dialog put in the fs
+/// scope is recorded. Returns whether it was.
+// Not registered in `generate_handler!` yet.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn remember_export_image(app: tauri::AppHandle, path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let scope = app.fs_scope();
+        export_image_access::access(&app).remember(&path, |image| scope.is_allowed(image))
+    })
+    .await
+    .map_err(|_| "Could not remember the image.".to_string())
+}
+
+/// Takes on the images that PDF profiles saved before the image check name,
+/// so they keep working. Only accepted the first time, while no image list
+/// has been saved yet. Returns whether the images were taken on.
+// Not registered in `generate_handler!` yet.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn adopt_export_images(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || export_image_access::access(&app).adopt(&paths))
         .await
-        .map_err(|_| "Could not read image.".to_string())?
+        .map_err(|_| "Could not take on the profile images.".to_string())
 }
 
 fn read_image_as_data_url(path: &str) -> Result<String, String> {
@@ -588,7 +626,7 @@ mod tests {
 
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
-        mime_from_path, place_printed_pdf, read_export_image, save_printed_pdf, temp_sibling,
+        mime_from_path, place_printed_pdf, read_image_as_data_url, save_printed_pdf, temp_sibling,
         wait_until_ready, PageReadiness, PdfPrintOptions, MAX_REWRITES,
     };
 
@@ -623,8 +661,7 @@ mod tests {
     }
 
     fn read(path: &std::path::Path) -> Result<String, String> {
-        let result =
-            tauri::async_runtime::block_on(read_export_image(path.to_string_lossy().into_owned()));
+        let result = read_image_as_data_url(&path.to_string_lossy());
         let _ = std::fs::remove_file(path);
         result
     }
