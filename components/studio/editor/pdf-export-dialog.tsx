@@ -96,6 +96,20 @@ function pageSpaceNote(profile: PdfExportProfile): string {
     return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
 }
 
+/** How long to wait for a paint at most: a hidden window runs no animation frames. */
+const PAINT_WAIT_MS = 100
+
+/**
+ * Resolves once the browser has painted, so a busy state set just before shows up. Building a
+ * Word or PDF file can hold the main thread for seconds, and nothing repaints until it ends.
+ */
+function afterNextPaint(): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, PAINT_WAIT_MS)
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0))
+    })
+}
+
 function PdfExportForm({
     source,
     tabName,
@@ -144,6 +158,8 @@ function PdfExportForm({
         onBusyChange(true)
         setError('')
         try {
+            // Let 'Exporting…' paint before the build takes over the main thread.
+            await afterNextPaint()
             const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {

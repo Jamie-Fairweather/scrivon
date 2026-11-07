@@ -153,6 +153,23 @@ describe('PdfExportDialog', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false)
     })
 
+    it("shows 'Exporting…' before the export starts building, and clears it afterwards", async () => {
+        let busyWhenStarted: boolean | undefined
+        exportMarkdown.mockImplementation(async () => {
+            // The build holds the main thread, so whatever is on screen now stays until it ends.
+            busyWhenStarted = screen.queryByText('Exporting…') !== null
+            return { status: 'cancelled' }
+        })
+        renderDialog()
+        await screen.findByLabelText('Title')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+        await waitFor(() => expect(exportMarkdown).toHaveBeenCalled())
+        expect(busyWhenStarted).toBe(true)
+        await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
+    })
+
     it('keeps the export busy across a remount and closes the dialog once that export saves', async () => {
         let finish: (result: ExportResult) => void = () => undefined
         exportMarkdown.mockReturnValue(new Promise<ExportResult>((resolve) => (finish = resolve)))
