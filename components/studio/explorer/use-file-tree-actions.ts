@@ -71,7 +71,8 @@ export function useFileTreeActions(parentPath: string | null) {
 export type FileTreeEntryActions = {
     /** Resolves to the path the entry should have now (the new one once renamed), or null when cancelled. */
     renameWithPrompt: (node: FileNode) => Promise<string | null>
-    deleteWithConfirm: (node: FileNode) => Promise<void>
+    /** Resolves to whether the user confirmed the delete (true even when it then failed or was stopped). */
+    deleteWithConfirm: (node: FileNode) => Promise<boolean>
 }
 
 /** Rename and delete for a file or folder in the tree, shared by its menus and the F2 and Delete keys. */
@@ -109,6 +110,7 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
         async (node: FileNode) => {
             const ok = await confirmDelete(node.name, node.kind === 'directory')
             if (ok) await deleteEntry(node.path, node.kind === 'directory')
+            return ok
         },
         [confirmDelete, deleteEntry]
     )
