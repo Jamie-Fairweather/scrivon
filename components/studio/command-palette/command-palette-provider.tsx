@@ -6,6 +6,8 @@ import { queryFromEditorSelection } from '@/components/studio/command-palette/pa
 import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
+import { DialogErrorBoundary } from '@/components/studio/shell/dialog-error-boundary'
+import { notifyError } from '@/lib/notify'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type CommandPaletteContextValue = {
@@ -97,25 +99,41 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
         [runItem, coordinator]
     )
 
+    // The palette draws names and lines from the user's files. If that fails, only the palette closes: the
+    // studio's own error screen would take the editor (and its unsaved text) down with it. A crashed palette
+    // never finishes closing by itself, so the search is cleared here, or reopening would crash on it again.
+    const handlePaletteCrash = useCallback(
+        (error: Error) => {
+            handleOpenChange(false)
+            handleOpenChangeComplete(false)
+            notifyError("Couldn't show the command palette", error, {
+                description: "Something went wrong while drawing it. Your open files weren't affected.",
+            })
+        },
+        [handleOpenChange, handleOpenChangeComplete]
+    )
+
     return (
         <CommandPaletteContext.Provider value={contextValue}>
             {children}
-            <CommandPaletteDialog
-                groups={groups}
-                hasWorkspace={hasWorkspace}
-                isSearchingText={isSearchingText}
-                mode={mode}
-                onModeChange={setMode}
-                onOpenChange={handleOpenChange}
-                onOpenChangeComplete={handleOpenChangeComplete}
-                onQueryChange={setQuery}
-                onSelectItem={handleSelectItem}
-                open={open}
-                query={query}
-                textCapped={textCapped}
-                textTruncatedFiles={textTruncatedFiles}
-                textUnreadableFiles={textUnreadableFiles}
-            />
+            <DialogErrorBoundary open={open} onCrash={handlePaletteCrash}>
+                <CommandPaletteDialog
+                    groups={groups}
+                    hasWorkspace={hasWorkspace}
+                    isSearchingText={isSearchingText}
+                    mode={mode}
+                    onModeChange={setMode}
+                    onOpenChange={handleOpenChange}
+                    onOpenChangeComplete={handleOpenChangeComplete}
+                    onQueryChange={setQuery}
+                    onSelectItem={handleSelectItem}
+                    open={open}
+                    query={query}
+                    textCapped={textCapped}
+                    textTruncatedFiles={textTruncatedFiles}
+                    textUnreadableFiles={textUnreadableFiles}
+                />
+            </DialogErrorBoundary>
         </CommandPaletteContext.Provider>
     )
 }

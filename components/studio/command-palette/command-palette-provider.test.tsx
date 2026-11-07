@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteProvider, useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
+import { notifyError } from '@/lib/notify'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 const search = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const search = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/studio/editor/editor-focus', () => ({ focusEditorFor: vi.fn() }))
+vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
 
 vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
     const { useCallback, useState } = await import('react')
@@ -211,5 +213,35 @@ describe('CommandPaletteProvider after a pick', () => {
 
         await waitFor(() => expect(run).toHaveBeenCalled())
         expect(focusEditorFor).not.toHaveBeenCalled()
+    })
+})
+
+describe('CommandPaletteProvider when the palette fails to draw', () => {
+    beforeEach(() => {
+        palette.openMode = () => {}
+        vi.mocked(notifyError).mockClear()
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => vi.restoreAllMocks())
+
+    it('closes the palette with a notice and clears the search, keeping the rest of the app', async () => {
+        // A text hit with no preview line: drawing it fails.
+        const broken = { kind: 'text', value: 'text:/ws/a.md:1:1', searchText: 'a.md', path: '/ws/a.md', name: 'a.md' } as unknown as PaletteItem
+        search.groups = [{ id: 'text', label: 'Text', items: [broken] }]
+        renderProvider(null)
+
+        act(() => palette.openMode('all'))
+
+        await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(1))
+        expect(vi.mocked(notifyError).mock.calls[0]![0]).toBe("Couldn't show the command palette")
+        expect(screen.queryByRole('combobox')).toBeNull()
+        expect(search.enabled).toBe(false)
+        expect(screen.getByRole('button', { name: 'Explorer' })).toBeInTheDocument()
+
+        search.groups = []
+        act(() => palette.openMode('all'))
+        expect(await screen.findByRole('combobox')).toHaveValue('')
+        expect(notifyError).toHaveBeenCalledTimes(1)
     })
 })

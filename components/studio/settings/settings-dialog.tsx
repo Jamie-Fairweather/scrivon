@@ -18,10 +18,12 @@ import { GeneralSettings } from '@/components/studio/settings/sections/general-s
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { getSettingsSectionLabel, SettingsNav } from '@/components/studio/settings/settings-nav'
+import { DialogErrorBoundary } from '@/components/studio/shell/dialog-error-boundary'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { notifyError } from '@/lib/notify'
 
 function SettingsSectionPanel({ section }: { section: SettingsSection }) {
     switch (section) {
@@ -40,16 +42,38 @@ function SettingsSectionPanel({ section }: { section: SettingsSection }) {
     }
 }
 
+/**
+ * Settings, drawn from the root layout outside the studio's own error screens. A section that fails to draw
+ * closes Settings with a notice rather than replacing the whole window (and the editor's unsaved text).
+ */
 export function SettingsDialog() {
+    const { settingsOpen, closeSettings } = useAppSettings()
+
+    return (
+        <DialogErrorBoundary
+            open={settingsOpen}
+            onCrash={(error) => {
+                closeSettings()
+                notifyError("Couldn't show Settings", error, {
+                    description: "Something went wrong while drawing it. Your open files weren't affected.",
+                })
+            }}
+        >
+            <SettingsDialogContent />
+        </DialogErrorBoundary>
+    )
+}
+
+function SettingsDialogContent() {
     const { settingsOpen, closeSettings, activeSection, setActiveSection, resetAllSettings } = useAppSettings()
     const panelId = useId()
     const titleId = useId()
 
     return (
         <Dialog open={settingsOpen} onOpenChange={(open) => !open && closeSettings()}>
-            {/* The popup takes the height (2rem is the viewport's padding) and only the section content
-                scrolls, so the header and footer always fit and no scroll area sits inside another. */}
-            <DialogPopup className="h-[min(48rem,calc(100dvh-2rem))] max-w-3xl" bottomStickOnMobile={false}>
+            {/* The popup takes the height and only the section content scrolls, so the header and footer always fit
+                and no scroll area sits inside another. The viewport keeps the title bar and 1rem above it, 1rem below. */}
+            <DialogPopup className="h-[min(48rem,calc(100dvh-var(--titlebar-height)-2rem))] max-w-3xl" bottomStickOnMobile={false}>
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
                 </DialogHeader>

@@ -3,6 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from '@/components/studio/settings/settings-dialog'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/storage'
+import { notifyError } from '@/lib/notify'
+
+const advanced = vi.hoisted(() => ({ broken: false }))
+
+// The Advanced section as it is, unless a test breaks it.
+vi.mock('@/components/studio/settings/sections/advanced-settings', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/studio/settings/sections/advanced-settings')>()
+    return {
+        AdvancedSettings: () => {
+            if (advanced.broken) throw new Error('bad setting')
+            return <actual.AdvancedSettings />
+        },
+    }
+})
+
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
+    notifyError: vi.fn(),
+}))
 
 // happy-dom has no Web Animations API, which Base UI's scroll area asks for.
 if (!('getAnimations' in Element.prototype)) {
@@ -102,5 +121,38 @@ describe('SettingsDialog sections', () => {
 
         const column = (await screen.findByRole('textbox', { name: 'Wrap column' })) as HTMLInputElement
         expect(column.value).toBe('100')
+    })
+})
+
+describe('SettingsDialog when a section fails to draw', () => {
+    beforeEach(() => {
+        vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        vi.mocked(notifyError).mockClear()
+    })
+
+    afterEach(() => {
+        advanced.broken = false
+        vi.unstubAllGlobals()
+        vi.restoreAllMocks()
+    })
+
+    it('closes Settings with a notice, and leaves the rest of the page alone', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        await screen.findByRole('region', { name: 'Keyboard' })
+
+        advanced.broken = true
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(notifyError).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(notifyError).mock.calls[0]![0]).toBe("Couldn't show Settings")
+        expect(screen.getByRole('button', { name: 'Open keyboard settings' })).toBeInTheDocument()
+
+        // Opens again once what broke it is gone.
+        advanced.broken = false
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        expect(await screen.findByRole('region', { name: 'Keyboard' })).toBeInTheDocument()
     })
 })
