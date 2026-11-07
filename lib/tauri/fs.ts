@@ -245,7 +245,9 @@ export function stampChanged(before: FileStamp, now: FileStamp): boolean {
     return before.mtimeMs !== null && now.mtimeMs !== null && before.mtimeMs !== now.mtimeMs
 }
 
-async function readStamp(path: string): Promise<FileStamp | null> {
+/** When the file at `path` was last changed and how big it is now; null when it can't be read (or is gone). */
+export async function readStamp(path: string): Promise<FileStamp | null> {
+    if (!isTauri()) return null
     try {
         return stampOf(await stat(path))
     } catch {

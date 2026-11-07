@@ -284,28 +284,35 @@ describe('confirmOverwriteDiskChange', () => {
         isTauriMock.mockReturnValue(true)
     })
 
-    it('asks before replacing a file changed elsewhere, and only Overwrite goes ahead', async () => {
+    it('asks before replacing a file changed elsewhere: Overwrite, Reload, or leave it', async () => {
         messageMock.mockResolvedValueOnce('Overwrite')
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(true)
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('overwrite')
         const [body, options] = messageMock.mock.calls[0]!
         expect(body).toContain('a.md was changed outside Scrivon')
-        expect(options).toMatchObject({ title: 'File changed on disk', buttons: { ok: 'Overwrite', cancel: "Don't Save" } })
+        expect(body).toContain('Reload opens the other version')
+        expect(options).toMatchObject({ title: 'File changed on disk', buttons: { yes: 'Overwrite', no: 'Reload', cancel: "Don't Save" } })
 
+        messageMock.mockResolvedValueOnce('Reload')
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('reload')
         messageMock.mockResolvedValueOnce("Don't Save")
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('keep')
+        // Closing the question keeps both versions.
         messageMock.mockResolvedValueOnce('Cancel')
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('keep')
     })
 
-    it('offers to save a deleted file again', async () => {
+    it('offers to save a deleted file again, with nothing to reload', async () => {
         messageMock.mockResolvedValueOnce('Save Again')
-        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe(true)
+        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe('overwrite')
         expect(messageMock.mock.calls[0]![1]).toMatchObject({ title: 'File deleted', buttons: { ok: 'Save Again', cancel: "Don't Save" } })
+        messageMock.mockResolvedValueOnce("Don't Save")
+        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe('keep')
     })
 
     it('never overwrites outside Tauri when it cannot ask', async () => {
         isTauriMock.mockReturnValue(false)
-        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe('keep')
+        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe('keep')
         expect(messageMock).not.toHaveBeenCalled()
     })
 })

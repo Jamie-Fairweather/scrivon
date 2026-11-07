@@ -69,7 +69,7 @@ vi.mock('@/lib/tauri/dialog', () => ({
     showError: vi.fn(async () => undefined),
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
-    confirmOverwriteDiskChange: vi.fn(async () => false),
+    confirmOverwriteDiskChange: vi.fn(async () => 'keep' as const),
     confirmDeleteHiddenFolders: vi.fn(async () => false),
     confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
     confirmOpenLargeFile: vi.fn(async () => false),
@@ -942,7 +942,7 @@ describe('changes made outside Scrivon', () => {
         // A long delay keeps the autosave timer out of the way; the tests save when they choose to.
         settingsState.autosave = { enabled: true, delayMs: 60_000 }
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue('keep')
         disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine v1' })
         mountDisk(disk)
     })
@@ -997,7 +997,7 @@ describe('changes made outside Scrivon', () => {
         expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
 
         // Try Again on the notice asks once more, and Overwrite saves.
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('overwrite')
         await expect(save()).resolves.toBe(true)
         expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
         expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: false, saveError: undefined })
@@ -1006,6 +1006,100 @@ describe('changes made outside Scrivon', () => {
         act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
         await expect(save()).resolves.toBe(true)
         expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows the other version and drops the edits when the user picks Reload', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('reload')
+
+        // A close waiting on this save can go ahead: nothing is left to save.
+        await expect(save()).resolves.toBe(true)
+
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'edited in VS Code', isDirty: false, isSaving: false })
+        expect(result.current.tabs.tabs[0]?.saveError).toBeUndefined()
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+        expect(notifyError).not.toHaveBeenCalled()
+
+        // The reloaded file is the version the tab knows now, so the next save doesn't ask.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS ON TOP'))
+        await expect(save()).resolves.toBe(true)
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS ON TOP')
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the edits when Reload is picked but the file can no longer be read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('reload')
+        vi.mocked(readFile).mockRejectedValueOnce('The process cannot access the file because it is being used by another process. (os error 32)')
+
+        await expect(save()).resolves.toBe(false)
+
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'MY EDITS', isDirty: true })
+        expect(notifyError).toHaveBeenCalledWith(
+            "Couldn't save notes.md",
+            expect.anything(),
+            expect.objectContaining({ description: expect.stringContaining("Couldn't reload it.") })
+        )
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        // Typing doesn't ask again after every pause.
+        act(() => coordinatorOut.current!.flushSaveOnTabLeave.current('C:\\ws\\notes.md'))
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the new text of an open file without edits that another app changed, when the window gets focus', async () => {
+        await disk.write('C:\\ws\\other.md', 'other v1')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\other.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\other.md', 'MY EDITS'))
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        await disk.write('C:\\ws\\notes.md', 'pulled by git')
+        await disk.write('C:\\ws\\other.md', 'other v2 from git')
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'pulled by git', isDirty: false }))
+        // The tab with edits keeps them; saving it asks about the change.
+        expect(result.current.tabs.tabs[1]).toMatchObject({ content: 'MY EDITS', isDirty: true })
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        // The new text is the version the tab knows now, so editing and saving it doesn't ask.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'pulled by git, then edited'))
+        await expect(save()).resolves.toBe(true)
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('leaves an open file without edits as it is when another app deleted it', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        await disk.write('C:\\ws\\kept.md', 'still here')
+        await disk.remove('C:\\ws\\notes.md')
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+
+        await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['kept.md']))
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'mine v1', isDirty: false })])
     })
 
     it('asks before bringing back a file deleted in another app', async () => {
@@ -1017,7 +1111,7 @@ describe('changes made outside Scrivon', () => {
         expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'deleted')
         expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
 
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce('overwrite')
         await expect(save()).resolves.toBe(true)
         expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
     })
@@ -1080,7 +1174,7 @@ describe('unsaved text kept from a crash', () => {
         vi.clearAllMocks()
         settingsState.autosave = { enabled: false, delayMs: 400 }
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue('keep')
         disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'on disk', 'C:\\ws\\other.md': 'same' })
         mountDisk(disk)
     })

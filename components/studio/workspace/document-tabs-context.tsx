@@ -18,7 +18,16 @@ import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/exa
 import { dismissNotification, notifyError, notifyWarning } from '@/lib/notify'
 import { settleUnsavedBackups } from '@/lib/tauri/backups'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { getBaseName, getWorkspaceFileSize, isSupportedDocument, normalizePath, readWorkspaceTextFile, samePath } from '@/lib/tauri/fs'
+import {
+    getBaseName,
+    getWorkspaceFileSize,
+    isSupportedDocument,
+    normalizePath,
+    readStamp,
+    readWorkspaceTextFile,
+    samePath,
+    stampChanged,
+} from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
@@ -215,6 +224,48 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     )
 
     /**
+     * Puts the file as it is on disk now in the tab, unedited. With `onlyIfUntouched`, the tab is left as it
+     * is when the user typed in it or saved it while the file was being read, so a reload nobody asked for
+     * can never drop typing. Without it the user chose to drop their edits, so their pending save, their
+     * copy and their "couldn't save" notice go too. Resolves false when the tab was left as it is.
+     */
+    const reloadTab = useCallback(
+        async (id: string, onlyIfUntouched: boolean): Promise<boolean> => {
+            const before = tabsRef.current.find((t) => t.id === id)
+            if (!before) return false
+            const fresh = tabFromFile(before.path, await readWorkspaceTextFile(before.path))
+            const now = tabsRef.current.find((t) => t.id === id)
+            if (!now) return false
+            if (onlyIfUntouched && (now.isDirty || now.content !== before.content || now.disk?.stamp !== before.disk?.stamp)) return false
+            if (!onlyIfUntouched) coordinator.cancelScheduledSave.current(id)
+            const reloaded = (t: DocumentTab): DocumentTab =>
+                t.id === id
+                    ? {
+                          ...t,
+                          content: fresh.content,
+                          format: fresh.format,
+                          readOnly: fresh.readOnly,
+                          encodingIssue: fresh.encodingIssue,
+                          largeFile: fresh.largeFile,
+                          disk: fresh.disk,
+                          isDirty: false,
+                          isSaving: false,
+                          saveError: undefined,
+                      }
+                    : t
+            // The ref changes straight away, so a save or restore that runs before React re-renders sees the new text.
+            tabsRef.current = tabsRef.current.map(reloaded)
+            setTabs((prev) => prev.map(reloaded))
+            dismissNotification(readOnlyNoticeId(id))
+            // The other app may have saved it in a way Scrivon opens read-only (not UTF-8, say).
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (tab?.readOnly) explainReadOnlyFile(tab)
+            return true
+        },
+        [coordinator, explainReadOnlyFile, setTabs, tabsRef]
+    )
+
+    /**
      * For tabs that are really closing, once their edits were saved or the user chose not to keep them: drops
      * their pending autosave, their copy of unsaved text and their notices. Never done before the close is
      * sure, so a folder switch that ends up not happening leaves the tabs exactly as they were.
@@ -291,8 +342,28 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
                 for (const tab of restored) explainReadOnlyFile(tab)
             },
+            reloadTabFromDisk: async (id) => {
+                await reloadTab(id, false)
+            },
+            reloadChangedTabs: async () => {
+                const unedited = tabsRef.current.filter((t) => !t.isDirty && !t.isSaving && !t.readOnly && t.disk?.stamp && !isExampleTabId(t.id))
+                await Promise.all(
+                    unedited.map(async (tab) => {
+                        const now = await readStamp(tab.path)
+                        // A deleted file stays open as it was: saving it asks first. A file that grew very large isn't
+                        // read without asking, as opening one isn't.
+                        if (!now || !stampChanged(tab.disk!.stamp!, now) || isLargeFile(now.size)) return
+                        try {
+                            await reloadTab(tab.id, true)
+                        } catch (err) {
+                            // Shown as it was; saving it later asks about the change.
+                            console.warn(`Couldn't reload ${tab.name}`, err)
+                        }
+                    })
+                )
+            },
         })
-    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs])
+    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab])
 
     // Files still being read, so a double-click (or another click while a slow file loads) reuses the first open.
     const pendingOpens = useRef(new Map<string, Promise<void>>())

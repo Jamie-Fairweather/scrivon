@@ -236,7 +236,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     }, [workspaceRoot])
 
     // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up when the user comes
-    // back to the window. A failed read is left quiet here; the next action that changes the disk reports it.
+    // back to the window, and open files without edits that they changed show the new text. A failed read is
+    // left quiet here; the next action that changes the disk reports it.
     useEffect(() => {
         if (!isDesktop || !workspaceRoot) return
         const root = workspaceRoot
@@ -245,9 +246,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         let reloading = false
         let lastReloadEnd = 0
         let planned: ReturnType<typeof setTimeout> | undefined
-        const reload = async () => {
-            if (reloading) return
-            reloading = true
+        const readTree = async () => {
             const read = ++treeRead.current
             try {
                 const next = await listWorkspaceTree(root)
@@ -255,6 +254,20 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (!disposed && read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
             } catch {
                 // See above.
+            }
+        }
+        const reloadTabs = async () => {
+            try {
+                if (!disposed) await coordinator.reloadChangedTabs.current()
+            } catch (err) {
+                console.warn("Couldn't check the open files for changes", err)
+            }
+        }
+        const reload = async () => {
+            if (reloading) return
+            reloading = true
+            try {
+                await Promise.all([readTree(), reloadTabs()])
             } finally {
                 reloading = false
                 lastReloadEnd = Date.now()
@@ -293,7 +306,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             clearTimeout(planned)
             unlisten?.()
         }
-    }, [isDesktop, workspaceRoot])
+    }, [isDesktop, workspaceRoot, coordinator])
 
     const removeRecent = useCallback(async (path: string) => {
         try {
