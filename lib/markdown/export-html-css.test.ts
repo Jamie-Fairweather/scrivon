@@ -275,6 +275,21 @@ describe('buildPdfExportCss', () => {
         )
     })
 
+    it('draws the watermark over the positioned section tables but under the body and footer (N29)', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.content.watermark = 'DRAFT'
+        profile.footer.enabled = true
+        const css = buildPdfExportCss(profile)
+        // The tables are positioned with no z-index, so a watermark at 0 would sit under the cover image and bars.
+        expect(css).toMatch(/\.pdf-chrome-table \{\s*height: 100vh;\s*position: relative;\s*\}/)
+        const watermark = css.slice(css.indexOf('.export-article::before {'), css.indexOf('}', css.indexOf('.export-article::before {')))
+        expect(watermark).toContain('position: fixed;')
+        expect(watermark).toMatch(/z-index: 1;\s*$/)
+        // The body shares its level and comes later in the page, so it still paints over it; the footer is higher.
+        expect(css).toContain('.pdf-body { position: relative; z-index: 1; }')
+        expect(css).toContain('.pdf-fixed-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; }')
+    })
+
     it('justifies only top-level body paragraphs, leaving one its HTML aligns as it is (N33)', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true

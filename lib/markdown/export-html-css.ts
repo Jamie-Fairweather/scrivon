@@ -850,7 +850,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     color: rgba(0, 0, 0, 0.08);
     white-space: nowrap;
     pointer-events: none;
-    z-index: 0;
+    /*
+     * Over the section tables, which are positioned (the footer anchor's frame), so it still shows
+     * across the cover image, header bars and contents; under the body text, which comes later at
+     * the same level, and under the footer and its covers.
+     */
+    z-index: 1;
   }`
           : ''
   }
