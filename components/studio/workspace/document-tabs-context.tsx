@@ -22,6 +22,7 @@ import {
     getBaseName,
     getWorkspaceFileSize,
     isFileMissingError,
+    isPathInside,
     isSupportedDocument,
     normalizePath,
     readStamp,
@@ -422,8 +423,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             reloadTabFromDisk: async (id) => {
                 await reloadTab(id, false)
             },
-            reloadChangedTabs: async () => {
-                const unedited = tabsRef.current.filter((t) => !t.isDirty && !t.isSaving && !t.readOnly && t.disk?.stamp && !isExampleTabId(t.id))
+            reloadChangedTabs: async (paths) => {
+                // Each tab costs a look at its file, so only those at (or inside) the paths given, when there are some.
+                const named = (t: DocumentTab) => !paths || paths.some((p) => samePath(t.path, p) || isPathInside(t.path, p))
+                const unedited = tabsRef.current.filter(
+                    (t) => !t.isDirty && !t.isSaving && !t.readOnly && t.disk?.stamp && !isExampleTabId(t.id) && named(t)
+                )
                 await Promise.all(
                     unedited.map(async (tab) => {
                         const now = await readStamp(tab.path)

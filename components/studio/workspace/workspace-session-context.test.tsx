@@ -1443,6 +1443,40 @@ describe('changes made outside Scrivon', () => {
             expect(result.current.session.tree.map((n) => n.name)).toEqual(['notes.md'])
         })
 
+        it('looks only at the open files a change names, or that are inside a folder it names', async () => {
+            await disk.write('C:\\ws\\other.md', 'other v1')
+            await disk.write('C:\\ws\\docs\\inside.md', 'inside v1')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            for (const path of ['C:\\ws\\notes.md', 'C:\\ws\\other.md', 'C:\\ws\\docs\\inside.md']) {
+                await act(async () => {
+                    await result.current.tabs.openFile(path)
+                })
+            }
+            const tabText = (id: string) => result.current.tabs.tabs.find((t) => t.id === id)?.content
+            // Each look at an open file is a plugin-fs stat, which runs on the window's main thread.
+            const lookedAt = (name: string) => vi.mocked(stat).mock.calls.some(([path]) => String(path).toLowerCase().endsWith(name))
+            vi.mocked(stat).mockClear()
+
+            // An autosave, or another app saving notes.md.
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+            })
+            await waitFor(() => expect(tabText('C:\\ws\\notes.md')).toBe('saved by another editor'))
+            expect(lookedAt('other.md')).toBe(false)
+            expect(lookedAt('inside.md')).toBe(false)
+
+            // A folder put back (renamed back, say) is named on its own.
+            vi.mocked(stat).mockClear()
+            await disk.write('C:\\ws\\docs\\inside.md', 'inside v2')
+            await act(async () => {
+                report!({ type: { create: { kind: 'folder' } }, paths: ['C:\\ws\\docs'], attrs: null })
+            })
+            await waitFor(() => expect(tabText('C:\\ws\\docs\\inside.md')).toBe('inside v2'))
+            expect(lookedAt('other.md')).toBe(false)
+        })
+
         it('shows the new text of an open file straight away, even right after the folder was read', async () => {
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
             await openWatched(result)

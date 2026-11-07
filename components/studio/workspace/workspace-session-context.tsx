@@ -412,30 +412,35 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 endTreeRead(read)
             }
         }
-        const reloadTabs = async () => {
+        const reloadTabs = async (paths?: readonly string[]) => {
             try {
-                if (!disposed) await coordinator.reloadChangedTabs.current()
+                if (!disposed) await coordinator.reloadChangedTabs.current(paths)
             } catch (err) {
                 console.warn("Couldn't check the open files for changes", err)
             }
         }
         // The open files cost one look each, so they don't wait for the gap below: a file another app saved shows
-        // its new text straight away, before the user types in the old one. One run at a time; a change seen
-        // during a run gets one more.
+        // its new text straight away, before the user types in the old one. After a focus every open file is
+        // looked at; after a change, only those it names (each autosave is one). One run at a time; what is asked
+        // for during a run is looked at in one more.
         let tabsReloading = false
-        let tabsAgain = false
-        const requestTabs = () => {
-            if (tabsReloading) {
-                tabsAgain = true
-                return
+        let tabsWanted: 'all' | Set<string> | null = null
+        const requestTabs = (paths?: readonly string[]) => {
+            if (!paths || tabsWanted === 'all') tabsWanted = 'all'
+            else {
+                const wanted: Set<string> = tabsWanted ?? new Set()
+                for (const p of paths) wanted.add(p)
+                tabsWanted = wanted.size > MAX_SEEN_CHANGES ? 'all' : wanted
             }
+            if (tabsReloading) return
             tabsReloading = true
             void (async () => {
                 try {
-                    do {
-                        tabsAgain = false
-                        await reloadTabs()
-                    } while (tabsAgain && !disposed)
+                    while (tabsWanted !== null && !disposed) {
+                        const wanted: 'all' | Set<string> = tabsWanted
+                        tabsWanted = null
+                        await reloadTabs(wanted === 'all' ? undefined : [...wanted])
+                    }
                 } finally {
                     tabsReloading = false
                 }
@@ -491,7 +496,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (seen.added.length + seen.removed.length > MAX_SEEN_CHANGES) treeWanted = true
             }
             request()
-            requestTabs()
+            // A folder added or removed (renamed, say) names only itself, so the tabs inside it are looked at too.
+            requestTabs([...change.added, ...change.removed, ...change.changed])
         }
         // Where the folder can't be watched (some network drives), coming back to the window still reads it. So
         // does a folder too big to show it all (a whole drive): something in it changes all the time, and

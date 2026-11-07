@@ -64,9 +64,10 @@ export type WorkspaceCoordinatorRefs = {
     reloadTabFromDisk: MutableRefObject<(id: string) => Promise<void>>
     /**
      * Reads again the open files without edits whose file another app changed since (git, a sync tool), so
-     * they never show old text. Tabs with edits, read-only tabs and deleted files are left alone.
+     * they never show old text. Tabs with edits, read-only tabs and deleted files are left alone. With
+     * `paths`, only the files at those paths, or inside those folders, are looked at.
      */
-    reloadChangedTabs: MutableRefObject<() => Promise<void>>
+    reloadChangedTabs: MutableRefObject<(paths?: readonly string[]) => Promise<void>>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     openFile: MutableRefObject<(path: string) => Promise<void>>
     revealInEditor: MutableRefObject<(path: string, line: number, column: number, length?: number) => void>
