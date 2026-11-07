@@ -79,6 +79,10 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
         invisibleCharacters: false,
         nonBasicASCII: false,
     },
+    // Monaco would otherwise delete U+2028/U+2029 (common in text from PDFs, Word or the web) from
+    // the user's file without asking: its prompt goes through window.confirm, which the Tauri dialog
+    // plugin replaces with an async function, and Monaco reads the Promise it gets back as a yes.
+    unusualLineTerminators: 'off',
     // Word suggestions off, as in VS Code for Markdown: prose isn't code, and Enter must always
     // start a new line rather than swap the word just typed for one from another file.
     quickSuggestions: false,

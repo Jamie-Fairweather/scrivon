@@ -580,6 +580,12 @@ describe('CodeEditorPanel unicode highlighting', () => {
         setTabs(view, { tabs: [tab(a, 'Я і ти'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.unicodeHighlight).toEqual({ ambiguousCharacters: false, invisibleCharacters: true, nonBasicASCII: false })
     })
+
+    it('leaves Unicode line and paragraph separators in the file instead of removing them', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'from a PDF next end')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options.unusualLineTerminators).toBe('off')
+    })
 })
 
 describe('CodeEditorPanel suggestions', () => {
