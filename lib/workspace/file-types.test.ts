@@ -68,5 +68,13 @@ describe('withDocumentExtension', () => {
         expect(withDocumentExtension('notes.md', '.mmd')).toBe('notes.md')
         expect(withDocumentExtension('flow.MERMAID', '.mmd')).toBe('flow.MERMAID')
         expect(withDocumentExtension('', '.mmd')).toBe('')
+        expect(withDocumentExtension('Notes 2026.11.07', '.md')).toBe('Notes 2026.11.07.md')
+        expect(withDocumentExtension('Dr. Smith', '.md')).toBe('Dr. Smith.md')
+    })
+
+    it('leaves a name with another extension as typed, so it is refused instead of becoming todo.txt.md', () => {
+        expect(withDocumentExtension('todo.txt', '.md')).toBe('todo.txt')
+        expect(withDocumentExtension('notes.TXT', '.mmd')).toBe('notes.TXT')
+        expect(isSupportedDocument(withDocumentExtension('todo.txt', '.md'))).toBe(false)
     })
 })
