@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -8,6 +8,8 @@ type Layout = { explorerOpen: boolean; editorOpen: boolean }
 let tabs: DocumentTab[] = []
 let activeTabId: string | null = null
 let layout: Layout = { explorerOpen: true, editorOpen: true }
+/** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
+const mounts = { editor: 0, canvas: 0 }
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
@@ -25,11 +27,14 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     CanvasControlsProvider: ({ children }: { children: ReactNode }) => children,
     useCanvasControls: () => ({ canFitToView: false, fitToView: () => {} }),
 }))
-vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
-    MarkdownExpandProvider: ({ children }: { children: ReactNode }) => children,
-    useMarkdownExpand: () => ({ expanded: false }),
+vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
+    MermaidCanvas: () => {
+        useEffect(() => {
+            mounts.canvas++
+        }, [])
+        return <div>Diagram preview</div>
+    },
 }))
-vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({ MermaidCanvas: () => <div>Diagram preview</div> }))
 vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({ MarkdownDocumentViewer: () => <div>Markdown preview</div> }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
@@ -46,11 +51,16 @@ vi.mock('@/components/studio/explorer/workspace-explorer', () => ({
 }))
 // Stands in for Monaco: hidden (not unmounted) when the editor is switched off, like the real panel.
 vi.mock('@/components/studio/editor/code-editor-panel', () => ({
-    CodeEditorPanel: ({ open = true }: { open?: boolean }) => (
-        <div data-slot="code-editor" className={open ? undefined : 'hidden'}>
-            {activeTabId && <textarea aria-label="Editor" />}
-        </div>
-    ),
+    CodeEditorPanel: ({ open = true }: { open?: boolean }) => {
+        useEffect(() => {
+            mounts.editor++
+        }, [])
+        return (
+            <div data-slot="code-editor" className={open ? undefined : 'hidden'}>
+                {activeTabId && <textarea aria-label="Editor" />}
+            </div>
+        )
+    },
 }))
 
 const { StudioLayout } = await import('./studio-layout')
@@ -65,6 +75,8 @@ beforeEach(() => {
     tabs = [tab('/w/a.md')]
     activeTabId = '/w/a.md'
     layout = { explorerOpen: true, editorOpen: true }
+    mounts.editor = 0
+    mounts.canvas = 0
 })
 
 afterEach(() => {
@@ -92,6 +104,30 @@ describe('StudioLayout explorer', () => {
         layout = { explorerOpen: false, editorOpen: true }
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Explorer' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout tab switches', () => {
+    function switchTabs(ids: string[]) {
+        tabs = ids.map(tab)
+        activeTabId = ids[0]!
+        const view = render(<StudioLayout />)
+        for (const id of [...ids.slice(1), ids[0]!]) {
+            activeTabId = id
+            view.rerender(<StudioLayout />)
+        }
+    }
+
+    it('keeps the editor mounted when switching between Markdown tabs', () => {
+        switchTabs(['/w/a.md', '/w/b.md'])
+        expect(mounts.editor).toBe(1)
+    })
+
+    it('keeps the editor and the diagram canvas mounted when switching between diagram tabs', () => {
+        switchTabs(['/w/x.mmd', '/w/y.mmd'])
+        expect(screen.getByText('Diagram preview')).toBeInTheDocument()
+        expect(mounts.canvas).toBe(1)
+        expect(mounts.editor).toBe(1)
     })
 })
 
