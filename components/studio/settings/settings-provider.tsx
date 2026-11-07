@@ -10,6 +10,7 @@ import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import { adoptExportImages } from '@/lib/tauri/export-image-access'
 
 /** Why a shortcut change was refused. */
 export type KeybindRefusal = {
@@ -42,6 +43,8 @@ type AppSettingsContextValue = {
     reassignKeybind: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
     resetAllKeybinds: () => void
     resetAllSettings: () => void
+    /** Writes a change that is still waiting to be saved now (the end of a burst is saved shortly after it). */
+    flushPendingSettings: () => void
 }
 
 const AppSettingsContext = createContext<AppSettingsContextValue | null>(null)
@@ -64,6 +67,9 @@ function describeUnusableChords(chords: KeybindChord[]): string | null {
     return null
 }
 
+/** How long after the last of a burst of changes it is written. Dragging a colour or holding an arrow key changes settings many times a second. */
+const SAVE_DELAY_MS = 300
+
 function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
@@ -76,12 +82,54 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     // Latest settings, updated straight away so back-to-back updates build on each other.
     // React may defer a state updater until render, so the next value is never read out of one.
     const settingsRef = useRef(settings)
+    // Saving writes every setting (export profiles too), so a burst of changes is written twice:
+    // its first change at once, and its last one shortly after the burst ends.
+    const pendingSaveRef = useRef<AppSettings | null>(null)
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    const persist = useCallback((next: AppSettings) => {
-        settingsRef.current = next
-        setSettingsState(next)
-        saveSettings(next)
+    const flushPendingSettings = useCallback(() => {
+        if (saveTimerRef.current !== null) {
+            clearTimeout(saveTimerRef.current)
+            saveTimerRef.current = null
+        }
+        const pending = pendingSaveRef.current
+        if (!pending) return
+        pendingSaveRef.current = null
+        saveSettings(pending)
     }, [])
+
+    const persist = useCallback(
+        (next: AppSettings) => {
+            settingsRef.current = next
+            setSettingsState(next)
+            if (saveTimerRef.current === null) {
+                // A change on its own (a theme or layout shortcut) is written straight away, so
+                // closing the window right after can't lose it. Only the rest of a burst waits.
+                saveSettings(next)
+            } else {
+                pendingSaveRef.current = next
+                clearTimeout(saveTimerRef.current)
+            }
+            saveTimerRef.current = setTimeout(flushPendingSettings, SAVE_DELAY_MS)
+        },
+        [flushPendingSettings]
+    )
+
+    // Don't lose the last change when the page goes away (reload, close) or the app is hidden.
+    useEffect(() => {
+        const flushWhenHidden = () => {
+            if (document.visibilityState === 'hidden') flushPendingSettings()
+        }
+        window.addEventListener('pagehide', flushPendingSettings)
+        window.addEventListener('beforeunload', flushPendingSettings)
+        document.addEventListener('visibilitychange', flushWhenHidden)
+        return () => {
+            window.removeEventListener('pagehide', flushPendingSettings)
+            window.removeEventListener('beforeunload', flushPendingSettings)
+            document.removeEventListener('visibilitychange', flushWhenHidden)
+            flushPendingSettings()
+        }
+    }, [flushPendingSettings])
 
     const updateSettings = useCallback(
         (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
@@ -97,15 +145,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         notifyWarning('Settings could not be read', { id: 'settings-recovered', description: RECOVERY_NOTICES[loaded.recovery], timeout: 0 })
     }, [loaded])
 
+    // The export only reads images the user chose. Profiles saved before that check name images
+    // the app has no record of, so hand them over; Rust takes them only the first time.
+    useEffect(() => {
+        void adoptExportImages(loaded.settings.pdfExport)
+    }, [loaded])
+
     // Without a section, reopen on the one last used rather than jumping back to General.
     const openSettings = useCallback((section?: SettingsSection) => {
         if (section) setActiveSection(section)
         setSettingsOpen(true)
     }, [])
 
+    // Changes made in Settings are written as it closes, not a moment later.
     const closeSettings = useCallback(() => {
         setSettingsOpen(false)
-    }, [])
+        flushPendingSettings()
+    }, [flushPendingSettings])
 
     const setThemeId = useCallback(
         (id: AppSettings['theme']['id']) => {
@@ -241,7 +297,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     // Export profiles are the user's own work (logos, headers, fonts), not preferences, so they're kept.
     const resetAllSettings = useCallback(() => {
         updateSettings((current) => ({ ...createDefaultSettings(isMacPlatform()), pdfExport: current.pdfExport }))
-    }, [updateSettings])
+        flushPendingSettings()
+    }, [updateSettings, flushPendingSettings])
 
     const value = useMemo<AppSettingsContextValue>(
         () => ({
@@ -264,6 +321,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             reassignKeybind,
             resetAllKeybinds,
             resetAllSettings,
+            flushPendingSettings,
         }),
         [
             settings,
@@ -284,6 +342,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             reassignKeybind,
             resetAllKeybinds,
             resetAllSettings,
+            flushPendingSettings,
         ]
     )
 

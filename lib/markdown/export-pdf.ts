@@ -1,20 +1,14 @@
-import { notifySavedWithoutPageNumbers } from '@/lib/markdown/pdf-page-number-warning'
 import { invoke } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
-import { buildExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
+import { buildExportDocument, type ExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
-import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
-import { errorMessage, notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
+import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
+import { errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type {
-    PdfExportDocument,
-    PdfExportMetadataOverrides,
-    PdfExportProfile,
-    PdfExportResolvedAssets,
-    PdfPrintOptions,
-} from '@/lib/settings/pdf-export-types'
+import type { PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
+import { savePathBesideDocument } from '@/lib/tauri/save-path'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -32,35 +26,24 @@ export type ExportMarkdownOptions = {
     documentPath?: string
 }
 
-export type ExportMarkdownToPdfOptions = ExportMarkdownOptions
+/** A saved export (or one handed to the print dialog / a download), with anything it had to leave out. */
+export type SavedExport = {
+    status: 'saved'
+    path?: string
+    missingImages?: PdfExportMissingImage[]
+    /** Why the PDF was saved without its page numbers (the Windows app adds them after printing). */
+    pageNumberWarning?: string
+    /** The profile asks for a table of contents, but no heading matched its settings, so there is none. */
+    tocSkipped?: boolean
+}
 
-/**
- * How an export ended: saved (or handed to the print dialog / a download), cancelled at the
- * save picker, or failed. A saved export lists any profile images it had to leave out.
- */
-export type ExportResult =
-    | { status: 'saved'; path?: string; missingImages?: PdfExportMissingImage[] }
-    | { status: 'cancelled' }
-    | { status: 'failed'; message: string }
+/** How an export ended: saved, cancelled at the save picker, or failed. */
+export type ExportResult = SavedExport | { status: 'cancelled' } | { status: 'failed'; message: string }
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
     const base = tabName.replace(/\.md$/i, '')
     return base || 'document'
-}
-
-/** A full path to a file on disk: `D:\…`, `\\server\…` or `/…`. Example tabs use ids like `example:intro`. */
-const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
-
-/**
- * Where the save dialog starts: next to the document when it is a file on disk, so the export
- * lands beside it. Otherwise just the file name, and the dialog picks the folder.
- */
-export function exportSavePath(documentPath: string | undefined, fileName: string): string {
-    if (!documentPath || !ABSOLUTE_PATH.test(documentPath)) return fileName
-    const slash = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'))
-    const separator = documentPath.includes('\\') ? '\\' : '/'
-    return `${documentPath.slice(0, slash)}${separator}${fileName}`
 }
 
 function waitForPaint(): Promise<void> {
@@ -124,10 +107,10 @@ async function printExportHtml(html: string): Promise<void> {
     })
 }
 
-async function savePdfWithWebView2(html: string, outputPath: string, options: PdfPrintOptions): Promise<void> {
-    // Comes back with the reason when the PDF was saved but its page numbers couldn't be added.
+/** Saves the PDF. Returns why, when it was saved but its page numbers couldn't be added. */
+async function savePdfWithWebView2(html: string, outputPath: string, options: PdfPrintOptions): Promise<string | undefined> {
     const pageNumberProblem = await invoke<string | null>('export_html_to_pdf', { html, outputPath, options })
-    if (pageNumberProblem) notifySavedWithoutPageNumbers(pageNumberProblem)
+    return pageNumberProblem || undefined
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string): void {
@@ -144,7 +127,11 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
 
 async function saveDocx(bytes: Uint8Array, filename: string, documentPath: string | undefined): Promise<ExportResult> {
     if (isTauri()) {
-        const path = await pickSavePath({ title: 'Save Word document', defaultPath: exportSavePath(documentPath, filename), filters: DOCX_FILTERS })
+        const path = await pickSavePath({
+            title: 'Save Word document',
+            defaultPath: savePathBesideDocument(filename, documentPath),
+            filters: DOCX_FILTERS,
+        })
         if (!path) return { status: 'cancelled' }
         await writeBinaryFile(path, bytes)
         return { status: 'saved', path }
@@ -156,41 +143,42 @@ async function saveDocx(bytes: Uint8Array, filename: string, documentPath: strin
     return { status: 'saved' }
 }
 
-/** Resolves the profile's images, then builds the document the export and preview paths share. */
-export async function buildMarkdownExportHtml(
-    source: string,
-    tabName: string | undefined,
-    options: ExportMarkdownOptions = {}
-): Promise<PdfExportDocument> {
-    const profile = options.profile ?? createDefaultPdfExportProfile()
-    const { assets } = await resolvePdfExportAssets(profile)
-    return markdownToExportHtml(source, { profile, tabName, overrides: options.overrides, assets })
-}
-
 async function renderAndSave(
     source: string,
     tabName: string | undefined,
     options: ExportMarkdownOptions & { profile: PdfExportProfile },
     assets: PdfExportResolvedAssets
 ): Promise<ExportResult> {
-    const { profile, overrides, documentPath } = options
+    const { profile, overrides } = options
+    const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
+    const result = await renderAndSaveDocument(exportDocument, tabName, options)
+    // Both renderers leave the contents page out when no heading matches the TOC settings.
+    const tocSkipped = profile.frontMatter.toc && exportDocument.toc.length === 0
+    return result.status === 'saved' && tocSkipped ? { ...result, tocSkipped } : result
+}
+
+async function renderAndSaveDocument(
+    exportDocument: ExportDocument,
+    tabName: string | undefined,
+    options: ExportMarkdownOptions
+): Promise<ExportResult> {
+    const { documentPath } = options
     if (options.format === 'docx') {
-        const document = buildExportDocument(source, { profile, tabName, overrides, assets })
         const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-        const bytes = await renderExportDocx(document)
+        const bytes = await renderExportDocx(exportDocument)
         return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, documentPath)
     }
 
     // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
     const stamped = isWindowsTauri()
-    const { html, print } = await markdownToExportHtml(source, { profile, tabName, overrides, assets, stamped })
+    const { html, print } = await renderExportPdf(exportDocument, { stamped })
     const filename = `${markdownExportBaseName(tabName)}.pdf`
 
     if (stamped) {
-        const path = await pickSavePath({ title: 'Save PDF', defaultPath: exportSavePath(documentPath, filename), filters: PDF_FILTERS })
+        const path = await pickSavePath({ title: 'Save PDF', defaultPath: savePathBesideDocument(filename, documentPath), filters: PDF_FILTERS })
         if (!path) return { status: 'cancelled' }
-        await savePdfWithWebView2(html, path, print)
-        return { status: 'saved', path }
+        const pageNumberWarning = await savePdfWithWebView2(html, path, print)
+        return pageNumberWarning ? { status: 'saved', path, pageNumberWarning } : { status: 'saved', path }
     }
 
     await printExportHtml(html)
@@ -220,14 +208,26 @@ function describeMissingImages(missing: PdfExportMissingImage[]): string {
     return missing.map(({ slot, path, reason }) => `${slot} (${fileName(path)}): ${reason}`).join('; ')
 }
 
+const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'
+
+/** The non-empty parts as one description, each ending in a full stop when another follows. */
+function joinSentences(parts: (string | undefined)[]): string {
+    const kept = parts.filter((part): part is string => Boolean(part))
+    return kept.map((part, index) => (index < kept.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(' ')
+}
+
 /**
  * Tells the user the export was saved and where, with a button that shows the file in its
- * folder, and names any profile images that had to be left out.
+ * folder. One notice says what had to be left out (page numbers, profile images, or both),
+ * and when no heading matched the table of contents settings.
  */
-export function notifyExportSaved(path: string | undefined, missingImages: PdfExportMissingImage[] = []): void {
+export function notifyExportSaved({ path, missingImages = [], pageNumberWarning, tocSkipped }: SavedExport): void {
+    const images = missingImages.length > 0 ? describeMissingImages(missingImages) : ''
+    const toc = tocSkipped ? TOC_SKIPPED : ''
     if (!path) {
-        // The print dialog or the browser's download took over; only left-out images need a word.
-        if (missingImages.length > 0) notifyWarning('Some images were left out', { description: describeMissingImages(missingImages) })
+        // The print dialog or the browser's download took over; only what was left out needs a word.
+        if (images) notifyWarning('Some images were left out', { description: joinSentences([images, toc]) })
+        else if (toc) notifyInfo('No contents page was added', { description: toc })
         return
     }
     const action = {
@@ -236,16 +236,12 @@ export function notifyExportSaved(path: string | undefined, missingImages: PdfEx
             revealItemInDir(path).catch((err: unknown) => notifyError('Could not show the file', err))
         },
     }
-    if (missingImages.length > 0) {
-        notifyWarning(`Saved ${fileName(path)} without some images`, { description: describeMissingImages(missingImages), action })
+    const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : ''].filter(Boolean)
+    if (leftOut.length > 0) {
+        const description = joinSentences([pageNumberWarning, images, toc])
+        notifyWarning(`Saved ${fileName(path)} without ${leftOut.join(' or ')}`, { description, action })
         return
     }
-    notifySuccess(`Saved ${fileName(path)}`, { description: path, timeout: SAVED_NOTICE_MS, action })
-}
-
-/** {@link exportMarkdown} that tells the user when the export fails. */
-export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<ExportResult> {
-    const result = await exportMarkdown(source, tabName, options)
-    if (result.status === 'failed') notifyError('Export failed', undefined, { description: result.message })
-    return result
+    // The title names the file and Show in folder finds it, so the TOC note can take the path's place.
+    notifySuccess(`Saved ${fileName(path)}`, { description: toc || path, timeout: SAVED_NOTICE_MS, action })
 }

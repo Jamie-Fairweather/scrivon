@@ -6,6 +6,10 @@ export type PdfExportFontOption = {
     value: string
     /** Found on this computer, rather than one of the curated stacks below. */
     system?: boolean
+    /** Every letter takes the same width, so the Monospace picker lists it. */
+    monospace?: boolean
+    /** The profile's saved font, added because the picker's list doesn't have it. */
+    saved?: boolean
 }
 
 /** Curated stacks that work without querying the OS font list. */
@@ -24,12 +28,13 @@ export const PDF_EXPORT_FONT_OPTIONS: PdfExportFontOption[] = [
     { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
     { label: 'Palatino', value: '"Palatino Linotype", Palatino, serif' },
     { label: 'Garamond', value: 'Garamond, "Times New Roman", serif' },
-    { label: 'Courier New', value: '"Courier New", Courier, monospace' },
-    { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
-    { label: 'Monaco', value: 'Monaco, Consolas, monospace' },
+    { label: 'Courier New', value: '"Courier New", Courier, monospace', monospace: true },
+    { label: 'Consolas', value: 'Consolas, "Courier New", monospace', monospace: true },
+    { label: 'Monaco', value: 'Monaco, Consolas, monospace', monospace: true },
     {
         label: 'UI Monospace',
         value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        monospace: true,
     },
 ]
 
@@ -135,10 +140,14 @@ export function withGenericFallback(stack: string, slot: PdfExportFontSlot): str
     return [...parts, SLOT_GENERIC[slot]].join(', ')
 }
 
-async function listSystemFontFamilies(): Promise<string[]> {
+/** An installed font family, as `list_system_fonts` in `src-tauri/src/system_fonts.rs` reports it. */
+type SystemFont = { family: string; monospace: boolean }
+
+async function listSystemFonts(): Promise<SystemFont[]> {
     if (!isTauri()) return []
     try {
-        return await invoke<string[]>('list_system_fonts')
+        const fonts = await invoke<SystemFont[]>('list_system_fonts')
+        return fonts.filter((font) => typeof font?.family === 'string')
     } catch {
         return []
     }
@@ -153,12 +162,12 @@ export async function loadPdfExportFontOptions(): Promise<PdfExportFontOption[]>
     const taken = new Set(PDF_EXPORT_FONT_OPTIONS.flatMap((option) => [familyKey(option.label), firstFamilyKey(option.value)]))
     const options = [...PDF_EXPORT_FONT_OPTIONS]
 
-    for (const family of await listSystemFontFamilies()) {
+    for (const { family, monospace } of await listSystemFonts()) {
         const trimmed = family.trim()
         const key = familyKey(trimmed)
         if (!key || taken.has(key)) continue
         taken.add(key)
-        options.push({ label: trimmed, value: quoteFontFamily(trimmed), system: true })
+        options.push({ label: trimmed, value: quoteFontFamily(trimmed), system: true, ...(monospace === true ? { monospace } : {}) })
     }
 
     return options.toSorted((a, b) => a.label.localeCompare(b.label))
@@ -190,11 +199,12 @@ export function loadPdfExportFontOptionsOnce(): Promise<PdfExportFontOption[]> {
 
 export type PdfExportFontGroup = { value: string; items: PdfExportFontOption[] }
 
-/** Curated stacks first, then the fonts found on this computer; empty groups are left out. */
+/** The saved font the list doesn't have, then the curated stacks, then the fonts found on this computer; empty groups are left out. */
 export function groupFontOptions(options: PdfExportFontOption[]): PdfExportFontGroup[] {
     const groups: PdfExportFontGroup[] = [
-        { value: 'Common fonts', items: options.filter((option) => !option.system) },
-        { value: 'Installed fonts', items: options.filter((option) => option.system) },
+        { value: 'Saved font', items: options.filter((option) => option.saved) },
+        { value: 'Common fonts', items: options.filter((option) => !option.saved && !option.system) },
+        { value: 'Installed fonts', items: options.filter((option) => !option.saved && option.system) },
     ]
     return groups.filter((group) => group.items.length > 0)
 }
@@ -206,9 +216,14 @@ export function isSymbolFont(label: string): boolean {
     return SYMBOL_FONT.test(label.trim())
 }
 
-/** The options one picker offers: any stack without a generic family gets the slot's one. */
+/**
+ * The options one picker offers: only monospaced fonts for Monospace, and any stack without
+ * a generic family gets the slot's one.
+ */
 export function fontOptionsForSlot(options: PdfExportFontOption[], slot: PdfExportFontSlot): PdfExportFontOption[] {
-    return options.map((option) => ({ ...option, value: withGenericFallback(option.value, slot) }))
+    return options
+        .filter((option) => slot !== 'mono' || option.monospace)
+        .map((option) => ({ ...option, value: withGenericFallback(option.value, slot) }))
 }
 
 /**
@@ -222,12 +237,13 @@ export function matchFontOption(options: PdfExportFontOption[], value: string): 
 
 /**
  * `options` with the saved `value` added at the top when no option matches it, so the picker
- * can still show it. It is labelled by its first family, plus "(not installed)" once the
- * system font list has loaded and that family is not on it.
+ * can still show it (a font saved before the Monospace picker listed only monospaced ones,
+ * say). It is labelled by its first family, plus "(not installed)" once the system font list
+ * has loaded and that family is not in `installed`, the full list `options` was picked from.
  */
-export function ensureFontOption(options: PdfExportFontOption[], value: string): PdfExportFontOption[] {
+export function ensureFontOption(options: PdfExportFontOption[], value: string, installed: PdfExportFontOption[] = options): PdfExportFontOption[] {
     if (!value.trim() || matchFontOption(options, value)) return options
     const name = familyName(splitFontStack(value)[0] ?? '') || value.trim()
-    const knownMissing = options.some((option) => option.system) && !GENERIC_FAMILIES.has(name.toLowerCase())
-    return [{ label: knownMissing ? `${name} (not installed)` : name, value }, ...options]
+    const knownMissing = installed.some((option) => option.system) && !GENERIC_FAMILIES.has(name.toLowerCase()) && !matchFontOption(installed, value)
+    return [{ label: knownMissing ? `${name} (not installed)` : name, value, saved: true }, ...options]
 }

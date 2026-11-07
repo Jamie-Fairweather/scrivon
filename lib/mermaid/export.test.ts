@@ -25,16 +25,7 @@ vi.mock('@/lib/mermaid/render', async (importOriginal) => {
     }
 })
 
-import {
-    buildExportSvg,
-    diagramFileStem,
-    exportBaseName,
-    exportPng,
-    exportSvg,
-    fitPngScale,
-    markdownDiagramPosition,
-    savePathBesideDocument,
-} from '@/lib/mermaid/export'
+import { buildExportSvg, diagramFileStem, exportBaseName, exportPng, exportSvg, fitPngScale, markdownDiagramPosition } from '@/lib/mermaid/export'
 
 beforeEach(() => {
     vi.clearAllMocks()
@@ -87,19 +78,6 @@ describe('diagram file names', () => {
 
     it('uses the tab name for a Mermaid file', () => {
         expect(diagramFileStem('graph TD', { tabName: 'CI/CD Pipeline.mmd' })).toBe('CI-CD Pipeline')
-    })
-})
-
-describe('savePathBesideDocument', () => {
-    it.each([
-        ['D:\\Projects\\spec\\flow.mmd', 'D:\\Projects\\spec\\flow.svg'],
-        ['C:\\flow.mmd', 'C:\\flow.svg'],
-        ['\\\\server\\share\\flow.mmd', '\\\\server\\share\\flow.svg'],
-        ['/home/me/flow.mmd', '/home/me/flow.svg'],
-        ['example:ci-cd', 'flow.svg'],
-        [undefined, 'flow.svg'],
-    ])('%s -> %s', (documentPath, expected) => {
-        expect(savePathBesideDocument('flow.svg', documentPath)).toBe(expected)
     })
 })
 

@@ -43,6 +43,7 @@ import type {
 } from '@/lib/settings/pdf-export-types'
 import { resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import { isWindowsTauri } from '@/lib/tauri/platform'
 import { ColorField } from '@/components/studio/settings/color-field'
 import { ImagePathField } from '@/components/studio/settings/image-path-field'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
@@ -140,7 +141,8 @@ function FontSelect({
     const [shownOptions, setShownOptions] = useState(options)
     if (!open && !focused && shownOptions !== options) setShownOptions(options)
     const slotOptions = useMemo(() => fontOptionsForSlot(shownOptions, slot), [shownOptions, slot])
-    const items = useMemo(() => ensureFontOption(slotOptions, value), [slotOptions, value])
+    // Checked against the whole list: a saved font the Monospace picker leaves out may still be installed.
+    const items = useMemo(() => ensureFontOption(slotOptions, value, shownOptions), [slotOptions, value, shownOptions])
     const groups = useMemo(() => groupFontOptions(items), [items])
     return (
         <Combobox
@@ -753,7 +755,17 @@ function ChromeFields({
     )
 }
 
-const PLACEHOLDER_HINT = `Use {{title}} or {{date}} placeholders.`
+const PLACEHOLDER_HINT = 'Use {{title}}, {{subtitle}}, {{author}} or {{date}} (today if no date is set).'
+
+/**
+ * The stamper draws the text between the counters in the footer's own font only when that font
+ * has every letter of every page's label; otherwise in Helvetica, where anything outside Latin
+ * prints as `?`. The footer font only holds the letters the document already drew in it, so
+ * until the export draws a sample of the label's letters inside the footer marker
+ * (`pdfStampGlyphText`), Helvetica is what users should expect.
+ */
+const PAGE_NUMBER_TEXT_HINT =
+    'Use {{page}}, {{total}}, {{title}}, {{subtitle}}, {{author}} or {{date}}. Text between {{page}} and {{total}} must use Latin letters; other scripts print as ?.'
 
 function ChromeSideFields({
     side,
@@ -805,14 +817,18 @@ function FooterPageNumbers({
             <Field>
                 <FieldLabel>Page numbers</FieldLabel>
                 <FieldDescription>Shown on the right of the footer.</FieldDescription>
+                {/* Only the Windows app stamps numbers into the PDF; elsewhere the print dialog draws what it can. */}
+                {isWindowsTauri() ? null : (
+                    <FieldDescription>
+                        Outside the Windows app, the table of contents has no page numbers and footer numbers may not print.
+                    </FieldDescription>
+                )}
                 <OptionSelect value={format} options={PAGE_NUMBER_OPTIONS} onChange={onFormatChange} />
             </Field>
             {format === 'custom' ? (
                 <Field>
                     <FieldLabel>Custom text</FieldLabel>
-                    <FieldDescription>
-                        Use {'{{page}}'}, {'{{total}}'}, {'{{title}}'} or {'{{date}}'} placeholders.
-                    </FieldDescription>
+                    <FieldDescription>{PAGE_NUMBER_TEXT_HINT}</FieldDescription>
                     <Input value={text} placeholder="e.g. Page {{page}} of {{total}}" onChange={(event) => onTextChange(event.target.value)} />
                 </Field>
             ) : null}

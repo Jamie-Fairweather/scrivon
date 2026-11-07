@@ -9,6 +9,8 @@ use tauri_plugin_fs::FsExt;
 
 use crate::page_numbers::Stamped;
 
+mod export_image_access;
+
 /// Print-engine settings that accompany the export HTML. Mirrors
 /// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
 #[derive(Debug, Clone, Deserialize)]
@@ -26,6 +28,11 @@ pub struct PdfPrintOptions {
     pub page_number_format: String,
     /// Hex colour for the stamped label; empty for the default chrome colour.
     pub page_number_color: String,
+    /// Saved in the PDF's document properties; left out when empty.
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub subject: String,
 }
 
 /// How long to wait for the export page's images and web fonts before
@@ -266,7 +273,7 @@ async fn export_html_to_pdf_impl(
                         .SetMarginRight(print.margin_right_mm / 25.4)
                         .map_err(|e| e.to_string())?;
                     print_settings
-                        .SetShouldPrintBackgrounds(true.into())
+                        .SetShouldPrintBackgrounds(true)
                         .map_err(|e| e.to_string())?;
 
                     PrintToPdfCompletedHandler::wait_for_async_operation(
@@ -502,6 +509,8 @@ pub async fn export_html_to_pdf(
 }
 
 const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+/// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
+const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
 /// The image type for an export image path, or `None` for anything else.
 fn mime_from_path(path: &str) -> Option<&'static str> {
@@ -542,34 +551,90 @@ fn content_matches(mime: &str, bytes: &[u8]) -> bool {
 }
 
 /// Read a user-chosen export image. Image paths are saved in PDF profiles and
-/// must keep working after a restart, so this doesn't use the fs scope; instead
-/// it only returns real image files (PNG, JPEG, GIF, WebP or SVG).
+/// must keep working after a restart, so an image is read when the open dialog
+/// has just added it to the fs scope or it was chosen in an earlier session
+/// (see `export_image_access`), and only when it's a real image file (PNG,
+/// JPEG, GIF, WebP or SVG).
 ///
 /// The read runs on a background thread: a plain command runs on the window's
 /// main thread, and an online-only cloud file can take seconds to arrive.
 #[tauri::command]
-pub async fn read_export_image(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || read_image_as_data_url(&path))
-        .await
-        .map_err(|_| "Could not read image.".to_string())?
+pub async fn read_export_image(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let scope = app.fs_scope();
+        read_chosen_image(export_image_access::access(&app), &path, |image| {
+            scope.is_allowed(image)
+        })
+    })
+    .await
+    .map_err(|_| "Could not read image.".to_string())?
 }
 
-fn read_image_as_data_url(path: &str) -> Result<String, String> {
+/// `read_export_image` without the app: reads `path` when the user chose it.
+fn read_chosen_image(
+    access: &export_image_access::ExportImageAccess,
+    path: &str,
+    in_scope: impl Fn(&Path) -> bool,
+) -> Result<String, String> {
+    // A file that can't be an export image gets its own reason first: telling
+    // the user to choose it again would only send them round in a loop.
+    export_image_mime(path)?;
+    access.approve(path, in_scope)?;
+    read_image_as_data_url(path)
+}
+
+/// Records an image the user has just picked with Browse, so the export can
+/// still read it after a restart. Only an image the open dialog put in the fs
+/// scope is recorded. Returns whether it was.
+// Not registered in `generate_handler!` yet.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn remember_export_image(app: tauri::AppHandle, path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let scope = app.fs_scope();
+        export_image_access::access(&app).remember(&path, |image| scope.is_allowed(image))
+    })
+    .await
+    .map_err(|_| "Could not remember the image.".to_string())
+}
+
+/// Takes on the images that PDF profiles saved before the image check name,
+/// so they keep working. Only accepted the first time, while no image list
+/// has been saved yet. Returns whether the images were taken on.
+// Not registered in `generate_handler!` yet.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn adopt_export_images(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || export_image_access::access(&app).adopt(&paths))
+        .await
+        .map_err(|_| "Could not take on the profile images.".to_string())
+}
+
+/// The image type of an export image path, or why it can't be one.
+fn export_image_mime(path: &str) -> Result<&'static str, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("Image path is empty.".into());
     }
-    let mime = mime_from_path(path)
-        .ok_or_else(|| "Only PNG, JPEG, GIF, WebP and SVG images can be used.".to_string())?;
+    mime_from_path(path)
+        .ok_or_else(|| "Only PNG, JPEG, GIF, WebP and SVG images can be used.".to_string())
+}
+
+fn read_image_as_data_url(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    let mime = export_image_mime(path)?;
     let size = std::fs::metadata(path)
         .map_err(|e| format!("Could not read image: {e}"))?
         .len();
     if size > MAX_EXPORT_IMAGE_BYTES as u64 {
-        return Err("Image is too large to embed in the PDF.".into());
+        return Err(IMAGE_TOO_LARGE.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read image: {e}"))?;
     if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
-        return Err("Image is too large to embed in the PDF.".into());
+        return Err(IMAGE_TOO_LARGE.into());
     }
     if !content_matches(mime, &bytes) {
         return Err("This file isn't a valid image.".into());
@@ -586,10 +651,12 @@ mod tests {
     use std::cell::Cell;
     use std::time::Duration;
 
+    use super::export_image_access::{ExportImageAccess, NOT_CHOSEN};
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
-        mime_from_path, place_printed_pdf, read_export_image, save_printed_pdf, temp_sibling,
-        wait_until_ready, PageReadiness, PdfPrintOptions, MAX_REWRITES,
+        mime_from_path, place_printed_pdf, read_chosen_image, read_image_as_data_url,
+        save_printed_pdf, temp_sibling, wait_until_ready, PageReadiness, PdfPrintOptions,
+        MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
     };
 
     #[test]
@@ -603,6 +670,18 @@ mod tests {
         assert_eq!(options.margin_right_mm, 0.0);
         assert_eq!(options.page_number_format, "page-n");
         assert_eq!(options.page_number_color, "#ff0000");
+        // Document properties are only sent when set.
+        assert_eq!(
+            (options.author.as_str(), options.subject.as_str()),
+            ("", "")
+        );
+
+        let with_properties: PdfPrintOptions = serde_json::from_str(
+            r##"{"pageWidthMm":210,"pageHeightMm":297,"landscape":false,"marginTopMm":10,"marginRightMm":10,"marginBottomMm":10,"marginLeftMm":10,"pageNumberFormat":"none","pageNumberColor":"","author":"Ada","subject":"Q3"}"##,
+        )
+        .unwrap();
+        assert_eq!(with_properties.author, "Ada");
+        assert_eq!(with_properties.subject, "Q3");
     }
 
     #[test]
@@ -623,8 +702,7 @@ mod tests {
     }
 
     fn read(path: &std::path::Path) -> Result<String, String> {
-        let result =
-            tauri::async_runtime::block_on(read_export_image(path.to_string_lossy().into_owned()));
+        let result = read_image_as_data_url(&path.to_string_lossy());
         let _ = std::fs::remove_file(path);
         result
     }
@@ -645,6 +723,19 @@ mod tests {
     }
 
     #[test]
+    fn says_an_image_over_the_limit_is_too_large_for_the_export() {
+        let path = std::env::temp_dir().join(format!("scrivon-{}-huge.png", uuid::Uuid::new_v4()));
+        // Sized without writing: the size is checked before the file is read.
+        std::fs::File::create(&path)
+            .and_then(|file| file.set_len(MAX_EXPORT_IMAGE_BYTES as u64 + 1))
+            .unwrap();
+        assert_eq!(
+            read(&path).unwrap_err(),
+            "Image is too large to embed in the export (limit 12 MB)."
+        );
+    }
+
+    #[test]
     fn refuses_files_that_are_not_images() {
         let key = temp_file("id_ed25519", b"-----BEGIN OPENSSH PRIVATE KEY-----");
         assert!(read(&key).unwrap_err().contains("PNG, JPEG"));
@@ -657,6 +748,31 @@ mod tests {
 
         let text_svg = temp_file("notes.svg", b"password=hunter2");
         assert!(read(&text_svg).is_err());
+    }
+
+    #[test]
+    fn says_a_picked_file_of_another_type_cant_be_used_rather_than_to_pick_it_again() {
+        let access = ExportImageAccess::default();
+        // Picked with Browse ('All files'), so the open dialog put it in the fs scope.
+        let bitmap = temp_file("logo.bmp", b"BM");
+        let result = read_chosen_image(&access, &bitmap.to_string_lossy(), |_| true);
+        let _ = std::fs::remove_file(&bitmap);
+        assert_eq!(
+            result.unwrap_err(),
+            "Only PNG, JPEG, GIF, WebP and SVG images can be used."
+        );
+    }
+
+    #[test]
+    fn reads_only_an_image_the_user_chose() {
+        let access = ExportImageAccess::default();
+        let photo = temp_file("photo.png", b"\x89PNG\r\n\x1a\n");
+        let path = photo.to_string_lossy().into_owned();
+        let unchosen = read_chosen_image(&access, &path, |_| false);
+        let chosen = read_chosen_image(&access, &path, |_| true);
+        let _ = std::fs::remove_file(&photo);
+        assert_eq!(unchosen.unwrap_err(), NOT_CHOSEN);
+        assert_eq!(chosen.unwrap(), "data:image/png;base64,iVBORw0KGgo=");
     }
 
     #[test]
@@ -764,6 +880,8 @@ mod tests {
             margin_left_mm: 10.0,
             page_number_format: format.into(),
             page_number_color: String::new(),
+            author: String::new(),
+            subject: String::new(),
         }
     }
 
@@ -869,7 +987,11 @@ mod tests {
         let saved = std::fs::read(&output).unwrap();
         let names = files_in(&dir);
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(warning.is_some_and(|w| w.contains("number pages")));
+        // A plain sentence for the user, not the PDF parser's error.
+        assert_eq!(
+            warning.as_deref(),
+            Some("Scrivon couldn't read the printed PDF to add page numbers.")
+        );
         assert_eq!(saved, b"%PDF-1.7 not really a pdf");
         assert_eq!(names, ["Report.pdf"]);
     }

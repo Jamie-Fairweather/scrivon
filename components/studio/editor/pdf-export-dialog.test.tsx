@@ -108,7 +108,20 @@ describe('PdfExportDialog', () => {
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
         expect(onOpenChange).toHaveBeenCalledWith(false)
-        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', path: 'C:/out/report.pdf' })
+    })
+
+    it('passes why the page numbers were left out to the saved notice', async () => {
+        const saved: ExportResult = {
+            status: 'saved',
+            path: 'C:/out/report.pdf',
+            pageNumberWarning: "Scrivon couldn't add page numbers to this PDF.",
+        }
+        exportMarkdown.mockResolvedValue(saved)
+        renderDialog()
+        await exportWithTitle('Quarterly report')
+        expect(notifyExportSaved).toHaveBeenCalledTimes(1)
+        expect(notifyExportSaved).toHaveBeenCalledWith(saved)
     })
 
     it('passes any images the export left out to the saved notice', async () => {
@@ -117,7 +130,7 @@ describe('PdfExportDialog', () => {
         const { onOpenChange } = renderDialog()
         await exportWithTitle('Quarterly report')
         expect(onOpenChange).toHaveBeenCalledWith(false)
-        expect(notifyExportSaved).toHaveBeenCalledWith(undefined, missing)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', missingImages: missing })
     })
 
     it('shows progress and cannot be closed or edited while exporting', async () => {
@@ -140,6 +153,23 @@ describe('PdfExportDialog', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false)
     })
 
+    it("shows 'Exporting…' before the export starts building, and clears it afterwards", async () => {
+        let busyWhenStarted: boolean | undefined
+        exportMarkdown.mockImplementation(async () => {
+            // The build holds the main thread, so whatever is on screen now stays until it ends.
+            busyWhenStarted = screen.queryByText('Exporting…') !== null
+            return { status: 'cancelled' }
+        })
+        renderDialog()
+        await screen.findByLabelText('Title')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+        await waitFor(() => expect(exportMarkdown).toHaveBeenCalled())
+        expect(busyWhenStarted).toBe(true)
+        await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
+    })
+
     it('keeps the export busy across a remount and closes the dialog once that export saves', async () => {
         let finish: (result: ExportResult) => void = () => undefined
         exportMarkdown.mockReturnValue(new Promise<ExportResult>((resolve) => (finish = resolve)))
@@ -160,7 +190,7 @@ describe('PdfExportDialog', () => {
 
         finish({ status: 'saved', path: 'C:/out/report.pdf' })
         await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull())
-        expect(notifyExportSaved).toHaveBeenCalledWith('C:/out/report.pdf', undefined)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', path: 'C:/out/report.pdf' })
         // The save finished, so the dialog closes, even though the form that started it is gone.
         expect(onOpenChange).toHaveBeenCalledWith(false)
         expect(exportMarkdown).toHaveBeenCalledTimes(1)
@@ -179,6 +209,67 @@ describe('PdfExportDialog', () => {
         await waitFor(() => expect(screen.getByText('Menu idle')).toBeInTheDocument())
         expect(notifyError).toHaveBeenCalledWith('Export failed', undefined, { description: 'Disk is full.' })
         expect(onOpenChange).not.toHaveBeenCalled()
+    })
+
+    it('passes a skipped contents page to the saved notice', async () => {
+        const saved: ExportResult = { status: 'saved', path: 'C:/out/report.pdf', tocSkipped: true }
+        exportMarkdown.mockResolvedValue(saved)
+        renderDialog()
+        await exportWithTitle('Quarterly report')
+        expect(notifyExportSaved).toHaveBeenCalledWith(saved)
+    })
+
+    it('warns when the profile leaves no room on the page for the text', async () => {
+        const bar = { enabled: true, heightMm: 60, gapMm: 60, ignoreMargins: true }
+        profiles.edit = (profile) => {
+            profile.page.orientation = 'landscape'
+            profile.header = { ...profile.header, ...bar }
+            profile.footer = { ...profile.footer, ...bar }
+        }
+        const cramped = render(<Owner onOpenChange={vi.fn()} />)
+        expect(
+            await screen.findByText('Margins, header and footer are taller than the page, so there is no room left for the text.')
+        ).toBeInTheDocument()
+        // Only a warning: the export can still run.
+        expect(screen.getByRole('button', { name: 'Export' })).not.toBeDisabled()
+        cramped.unmount()
+
+        profiles.edit = (profile) => {
+            profile.page.orientation = 'landscape'
+            // 210 mm tall: a 180 mm header band and the 10 mm bottom margin leave 20 mm.
+            profile.header = { ...profile.header, ...bar, heightMm: 100, gapMm: 80 }
+        }
+        const tight = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText('Margins, header and footer leave only 20 mm of page height for the text.')).toBeInTheDocument()
+        tight.unmount()
+
+        profiles.edit = () => undefined
+        render(<Owner onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/Margins, header and footer/)).toBeNull()
+    })
+
+    it('says where subtitle, author and date go when the profile has no title page', async () => {
+        const note = 'Subtitle, author and date appear on the title page (off in this profile) and in {{…}} header or footer text.'
+        const view = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText(`${note} Author and subtitle are also saved in the file's properties.`)).toBeInTheDocument()
+        view.unmount()
+
+        // The print dialog outside Windows doesn't keep them in the PDF's properties; Word files do.
+        platform.windows = false
+        const printed = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText(note)).toBeInTheDocument()
+        printed.unmount()
+        const word = render(<Owner format="docx" onOpenChange={vi.fn()} />)
+        expect(await screen.findByText(`${note} Author and subtitle are also saved in the file's properties.`)).toBeInTheDocument()
+        word.unmount()
+
+        profiles.edit = (profile) => {
+            profile.frontMatter.titlePage = true
+        }
+        render(<Owner onOpenChange={vi.fn()} />)
+        await screen.findByLabelText('Title')
+        expect(screen.queryByText(/appear on the title page/)).toBeNull()
     })
 
     it('says outside Windows that page numbers the profile asks for may be missing', async () => {

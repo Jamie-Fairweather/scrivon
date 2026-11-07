@@ -77,6 +77,8 @@ export function pdfPrintMarginsMm(profile: PdfExportProfile): PdfMarginsMm {
 export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfExportMetadata): PdfPrintOptions {
     const page = pdfPageSizeMm(profile)
     const margins = pdfPrintMarginsMm(profile)
+    const author = metadata.author.trim()
+    const subject = metadata.subtitle.trim()
     return {
         pageWidthMm: page.width,
         pageHeightMm: page.height,
@@ -87,6 +89,9 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
         marginLeftMm: margins.left,
         pageNumberFormat: pdfPageNumberFormat(profile, metadata),
         pageNumberColor: profile.footer.textColor.trim(),
+        // Word files get these as creator and description; the PDF stamper writes them into the file's properties.
+        ...(author ? { author } : {}),
+        ...(subject ? { subject } : {}),
     }
 }
 
@@ -108,6 +113,35 @@ export const PDF_PAGE_NUMBER_MARK = 'SFPN'
 export function pdfTocMark(index: number, kind: 'slot' | 'heading'): string {
     const id = String(index + 1).padStart(4, '0')
     return kind === 'slot' ? `SFT${id}` : `SFH${id}`
+}
+
+/** Class of the glyph sample that goes first inside a page-number or TOC marker. */
+export const PDF_STAMP_GLYPHS_CLASS = 'pdf-stamp-glyphs'
+
+/** The text around the number in each preset page-number format, as `format_page_label` in `page_numbers.rs` draws it. */
+const PRESET_FIXED_TEXT = new Map([
+    ['number', ''],
+    ['page-n', 'Page '],
+    ['n-of-total', ' / '],
+])
+
+/**
+ * Every character a stamped label in this page-number format can use, each once: the
+ * format's fixed text (`Page `, ` / `, a custom counter's words) and the digits. Use
+ * `'number'` for TOC numbers. The export draws it, tiny and practically invisible, as
+ * the first thing inside the marker (`<span class="pdf-stamp-glyphs">`), so Chromium
+ * embeds those glyphs in the marker's font. The stamper then draws the label in that
+ * font, matching the text around it, and cuts the sample out of the PDF's text. A
+ * label with a character the font lacks is drawn in Helvetica instead.
+ */
+export function pdfStampGlyphText(format: string): string {
+    const fixed = format.startsWith('custom:')
+        ? format.slice('custom:'.length).replace(/\{\{\s*(page|total)\s*\}\}/g, '')
+        : PRESET_FIXED_TEXT.get(format)
+    if (fixed === undefined) return ''
+    const others = [...new Set(fixed.replace(/[\s0-9]/g, ''))].join('')
+    // A space goes between digits, never at an end, where layout could drop it.
+    return `01234${/\s/.test(fixed) ? ' ' : ''}56789${others}`
 }
 
 function pageSizeCss(profile: PdfExportProfile): string {
@@ -285,8 +319,43 @@ export function printDialogPageNumberCss(profile: PdfExportProfile, metadata: Pd
   ${skip}`
 }
 
-/** Rough height a header or footer bar takes up when it has no fixed height. */
-const AUTO_BAR_HEIGHT_MM = 12
+/** Rough height of a header or footer bar left at "0 fits the content". */
+export const PDF_AUTO_BAR_HEIGHT_MM = 12
+
+/**
+ * How far a page's text starts from the top or bottom edge: the margin, plus a shown bar's
+ * height (PDF_AUTO_BAR_HEIGHT_MM when it fits its content) and gap. A bar that ignores
+ * margins sits inside the margin band, so it only takes more room once it outgrows the margin.
+ */
+function edgeBandMm(margin: number, bar: PdfExportProfile['header'], shown: boolean, bleeds: boolean): number {
+    if (!shown) return margin
+    const barMm = (bar.heightMm > 0 ? bar.heightMm : PDF_AUTO_BAR_HEIGHT_MM) + bar.gapMm
+    return bleeds ? Math.max(margin, barMm) : margin + barMm
+}
+
+/** Height of the sheet the way it is turned. */
+function sheetHeightMm(profile: PdfExportProfile): number {
+    const { width, height } = pdfPageSizeMm(profile)
+    return profile.page.orientation === 'landscape' ? width : height
+}
+
+/**
+ * Page height left for the document text once the top and bottom margins and any shown
+ * header/footer are taken off (see edgeBandMm). With the Footer switch off, page numbers
+ * still print, but on their own: the export drops the footer's height, gap and edge-to-edge
+ * band (applyPdfFooterSwitch), so only a bare content-sized row counts.
+ * Negative when they add up to more than the page.
+ */
+export function pdfBodyHeightMm(profile: PdfExportProfile): number {
+    const drawn = applyPdfFooterSwitch(profile)
+    const layout = resolvePdfExportLayout(drawn)
+    const { top, bottom } = drawn.page.marginsMm
+    return (
+        sheetHeightMm(drawn) -
+        edgeBandMm(top, drawn.header, layout.showHeader, layout.headerBleeds) -
+        edgeBandMm(bottom, drawn.footer, layout.showFooter, layout.footerBleeds)
+    )
+}
 
 /** Slack for table-cell padding and rounding, so the cover never tips onto a second page. */
 const TITLE_PAGE_SLACK_MM = 4
@@ -297,20 +366,13 @@ const TITLE_PAGE_SLACK_MM = 4
  * sits inside the margin band, so only the part that outgrows the margin counts.
  */
 function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
-    const { width, height } = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? width : height
     const { top, bottom } = profile.page.marginsMm
-    const band = (margin: number, chrome: PdfExportProfile['header'], onCover: boolean, bleeds: boolean) => {
-        if (!onCover) return margin
-        const bar = (chrome.heightMm > 0 ? chrome.heightMm : AUTO_BAR_HEIGHT_MM) + chrome.gapMm
-        return bleeds ? Math.max(margin, bar) : margin + bar
-    }
     const headerOnCover = layout.showHeader && profile.header.hideOnFirstPages === 'none'
     const footerOnCover = layout.showFooter && profile.footer.hideOnFirstPages === 'none'
     // An edge-to-edge cover image with no header above it starts at the very top of the sheet.
-    const topRoom = layout.logoBleeds && !headerOnCover ? 0 : band(top, profile.header, headerOnCover, layout.headerBleeds)
-    const bottomRoom = band(bottom, profile.footer, footerOnCover, layout.footerBleeds)
-    return Math.max(40, Math.floor(pageHeight - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
+    const topRoom = layout.logoBleeds && !headerOnCover ? 0 : edgeBandMm(top, profile.header, headerOnCover, layout.headerBleeds)
+    const bottomRoom = edgeBandMm(bottom, profile.footer, footerOnCover, layout.footerBleeds)
+    return Math.max(40, Math.floor(sheetHeightMm(profile) - topRoom - bottomRoom - TITLE_PAGE_SLACK_MM))
 }
 
 /**
@@ -318,22 +380,15 @@ function titlePageRoomMm(profile: PdfExportProfile, layout: PdfExportLayout): nu
  * printable height less 40mm, and at most the room it has, where the logo starts to shrink.
  */
 function titlePageHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): { min: number; max: number } {
-    const { width, height } = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? width : height
     const { top, bottom } = profile.page.marginsMm
     const max = titlePageRoomMm(profile, layout)
-    return { min: Math.min(Math.max(100, Math.round(pageHeight - top - bottom - 40)), max), max }
+    return { min: Math.min(Math.max(100, Math.round(sheetHeightMm(profile) - top - bottom - 40)), max), max }
 }
 
-/** Tallest a body image can print and still fit on one page beside the header/footer bars. */
-function bodyImageMaxHeightMm(profile: PdfExportProfile, layout: PdfExportLayout): number {
-    const { width, height } = pdfPageSizeMm(profile)
-    const pageHeight = profile.page.orientation === 'landscape' ? width : height
-    const { top, bottom } = profile.page.marginsMm
-    const bar = (chrome: PdfExportProfile['header']) => (chrome.heightMm > 0 ? chrome.heightMm : AUTO_BAR_HEIGHT_MM) + chrome.gapMm
-    const chrome = (layout.showHeader ? bar(profile.header) : 0) + (layout.showFooter ? bar(profile.footer) : 0)
+/** Tallest a body image can print and still fit on one page: the room the settings warning reports. */
+function bodyImageMaxHeightMm(profile: PdfExportProfile): number {
     // A little slack for the line box the image sits in.
-    return Math.max(40, Math.floor(pageHeight - top - bottom - chrome - 6))
+    return Math.max(40, Math.floor(pdfBodyHeightMm(profile) - 6))
 }
 
 /** Room the diagram box's padding and border take around its SVG. */
@@ -516,7 +571,7 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .mermaid-export svg {
     display: block;
     max-width: 100%;
-    max-height: ${Math.max(40, bodyImageMaxHeightMm(profile, layout) - MERMAID_BOX_MM)}mm;
+    max-height: ${Math.max(40, bodyImageMaxHeightMm(profile) - MERMAID_BOX_MM)}mm;
     width: auto;
     height: auto;
     margin: 0 auto;
@@ -524,7 +579,7 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   /* Body images shrink (keeping their shape) to the text width and to what fits on one page. */
   .pdf-body img {
     max-width: 100%;
-    max-height: ${bodyImageMaxHeightMm(profile, layout)}mm;
+    max-height: ${bodyImageMaxHeightMm(profile)}mm;
     width: auto;
     height: auto;
   }
@@ -653,6 +708,15 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-heading-mark {
     font-size: 1px;
     line-height: 0;
+  }
+  /* Drawn, so its glyphs are embedded for the stamped numbers, but tiny, see-through and taking no room. Not clipped: a clipped sample may not be drawn at all. */
+  .${PDF_STAMP_GLYPHS_CLASS} {
+    display: inline-block;
+    width: 0;
+    white-space: pre;
+    font-size: 1px;
+    line-height: 0;
+    color: rgba(64, 64, 64, 0.01);
   }
   /* Fixed layout: wide content can't stretch the section past the page and shrink the whole PDF. */
   .pdf-chrome-table {

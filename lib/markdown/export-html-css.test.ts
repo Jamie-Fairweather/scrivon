@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
     applyPdfFooterSwitch,
     buildPdfExportCss,
+    pdfBodyHeightMm,
+    PDF_STAMP_GLYPHS_CLASS,
     pdfPageSizeMm,
     pdfPrintMarginsMm,
+    pdfStampGlyphText,
     resolvePdfExportLayout,
     resolvePdfPrintOptions,
 } from '@/lib/markdown/export-html-css'
@@ -61,6 +64,17 @@ describe('buildPdfExportCss', () => {
 
         profile.page.orientation = 'landscape'
         expect(buildPdfExportCss(profile)).toContain('max-height: 148mm;')
+    })
+
+    it('gives body images the room the settings report when a bar ignores the margins', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.header = { ...profile.header, enabled: true, heightMm: 0, gapMm: 0, ignoreMargins: true }
+        profile.footer = { ...profile.footer, enabled: true, heightMm: 20, gapMm: 0, ignoreMargins: true }
+        // Each bar sits in its 10mm margin band and only pushes the text past it: 297 - 12 - 20.
+        expect(pdfBodyHeightMm(profile)).toBe(265)
+        const css = buildPdfExportCss(profile)
+        expect(css).toMatch(/\.pdf-body img \{\s*max-width: 100%;\s*max-height: 259mm;/)
+        expect(css).toMatch(/\.mermaid-export svg \{[^}]*max-height: 251mm;/)
     })
 
     it('shrinks a diagram taller than a page to fit on one page', () => {
@@ -287,6 +301,19 @@ describe('buildPdfExportCss', () => {
         expect(resolvePdfPrintOptions(profile, metadata)).toMatchObject({ pageNumberFormat: 'n-of-total', pageNumberColor: '#ff0000' })
     })
 
+    it("hands the author and subtitle over for the PDF's document properties", () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(resolvePdfPrintOptions(profile, { title: 'Spec', subtitle: ' Q3 figures ', author: ' Zoë Ångström ', date: '' })).toMatchObject({
+            author: 'Zoë Ångström',
+            subject: 'Q3 figures',
+        })
+
+        // Unset ones are left out, so the PDF gets no empty properties.
+        const options = resolvePdfPrintOptions(profile, { title: 'Spec', subtitle: '  ', author: '', date: '2026-11-07' })
+        expect(options).not.toHaveProperty('author')
+        expect(options).not.toHaveProperty('subject')
+    })
+
     it('zeroes the print margins when the css emulates them', () => {
         const profile = createDefaultPdfExportProfile()
         profile.header.enabled = true
@@ -454,5 +481,66 @@ describe('buildPdfExportCss', () => {
             expect(css).toContain('.pdf-title-table .pdf-footer-bar { display: none !important; }')
             expect(css).not.toContain('.pdf-toc-table .pdf-footer-bar')
         }
+    })
+})
+
+describe('marker transparency the stamper relies on', () => {
+    /** Declarations of every rule whose selector list names `className`. */
+    function rulesFor(css: string, className: string): string[] {
+        return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+            .filter(([, selectors]) => selectors!.split(',').some((selector) => selector.trim() === `.${className}`))
+            .map(([, , declarations]) => declarations!)
+    }
+
+    it('draws every marker nearly, but not fully, transparent', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        profile.frontMatter.toc = true
+        const css = buildPdfExportCss(profile)
+        // src-tauri/src/page_numbers.rs only treats text below MARKER_MAX_ALPHA (0.05) as a marker and cuts it
+        // out of the PDF's text; fully transparent text may not be drawn at all, which loses the page numbers.
+        for (const className of ['pdf-page-number-mark', 'pdf-toc-mark', 'pdf-heading-mark', PDF_STAMP_GLYPHS_CLASS]) {
+            const rules = rulesFor(css, className)
+            expect(rules.length, className).toBeGreaterThan(0)
+            const alphas = rules.flatMap((rule) =>
+                [...rule.matchAll(/color:\s*rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/g)].map((match) => Number(match[1]))
+            )
+            expect(alphas, className).toHaveLength(1)
+            expect(alphas[0], className).toBeGreaterThan(0)
+            expect(alphas[0], className).toBeLessThan(0.05)
+            for (const rule of rules) {
+                expect(rule, className).not.toMatch(/opacity|transparent/)
+            }
+        }
+    })
+})
+
+describe('glyph samples for the stamper', () => {
+    it('lists every character a label can use, each once, with any space between digits', () => {
+        expect(pdfStampGlyphText('number')).toBe('0123456789')
+        expect(pdfStampGlyphText('page-n')).toBe('01234 56789Page')
+        expect(pdfStampGlyphText('n-of-total')).toBe('01234 56789/')
+        expect(pdfStampGlyphText('custom:{{page}} из {{ total }}')).toBe('01234 56789из')
+        expect(pdfStampGlyphText('custom:{{page}}/{{total}}页')).toBe('0123456789/页')
+        expect(pdfStampGlyphText('custom:Seite {{page}} von {{total}}, Seite 2')).toBe('01234 56789Seitvon,')
+        expect(pdfStampGlyphText('custom:{{page}}')).toBe('0123456789')
+    })
+
+    it('has nothing to sample when no label is drawn', () => {
+        expect(pdfStampGlyphText('none')).toBe('')
+        expect(pdfStampGlyphText('constructor')).toBe('')
+    })
+
+    it('draws the sample tiny and see-through, taking no room and not clipped', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        const start = css.indexOf(`.${PDF_STAMP_GLYPHS_CLASS} {`)
+        expect(start).toBeGreaterThan(-1)
+        const rule = css.slice(start, css.indexOf('}', start))
+        expect(rule).toContain('width: 0;')
+        expect(rule).toContain('white-space: pre;')
+        // Under 1pt and nearly transparent: page_numbers.rs cuts such text back out (SAMPLE_MAX_FONT_SIZE).
+        expect(rule).toContain('font-size: 1px;')
+        expect(rule).toContain('color: rgba(64, 64, 64, 0.01);')
+        expect(rule).not.toContain('overflow: hidden')
     })
 })

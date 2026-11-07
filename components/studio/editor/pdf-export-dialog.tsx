@@ -5,7 +5,7 @@ import { exportMarkdown, notifyExportSaved, type ExportMarkdownOptions } from '@
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { notifyError } from '@/lib/notify'
-import { getActivePdfExportProfile } from '@/lib/settings/pdf-export-profiles'
+import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -85,6 +85,43 @@ function pageNumberNote(format: ExportFormat, profile: PdfExportProfile, metadat
     return ''
 }
 
+/**
+ * The page-space warning from Settings, for the profile picked here: margins, header and footer
+ * that leave little or no room for the text. The export still runs; Settings is where to fix it.
+ */
+function pageSpaceNote(profile: PdfExportProfile): string {
+    const bodyHeightMm = pdfBodyHeightMm(profile)
+    if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return ''
+    if (bodyHeightMm <= 0) return 'Margins, header and footer are taller than the page, so there is no room left for the text.'
+    return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
+}
+
+/**
+ * With the title page off, the subtitle, author and date fields change nothing on the page
+ * unless a header or footer uses them, so say where they go. Word files, and PDFs from the
+ * Windows app, also keep the author and subtitle in the file's properties.
+ */
+function titleFieldsNote(format: ExportFormat, profile: PdfExportProfile): string {
+    if (profile.frontMatter.titlePage) return ''
+    const note = 'Subtitle, author and date appear on the title page (off in this profile) and in {{…}} header or footer text.'
+    const savedInFile = format === 'docx' || isWindowsTauri()
+    return savedInFile ? `${note} Author and subtitle are also saved in the file's properties.` : note
+}
+
+/** How long to wait for a paint at most: a hidden window runs no animation frames. */
+const PAINT_WAIT_MS = 100
+
+/**
+ * Resolves once the browser has painted, so a busy state set just before shows up. Building a
+ * Word or PDF file can hold the main thread for seconds, and nothing repaints until it ends.
+ */
+function afterNextPaint(): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, PAINT_WAIT_MS)
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0))
+    })
+}
+
 function PdfExportForm({
     source,
     tabName,
@@ -118,6 +155,8 @@ function PdfExportForm({
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
+    const spaceNote = pageSpaceNote(profile)
+    const fieldsNote = titleFieldsNote(format, profile)
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -132,10 +171,12 @@ function PdfExportForm({
         onBusyChange(true)
         setError('')
         try {
+            // Let 'Exporting…' paint before the build takes over the main thread.
+            await afterNextPaint()
             const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
-                notifyExportSaved(result.path, result.missingImages)
+                notifyExportSaved(result)
                 // Safe even if this form went away mid-export: the export button stays disabled while
                 // an export runs, so no newer dialog can have been opened since.
                 onClose()
@@ -155,6 +196,7 @@ function PdfExportForm({
                 <DialogTitle>Export document</DialogTitle>
                 <DialogDescription>Choose a format, profile, and optional title metadata for this export.</DialogDescription>
                 {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+                {spaceNote ? <p className="text-xs text-warning-foreground">{spaceNote}</p> : null}
             </DialogHeader>
             <DialogPanel className="space-y-4">
                 <fieldset disabled={busy} className="min-w-0 space-y-4">
@@ -187,6 +229,7 @@ function PdfExportForm({
                         <FieldLabel htmlFor="export-date">Date</FieldLabel>
                         <Input id="export-date" value={date} onChange={(event) => setDate(event.target.value)} />
                     </Field>
+                    {fieldsNote ? <p className="text-xs text-muted-foreground">{fieldsNote}</p> : null}
                 </fieldset>
                 {error ? (
                     <p role="alert" className="text-sm text-destructive-foreground">

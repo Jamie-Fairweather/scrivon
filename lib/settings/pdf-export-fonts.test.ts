@@ -6,6 +6,9 @@ const isTauri = vi.hoisted(() => vi.fn(() => false))
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri }))
 
+/** What list_system_fonts returns: each family, and whether its letters all take the same width. */
+const systemFonts = (...families: string[]) => families.map((family) => ({ family, monospace: false }))
+
 describe('pdf export fonts', () => {
     beforeEach(() => {
         invoke.mockReset()
@@ -19,6 +22,7 @@ describe('pdf export fonts', () => {
         expect(ensureFontOption(PDF_EXPORT_FONT_OPTIONS, '"Custom Font", sans-serif')[0]).toEqual({
             label: 'Custom Font',
             value: '"Custom Font", sans-serif',
+            saved: true,
         })
         expect(ensureFontOption(PDF_EXPORT_FONT_OPTIONS, '   ')).toEqual(PDF_EXPORT_FONT_OPTIONS)
 
@@ -26,8 +30,9 @@ describe('pdf export fonts', () => {
         expect(ensureFontOption(withSystem, 'CustomFont, sans-serif')[0]).toEqual({
             label: 'CustomFont (not installed)',
             value: 'CustomFont, sans-serif',
+            saved: true,
         })
-        expect(ensureFontOption(withSystem, 'monospace')[0]).toEqual({ label: 'monospace', value: 'monospace' })
+        expect(ensureFontOption(withSystem, 'monospace')[0]).toEqual({ label: 'monospace', value: 'monospace', saved: true })
     })
 
     it('groups common stacks before installed fonts and spots icon fonts', async () => {
@@ -53,7 +58,7 @@ describe('pdf export fonts', () => {
 
     it('merges Tauri system font families without using the browser API', async () => {
         isTauri.mockReturnValue(true)
-        invoke.mockResolvedValue(['Comic Sans MS', 'Arial', '', '  Consolas  '])
+        invoke.mockResolvedValue(systemFonts('Comic Sans MS', 'Arial', '', '  Consolas  '))
         const { loadPdfExportFontOptions } = await import('@/lib/settings/pdf-export-fonts')
         const options = await loadPdfExportFontOptions()
         expect(invoke).toHaveBeenCalledWith('list_system_fonts')
@@ -65,7 +70,7 @@ describe('pdf export fonts', () => {
 
     it('leaves out system fonts a curated entry already covers, and repeats', async () => {
         isTauri.mockReturnValue(true)
-        invoke.mockResolvedValue(['Palatino Linotype', 'Segoe UI', 'segoe ui', 'Calibri', 'calibri'])
+        invoke.mockResolvedValue(systemFonts('Palatino Linotype', 'Segoe UI', 'segoe ui', 'Calibri', 'calibri'))
         const { loadPdfExportFontOptions, PDF_EXPORT_FONT_OPTIONS } = await import('@/lib/settings/pdf-export-fonts')
         const options = await loadPdfExportFontOptions()
         expect(options).toHaveLength(PDF_EXPORT_FONT_OPTIONS.length + 1)
@@ -74,7 +79,7 @@ describe('pdf export fonts', () => {
 
     it('quotes system font names so ones like 0xProto stay valid CSS', async () => {
         isTauri.mockReturnValue(true)
-        invoke.mockResolvedValue(['0xProto', 'A&B Sans', 'Odd "Quote" \\ Font'])
+        invoke.mockResolvedValue(systemFonts('0xProto', 'A&B Sans', 'Odd "Quote" \\ Font'))
         const { loadPdfExportFontOptions } = await import('@/lib/settings/pdf-export-fonts')
         const values = (await loadPdfExportFontOptions()).map((option) => option.value)
         expect(values).toContain('"0xProto"')
@@ -85,7 +90,7 @@ describe('pdf export fonts', () => {
     it('loads the system fonts once and shares the list', async () => {
         vi.resetModules()
         isTauri.mockReturnValue(true)
-        invoke.mockResolvedValue(['Calibri'])
+        invoke.mockResolvedValue(systemFonts('Calibri'))
         const { cachedPdfExportFontOptions, loadPdfExportFontOptionsOnce } = await import('@/lib/settings/pdf-export-fonts')
         expect(cachedPdfExportFontOptions()).toBeNull()
 
@@ -99,7 +104,7 @@ describe('pdf export fonts', () => {
     it('tries again next time when no system fonts came back', async () => {
         vi.resetModules()
         isTauri.mockReturnValue(true)
-        invoke.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(['Calibri'])
+        invoke.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(systemFonts('Calibri'))
         const { cachedPdfExportFontOptions, loadPdfExportFontOptionsOnce } = await import('@/lib/settings/pdf-export-fonts')
         expect((await loadPdfExportFontOptionsOnce()).some((option) => option.system)).toBe(false)
         expect(cachedPdfExportFontOptions()).toBeNull()
@@ -117,6 +122,11 @@ describe('pdf export fonts', () => {
 })
 
 describe('font stacks per picker', () => {
+    beforeEach(() => {
+        invoke.mockReset()
+        isTauri.mockReturnValue(false)
+    })
+
     it('gives a system font the generic family of its picker', async () => {
         const { fontOptionsForSlot, withGenericFallback } = await import('@/lib/settings/pdf-export-fonts')
         expect(withGenericFallback('"0xProto"', 'mono')).toBe('"0xProto", monospace')
@@ -127,13 +137,42 @@ describe('font stacks per picker', () => {
         expect(withGenericFallback('', 'mono')).toBe('')
 
         const options = [
-            { label: 'Fira Code', value: '"Fira Code"' },
-            { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
+            { label: 'Fira Code', value: '"Fira Code"', system: true, monospace: true },
+            { label: 'Consolas', value: 'Consolas, "Courier New", monospace', monospace: true },
         ]
         expect(fontOptionsForSlot(options, 'mono')).toEqual([
-            { label: 'Fira Code', value: '"Fira Code", monospace' },
-            { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
+            { label: 'Fira Code', value: '"Fira Code", monospace', system: true, monospace: true },
+            { label: 'Consolas', value: 'Consolas, "Courier New", monospace', monospace: true },
         ])
+    })
+
+    it('offers only monospaced fonts in the Monospace picker, and every font in the others', async () => {
+        isTauri.mockReturnValue(true)
+        invoke.mockResolvedValue([
+            { family: 'Fira Code', monospace: true },
+            { family: 'Calibri', monospace: false },
+            { family: 'Arial', monospace: false },
+        ])
+        const { fontOptionsForSlot, loadPdfExportFontOptions } = await import('@/lib/settings/pdf-export-fonts')
+        const options = await loadPdfExportFontOptions()
+        const labels = (slot: 'mono' | 'body') => fontOptionsForSlot(options, slot).map((option) => option.label)
+        expect(labels('mono')).toEqual(['Consolas', 'Courier New', 'Fira Code', 'Monaco', 'UI Monospace'])
+        expect(labels('body')).toEqual(expect.arrayContaining(['Arial', 'Calibri', 'Consolas', 'Fira Code']))
+    })
+
+    it('still shows a saved font the Monospace picker leaves out, in its own group', async () => {
+        const { ensureFontOption, fontOptionsForSlot, groupFontOptions, PDF_EXPORT_FONT_OPTIONS } = await import('@/lib/settings/pdf-export-fonts')
+        const installed = [...PDF_EXPORT_FONT_OPTIONS, { label: 'Calibri', value: '"Calibri"', system: true }]
+        const mono = fontOptionsForSlot(installed, 'mono')
+
+        // Saved by a build whose Monospace picker listed every font: installed, so not "(not installed)".
+        const items = ensureFontOption(mono, 'Arial, Helvetica, sans-serif', installed)
+        expect(items[0]).toEqual({ label: 'Arial', value: 'Arial, Helvetica, sans-serif', saved: true })
+        expect(groupFontOptions(items).map((group) => [group.value, group.items.map((option) => option.label)])).toEqual([
+            ['Saved font', ['Arial']],
+            ['Common fonts', ['Courier New', 'Consolas', 'Monaco', 'UI Monospace']],
+        ])
+        expect(ensureFontOption(mono, '"Fira Code", monospace', installed)[0]!.label).toBe('Fira Code (not installed)')
     })
 
     it('quotes names that are not valid CSS without quotes, and leaves valid stacks unchanged', async () => {
