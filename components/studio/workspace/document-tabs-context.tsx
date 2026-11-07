@@ -21,6 +21,7 @@ import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChang
 import { getBaseName, getWorkspaceFileSize, isSupportedDocument, normalizePath, readWorkspaceTextFile, samePath } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
+import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
 import { remapPathAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -286,7 +287,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         async (requestedPath: string) => {
             const fileName = getBaseName(requestedPath)
             if (!isSupportedDocument(fileName)) {
-                await showError('Unsupported file', 'Scrivon supports .md and .mmd files only.')
+                await showError('Unsupported file', `Scrivon supports ${supportedExtensionsLabel('and')} files only.`)
                 return
             }
 

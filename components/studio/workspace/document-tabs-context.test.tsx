@@ -398,7 +398,7 @@ describe('DocumentTabsProvider', () => {
             await result.current.openFile('/ws/image.png')
         })
 
-        expect(showError).toHaveBeenCalledWith('Unsupported file', 'Scrivon supports .md and .mmd files only.')
+        expect(showError).toHaveBeenCalledWith('Unsupported file', 'Scrivon supports .md, .mmd and .mermaid files only.')
         expect(result.current.tabs).toHaveLength(0)
     })
 

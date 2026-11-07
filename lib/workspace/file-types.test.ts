@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { documentExtension, documentKind, isMarkdownFile, isMermaidFile, isSupportedDocument, withDocumentExtension } from './file-types'
+import {
+    documentExtension,
+    documentKind,
+    isMarkdownFile,
+    isMermaidFile,
+    isSupportedDocument,
+    supportedExtensionsLabel,
+    withDocumentExtension,
+} from './file-types'
+
+describe('supportedExtensionsLabel', () => {
+    it('lists every extension Scrivon opens, .mermaid included', () => {
+        expect(supportedExtensionsLabel('and')).toBe('.md, .mmd and .mermaid')
+        expect(supportedExtensionsLabel('or')).toBe('.md, .mmd or .mermaid')
+        for (const ext of ['.md', '.mmd', '.mermaid']) expect(isSupportedDocument(`file${ext}`)).toBe(true)
+    })
+})
 
 describe('isMarkdownFile', () => {
     it('matches .md case-insensitively', () => {

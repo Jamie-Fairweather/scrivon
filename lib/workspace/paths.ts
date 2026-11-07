@@ -1,5 +1,5 @@
 import { getBaseName, getParentPath, samePath } from '@/lib/tauri/fs'
-import { isSupportedDocument } from '@/lib/workspace/file-types'
+import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
@@ -158,7 +158,7 @@ export function nameTakenMessage(node: FileNode): string {
     return `A ${node.kind === 'directory' ? 'folder' : 'file'} named "${node.name}" already exists here.`
 }
 
-export const UNSUPPORTED_FILE_NAME_MESSAGE = 'File name must end with .md, .mmd or .mermaid.'
+export const UNSUPPORTED_FILE_NAME_MESSAGE = `File name must end with ${supportedExtensionsLabel('or')}.`
 
 /**
  * Why `name` can't be used for a new or renamed entry among `siblings`, or null when it can.

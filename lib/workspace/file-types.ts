@@ -19,6 +19,14 @@ export function documentKind(name: string): DocumentKind | null {
     return null
 }
 
+/** The extensions of the files Scrivon opens, in the order messages list them. */
+const SUPPORTED_EXTENSIONS = ['.md', '.mmd', '.mermaid']
+
+/** The supported extensions for a message: `.md, .mmd and .mermaid` (or `or`), so no message leaves one out. */
+export function supportedExtensionsLabel(conjunction: 'and' | 'or'): string {
+    return `${SUPPORTED_EXTENSIONS.slice(0, -1).join(', ')} ${conjunction} ${SUPPORTED_EXTENSIONS.at(-1)}`
+}
+
 const DOCUMENT_EXTENSIONS = ['.mermaid', '.mmd', '.md']
 
 /** The extension that makes `name` a document Scrivon opens, as written (`.md`, `.MMD`, `.mermaid`), or null. */
