@@ -81,6 +81,7 @@ const T: string[] = [
     "Apache License\n                        Version 2.0, January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work.\n\n   To apply the Apache License to your work, attach the following\n   boilerplate notice, with the fields enclosed by brackets \"[]\"\n   replaced with your own identifying information. (Don't include\n   the brackets!)  The text should be enclosed in the appropriate\n   comment syntax for the file format. We also recommend that a\n   file or class name and description of purpose be included on the\n   same \"printed page\" as the copyright notice for easier\n   identification within third-party archives.\n\nCopyright [yyyy] [name of copyright owner]\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n\thttp://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.",
     "===============================================================================\n\nCopyright (c) 2016 Alex Crichton\nCopyright (c) 2017 The Tokio Authors\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n\thttp://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\n===============================================================================\n\nCopyright (c) 2016 Alex Crichton\nCopyright (c) 2017 The Tokio Authors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "The MIT License (MIT)\n\nCopyright (c) 2015 Alice Maz\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
+    "The MIT License (MIT)\n\nCopyright (c) 2025 Alice Maz, Marshall Pierce\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "Apache License\n                        Version 2.0, January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work.\n\n   To apply the Apache License to your work, attach the following\n   boilerplate notice, with the fields enclosed by brackets \"[]\"\n   replaced with your own identifying information. (Don't include\n   the brackets!)  The text should be enclosed in the appropriate\n   comment syntax for the file format. We also recommend that a\n   file or class name and description of purpose be included on the\n   same \"printed page\" as the copyright notice for easier\n   identification within third-party archives.\n\nCopyright [yyyy] [name of copyright owner]\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.",
     "Copyright (c) 2023 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2014 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
@@ -1254,11 +1255,11 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     },
     {
         "name": "base64",
-        "version": "0.22.1",
+        "version": "0.22.1, 0.23.1",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/marshallpierce/rust-base64",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[64]
+        "licenseText": T[62] + SEP + T[64] + SEP + T[65]
     },
     {
         "name": "bit-set",
@@ -1266,7 +1267,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/contain-rs/bit-set",
         "ecosystem": "rust",
-        "licenseText": T[65] + SEP + T[66]
+        "licenseText": T[66] + SEP + T[67]
     },
     {
         "name": "bit-vec",
@@ -1274,7 +1275,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/contain-rs/bit-vec",
         "ecosystem": "rust",
-        "licenseText": T[65] + SEP + T[66]
+        "licenseText": T[66] + SEP + T[67]
     },
     {
         "name": "bitflags",
@@ -1282,7 +1283,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0; MIT/Apache-2.0",
         "repository": "https://github.com/bitflags/bitflags",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "block-buffer",
@@ -1290,7 +1291,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[68]
+        "licenseText": T[53] + SEP + T[69]
     },
     {
         "name": "block-padding",
@@ -1298,7 +1299,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[68]
+        "licenseText": T[53] + SEP + T[69]
     },
     {
         "name": "brotli",
@@ -1306,7 +1307,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause AND MIT",
         "repository": "https://github.com/dropbox/rust-brotli",
         "ecosystem": "rust",
-        "licenseText": T[69]
+        "licenseText": T[70]
     },
     {
         "name": "brotli-decompressor",
@@ -1322,7 +1323,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/Nullus157/bs58-rs",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[70]
+        "licenseText": T[62] + SEP + T[71]
     },
     {
         "name": "bytecount",
@@ -1330,7 +1331,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0/MIT",
         "repository": "https://github.com/llogiq/bytecount",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[72]
+        "licenseText": T[72] + SEP + T[73]
     },
     {
         "name": "byteorder",
@@ -1346,7 +1347,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/bytes",
         "ecosystem": "rust",
-        "licenseText": T[73]
+        "licenseText": T[74]
     },
     {
         "name": "camino",
@@ -1378,7 +1379,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/block-modes",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[74]
+        "licenseText": T[53] + SEP + T[75]
     },
     {
         "name": "cfb",
@@ -1386,7 +1387,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mdsteele/rust-cfb",
         "ecosystem": "rust",
-        "licenseText": T[75]
+        "licenseText": T[76]
     },
     {
         "name": "cfg-if",
@@ -1394,7 +1395,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/cfg-if",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[76]
+        "licenseText": T[62] + SEP + T[77]
     },
     {
         "name": "chrono",
@@ -1402,7 +1403,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chronotope/chrono",
         "ecosystem": "rust",
-        "licenseText": T[77]
+        "licenseText": T[78]
     },
     {
         "name": "cipher",
@@ -1410,7 +1411,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/traits",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[78]
+        "licenseText": T[53] + SEP + T[79]
     },
     {
         "name": "cookie",
@@ -1418,7 +1419,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/SergioBenitez/cookie-rs",
         "ecosystem": "rust",
-        "licenseText": T[79] + SEP + T[80]
+        "licenseText": T[80] + SEP + T[81]
     },
     {
         "name": "core_detect",
@@ -1426,7 +1427,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/thomcc/core_detect",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[81]
+        "licenseText": T[62] + SEP + T[82]
     },
     {
         "name": "cpufeatures",
@@ -1434,7 +1435,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[82]
+        "licenseText": T[53] + SEP + T[83]
     },
     {
         "name": "crc32fast",
@@ -1442,7 +1443,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/srijs/rust-crc32fast",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[83]
+        "licenseText": T[72] + SEP + T[84]
     },
     {
         "name": "crossbeam-channel",
@@ -1450,7 +1451,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[84] + SEP + T[85]
+        "licenseText": T[62] + SEP + T[85] + SEP + T[86]
     },
     {
         "name": "crossbeam-deque",
@@ -1458,7 +1459,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[84]
+        "licenseText": T[62] + SEP + T[85]
     },
     {
         "name": "crossbeam-epoch",
@@ -1466,7 +1467,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[84]
+        "licenseText": T[62] + SEP + T[85]
     },
     {
         "name": "crossbeam-utils",
@@ -1474,7 +1475,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[84]
+        "licenseText": T[62] + SEP + T[85]
     },
     {
         "name": "crypto-common",
@@ -1482,7 +1483,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/traits",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[86]
+        "licenseText": T[53] + SEP + T[87]
     },
     {
         "name": "cssparser",
@@ -1490,7 +1491,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/rust-cssparser",
         "ecosystem": "rust",
-        "licenseText": T[87]
+        "licenseText": T[88]
     },
     {
         "name": "cssparser-macros",
@@ -1498,7 +1499,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/rust-cssparser",
         "ecosystem": "rust",
-        "licenseText": T[87]
+        "licenseText": T[88]
     },
     {
         "name": "ctor",
@@ -1506,7 +1507,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/mmastrac/rust-ctor",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[88]
+        "licenseText": T[72] + SEP + T[89]
     },
     {
         "name": "ctor-proc-macro",
@@ -1514,7 +1515,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/mmastrac/rust-ctor",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[88]
+        "licenseText": T[72] + SEP + T[89]
     },
     {
         "name": "darling",
@@ -1522,7 +1523,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/TedDriggs/darling",
         "ecosystem": "rust",
-        "licenseText": T[89]
+        "licenseText": T[90]
     },
     {
         "name": "darling_core",
@@ -1530,7 +1531,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/TedDriggs/darling",
         "ecosystem": "rust",
-        "licenseText": T[89]
+        "licenseText": T[90]
     },
     {
         "name": "darling_macro",
@@ -1538,7 +1539,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/TedDriggs/darling",
         "ecosystem": "rust",
-        "licenseText": T[89]
+        "licenseText": T[90]
     },
     {
         "name": "defmt",
@@ -1546,7 +1547,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/knurling-rs/defmt",
         "ecosystem": "rust",
-        "licenseText": T[65] + SEP + T[90]
+        "licenseText": T[66] + SEP + T[91]
     },
     {
         "name": "defmt-macros",
@@ -1554,7 +1555,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/knurling-rs/defmt",
         "ecosystem": "rust",
-        "licenseText": T[65] + SEP + T[90]
+        "licenseText": T[66] + SEP + T[91]
     },
     {
         "name": "defmt-parser",
@@ -1562,7 +1563,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/knurling-rs/defmt",
         "ecosystem": "rust",
-        "licenseText": T[91] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[92] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "deranged",
@@ -1570,7 +1571,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jhpratt/deranged",
         "ecosystem": "rust",
-        "licenseText": T[92] + SEP + T[93]
+        "licenseText": T[93] + SEP + T[94]
     },
     {
         "name": "derive_more",
@@ -1578,7 +1579,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/JelteF/derive_more",
         "ecosystem": "rust",
-        "licenseText": T[94]
+        "licenseText": T[95]
     },
     {
         "name": "derive_more-impl",
@@ -1586,7 +1587,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/JelteF/derive_more",
         "ecosystem": "rust",
-        "licenseText": T[94]
+        "licenseText": T[95]
     },
     {
         "name": "digest",
@@ -1594,7 +1595,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/traits",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[95]
+        "licenseText": T[53] + SEP + T[96]
     },
     {
         "name": "dirs",
@@ -1602,7 +1603,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/soc/dirs-rs",
         "ecosystem": "rust",
-        "licenseText": T[96] + SEP + T[97]
+        "licenseText": T[97] + SEP + T[98]
     },
     {
         "name": "dirs-sys",
@@ -1610,7 +1611,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dirs-dev/dirs-sys-rs",
         "ecosystem": "rust",
-        "licenseText": T[96] + SEP + T[97]
+        "licenseText": T[97] + SEP + T[98]
     },
     {
         "name": "displaydoc",
@@ -1626,7 +1627,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/niklak/dom_query",
         "ecosystem": "rust",
-        "licenseText": T[98]
+        "licenseText": T[99]
     },
     {
         "name": "dpi",
@@ -1634,7 +1635,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 AND MIT",
         "repository": "https://github.com/rust-windowing/winit",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[99]
+        "licenseText": T[72] + SEP + T[100]
     },
     {
         "name": "dtoa",
@@ -1650,7 +1651,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/upsuper/dtoa-short",
         "ecosystem": "rust",
-        "licenseText": T[87]
+        "licenseText": T[88]
     },
     {
         "name": "dtor",
@@ -1658,7 +1659,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/mmastrac/rust-ctor",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[88]
+        "licenseText": T[72] + SEP + T[89]
     },
     {
         "name": "dtor-proc-macro",
@@ -1666,7 +1667,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/mmastrac/rust-ctor",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[88]
+        "licenseText": T[72] + SEP + T[89]
     },
     {
         "name": "dunce",
@@ -1674,7 +1675,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
         "repository": "https://gitlab.com/kornelski/dunce",
         "ecosystem": "rust",
-        "licenseText": T[100]
+        "licenseText": T[101]
     },
     {
         "name": "dwrote",
@@ -1682,7 +1683,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/dwrote-rs",
         "ecosystem": "rust",
-        "licenseText": T[101] + SEP + T[102]
+        "licenseText": T[102] + SEP + T[103]
     },
     {
         "name": "dyn-clone",
@@ -1698,7 +1699,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/magic-akari/ecb",
         "ecosystem": "rust",
-        "licenseText": T[103]
+        "licenseText": T[104]
     },
     {
         "name": "either",
@@ -1706,7 +1707,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rayon-rs/either",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[104]
+        "licenseText": T[62] + SEP + T[105]
     },
     {
         "name": "encoding_rs",
@@ -1714,7 +1715,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
         "repository": "https://github.com/hsivonen/encoding_rs",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[106] + SEP + T[107] + SEP + T[108]
+        "licenseText": T[106] + SEP + T[107] + SEP + T[108] + SEP + T[109]
     },
     {
         "name": "equivalent",
@@ -1722,7 +1723,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/indexmap-rs/equivalent",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[109]
+        "licenseText": T[62] + SEP + T[110]
     },
     {
         "name": "erased-serde",
@@ -1746,7 +1747,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/fdeflate",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[110]
+        "licenseText": T[7] + SEP + T[111]
     },
     {
         "name": "flate2",
@@ -1754,7 +1755,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/flate2-rs",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[111]
+        "licenseText": T[62] + SEP + T[112]
     },
     {
         "name": "float-ord",
@@ -1762,7 +1763,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT / Apache-2.0",
         "repository": "https://github.com/notriddle/rust-float-ord",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[112]
+        "licenseText": T[72] + SEP + T[113]
     },
     {
         "name": "fnv",
@@ -1770,7 +1771,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 / MIT",
         "repository": "https://github.com/servo/rust-fnv",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[113]
+        "licenseText": T[62] + SEP + T[114]
     },
     {
         "name": "foldhash",
@@ -1778,7 +1779,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Zlib",
         "repository": "https://github.com/orlp/foldhash",
         "ecosystem": "rust",
-        "licenseText": T[114]
+        "licenseText": T[115]
     },
     {
         "name": "font-kit",
@@ -1794,7 +1795,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[115]
+        "licenseText": T[62] + SEP + T[116]
     },
     {
         "name": "futures-channel",
@@ -1802,7 +1803,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "futures-core",
@@ -1810,7 +1811,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "futures-io",
@@ -1818,7 +1819,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "futures-macro",
@@ -1826,7 +1827,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "futures-sink",
@@ -1834,7 +1835,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "futures-task",
@@ -1842,7 +1843,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "futures-util",
@@ -1850,7 +1851,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[116] + SEP + T[117]
+        "licenseText": T[117] + SEP + T[118]
     },
     {
         "name": "generic-array",
@@ -1858,7 +1859,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/fizyk20/generic-array",
         "ecosystem": "rust",
-        "licenseText": T[118]
+        "licenseText": T[119]
     },
     {
         "name": "getrandom",
@@ -1866,7 +1867,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/getrandom",
         "ecosystem": "rust",
-        "licenseText": T[119] + SEP + T[120] + SEP + T[121] + SEP + T[122]
+        "licenseText": T[120] + SEP + T[121] + SEP + T[122] + SEP + T[123]
     },
     {
         "name": "glob",
@@ -1874,7 +1875,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/glob",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "hashbrown",
@@ -1882,7 +1883,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/hashbrown",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[123]
+        "licenseText": T[62] + SEP + T[124]
     },
     {
         "name": "heck",
@@ -1890,7 +1891,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/withoutboats/heck",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[124]
+        "licenseText": T[62] + SEP + T[125]
     },
     {
         "name": "hex",
@@ -1898,7 +1899,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/KokaKiwi/rust-hex",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[125]
+        "licenseText": T[72] + SEP + T[126]
     },
     {
         "name": "html5ever",
@@ -1906,7 +1907,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[126]
+        "licenseText": T[62] + SEP + T[127]
     },
     {
         "name": "http",
@@ -1914,7 +1915,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/hyperium/http",
         "ecosystem": "rust",
-        "licenseText": T[127] + SEP + T[128]
+        "licenseText": T[128] + SEP + T[129]
     },
     {
         "name": "http-body",
@@ -1922,7 +1923,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/http-body",
         "ecosystem": "rust",
-        "licenseText": T[129]
+        "licenseText": T[130]
     },
     {
         "name": "http-body-util",
@@ -1930,7 +1931,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/http-body",
         "ecosystem": "rust",
-        "licenseText": T[130]
+        "licenseText": T[131]
     },
     {
         "name": "httparse",
@@ -1938,7 +1939,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/seanmonstar/httparse",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[131]
+        "licenseText": T[62] + SEP + T[132]
     },
     {
         "name": "hyper",
@@ -1946,7 +1947,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/hyper",
         "ecosystem": "rust",
-        "licenseText": T[132]
+        "licenseText": T[133]
     },
     {
         "name": "hyper-rustls",
@@ -1954,7 +1955,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR ISC OR MIT",
         "repository": "https://github.com/rustls/hyper-rustls",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[133] + SEP + T[134]
+        "licenseText": T[62] + SEP + T[134] + SEP + T[135]
     },
     {
         "name": "hyper-util",
@@ -1962,7 +1963,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/hyper-util",
         "ecosystem": "rust",
-        "licenseText": T[135]
+        "licenseText": T[136]
     },
     {
         "name": "ico",
@@ -1970,7 +1971,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mdsteele/rust-ico",
         "ecosystem": "rust",
-        "licenseText": T[136]
+        "licenseText": T[137]
     },
     {
         "name": "icu_collections",
@@ -1978,7 +1979,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "icu_locale_core",
@@ -1986,7 +1987,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "icu_normalizer",
@@ -1994,7 +1995,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "icu_normalizer_data",
@@ -2002,7 +2003,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "icu_properties",
@@ -2010,7 +2011,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "icu_properties_data",
@@ -2018,7 +2019,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "icu_provider",
@@ -2026,7 +2027,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "ident_case",
@@ -2034,7 +2035,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/TedDriggs/ident_case",
         "ecosystem": "rust",
-        "licenseText": T[138]
+        "licenseText": T[139]
     },
     {
         "name": "idna",
@@ -2042,7 +2043,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url/",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[139]
+        "licenseText": T[62] + SEP + T[140]
     },
     {
         "name": "idna_adapter",
@@ -2050,7 +2051,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/idna_adapter",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[140]
+        "licenseText": T[62] + SEP + T[141]
     },
     {
         "name": "indexmap",
@@ -2058,7 +2059,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/indexmap-rs/indexmap",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[141]
+        "licenseText": T[62] + SEP + T[142]
     },
     {
         "name": "infer",
@@ -2066,7 +2067,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/bojand/infer",
         "ecosystem": "rust",
-        "licenseText": T[142]
+        "licenseText": T[143]
     },
     {
         "name": "inout",
@@ -2074,7 +2075,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[143]
+        "licenseText": T[53] + SEP + T[144]
     },
     {
         "name": "ipnet",
@@ -2082,7 +2083,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/krisprice/ipnet",
         "ecosystem": "rust",
-        "licenseText": T[144] + SEP + T[145]
+        "licenseText": T[145] + SEP + T[146]
     },
     {
         "name": "itertools",
@@ -2090,7 +2091,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-itertools/itertools",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[104]
+        "licenseText": T[62] + SEP + T[105]
     },
     {
         "name": "itoa",
@@ -2146,7 +2147,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/idubrov/json-patch",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[146]
+        "licenseText": T[72] + SEP + T[147]
     },
     {
         "name": "jsonptr",
@@ -2154,7 +2155,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chanced/jsonptr",
         "ecosystem": "rust",
-        "licenseText": T[147] + SEP + T[148]
+        "licenseText": T[148] + SEP + T[149]
     },
     {
         "name": "keyboard-types",
@@ -2162,7 +2163,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/pyfisch/keyboard-types",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[149]
+        "licenseText": T[62] + SEP + T[150]
     },
     {
         "name": "lazy_static",
@@ -2170,7 +2171,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang-nursery/lazy-static.rs",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[150]
+        "licenseText": T[62] + SEP + T[151]
     },
     {
         "name": "libc",
@@ -2178,7 +2179,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/libc",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[151]
+        "licenseText": T[61] + SEP + T[152]
     },
     {
         "name": "litemap",
@@ -2186,7 +2187,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "lock_api",
@@ -2194,7 +2195,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Amanieu/parking_lot",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[152]
+        "licenseText": T[62] + SEP + T[153]
     },
     {
         "name": "log",
@@ -2202,7 +2203,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/log",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "lopdf",
@@ -2210,7 +2211,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/J-F-Liu/lopdf",
         "ecosystem": "rust",
-        "licenseText": T[153]
+        "licenseText": T[154]
     },
     {
         "name": "markup5ever",
@@ -2218,7 +2219,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[126]
+        "licenseText": T[62] + SEP + T[127]
     },
     {
         "name": "md-5",
@@ -2226,7 +2227,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/hashes",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[154]
+        "licenseText": T[53] + SEP + T[155]
     },
     {
         "name": "memchr",
@@ -2242,7 +2243,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/hyperium/mime",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[155]
+        "licenseText": T[62] + SEP + T[156]
     },
     {
         "name": "minisign-verify",
@@ -2250,7 +2251,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/jedisct1/rust-minisign-verify",
         "ecosystem": "rust",
-        "licenseText": T[156]
+        "licenseText": T[157]
     },
     {
         "name": "miniz_oxide",
@@ -2258,7 +2259,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Zlib OR Apache-2.0",
         "repository": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide",
         "ecosystem": "rust",
-        "licenseText": T[157] + SEP + T[7] + SEP + T[158] + SEP + T[159]
+        "licenseText": T[158] + SEP + T[7] + SEP + T[159] + SEP + T[160]
     },
     {
         "name": "mio",
@@ -2266,7 +2267,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/mio",
         "ecosystem": "rust",
-        "licenseText": T[160]
+        "licenseText": T[161]
     },
     {
         "name": "muda",
@@ -2274,7 +2275,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/muda",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[161] + SEP + T[162]
+        "licenseText": T[62] + SEP + T[162] + SEP + T[163]
     },
     {
         "name": "multiversion",
@@ -2282,7 +2283,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/calebzulawski/multiversion",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[163]
+        "licenseText": T[106] + SEP + T[164]
     },
     {
         "name": "multiversion-macros",
@@ -2290,7 +2291,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/calebzulawski/multiversion",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[163]
+        "licenseText": T[106] + SEP + T[164]
     },
     {
         "name": "multiversion_no_op",
@@ -2298,7 +2299,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/multiversion_no_op",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[106] + SEP + T[164]
+        "licenseText": T[106] + SEP + T[107] + SEP + T[165]
     },
     {
         "name": "new_debug_unreachable",
@@ -2306,7 +2307,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mbrubeck/rust-debug-unreachable",
         "ecosystem": "rust",
-        "licenseText": T[165]
+        "licenseText": T[166]
     },
     {
         "name": "nom",
@@ -2314,7 +2315,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-bakery/nom",
         "ecosystem": "rust",
-        "licenseText": T[166]
+        "licenseText": T[167]
     },
     {
         "name": "nom_locate",
@@ -2322,7 +2323,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/fflorent/nom_locate",
         "ecosystem": "rust",
-        "licenseText": T[167]
+        "licenseText": T[168]
     },
     {
         "name": "num-conv",
@@ -2330,7 +2331,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jhpratt/num-conv",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[168]
+        "licenseText": T[7] + SEP + T[169]
     },
     {
         "name": "num-traits",
@@ -2338,7 +2339,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-num/num-traits",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "once_cell",
@@ -2354,7 +2355,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/Byron/open-rs",
         "ecosystem": "rust",
-        "licenseText": T[169]
+        "licenseText": T[170]
     },
     {
         "name": "option-ext",
@@ -2362,7 +2363,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/soc/option-ext",
         "ecosystem": "rust",
-        "licenseText": T[102]
+        "licenseText": T[103]
     },
     {
         "name": "parking_lot",
@@ -2370,7 +2371,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Amanieu/parking_lot",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[152]
+        "licenseText": T[62] + SEP + T[153]
     },
     {
         "name": "parking_lot_core",
@@ -2378,7 +2379,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Amanieu/parking_lot",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[152]
+        "licenseText": T[62] + SEP + T[153]
     },
     {
         "name": "pathfinder_geometry",
@@ -2386,7 +2387,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/servo/pathfinder",
         "ecosystem": "rust",
-        "licenseText": T[170] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[171] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "pathfinder_simd",
@@ -2394,7 +2395,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/pathfinder",
         "ecosystem": "rust",
-        "licenseText": T[171] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[172] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "percent-encoding",
@@ -2402,7 +2403,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url/",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[139]
+        "licenseText": T[62] + SEP + T[140]
     },
     {
         "name": "phf",
@@ -2410,7 +2411,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[172]
+        "licenseText": T[173]
     },
     {
         "name": "phf_generator",
@@ -2418,7 +2419,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[172]
+        "licenseText": T[173]
     },
     {
         "name": "phf_macros",
@@ -2426,7 +2427,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[172]
+        "licenseText": T[173]
     },
     {
         "name": "phf_shared",
@@ -2434,7 +2435,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[172]
+        "licenseText": T[173]
     },
     {
         "name": "pin-project-lite",
@@ -2446,11 +2447,11 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     },
     {
         "name": "plist",
-        "version": "1.9.0",
+        "version": "1.10.3",
         "license": "MIT",
         "repository": "https://github.com/ebarnard/rust-plist/",
         "ecosystem": "rust",
-        "licenseText": T[173]
+        "licenseText": T[174]
     },
     {
         "name": "png",
@@ -2458,7 +2459,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/image-png",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[174]
+        "licenseText": T[62] + SEP + T[175]
     },
     {
         "name": "potential_utf",
@@ -2466,7 +2467,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "powerfmt",
@@ -2474,7 +2475,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jhpratt/powerfmt",
         "ecosystem": "rust",
-        "licenseText": T[175] + SEP + T[176]
+        "licenseText": T[176] + SEP + T[177]
     },
     {
         "name": "ppv-lite86",
@@ -2482,7 +2483,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/cryptocorrosion/cryptocorrosion",
         "ecosystem": "rust",
-        "licenseText": T[177] + SEP + T[178]
+        "licenseText": T[178] + SEP + T[179]
     },
     {
         "name": "precomputed-hash",
@@ -2490,7 +2491,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/emilio/precomputed-hash",
         "ecosystem": "rust",
-        "licenseText": T[179]
+        "licenseText": T[180]
     },
     {
         "name": "proc-macro2",
@@ -2502,11 +2503,11 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     },
     {
         "name": "quick-xml",
-        "version": "0.39.4",
+        "version": "0.42.0",
         "license": "MIT",
         "repository": "https://github.com/tafia/quick-xml",
         "ecosystem": "rust",
-        "licenseText": T[180]
+        "licenseText": T[181]
     },
     {
         "name": "quote",
@@ -2522,7 +2523,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/rand",
         "ecosystem": "rust",
-        "licenseText": T[181] + SEP + T[182] + SEP + T[183]
+        "licenseText": T[182] + SEP + T[183] + SEP + T[184]
     },
     {
         "name": "rand_chacha",
@@ -2530,7 +2531,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/rand",
         "ecosystem": "rust",
-        "licenseText": T[181] + SEP + T[182] + SEP + T[183]
+        "licenseText": T[182] + SEP + T[183] + SEP + T[184]
     },
     {
         "name": "rand_core",
@@ -2538,7 +2539,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/rand",
         "ecosystem": "rust",
-        "licenseText": T[184] + SEP + T[182] + SEP + T[183]
+        "licenseText": T[185] + SEP + T[183] + SEP + T[184]
     },
     {
         "name": "rangemap",
@@ -2546,7 +2547,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/jeffparsons/rangemap",
         "ecosystem": "rust",
-        "licenseText": T[185] + SEP + T[186]
+        "licenseText": T[186] + SEP + T[187]
     },
     {
         "name": "raw-window-handle",
@@ -2554,7 +2555,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0 OR Zlib",
         "repository": "https://github.com/rust-windowing/raw-window-handle",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[187] + SEP + T[188]
+        "licenseText": T[7] + SEP + T[188] + SEP + T[189]
     },
     {
         "name": "rayon",
@@ -2562,7 +2563,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rayon-rs/rayon",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[150]
+        "licenseText": T[62] + SEP + T[151]
     },
     {
         "name": "rayon-core",
@@ -2570,7 +2571,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rayon-rs/rayon",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[150]
+        "licenseText": T[62] + SEP + T[151]
     },
     {
         "name": "ref-cast",
@@ -2594,7 +2595,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/regex",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "regex-automata",
@@ -2602,7 +2603,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/regex",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "regex-syntax",
@@ -2610,7 +2611,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/regex",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[67]
+        "licenseText": T[62] + SEP + T[68]
     },
     {
         "name": "reqwest",
@@ -2618,7 +2619,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/seanmonstar/reqwest",
         "ecosystem": "rust",
-        "licenseText": T[189] + SEP + T[190]
+        "licenseText": T[190] + SEP + T[191]
     },
     {
         "name": "rfd",
@@ -2626,7 +2627,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/PolyMeilex/rfd",
         "ecosystem": "rust",
-        "licenseText": T[191]
+        "licenseText": T[192]
     },
     {
         "name": "ring",
@@ -2634,7 +2635,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 AND ISC",
         "repository": "https://github.com/briansmith/ring",
         "ecosystem": "rust",
-        "licenseText": T[192] + SEP + T[193] + SEP + T[194]
+        "licenseText": T[193] + SEP + T[194] + SEP + T[195]
     },
     {
         "name": "rustc-hash",
@@ -2646,11 +2647,11 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     },
     {
         "name": "rustls",
-        "version": "0.23.40",
+        "version": "0.23.46",
         "license": "Apache-2.0 OR ISC OR MIT",
         "repository": "https://github.com/rustls/rustls",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[133] + SEP + T[134]
+        "licenseText": T[62] + SEP + T[134] + SEP + T[135]
     },
     {
         "name": "rustls-pki-types",
@@ -2658,7 +2659,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rustls/pki-types",
         "ecosystem": "rust",
-        "licenseText": T[195] + SEP + T[196]
+        "licenseText": T[196] + SEP + T[197]
     },
     {
         "name": "rustls-platform-verifier",
@@ -2666,15 +2667,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rustls/rustls-platform-verifier",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[197]
+        "licenseText": T[106] + SEP + T[198]
     },
     {
         "name": "rustls-webpki",
-        "version": "0.103.13",
+        "version": "0.103.16",
         "license": "ISC",
         "repository": "https://github.com/rustls/webpki",
         "ecosystem": "rust",
-        "licenseText": T[198]
+        "licenseText": T[199]
     },
     {
         "name": "rustversion",
@@ -2690,7 +2691,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense/MIT",
         "repository": "https://github.com/BurntSushi/same-file",
         "ecosystem": "rust",
-        "licenseText": T[199] + SEP + T[56] + SEP + T[57]
+        "licenseText": T[200] + SEP + T[56] + SEP + T[57]
     },
     {
         "name": "schemars",
@@ -2698,7 +2699,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/GREsau/schemars",
         "ecosystem": "rust",
-        "licenseText": T[200]
+        "licenseText": T[201]
     },
     {
         "name": "schemars_derive",
@@ -2706,7 +2707,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/GREsau/schemars",
         "ecosystem": "rust",
-        "licenseText": T[200]
+        "licenseText": T[201]
     },
     {
         "name": "scopeguard",
@@ -2714,7 +2715,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/bluss/scopeguard",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[201]
+        "licenseText": T[62] + SEP + T[202]
     },
     {
         "name": "selectors",
@@ -2722,7 +2723,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/stylo",
         "ecosystem": "rust",
-        "licenseText": T[202] + SEP + T[102]
+        "licenseText": T[203] + SEP + T[103]
     },
     {
         "name": "semver",
@@ -2794,7 +2795,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[203]
+        "licenseText": T[72] + SEP + T[204]
     },
     {
         "name": "serde_with",
@@ -2802,7 +2803,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jonasbb/serde_with/",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[104]
+        "licenseText": T[62] + SEP + T[105]
     },
     {
         "name": "serde_with_macros",
@@ -2810,7 +2811,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jonasbb/serde_with/",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[104]
+        "licenseText": T[62] + SEP + T[105]
     },
     {
         "name": "serialize-to-javascript",
@@ -2818,7 +2819,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chippers/serialize-to-javascript",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[204]
+        "licenseText": T[106] + SEP + T[205]
     },
     {
         "name": "serialize-to-javascript-impl",
@@ -2826,7 +2827,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chippers/serialize-to-javascript",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[204]
+        "licenseText": T[106] + SEP + T[205]
     },
     {
         "name": "servo_arc",
@@ -2842,7 +2843,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/hashes",
         "ecosystem": "rust",
-        "licenseText": T[53] + SEP + T[154]
+        "licenseText": T[53] + SEP + T[155]
     },
     {
         "name": "simd-adler32",
@@ -2850,7 +2851,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mcountryman/simd-adler32",
         "ecosystem": "rust",
-        "licenseText": T[205]
+        "licenseText": T[206]
     },
     {
         "name": "simdutf8",
@@ -2858,7 +2859,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rusticstuff/simdutf8",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[138]
+        "licenseText": T[7] + SEP + T[139]
     },
     {
         "name": "siphasher",
@@ -2866,7 +2867,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/jedisct1/rust-siphash",
         "ecosystem": "rust",
-        "licenseText": T[206]
+        "licenseText": T[207]
     },
     {
         "name": "slab",
@@ -2874,7 +2875,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/slab",
         "ecosystem": "rust",
-        "licenseText": T[207]
+        "licenseText": T[208]
     },
     {
         "name": "smallvec",
@@ -2882,7 +2883,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-smallvec",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[208]
+        "licenseText": T[62] + SEP + T[209]
     },
     {
         "name": "socket2",
@@ -2890,7 +2891,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/socket2",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[76]
+        "licenseText": T[62] + SEP + T[77]
     },
     {
         "name": "softbuffer",
@@ -2898,7 +2899,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-windowing/softbuffer",
         "ecosystem": "rust",
-        "licenseText": T[209] + SEP + T[210]
+        "licenseText": T[210] + SEP + T[211]
     },
     {
         "name": "stable_deref_trait",
@@ -2906,7 +2907,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/storyyeller/stable_deref_trait",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[211]
+        "licenseText": T[62] + SEP + T[212]
     },
     {
         "name": "string_cache",
@@ -2914,7 +2915,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/string-cache",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[212]
+        "licenseText": T[62] + SEP + T[213]
     },
     {
         "name": "stringprep",
@@ -2922,7 +2923,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/sfackler/rust-stringprep",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[213]
+        "licenseText": T[72] + SEP + T[214]
     },
     {
         "name": "strsim",
@@ -2930,7 +2931,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rapidfuzz/strsim-rs",
         "ecosystem": "rust",
-        "licenseText": T[214]
+        "licenseText": T[215]
     },
     {
         "name": "strum",
@@ -2938,7 +2939,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/Peternator7/strum",
         "ecosystem": "rust",
-        "licenseText": T[215]
+        "licenseText": T[216]
     },
     {
         "name": "strum_macros",
@@ -2946,7 +2947,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/Peternator7/strum",
         "ecosystem": "rust",
-        "licenseText": T[215]
+        "licenseText": T[216]
     },
     {
         "name": "subtle",
@@ -2954,7 +2955,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause",
         "repository": "https://github.com/dalek-cryptography/subtle",
         "ecosystem": "rust",
-        "licenseText": T[216]
+        "licenseText": T[217]
     },
     {
         "name": "syn",
@@ -2978,7 +2979,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mystor/synstructure",
         "ecosystem": "rust",
-        "licenseText": T[217]
+        "licenseText": T[218]
     },
     {
         "name": "tao",
@@ -2986,7 +2987,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0",
         "repository": "https://github.com/tauri-apps/tao",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[218]
+        "licenseText": T[72] + SEP + T[219]
     },
     {
         "name": "tauri",
@@ -3042,7 +3043,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/ferreira-tb/tauri-plugin-prevent-default",
         "ecosystem": "rust",
-        "licenseText": T[219]
+        "licenseText": T[220]
     },
     {
         "name": "tauri-plugin-process",
@@ -3098,7 +3099,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Stebalien/tempfile",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[220]
+        "licenseText": T[62] + SEP + T[221]
     },
     {
         "name": "tendril",
@@ -3106,7 +3107,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[221]
+        "licenseText": T[62] + SEP + T[222]
     },
     {
         "name": "thiserror",
@@ -3130,7 +3131,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/time-rs/time",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[222]
+        "licenseText": T[7] + SEP + T[223]
     },
     {
         "name": "time-core",
@@ -3138,7 +3139,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/time-rs/time",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[222]
+        "licenseText": T[7] + SEP + T[223]
     },
     {
         "name": "time-macros",
@@ -3146,7 +3147,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/time-rs/time",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[222]
+        "licenseText": T[7] + SEP + T[223]
     },
     {
         "name": "tinystr",
@@ -3154,7 +3155,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "tinyvec",
@@ -3162,7 +3163,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Zlib OR Apache-2.0 OR MIT",
         "repository": "https://github.com/Lokathor/tinyvec",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[88] + SEP + T[223]
+        "licenseText": T[106] + SEP + T[89] + SEP + T[224]
     },
     {
         "name": "tinyvec_macros",
@@ -3170,7 +3171,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0 OR Zlib",
         "repository": "https://github.com/Soveu/tinyvec_macros",
         "ecosystem": "rust",
-        "licenseText": T[224] + SEP + T[225] + SEP + T[226]
+        "licenseText": T[225] + SEP + T[226] + SEP + T[227]
     },
     {
         "name": "tokio",
@@ -3178,7 +3179,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tokio",
         "ecosystem": "rust",
-        "licenseText": T[227]
+        "licenseText": T[228]
     },
     {
         "name": "tokio-macros",
@@ -3186,7 +3187,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tokio",
         "ecosystem": "rust",
-        "licenseText": T[228]
+        "licenseText": T[229]
     },
     {
         "name": "tokio-rustls",
@@ -3194,7 +3195,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rustls/tokio-rustls",
         "ecosystem": "rust",
-        "licenseText": T[229] + SEP + T[230]
+        "licenseText": T[230] + SEP + T[231]
     },
     {
         "name": "tokio-util",
@@ -3202,7 +3203,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tokio",
         "ecosystem": "rust",
-        "licenseText": T[227]
+        "licenseText": T[228]
     },
     {
         "name": "toml",
@@ -3210,7 +3211,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[203]
+        "licenseText": T[72] + SEP + T[204]
     },
     {
         "name": "toml_datetime",
@@ -3218,7 +3219,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[203]
+        "licenseText": T[72] + SEP + T[204]
     },
     {
         "name": "toml_parser",
@@ -3226,7 +3227,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[203]
+        "licenseText": T[72] + SEP + T[204]
     },
     {
         "name": "toml_writer",
@@ -3234,7 +3235,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[203]
+        "licenseText": T[72] + SEP + T[204]
     },
     {
         "name": "tower",
@@ -3242,7 +3243,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower",
         "ecosystem": "rust",
-        "licenseText": T[231]
+        "licenseText": T[232]
     },
     {
         "name": "tower-http",
@@ -3250,7 +3251,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower-http",
         "ecosystem": "rust",
-        "licenseText": T[232]
+        "licenseText": T[233]
     },
     {
         "name": "tower-layer",
@@ -3258,7 +3259,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower",
         "ecosystem": "rust",
-        "licenseText": T[231]
+        "licenseText": T[232]
     },
     {
         "name": "tower-service",
@@ -3266,7 +3267,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower",
         "ecosystem": "rust",
-        "licenseText": T[231]
+        "licenseText": T[232]
     },
     {
         "name": "tracing",
@@ -3274,7 +3275,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tracing",
         "ecosystem": "rust",
-        "licenseText": T[233]
+        "licenseText": T[234]
     },
     {
         "name": "tracing-attributes",
@@ -3282,7 +3283,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tracing",
         "ecosystem": "rust",
-        "licenseText": T[233]
+        "licenseText": T[234]
     },
     {
         "name": "tracing-core",
@@ -3290,7 +3291,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tracing",
         "ecosystem": "rust",
-        "licenseText": T[233]
+        "licenseText": T[234]
     },
     {
         "name": "tray-icon",
@@ -3298,7 +3299,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/tauri-apps/tray-icon",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[161] + SEP + T[234]
+        "licenseText": T[62] + SEP + T[162] + SEP + T[235]
     },
     {
         "name": "try-lock",
@@ -3306,7 +3307,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/seanmonstar/try-lock",
         "ecosystem": "rust",
-        "licenseText": T[235]
+        "licenseText": T[236]
     },
     {
         "name": "ttf-parser",
@@ -3314,7 +3315,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/harfbuzz/ttf-parser",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[236]
+        "licenseText": T[62] + SEP + T[237]
     },
     {
         "name": "typeid",
@@ -3330,7 +3331,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/paholg/typenum",
         "ecosystem": "rust",
-        "licenseText": T[237] + SEP + T[238] + SEP + T[239]
+        "licenseText": T[238] + SEP + T[239] + SEP + T[240]
     },
     {
         "name": "unic-char-property",
@@ -3338,7 +3339,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/open-i18n/rust-unic/",
         "ecosystem": "rust",
-        "licenseText": T[240] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[241] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "unic-char-range",
@@ -3346,7 +3347,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/open-i18n/rust-unic/",
         "ecosystem": "rust",
-        "licenseText": T[241] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[242] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "unic-common",
@@ -3354,7 +3355,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/open-i18n/rust-unic/",
         "ecosystem": "rust",
-        "licenseText": T[242] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[243] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "unic-ucd-ident",
@@ -3362,7 +3363,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/open-i18n/rust-unic/",
         "ecosystem": "rust",
-        "licenseText": T[243] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[244] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "unic-ucd-version",
@@ -3370,7 +3371,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/open-i18n/rust-unic/",
         "ecosystem": "rust",
-        "licenseText": T[244] + SEP + T[11] + SEP + T[12]
+        "licenseText": T[245] + SEP + T[11] + SEP + T[12]
     },
     {
         "name": "unicode-bidi",
@@ -3378,7 +3379,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/unicode-bidi",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[124] + SEP + T[245]
+        "licenseText": T[62] + SEP + T[125] + SEP + T[246]
     },
     {
         "name": "unicode-ident",
@@ -3386,7 +3387,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/dtolnay/unicode-ident",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[52] + SEP + T[246]
+        "licenseText": T[61] + SEP + T[52] + SEP + T[247]
     },
     {
         "name": "unicode-normalization",
@@ -3394,7 +3395,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/unicode-rs/unicode-normalization",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[124] + SEP + T[247]
+        "licenseText": T[62] + SEP + T[125] + SEP + T[248]
     },
     {
         "name": "unicode-properties",
@@ -3402,7 +3403,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/unicode-rs/unicode-properties",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[124] + SEP + T[247]
+        "licenseText": T[62] + SEP + T[125] + SEP + T[248]
     },
     {
         "name": "unicode-segmentation",
@@ -3410,7 +3411,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/unicode-rs/unicode-segmentation",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[124] + SEP + T[247]
+        "licenseText": T[62] + SEP + T[125] + SEP + T[248]
     },
     {
         "name": "untrusted",
@@ -3418,7 +3419,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "ISC",
         "repository": "https://github.com/briansmith/untrusted",
         "ecosystem": "rust",
-        "licenseText": T[248]
+        "licenseText": T[249]
     },
     {
         "name": "url",
@@ -3426,7 +3427,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[139]
+        "licenseText": T[62] + SEP + T[140]
     },
     {
         "name": "urlpattern",
@@ -3434,7 +3435,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/denoland/rust-urlpattern",
         "ecosystem": "rust",
-        "licenseText": T[249]
+        "licenseText": T[250]
     },
     {
         "name": "utf-8",
@@ -3450,7 +3451,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/utf8_iter",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[106] + SEP + T[250]
+        "licenseText": T[106] + SEP + T[107] + SEP + T[251]
     },
     {
         "name": "uuid",
@@ -3458,7 +3459,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/uuid-rs/uuid",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[251]
+        "licenseText": T[62] + SEP + T[252]
     },
     {
         "name": "walkdir",
@@ -3474,7 +3475,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/seanmonstar/want",
         "ecosystem": "rust",
-        "licenseText": T[252]
+        "licenseText": T[253]
     },
     {
         "name": "web_atoms",
@@ -3482,7 +3483,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[126]
+        "licenseText": T[62] + SEP + T[127]
     },
     {
         "name": "webview2-com",
@@ -3490,7 +3491,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[253] + SEP + T[11]
+        "licenseText": T[254] + SEP + T[11]
     },
     {
         "name": "webview2-com-macros",
@@ -3498,7 +3499,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[254] + SEP + T[11]
+        "licenseText": T[255] + SEP + T[11]
     },
     {
         "name": "webview2-com-sys",
@@ -3506,7 +3507,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[255] + SEP + T[11]
+        "licenseText": T[256] + SEP + T[11]
     },
     {
         "name": "weezl",
@@ -3514,7 +3515,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/weezl",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[256]
+        "licenseText": T[62] + SEP + T[257]
     },
     {
         "name": "winapi",
@@ -3522,7 +3523,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/retep998/winapi-rs",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[257]
+        "licenseText": T[72] + SEP + T[258]
     },
     {
         "name": "winapi-util",
@@ -3530,7 +3531,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/winapi-util",
         "ecosystem": "rust",
-        "licenseText": T[199] + SEP + T[56] + SEP + T[57]
+        "licenseText": T[200] + SEP + T[56] + SEP + T[57]
     },
     {
         "name": "window-vibrancy",
@@ -3538,7 +3539,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/tauri-plugin-vibrancy",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[258] + SEP + T[259]
+        "licenseText": T[62] + SEP + T[259] + SEP + T[260]
     },
     {
         "name": "windows",
@@ -3546,7 +3547,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-collections",
@@ -3554,7 +3555,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-core",
@@ -3562,7 +3563,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-future",
@@ -3570,7 +3571,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-implement",
@@ -3578,7 +3579,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-interface",
@@ -3586,7 +3587,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-link",
@@ -3594,7 +3595,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-numerics",
@@ -3602,7 +3603,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-result",
@@ -3610,7 +3611,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-strings",
@@ -3618,7 +3619,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-sys",
@@ -3626,7 +3627,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-targets",
@@ -3634,7 +3635,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-threading",
@@ -3642,7 +3643,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows-version",
@@ -3650,7 +3651,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "windows_x86_64_msvc",
@@ -3658,7 +3659,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[260] + SEP + T[261]
+        "licenseText": T[261] + SEP + T[262]
     },
     {
         "name": "winnow",
@@ -3666,7 +3667,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/winnow-rs/winnow",
         "ecosystem": "rust",
-        "licenseText": T[262]
+        "licenseText": T[263]
     },
     {
         "name": "wio",
@@ -3674,7 +3675,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/retep998/wio-rs",
         "ecosystem": "rust",
-        "licenseText": T[71] + SEP + T[263]
+        "licenseText": T[72] + SEP + T[264]
     },
     {
         "name": "writeable",
@@ -3682,7 +3683,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "wry",
@@ -3690,7 +3691,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/wry",
         "ecosystem": "rust",
-        "licenseText": T[62] + SEP + T[264] + SEP + T[265]
+        "licenseText": T[62] + SEP + T[265] + SEP + T[266]
     },
     {
         "name": "yoke",
@@ -3698,7 +3699,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "yoke-derive",
@@ -3706,7 +3707,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "zerocopy",
@@ -3714,7 +3715,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
         "repository": "https://github.com/google/zerocopy",
         "ecosystem": "rust",
-        "licenseText": T[266] + SEP + T[267] + SEP + T[268]
+        "licenseText": T[267] + SEP + T[268] + SEP + T[269]
     },
     {
         "name": "zerofrom",
@@ -3722,7 +3723,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "zerofrom-derive",
@@ -3730,7 +3731,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "zeroize",
@@ -3738,7 +3739,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[105] + SEP + T[269]
+        "licenseText": T[106] + SEP + T[270]
     },
     {
         "name": "zerotrie",
@@ -3746,7 +3747,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "zerovec",
@@ -3754,7 +3755,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "zerovec-derive",
@@ -3762,7 +3763,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[137]
+        "licenseText": T[138]
     },
     {
         "name": "zip",
@@ -3770,7 +3771,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/zip-rs/zip2",
         "ecosystem": "rust",
-        "licenseText": T[270]
+        "licenseText": T[271]
     },
     {
         "name": "zmij",
