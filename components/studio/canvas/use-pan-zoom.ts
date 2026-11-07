@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 
 /** Low enough for Fit to show a very wide or tall diagram whole (a 7,000 px chain in a 600 px pane needs about 8%). */
 const MIN_SCALE = 0.02
@@ -114,14 +114,38 @@ const DEFAULT_STATE: PanZoomState = { x: 0, y: 0, scale: 1 }
 
 type PointerGesture = { start: PanZoomState; origin: Point; distance: number }
 
+/** Each view's pan and zoom, by tab id (or canvas key). */
+export type PanZoomMemory = Map<string, PanZoomState>
+
+function forgetClosedTabs(memory: PanZoomMemory, openTabIds: readonly string[]): void {
+    const open = new Set(openTabIds)
+    for (const key of memory.keys()) {
+        if (!open.has(key)) memory.delete(key)
+    }
+}
+
+/**
+ * Pan and zoom for every open tab, for a component that stays mounted while the diagram canvas is swapped
+ * out for a Markdown tab, so a diagram comes back as it was left. A tab that closes is forgotten, so the file
+ * is fitted afresh when it opens again.
+ */
+export function usePanZoomMemory(openTabIds: readonly string[]): PanZoomMemory {
+    const [memory] = useState<PanZoomMemory>(() => new Map())
+    useEffect(() => forgetClosedTabs(memory, openTabIds), [memory, openTabIds])
+    return memory
+}
+
+/** Without `memory`, each tab's view lasts only as long as the calling component. */
 export function usePanZoom(
     containerRef: RefObject<HTMLElement | null>,
     transformRef: RefObject<HTMLElement | null>,
     tabId: string | null,
-    openTabIds: string[] = []
+    openTabIds: string[] = [],
+    memory?: PanZoomMemory
 ) {
     const stateRef = useRef<PanZoomState>(DEFAULT_STATE)
-    const statesByTabRef = useRef(new Map<string, PanZoomState>())
+    const [ownMemory] = useState<PanZoomMemory>(() => new Map())
+    const statesByTab = memory ?? ownMemory
     const tabIdRef = useRef(tabId)
     const pointersRef = useRef(new Map<number, Point>())
     const gestureRef = useRef<PointerGesture | null>(null)
@@ -135,28 +159,23 @@ export function usePanZoom(
                 el.style.transform = toTransform(next)
             }
             const id = tabIdRef.current
-            if (id) statesByTabRef.current.set(id, next)
+            if (id) statesByTab.set(id, next)
         },
-        [transformRef]
+        [transformRef, statesByTab]
     )
 
     useLayoutEffect(() => {
         tabIdRef.current = tabId
-        const next = tabId ? (statesByTabRef.current.get(tabId) ?? DEFAULT_STATE) : DEFAULT_STATE
+        const next = tabId ? (statesByTab.get(tabId) ?? DEFAULT_STATE) : DEFAULT_STATE
         stateRef.current = next
         const el = transformRef.current
         if (el) {
             el.style.transformOrigin = 'center center'
             el.style.transform = toTransform(next)
         }
-    }, [tabId, transformRef])
+    }, [tabId, transformRef, statesByTab])
 
-    useEffect(() => {
-        const open = new Set(openTabIds)
-        for (const key of statesByTabRef.current.keys()) {
-            if (!open.has(key)) statesByTabRef.current.delete(key)
-        }
-    }, [openTabIds])
+    useEffect(() => forgetClosedTabs(statesByTab, openTabIds), [statesByTab, openTabIds])
 
     const reset = useCallback(() => {
         applyTransform(computeCenterTransform())
@@ -174,7 +193,7 @@ export function usePanZoom(
         [applyTransform, containerRef]
     )
 
-    const hasViewStateForTab = useCallback((id: string) => statesByTabRef.current.has(id), [])
+    const hasViewStateForTab = useCallback((id: string) => statesByTab.has(id), [statesByTab])
 
     const setGrabbingCursor = useCallback(
         (grabbing: boolean) => {

@@ -8,11 +8,15 @@ import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import type { ExportFormat } from '@/lib/markdown/export-document'
-import { exportPng, exportSvg, type PngExportScale } from '@/lib/mermaid/export'
+import type { PngExportScale } from '@/lib/mermaid/export'
+import { notifyError } from '@/lib/notify'
 import { documentKind } from '@/lib/workspace/file-types'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
+
+/** Loaded when the user exports, so the export code and the diagram renderer it needs aren't part of every launch. */
+const loadDiagramExport = () => import('@/lib/mermaid/export')
 
 const PNG_SCALES: { label: string; scale: PngExportScale }[] = [
     { label: '1×', scale: 1 },
@@ -56,7 +60,7 @@ export function DocumentExportMenu() {
     const diagramExportSource = isMarkdownTab ? (expanded?.source ?? '') : (activeTab?.content ?? '')
     const diagramExportCanvasKey = isMarkdownTab ? (expanded?.canvasKey ?? null) : activeTabId
 
-    const { currentError, isPending, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
+    const { currentError, isPending, isStale, isEmpty } = useMermaidSvg(diagramExportSource, diagramExportCanvasKey)
     const [exporting, setExporting] = useState(false)
     const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
     const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
@@ -70,12 +74,20 @@ export function DocumentExportMenu() {
     const showDiagramExport = isMermaidTab || (isMarkdownTab && Boolean(expanded))
     const diagramBlocked = isMarkdownTab && !expanded
     const diagramDisabled = diagramBlocked || !hasDiagramSource || Boolean(currentError) || isPending || isEmpty || exporting
+    // The text on screen is newer than the picture and may turn out broken or empty. Only the items wait for
+    // it: dimming the whole Export button too would make it flicker on every keystroke.
+    const diagramItemDisabled = diagramDisabled || isStale
+    // A spinner on those items says why they are off for now.
+    const diagramDrawing = isStale && !diagramDisabled
     const pdfDisabled = !hasMarkdown || exporting
 
     const runExport = async (action: () => Promise<void>) => {
         setExporting(true)
         try {
             await action()
+        } catch (err) {
+            // The exports report their own failures, so this is the export code failing to load.
+            notifyError('Export failed', err)
         } finally {
             setExporting(false)
         }
@@ -139,21 +151,30 @@ export function DocumentExportMenu() {
                         {showDiagramExport ? (
                             <>
                                 <MenuItem
-                                    disabled={diagramDisabled}
-                                    onClick={() => void runExport(() => exportSvg(diagramExportSource, themeId, diagramTarget))}
+                                    disabled={diagramItemDisabled}
+                                    aria-busy={diagramDrawing || undefined}
+                                    onClick={() =>
+                                        void runExport(async () => (await loadDiagramExport()).exportSvg(diagramExportSource, themeId, diagramTarget))
+                                    }
                                 >
                                     Save SVG
+                                    {diagramDrawing && <Loader2 className="animate-spin" aria-hidden />}
                                 </MenuItem>
                                 <MenuSub>
-                                    <MenuSubTrigger disabled={diagramDisabled}>Save PNG</MenuSubTrigger>
+                                    <MenuSubTrigger disabled={diagramItemDisabled} aria-busy={diagramDrawing || undefined}>
+                                        Save PNG
+                                        {diagramDrawing && <Loader2 className="animate-spin" aria-hidden />}
+                                    </MenuSubTrigger>
                                     <MenuSubPopup className="min-w-36">
                                         <MenuGroup>
                                             {PNG_SCALES.map(({ label, scale }) => (
                                                 <MenuItem
                                                     key={scale}
-                                                    disabled={diagramDisabled}
+                                                    disabled={diagramItemDisabled}
                                                     onClick={() =>
-                                                        void runExport(() => exportPng(diagramExportSource, themeId, diagramTarget, scale))
+                                                        void runExport(async () =>
+                                                            (await loadDiagramExport()).exportPng(diagramExportSource, themeId, diagramTarget, scale)
+                                                        )
                                                     }
                                                 >
                                                     {label}

@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
+import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+
+const fit = vi.hoisted(() => ({ requestId: 0 }))
 
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: vi.fn() }))
 
@@ -11,7 +14,7 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTabId: 'a.mmd', tabs: [{ id: 'a.mmd', name: 'flow.mmd' }] }),
-    useCanvasFit: () => ({ canvasFitRequestId: 0 }),
+    useCanvasFit: () => ({ canvasFitRequestId: fit.requestId }),
 }))
 
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"></svg>'
@@ -31,6 +34,11 @@ function mockHook(result: Partial<ReturnType<typeof useMermaidSvg>>) {
 
 beforeEach(() => {
     vi.mocked(useMermaidSvg).mockReset()
+    fit.requestId = 0
+})
+
+afterEach(() => {
+    vi.restoreAllMocks()
 })
 
 describe('MermaidCanvas', () => {
@@ -124,5 +132,26 @@ describe('MermaidCanvas', () => {
 
         const image = screen.getByRole('img', { name: 'Sign-in flow' })
         expect(image).toHaveAccessibleDescription('How a user signs in')
+    })
+
+    it('shows a diagram as it was left when the canvas comes back after a Markdown tab (N05)', () => {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+        // A real size, so a fit would show: fitting this diagram into 800×600 zooms it to 150%.
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 600))
+        const memory: PanZoomMemory = new Map()
+        const first = render(<MermaidCanvas source="graph TD" viewMemory={memory} />)
+        const transform = () => first.container.querySelector<HTMLElement>('.origin-center')!.style.transform
+        expect(transform()).toBe('translate(0px, 0px) scale(1.5)')
+        const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 40 })
+        Object.defineProperty(wheel, 'wheelDeltaY', { value: -40 })
+        first.container.firstElementChild!.dispatchEvent(wheel)
+        expect(transform()).toBe('translate(0px, -40px) scale(1.5)')
+        first.unmount()
+
+        // Opening the Markdown tab asked for a fit, but that was for another document.
+        fit.requestId = 1
+        const again = render(<MermaidCanvas source="graph TD" viewMemory={memory} />)
+
+        expect(again.container.querySelector<HTMLElement>('.origin-center')!.style.transform).toBe('translate(0px, -40px) scale(1.5)')
     })
 })

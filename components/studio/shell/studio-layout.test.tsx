@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 type Layout = { explorerOpen: boolean; editorOpen: boolean }
@@ -8,6 +9,8 @@ type Layout = { explorerOpen: boolean; editorOpen: boolean }
 let tabs: DocumentTab[] = []
 let activeTabId: string | null = null
 let layout: Layout = { explorerOpen: true, editorOpen: true }
+/** The pan and zoom memory each canvas mount was given. */
+const canvasMemories: (PanZoomMemory | undefined)[] = []
 /** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
 const mounts = { editor: 0, canvas: 0 }
 
@@ -28,10 +31,11 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => ({ canFitToView: false, fitToView: () => {} }),
 }))
 vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
-    MermaidCanvas: () => {
+    MermaidCanvas: ({ viewMemory }: { viewMemory?: PanZoomMemory }) => {
         useEffect(() => {
             mounts.canvas++
-        }, [])
+            canvasMemories.push(viewMemory)
+        }, [viewMemory])
         return <div>Diagram preview</div>
     },
 }))
@@ -77,6 +81,7 @@ beforeEach(() => {
     layout = { explorerOpen: true, editorOpen: true }
     mounts.editor = 0
     mounts.canvas = 0
+    canvasMemories.length = 0
 })
 
 afterEach(() => {
@@ -136,6 +141,28 @@ describe('StudioLayout tab switches', () => {
         expect(screen.getByText('Markdown preview')).toBeInTheDocument()
         expect(mounts.canvas).toBe(1)
         expect(mounts.editor).toBe(1)
+    })
+
+    it('gives the diagram canvas the same zoom memory when it comes back after a Markdown tab (N05)', () => {
+        switchTabs(['/w/x.mmd', '/w/a.md'])
+        expect(mounts.canvas).toBe(2)
+        expect(canvasMemories[0]).toBeInstanceOf(Map)
+        expect(canvasMemories[1]).toBe(canvasMemories[0])
+    })
+
+    it('forgets the zoom of a diagram tab closed while a Markdown tab shows (N05)', () => {
+        tabs = [tab('/w/x.mmd'), tab('/w/a.md')]
+        activeTabId = '/w/x.mmd'
+        const view = render(<StudioLayout />)
+        const memory = canvasMemories[0]!
+        memory.set('/w/x.mmd', { x: 10, y: 20, scale: 3 })
+
+        activeTabId = '/w/a.md'
+        view.rerender(<StudioLayout />)
+        tabs = [tab('/w/a.md')]
+        view.rerender(<StudioLayout />)
+
+        expect(memory.has('/w/x.mmd')).toBe(false)
     })
 })
 

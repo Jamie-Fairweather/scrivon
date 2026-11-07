@@ -45,8 +45,8 @@ function usePreviewMemoryState(): MarkdownPreviewMemory {
 
 /**
  * Holds the expanded Markdown diagram for the active tab. The expanded block belongs to the tab it was opened
- * in, so switching tabs closes it. Children are never remounted on a tab switch: they hold the editor, its undo
- * history and the per-tab canvas zoom. Also holds each tab's {@link MarkdownPreviewMemory}.
+ * in, so switching tabs closes it. Children are never remounted on a tab switch: they hold the editor and its undo
+ * history. Also holds each tab's {@link MarkdownPreviewMemory}.
  */
 export function MarkdownExpandProvider({ tabId, children }: { tabId: string | null; children: ReactNode }) {
     const [state, setState] = useState<ExpandedState | null>(null)

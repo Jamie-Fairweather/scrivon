@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/studio/canvas/use-canvas-fit-on-load'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
-import { usePanZoom } from '@/components/studio/canvas/use-pan-zoom'
+import { usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
@@ -19,6 +19,8 @@ type MermaidCanvasProps = {
     className?: string
     /** Overrides active tab id for pan/zoom state and render cache (e.g. expanded md diagram). */
     canvasKey?: string
+    /** Keeps each tab's pan and zoom while this canvas is unmounted (see usePanZoomMemory). */
+    viewMemory?: PanZoomMemory
 }
 
 function stopCanvasGesture(event: React.SyntheticEvent) {
@@ -89,11 +91,10 @@ function DiagramLoading() {
     )
 }
 
-export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasProps) {
+export function MermaidCanvas({ source, className, canvasKey, viewMemory }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
     const dimensionsRef = useRef<{ width: number; height: number } | null>(null)
-    const lastHandledFitRequestRef = useRef(0)
 
     const { activeTabId, tabs } = useDocumentTabs()
     const viewKey = canvasKey ?? activeTabId
@@ -103,7 +104,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
     // A diagram can name and describe itself with accTitle and accDescr; otherwise it's named after the tab.
     const accessibility = useMemo(() => readDiagramAccessibility(source), [source])
     const diagramLabel = accessibility.title ?? (tabName ? `Diagram: ${tabName}` : 'Diagram')
-    const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds)
+    const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds, viewMemory)
     const { registerFitToView, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
     const { svgForDisplay, dimensions, currentError: error, isPending, isEmpty } = useMermaidSvg(source, viewKey)
@@ -128,7 +129,7 @@ export function MermaidCanvas({ source, className, canvasKey }: MermaidCanvasPro
         })
     }, [registerFitToView, fitToView])
 
-    useCanvasFitOnRequest(canvasFitRequestId, dimensions, fitToView, lastHandledFitRequestRef)
+    useCanvasFitOnRequest(canvasFitRequestId, viewKey, dimensions, fitToView)
     useCanvasFitOnFirstView(dimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
     const emptyMessage = !viewKey

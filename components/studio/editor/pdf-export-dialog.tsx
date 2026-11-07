@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { exportMarkdown, notifyExportSaved, type ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
+import type { ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { notifyError } from '@/lib/notify'
@@ -126,6 +126,9 @@ function afterNextPaint(): Promise<void> {
     })
 }
 
+/** Loaded when the user exports, so the export code and the diagram renderer it needs aren't part of every launch. */
+const loadMarkdownExport = () => import('@/lib/markdown/export-pdf')
+
 function PdfExportForm({
     source,
     tabName,
@@ -179,6 +182,7 @@ function PdfExportForm({
         try {
             // Let 'Exporting…' paint before the build takes over the main thread.
             await afterNextPaint()
+            const { exportMarkdown, notifyExportSaved } = await loadMarkdownExport()
             const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath, allowRemoteImages })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
@@ -191,6 +195,10 @@ function PdfExportForm({
                 if (mounted.current) setError(result.message)
                 else notifyError('Export failed', undefined, { description: result.message })
             }
+        } catch (err) {
+            // exportMarkdown reports its own failures, so this is the export code failing to load.
+            if (mounted.current) setError("Couldn't start the export. Try again.")
+            else notifyError('Export failed', err)
         } finally {
             onBusyChange(false)
         }

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { exportSvg } from '@/lib/mermaid/export'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 
@@ -7,7 +8,7 @@ const tabs = vi.hoisted(() => ({ activeTab: null as DocumentTab | null }))
 /** Tabs whose web images the user chose to load in the preview. */
 const remoteImageTabs = vi.hoisted(() => new Set<string>())
 /** What drawing the diagram gave: an error, still drawing, or nothing to draw. */
-const diagram = vi.hoisted(() => ({ currentError: null as string | null, isPending: false, isEmpty: false }))
+const diagram = vi.hoisted(() => ({ currentError: null as string | null, isPending: false, isStale: false, isEmpty: false }))
 type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void; tabPath?: string; allowRemoteImages?: boolean }
 const dialogProps = vi.hoisted(() => ({ current: null as DialogProps | null }))
 /** The props the export dialog last rendered with, or null when the menu left it out. */
@@ -42,7 +43,8 @@ describe('DocumentExportMenu', () => {
         tabs.activeTab = null
         dialogProps.current = null
         remoteImageTabs.clear()
-        Object.assign(diagram, { currentError: null, isPending: false, isEmpty: false })
+        Object.assign(diagram, { currentError: null, isPending: false, isStale: false, isEmpty: false })
+        vi.mocked(exportSvg).mockClear()
     })
 
     it('lets the PDF print web images only for a tab whose preview loaded them', () => {
@@ -148,5 +150,43 @@ describe('DocumentExportMenu', () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         view.rerender(<DocumentExportMenu />)
         expect(lastDialog()?.open).toBe(false)
+    })
+
+    it('greys out Save SVG and Save PNG while the edited diagram is still rendering behind the older picture (N19)', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->')
+        diagram.isStale = true
+        const view = render(<DocumentExportMenu />)
+        const button = screen.getByRole('button', { name: 'Export document' })
+        // The button itself stays on, so it doesn't flicker while typing.
+        expect(button).not.toHaveAttribute('aria-disabled')
+
+        fireEvent.click(button)
+        const saveSvg = await screen.findByRole('menuitem', { name: 'Save SVG' })
+        const savePng = screen.getByRole('menuitem', { name: 'Save PNG' })
+        expect(saveSvg).toHaveAttribute('aria-disabled', 'true')
+        expect(savePng).toHaveAttribute('aria-disabled', 'true')
+        // A spinner on each says they are waiting for the drawing, not broken.
+        expect(saveSvg).toHaveAttribute('aria-busy', 'true')
+        expect(savePng).toHaveAttribute('aria-busy', 'true')
+        expect(saveSvg.querySelector('svg.animate-spin')).not.toBeNull()
+        expect(savePng.querySelector('svg.animate-spin')).not.toBeNull()
+        fireEvent.click(saveSvg)
+        // The export code loads on first use, so give a click that got through time to arrive.
+        await act(async () => {
+            await import('@/lib/mermaid/export')
+        })
+        expect(exportSvg).not.toHaveBeenCalled()
+
+        // Once the text has rendered, the items turn back on.
+        diagram.isStale = false
+        view.rerender(<DocumentExportMenu />)
+        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-disabled')
+        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-busy')
+        const enabled = screen.getByRole('menuitem', { name: 'Save SVG' })
+        expect(enabled).not.toHaveAttribute('aria-disabled')
+        expect(enabled).not.toHaveAttribute('aria-busy')
+        expect(enabled.querySelector('svg.animate-spin')).toBeNull()
+        fireEvent.click(enabled)
+        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', 'light', expect.objectContaining({ tabName: 'flow.mmd' })))
     })
 })

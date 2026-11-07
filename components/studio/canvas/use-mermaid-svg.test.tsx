@@ -2,13 +2,14 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
+import { RendererLoadError } from '@/lib/mermaid/render-client'
 import { clearSvgCache } from '@/lib/mermaid/svg-cache'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
 const theme = vi.hoisted(() => ({ id: 'scrivon-light' }))
 
 /** When `on`, renders wait in `jobs` until a test finishes them, like a slow diagram in the worker. */
-const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; finish: () => void }[] }))
+const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; signal?: AbortSignal; finish: () => void; fail: (err: Error) => void }[] }))
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
     useAppTheme: () => ({ themeId: theme.id }),
@@ -24,11 +25,12 @@ vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
     const { renderMermaidDiagram: render } = await import('@/lib/mermaid/render')
     return {
         ...actual,
-        renderMermaidDiagramAsync: (source: string, themeId: AppThemeId, documentKey: string) => {
-            if (!slow.on) return actual.renderMermaidDiagramAsync(source, themeId, documentKey)
+        renderMermaidDiagramAsync: (source: string, themeId: AppThemeId, documentKey: string, signal?: AbortSignal) => {
+            if (!slow.on) return actual.renderMermaidDiagramAsync(source, themeId, documentKey, signal)
             return new Promise<string>((resolve, reject) => {
                 slow.jobs.push({
                     source,
+                    signal,
                     finish: () => {
                         try {
                             resolve(render(source, themeId))
@@ -36,6 +38,7 @@ vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
                             reject(err)
                         }
                     },
+                    fail: reject,
                 })
             })
         },
@@ -170,6 +173,24 @@ describe('useMermaidSvg', () => {
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(renders)
     })
 
+    it('shows that the renderer failed to load without keeping it as the text’s error, so coming back tries again (review)', async () => {
+        slow.on = true
+        const first = renderEditor(V1)
+        await waitForRender(0)
+        await act(async () => {
+            slow.jobs.shift()!.fail(new RendererLoadError(new Error('Failed to fetch dynamically imported module')))
+        })
+        expect(first.result.current.error).toBe("Couldn't load the diagram renderer. Edit the diagram or switch tabs to try again.")
+        first.unmount()
+
+        const again = renderEditor(V1)
+        expect(again.result.current).toMatchObject({ error: null, isPending: true })
+        await waitForRender(0)
+        expect(slow.jobs).toHaveLength(1)
+        await finishSlowRender()
+        expect(again.result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), error: null })
+    })
+
     it('does not bring a deleted diagram back when typing starts again (U02)', async () => {
         const { result, rerender } = renderEditor(V1)
         await waitForRender()
@@ -216,6 +237,23 @@ describe('useMermaidSvg', () => {
         expect(again.result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), isStale: false, isPending: false })
         await waitForRender()
         expect(slow.jobs).toHaveLength(0)
+    })
+
+    it("withdraws its render when the view goes away or the text changes, so it can't hold up other diagrams (N67)", async () => {
+        slow.on = true
+        const { rerender, unmount } = renderEditor(V1)
+        await waitForRender(0)
+        const first = slow.jobs[0].signal
+        expect(first?.aborted).toBe(false)
+
+        rerender({ source: V2 })
+        expect(first?.aborted).toBe(true)
+        await waitForRender()
+        const second = slow.jobs[1].signal
+        expect(second?.aborted).toBe(false)
+
+        unmount()
+        expect(second?.aborted).toBe(true)
     })
 
     it('does not bring back a deleted diagram from a render that finished after the text was cleared (P01 review)', async () => {
@@ -266,6 +304,40 @@ describe('useMermaidSvg', () => {
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(3)
         expect(views.result.current.canvas.currentError).toMatch(/\S/)
         expect(views.result.current.exportMenu.currentError).toBe(views.result.current.canvas.currentError)
+    })
+
+    it('lays an edit out once when an expanded Markdown diagram and its block show the same text (N18)', async () => {
+        const views = renderHook(
+            ({ source }) => ({ block: useMermaidSvg(source, 'notes.md:block:1'), expanded: useMermaidSvg(source, 'notes.md:expanded:1') }),
+            { initialProps: { source: V1 } }
+        )
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(1)
+
+        views.rerender({ source: V2 })
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        expect(views.result.current.block.svgForDisplay).toBe(expectedSvg(V2))
+        expect(views.result.current.expanded.svgForDisplay).toBe(expectedSvg(V2))
+    })
+
+    it('reuses a picture another document finished while this one waited for typing to pause (N18)', async () => {
+        const block = renderEditor(V1, 'notes.md:block:1')
+        await waitForRender()
+        const expanded = renderEditor(V1, 'notes.md:expanded:1')
+        await waitForRender()
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(1)
+
+        // The expanded view gets each edit a moment after its block.
+        block.rerender({ source: V2 })
+        await waitForRender(50)
+        expanded.rerender({ source: V2 })
+        await waitForRender(150)
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        await waitForRender(100)
+
+        expect(renderMermaidDiagram).toHaveBeenCalledTimes(2)
+        expect(expanded.result.current.svgForDisplay).toBe(expectedSvg(V2))
     })
 
     it('renders a document shown for the first time without waiting, then waits between keystrokes (U38)', async () => {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
-import { renderMermaidDiagramAsync, SupersededRenderError } from '@/lib/mermaid/render-client'
+import { RendererLoadError, renderMermaidDiagramAsync, SupersededRenderError } from '@/lib/mermaid/render-client'
 import {
     forgetDocumentSvgs,
     isBeingEdited,
@@ -53,6 +53,8 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
 
         // Cleared as soon as the text, theme or document changes, or the view goes away.
         let cancelled = false
+        // Aborted at the same time, so a render that hasn't started is dropped rather than holding up other diagrams.
+        const stillWanted = new AbortController()
 
         const showSvg = (svg: string) => {
             if (cancelled) return
@@ -80,13 +82,20 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 showError(cachedError)
                 return
             }
+            // Another document drew this text while this one waited (the block under an expanded diagram, say).
+            const shared = readSvgForSource(themeId, trimmedSource)
+            if (shared !== null) {
+                storeSvg(themeId, documentKey, trimmedSource, shared)
+                showSvg(shared)
+                return
+            }
 
-            // Layout runs in a worker, so a big diagram doesn't freeze typing. A result is kept even
-            // when the text has moved on by the time it arrives: going back to that text needs no
-            // second layout, and it is newer than the picture on screen. The cache drops it if the
-            // document was cleared meanwhile, so a deleted diagram can't come back.
+            // Layout runs in a worker, so a big diagram doesn't freeze typing. A result that started
+            // is kept even when the text has moved on by the time it arrives: going back to that text
+            // needs no second layout, and it is newer than the picture on screen. The cache drops it if
+            // the document was cleared meanwhile, so a deleted diagram can't come back.
             const startedAt = startRender()
-            renderMermaidDiagramAsync(trimmedSource, themeId, documentKey).then(
+            renderMermaidDiagramAsync(trimmedSource, themeId, documentKey, stillWanted.signal).then(
                 (svg) => {
                     const stored = storeSvg(themeId, documentKey, trimmedSource, svg, startedAt)
                     if (!cancelled) showSvg(svg)
@@ -95,7 +104,9 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 (err: unknown) => {
                     if (err instanceof SupersededRenderError) return
                     const message = err instanceof Error ? err.message : String(err)
-                    storeRenderError(themeId, documentKey, trimmedSource, message, startedAt)
+                    // A renderer that didn't load says nothing about the text, so it isn't remembered for it:
+                    // the next edit, tab switch or theme change tries again.
+                    if (!(err instanceof RendererLoadError)) storeRenderError(themeId, documentKey, trimmedSource, message, startedAt)
                     showError(message)
                 }
             )
@@ -104,6 +115,7 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
         return () => {
             cancelled = true
             window.clearTimeout(timer)
+            stillWanted.abort()
         }
     }, [canRender, documentKey, themeId, trimmedSource])
 

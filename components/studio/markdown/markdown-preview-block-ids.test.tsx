@@ -4,6 +4,8 @@ import { clearSvgCache } from '@/lib/mermaid/svg-cache'
 import { MarkdownPreview } from './markdown-preview'
 
 // The real render hook, cache and renderer, so this shows what each block actually draws (B28).
+// The render client loads the renderer on first use; loading it here lets each render finish within a timer tick.
+await import('@/lib/mermaid/render')
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
     useAppTheme: () => ({ themeId: 'scrivon-light', isLight: true }),
