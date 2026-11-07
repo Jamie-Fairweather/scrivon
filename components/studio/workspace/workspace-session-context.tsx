@@ -151,8 +151,8 @@ function warnAboutUnreadableFolders(tree: FileNode[]) {
 }
 
 /**
- * Says, until it is closed, when the folder just opened has too many files and folders to list them all (a
- * whole drive, say), so the folders left unread showing as empty don't look like a mistake.
+ * Says, until it is closed, when the folder has too many files and folders to list them all (a whole drive,
+ * say), so the folders left unread showing as empty don't look like a mistake; or takes that back.
  */
 function warnIfTruncated(tree: FileNode[], name: string) {
     if (!isTreeTruncated(tree)) {
@@ -267,19 +267,44 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return { read: ++treeRead.current, signal: controller.signal }
     }, [])
 
-    /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
-    const refreshTree = useCallback(async () => {
-        if (!workspaceRoot) return
-        const { read, signal } = startTreeRead()
-        try {
-            const next = await listWorkspaceTree(workspaceRoot, { signal })
-            // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
-            if (read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
-        } catch (err) {
-            // A newer read took over, and shows the change.
-            if (!signal.aborted) notifyError("Couldn't refresh the file list", err)
-        }
-    }, [workspaceRoot, startTreeRead])
+    // Whether the tree shown was cut short, having too many entries to list them all.
+    const treeTruncatedRef = useRef(false)
+
+    /**
+     * Notes whether a new read of the whole of `root` was cut short, and says so (warnIfTruncated): after a
+     * read the user asked for (`announce`), and otherwise only when that changed, so a notice the user closed
+     * doesn't come back with every focus while one that is new (the folder grew) still shows.
+     */
+    const noteTruncation = useCallback((root: string, next: FileNode[], announce: boolean) => {
+        const truncated = isTreeTruncated(next)
+        if (announce || truncated !== treeTruncatedRef.current) warnIfTruncated(next, getBaseName(root) || root)
+        treeTruncatedRef.current = truncated
+    }, [])
+
+    /**
+     * Re-reads the folder; `announce` when the user asked for it. A failure is reported rather than thrown, so
+     * the action that changed the disk still finishes.
+     */
+    const readWholeTree = useCallback(
+        async (announce: boolean) => {
+            if (!workspaceRoot) return
+            const root = workspaceRoot
+            const { read, signal } = startTreeRead()
+            try {
+                const next = await listWorkspaceTree(root, { signal })
+                if (read !== treeRead.current) return
+                noteTruncation(root, next, announce)
+                // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
+                setTree((prev) => keepUnchangedNodes(prev, next))
+            } catch (err) {
+                // A newer read took over, and shows the change.
+                if (!signal.aborted) notifyError("Couldn't refresh the file list", err)
+            }
+        },
+        [workspaceRoot, startTreeRead, noteTruncation]
+    )
+
+    const refreshTree = useCallback(() => readWholeTree(false), [readWholeTree])
 
     // The tree shown now, for telling whether a change seen by the watcher alters it.
     const treeRef = useRef(tree)
@@ -338,8 +363,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             const { read, signal } = startTreeRead()
             try {
                 const next = await listWorkspaceTree(root, { signal })
+                if (disposed || read !== treeRead.current) return
+                noteTruncation(root, next, false)
                 // Nothing changed, nothing redraws: the tree shown now is kept as it is.
-                if (!disposed && read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
+                setTree((prev) => keepUnchangedNodes(prev, next))
             } catch {
                 // See above.
             }
@@ -427,7 +454,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             unlisten?.()
             unwatch?.()
         }
-    }, [isDesktop, workspaceRoot, coordinator, startTreeRead])
+    }, [isDesktop, workspaceRoot, coordinator, startTreeRead, noteTruncation])
 
     const removeRecent = useCallback(async (path: string) => {
         try {
@@ -585,7 +612,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 void addRecentWorkspace(openRoot, maxRecentFolders)
                     .then(setRecentWorkspaces)
                     .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
-                await refreshTree()
+                // Says again if the folder has too many files to show them all, as a first open does.
+                await readWholeTree(true)
                 return
             }
             const { request, signal } = startWorkspaceRequest()
@@ -629,7 +657,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 setTree(nextTree)
                 coordinator.clearTabs.current()
                 warnAboutUnreadableFolders(nextTree)
-                warnIfTruncated(nextTree, name)
+                noteTruncation(path, nextTree, true)
                 void leaving?.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
                 // The new folder's tree opens folders as it had them last time.
                 updateFolderToggles(null, () => new Map())
@@ -667,11 +695,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             removeRecent,
             restoreTabSession,
             offerKeptChanges,
-            refreshTree,
+            readWholeTree,
             updateFolderToggles,
             coordinator,
             startWorkspaceRequest,
             startTreeRead,
+            noteTruncation,
         ]
     )
 
@@ -698,6 +727,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         setOpeningWorkspace(null)
         dismissNotification(OPENING_NOTICE_ID)
         dismissNotification(TRUNCATED_NOTICE_ID)
+        treeTruncatedRef.current = false
         const leaving = coordinator.persistWorkspaceTabSession.current()
         workspaceRootRef.current = null
         setWorkspaceRoot(null)
