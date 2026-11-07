@@ -68,4 +68,28 @@ describe('app/globals.css', () => {
             expect(selectors.filter((selector) => selector === '*' || selector.includes('animate-spin'))).toEqual([])
         })
     })
+
+    describe('in Windows Contrast themes', () => {
+        const rules = rulesIn(mediaBlock('(forced-colors: active)'))
+
+        it('fills selected, current and pressed items with Highlight', () => {
+            for (const selector of ["[aria-pressed='true']", "[aria-current='page']", "[role='tab'][aria-selected='true']"]) {
+                expect(rules.get(selector), selector).toContain('background-color: Highlight')
+            }
+        })
+
+        it('draws the focus ring on those filled items in HighlightText, inside the fill', () => {
+            for (const item of [
+                "[aria-pressed='true']",
+                "[aria-current='page']",
+                "[role='tab'][aria-selected='true']",
+                "[role='treeitem'][aria-selected='true']",
+            ]) {
+                const declarations = rules.get(`${item}:focus-visible`)
+                expect(declarations, item).toContain('outline: 2px solid HighlightText')
+                const offset = declarations?.find((d) => d.startsWith('outline-offset: '))
+                expect(offset, item).toMatch(/^outline-offset: -\d+px$/)
+            }
+        })
+    })
 })

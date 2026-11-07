@@ -308,6 +308,18 @@
     :focus-visible {
         outline: 2px solid Highlight;
     }
+    /* Selected, current and pressed items are filled with Highlight below, so a Highlight ring on
+       them can't be seen. Draw it in HighlightText instead, 4px inside so it sits on the fill and
+       scroll boxes or the window edge can't clip it. */
+    [data-highlighted]:focus-visible,
+    [aria-current='true']:focus-visible,
+    [aria-current='page']:focus-visible,
+    [aria-pressed='true']:focus-visible,
+    [role='tab'][aria-selected='true']:focus-visible,
+    [role='treeitem'][aria-selected='true']:focus-visible {
+        outline: 2px solid HighlightText;
+        outline-offset: -4px;
+    }
     [data-slot='switch']:focus-visible {
         outline-offset: 2px;
     }
