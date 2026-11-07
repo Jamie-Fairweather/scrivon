@@ -562,11 +562,25 @@ fn content_matches(mime: &str, bytes: &[u8]) -> bool {
 pub async fn read_export_image(app: tauri::AppHandle, path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let scope = app.fs_scope();
-        export_image_access::access(&app).approve(&path, |image| scope.is_allowed(image))?;
-        read_image_as_data_url(&path)
+        read_chosen_image(export_image_access::access(&app), &path, |image| {
+            scope.is_allowed(image)
+        })
     })
     .await
     .map_err(|_| "Could not read image.".to_string())?
+}
+
+/// `read_export_image` without the app: reads `path` when the user chose it.
+fn read_chosen_image(
+    access: &export_image_access::ExportImageAccess,
+    path: &str,
+    in_scope: impl Fn(&Path) -> bool,
+) -> Result<String, String> {
+    // A file that can't be an export image gets its own reason first: telling
+    // the user to choose it again would only send them round in a loop.
+    export_image_mime(path)?;
+    access.approve(path, in_scope)?;
+    read_image_as_data_url(path)
 }
 
 /// Records an image the user has just picked with Browse, so the export can
@@ -599,13 +613,19 @@ pub async fn adopt_export_images(
         .map_err(|_| "Could not take on the profile images.".to_string())
 }
 
-fn read_image_as_data_url(path: &str) -> Result<String, String> {
+/// The image type of an export image path, or why it can't be one.
+fn export_image_mime(path: &str) -> Result<&'static str, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("Image path is empty.".into());
     }
-    let mime = mime_from_path(path)
-        .ok_or_else(|| "Only PNG, JPEG, GIF, WebP and SVG images can be used.".to_string())?;
+    mime_from_path(path)
+        .ok_or_else(|| "Only PNG, JPEG, GIF, WebP and SVG images can be used.".to_string())
+}
+
+fn read_image_as_data_url(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    let mime = export_image_mime(path)?;
     let size = std::fs::metadata(path)
         .map_err(|e| format!("Could not read image: {e}"))?
         .len();
@@ -631,10 +651,12 @@ mod tests {
     use std::cell::Cell;
     use std::time::Duration;
 
+    use super::export_image_access::{ExportImageAccess, NOT_CHOSEN};
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
-        mime_from_path, place_printed_pdf, read_image_as_data_url, save_printed_pdf, temp_sibling,
-        wait_until_ready, PageReadiness, PdfPrintOptions, MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
+        mime_from_path, place_printed_pdf, read_chosen_image, read_image_as_data_url,
+        save_printed_pdf, temp_sibling, wait_until_ready, PageReadiness, PdfPrintOptions,
+        MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
     };
 
     #[test]
@@ -726,6 +748,31 @@ mod tests {
 
         let text_svg = temp_file("notes.svg", b"password=hunter2");
         assert!(read(&text_svg).is_err());
+    }
+
+    #[test]
+    fn says_a_picked_file_of_another_type_cant_be_used_rather_than_to_pick_it_again() {
+        let access = ExportImageAccess::default();
+        // Picked with Browse ('All files'), so the open dialog put it in the fs scope.
+        let bitmap = temp_file("logo.bmp", b"BM");
+        let result = read_chosen_image(&access, &bitmap.to_string_lossy(), |_| true);
+        let _ = std::fs::remove_file(&bitmap);
+        assert_eq!(
+            result.unwrap_err(),
+            "Only PNG, JPEG, GIF, WebP and SVG images can be used."
+        );
+    }
+
+    #[test]
+    fn reads_only_an_image_the_user_chose() {
+        let access = ExportImageAccess::default();
+        let photo = temp_file("photo.png", b"\x89PNG\r\n\x1a\n");
+        let path = photo.to_string_lossy().into_owned();
+        let unchosen = read_chosen_image(&access, &path, |_| false);
+        let chosen = read_chosen_image(&access, &path, |_| true);
+        let _ = std::fs::remove_file(&photo);
+        assert_eq!(unchosen.unwrap_err(), NOT_CHOSEN);
+        assert_eq!(chosen.unwrap(), "data:image/png;base64,iVBORw0KGgo=");
     }
 
     #[test]
