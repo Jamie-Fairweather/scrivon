@@ -825,17 +825,76 @@ describe('CodeEditorPanel search hits', () => {
         expect(editor.focused).toBe(true)
     })
 
-    it('selects the hit once its file becomes the active tab', async () => {
+    it('selects the hit in the file the palette just opened, before the panel has shown it', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { editor } = await mountEditor()
+
+        // The open has finished but the panel hasn't drawn its tab yet; the jump's render shows both.
+        act(() => {
+            tabsState = { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b }
+            coordinatorHandlers.revealInEditor!(b, 3, 2, 6)
+        })
+        expect(editor.getValue()).toBe('x\ny\n find me')
+        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+        expect(editor.focused).toBe(true)
+    })
+
+    it('selects the hit once its file is the active tab', async () => {
         const a = '/w/a.md'
         const b = '/w/b.md'
         tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
         const { view, editor } = await mountEditor()
 
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
+        act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
+        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+    })
+
+    it("forgets a hit whose file didn't open, so opening it by hand later leaves the cursor and focus alone", async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // b.md couldn't be read (or the open lost to a newer one), so a.md still shows.
         act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
         expect(editor.selection).toBeNull()
 
+        // Later b.md is opened from the explorer, where the keyboard is meant to stay.
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b })
-        expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
+        expect(editor.selection).toBeNull()
+        expect(editor.focused).toBe(false)
+    })
+
+    it('forgets the hit when another file shows before it, even if the hit was for a file showing later', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const c = '/w/c.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        act(() => coordinatorHandlers.revealInEditor!(b, 3, 2, 6))
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C')], activeTabId: c })
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C'), tab(b, 'x\ny\n find me')], activeTabId: b })
+
+        expect(editor.selection).toBeNull()
+        expect(editor.focused).toBe(false)
+    })
+
+    it.each([
+        ['letter case', String.raw`C:\w\Notes.md`],
+        ['separators', 'C:/w/notes.md'],
+    ])('finds the tab when the hit spells its path with different %s', async (_, hitPath) => {
+        const path = String.raw`C:\w\notes.md`
+        tabsState = { tabs: [tab(path, 'one\nsee TODO here')], activeTabId: path }
+        const { editor } = await mountEditor()
+
+        act(() => coordinatorHandlers.revealInEditor!(hitPath, 2, 5, 4))
+
+        expect(editor.selection).toEqual({ startLineNumber: 2, startColumn: 5, endLineNumber: 2, endColumn: 9 })
+        expect(editor.focused).toBe(true)
     })
 
     it('selects the hit in the new editor when no tab was open', async () => {
