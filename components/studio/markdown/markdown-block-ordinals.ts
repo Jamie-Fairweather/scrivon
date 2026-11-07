@@ -183,6 +183,15 @@ export function rehypeMermaidBlockIds(documentKey: string) {
     }
 }
 
+/**
+ * The source of each Mermaid block in a document, by ordinal, as {@link rehypeMermaidBlockIds} found them the last
+ * time the preview showed it, or undefined when it hasn't. Read once the preview has rendered, so an expanded
+ * diagram can follow its block without parsing the document a second time.
+ */
+export function lastMermaidBlockSources(documentKey: string): string[] | undefined {
+    return blocksByDocument.get(documentKey)?.map((block) => block.source)
+}
+
 /** The lasting id {@link rehypeMermaidBlockIds} gave a Mermaid block, or null when `code` isn't one. */
 export function mermaidBlockKey(code: Element | undefined): string | null {
     const id = code?.properties.dataMermaidBlockId

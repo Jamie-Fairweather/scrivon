@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { lastMermaidBlockSources } from './markdown-block-ordinals'
 import { MarkdownPreview } from './markdown-preview'
 import { extractMermaidBlockSources } from './mermaid-block-sources'
 
@@ -369,6 +370,7 @@ describe('MarkdownPreview', () => {
             preview(source)
             expect(screen.getAllByRole('button', { name: /^Expand diagram/ })).toHaveLength(2)
             expect(extractMermaidBlockSources(source)).toEqual(['graph LR\n  A --> B', 'flowchart TD'])
+            expect(lastMermaidBlockSources('doc.md')).toEqual(['graph LR\n  A --> B', 'flowchart TD'])
         })
     })
 
@@ -419,8 +421,9 @@ describe('MarkdownPreview', () => {
         expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['Expand diagram 1', 'Expand diagram 2', 'Expand diagram 3'])
         buttons.forEach((button) => fireEvent.click(button))
         // The order MarkdownDocumentViewer finds the blocks in again; the footnote's diagram comes last.
-        const sources = extractMermaidBlockSources(source)
+        const sources = lastMermaidBlockSources('doc.md') ?? []
         expect(sources).toEqual(['flowchart TD', 'flowchart LR', 'pie'])
+        expect(extractMermaidBlockSources(source)).toEqual(sources)
         expect(onExpandBlock.mock.calls).toEqual(sources.map((blockSource, ordinal) => [expect.any(String), ordinal, blockSource]))
         // Each block has its own id, which doesn't come from its position.
         const ids = onExpandBlock.mock.calls.map(([blockId]) => blockId as string)

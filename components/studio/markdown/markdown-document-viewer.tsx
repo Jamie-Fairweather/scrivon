@@ -4,10 +4,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ImageOff, X } from 'lucide-react'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import { lastMermaidBlockSources } from '@/components/studio/markdown/markdown-block-ordinals'
 import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
-import { extractMermaidBlockSources, locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
+import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
@@ -223,22 +224,21 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         if (tabId) allowRemoteImages(tabId)
     }, [tabId, allowRemoteImages])
 
-    const expandedOrdinal = expanded?.ordinal ?? null
-    /** The document's Mermaid sources, only worked out while a diagram is expanded. */
-    const liveMermaidSources = useMemo(
-        () => (expandedOrdinal === null ? null : extractMermaidBlockSources(previewSource)),
-        [expandedOrdinal, previewSource]
-    )
+    /** Nothing but spaces, or only front matter, which the preview leaves out. */
+    const previewIsEmpty = useMemo(() => markdownPreviewBody(previewSource).trim() === '', [previewSource])
     const mermaidCountRef = useRef<{ canvasKey: string; count: number } | null>(null)
 
     // Keeps the expanded diagram, and the export that reads it, in step with edits to its block in the document.
+    // Runs after the preview below the overlay has rendered this text, and reads the diagrams it found, so the
+    // document isn't parsed a second time on each edit.
     useEffect(() => {
-        if (!expanded || !liveMermaidSources) return
+        if (!expanded) return
+        const sources = previewIsEmpty ? [] : (lastMermaidBlockSources(tabId ?? '') ?? [])
         const previous = mermaidCountRef.current
         const previousCount = previous?.canvasKey === expanded.canvasKey ? previous.count : null
-        mermaidCountRef.current = { canvasKey: expanded.canvasKey, count: liveMermaidSources.length }
+        mermaidCountRef.current = { canvasKey: expanded.canvasKey, count: sources.length }
 
-        const located = locateMermaidBlock(expanded, liveMermaidSources, previousCount)
+        const located = locateMermaidBlock(expanded, sources, previousCount)
         if (!located) {
             setExpanded(null)
             return
@@ -248,7 +248,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         // The block id (and the canvas key made from it) stays: the preview's ids move with their blocks, so the
         // Expand button to return focus to, and the expanded view's pan and zoom, still belong to this block.
         setExpanded({ ...expanded, ordinal: located.ordinal, source: located.source })
-    }, [expanded, liveMermaidSources, setExpanded])
+    }, [expanded, previewSource, previewIsEmpty, tabId, setExpanded])
 
     const onOverlayKeyDown = useCallback(
         (event: KeyboardEvent<HTMLDivElement>) => {
@@ -331,9 +331,6 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     })
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
-
-    /** Nothing but spaces, or only front matter, which the preview leaves out. */
-    const previewIsEmpty = useMemo(() => markdownPreviewBody(previewSource).trim() === '', [previewSource])
 
     useEffect(() => {
         if (!expandedKey) return

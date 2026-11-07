@@ -6,6 +6,7 @@ import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
+import { extractMermaidBlockSources } from './mermaid-block-sources'
 
 const workspace = vi.hoisted(() => ({
     tabs: [] as DocumentTab[],
@@ -64,6 +65,11 @@ vi.mock('react-markdown', async (importOriginal) => {
             return Markdown(props)
         },
     }
+})
+
+vi.mock('./mermaid-block-sources', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./mermaid-block-sources')>()
+    return { ...actual, extractMermaidBlockSources: vi.fn(actual.extractMermaidBlockSources) }
 })
 
 const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
@@ -391,6 +397,28 @@ describe('MarkdownDocumentViewer', () => {
 
             rerender(viewer(DOC_A, withNewBlockAbove.replace('```mermaid\nflowchart TD\n  A --> Changed\n```', '')))
             await waitFor(() => expect(screen.queryByTestId('expanded-canvas')).toBeNull())
+        })
+
+        it('parses the document only once per edit while following the expanded block (N69)', async () => {
+            const { rerender } = render(viewer(DOC_A, twoDiagrams))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 2: Login flow' }))
+            await nextFrame()
+            const parses = markdownParses.count
+
+            rerender(viewer(DOC_A, twoDiagrams.replace('C --> D', 'C --> E')))
+            await nextFrame()
+            expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart LR\n  accTitle: Login flow\n  C --> E')
+            // The preview under the overlay parsed it; the expanded view reads the diagrams it found.
+            expect(markdownParses.count).toBe(parses + 1)
+            expect(extractMermaidBlockSources).not.toHaveBeenCalled()
+        })
+
+        it('closes when the document is cleared', async () => {
+            const { rerender } = render(viewer(DOC_A, twoDiagrams))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 1' }))
+            rerender(viewer(DOC_A, '   '))
+            await waitFor(() => expect(screen.queryByTestId('expanded-canvas')).toBeNull())
+            expect(screen.getByText('Start writing Markdown to see a preview.')).toBeInTheDocument()
         })
 
         it('returns focus to the Expand button after Back', () => {
