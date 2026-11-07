@@ -586,8 +586,6 @@ fn read_chosen_image(
 /// Records an image the user has just picked with Browse, so the export can
 /// still read it after a restart. Only an image the open dialog put in the fs
 /// scope is recorded. Returns whether it was.
-// Not registered in `generate_handler!` yet.
-#[allow(dead_code)]
 #[tauri::command]
 pub async fn remember_export_image(app: tauri::AppHandle, path: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -601,8 +599,6 @@ pub async fn remember_export_image(app: tauri::AppHandle, path: String) -> Resul
 /// Takes on the images that PDF profiles saved before the image check name,
 /// so they keep working. Only accepted the first time, while no image list
 /// has been saved yet. Returns whether the images were taken on.
-// Not registered in `generate_handler!` yet.
-#[allow(dead_code)]
 #[tauri::command]
 pub async fn adopt_export_images(
     app: tauri::AppHandle,

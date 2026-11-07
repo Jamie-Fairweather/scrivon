@@ -185,6 +185,8 @@ pub fn run() {
             close_watchdog::close_ack,
             pdf_export::export_html_to_pdf,
             pdf_export::read_export_image,
+            pdf_export::remember_export_image,
+            pdf_export::adopt_export_images,
             store_recovery::take_store_recovery,
             system_fonts::list_system_fonts,
             system_menu::show_system_menu,
