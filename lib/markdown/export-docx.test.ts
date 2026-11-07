@@ -1064,6 +1064,55 @@ describe('renderExportDocx', () => {
         expect(table).not.toContain('<w:tbl>')
     })
 
+    it('keeps short code blocks and tables on one page, as the PDF does (N42)', async () => {
+        const lines = (count: number, word: string) => Array.from({ length: count }, (_, index) => `${word} ${index}`).join('\n')
+        const rows = (count: number, word: string) => Array.from({ length: count }, (_, index) => `| ${word} ${index} |`)
+        const { parts } = await render(
+            [
+                fence('text', lines(3, 'short')),
+                '',
+                fence('text', lines(26, 'long')),
+                '',
+                '| Small |',
+                '| --- |',
+                ...rows(2, 'small'),
+                '',
+                '| Big |',
+                '| --- |',
+                ...rows(15, 'big'),
+                '',
+                '| Tall | Other |',
+                '| --- | --- |',
+                `| ${'Many words in one cell. '.repeat(400)} | x |`,
+                '| after |  |',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        // Each code line keeps with the next, so the block moves to the next page whole; the last line keeps with nothing.
+        for (const index of [0, 1]) expect(blockWith(body, `short ${index}`)).toContain('<w:keepNext/><w:keepLines/>')
+        expect(blockWith(body, 'short 2')).not.toContain('<w:keepNext/>')
+        expect(blockWith(body, 'short 2')).toContain('<w:keepLines/>')
+        // A block of more than 25 lines splits between lines as before, as in the PDF.
+        for (let index = 0; index < 26; index += 1) expect(blockWith(body, `long ${index}`)).not.toContain('<w:keep')
+        const tableRows = (head: string) =>
+            body
+                .slice(body.lastIndexOf('<w:tbl>', body.indexOf(`>${head}</w:t>`)))
+                .split('</w:tbl>')[0]!
+                .split('</w:tr>')
+                .slice(0, -1)
+        // A short table's rows can't split and each keeps with the next; a longer one's only after its header.
+        const small = tableRows('Small')
+        expect(small).toHaveLength(3)
+        for (const row of small) expect(row).toContain('<w:cantSplit/>')
+        expect(small.map((row) => row.includes('<w:keepNext/>'))).toEqual([true, true, false])
+        const big = tableRows('Big')
+        expect(big).toHaveLength(16)
+        expect(big.map((row) => row.includes('<w:keepNext/>'))).toEqual([true, ...Array<boolean>(15).fill(false)])
+        // A row too tall to keep whole may still split, so Word never cuts it off.
+        const tall = tableRows('Tall')
+        expect(tall.map((row) => row.includes('<w:cantSplit/>'))).toEqual([true, false, true])
+    })
+
     it('gives every table row the header column count, as the PDF does', async () => {
         const { xml } = await render('| a | b | c |\n| --- | :---: | ---: |\n| 1 |\n| 1 | 2 | 3 | 4 |')
         const table = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)![0]

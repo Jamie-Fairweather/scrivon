@@ -161,8 +161,8 @@ function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>):
  * moving it whole to the next page would leave most of the page before it blank, and it would
  * still split there.
  */
-const PDF_KEEP_TOGETHER_MAX_CODE_LINES = 25
-const PDF_KEEP_TOGETHER_MAX_TABLE_ROWS = 15
+export const PDF_KEEP_TOGETHER_MAX_CODE_LINES = 25
+export const PDF_KEEP_TOGETHER_MAX_TABLE_ROWS = 15
 
 /** Rough width of a character of body text, as a share of the font size, for {@link pdfLineChars}. */
 const PDF_AVERAGE_CHAR_EM = 0.55

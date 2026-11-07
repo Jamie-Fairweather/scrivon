@@ -82,6 +82,7 @@ import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
+import { PDF_KEEP_TOGETHER_MAX_CODE_LINES, PDF_KEEP_TOGETHER_MAX_TABLE_ROWS } from '@/lib/markdown/markdown-to-export-html'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
@@ -1469,6 +1470,13 @@ function renderTable(state: RenderState, table: MdTable): Table {
     const width = Math.max(1, state.contentTwip - indent)
     const columns = tableColumns(table)
     const widths = columnWidths(state, table, columns, width)
+    const rows = table.children.length
+    // A short table stays on one page, as in the PDF: each row keeps with the next. A longer one splits between rows,
+    // but its header row still keeps with the first row under it.
+    const short = rows <= PDF_KEEP_TOGETHER_MAX_TABLE_ROWS
+    // A row taller than a page can't be kept whole, and Word may cut it off at the foot of the page if told to,
+    // so only a row well under a page is.
+    const wholeRow = pageContentTwip(state, 'body') / 2
     return new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: widths,
@@ -1477,7 +1485,12 @@ function renderTable(state: RenderState, table: MdTable): Table {
         layout: TableLayoutType.FIXED,
         // A right-to-left header row puts the first column on the right.
         visuallyRightToLeft: bidi(plainText(table.children[0]!)),
-        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, widths, table.align, rowIndex === 0)),
+        rows: table.children.map((row, rowIndex) =>
+            renderTableRow(state, row, widths, table.align, rowIndex === 0, {
+                keepNext: rowIndex < rows - 1 && (short || rowIndex === 0),
+                cantSplit: tableRowTwip(state, row, widths) <= wholeRow,
+            })
+        ),
     })
 }
 
@@ -1538,9 +1551,19 @@ function cellTextPx(columnTwip: number): number {
     return Math.max(1, Math.floor((columnTwip - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right) / 15))
 }
 
-function renderTableRow(state: RenderState, row: MdTableRow, widths: number[], align: MdTable['align'], header: boolean): TableRow {
+function renderTableRow(
+    state: RenderState,
+    row: MdTableRow,
+    widths: number[],
+    align: MdTable['align'],
+    header: boolean,
+    keep: { keepNext: boolean; cantSplit: boolean }
+): TableRow {
     return new TableRow({
         tableHeader: header,
+        // Unset rather than false, so Word's defaults stay as they are.
+        keepNext: keep.keepNext || undefined,
+        cantSplit: keep.cantSplit || undefined,
         children: widths.map((columnTwip, index) =>
             renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, columnTwip, align?.[index], header, index === 0)
         ),
@@ -1612,6 +1635,8 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const fallback = codeColor(theme)
     const size = codeHalfPoints(state)
     const anchors = takePendingAnchors(state)
+    // A short block stays on one page, as in the PDF: each line keeps with the next.
+    const keep = lines.length <= PDF_KEEP_TOGETHER_MAX_CODE_LINES
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
             token.text
@@ -1623,6 +1648,8 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
             indent: contentIndent(state),
             border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
+            keepNext: (keep && index < lines.length - 1) || undefined,
+            keepLines: keep || undefined,
             children: [...(index === 0 ? anchors : []), ...(runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })])],
         })
     })
@@ -2194,6 +2221,16 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
 }
 
+/** Height of a table row: each cell wraps in its own column's width, as renderTable sizes them, and its margins add 120 above. */
+function tableRowTwip(state: RenderState, row: MdTableRow, widths: number[]): number {
+    let height = 240
+    row.children.slice(0, widths.length).forEach((cell, index) => {
+        const text = Math.max(200, widths[index]! - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right)
+        height = Math.max(height, 120 + paragraphTwip(state, { type: 'paragraph', children: cell.children }, text))
+    })
+    return height
+}
+
 /** Height of a code block or diagram in a text column `width` twips wide: a diagram in a list or quote is drawn narrower, so shorter. */
 function codeTwip(state: RenderState, node: Code, width: number): number {
     const prepared = state.prepared.get(node)
@@ -2240,18 +2277,12 @@ function measureFlow(
         } else if (node.type === 'code') {
             placeBlock(cursor, pageHeight, codeTwip(state, node, width))
         } else if (node.type === 'table') {
-            // Each cell wraps in its own column's width, as renderTable sizes them; its margins add 120 above.
             const widths = columnWidths(state, node, tableColumns(node), width)
-            let table = 200
-            for (const row of node.children) {
-                let rowHeight = 240
-                row.children.slice(0, widths.length).forEach((cell, index) => {
-                    const text = Math.max(200, widths[index]! - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right)
-                    rowHeight = Math.max(rowHeight, 120 + paragraphTwip(state, { type: 'paragraph', children: cell.children }, text))
-                })
-                table += rowHeight
-            }
-            placeBlock(cursor, pageHeight, table)
+            placeBlock(
+                cursor,
+                pageHeight,
+                node.children.reduce((table, row) => table + tableRowTwip(state, row, widths), 200)
+            )
         } else if (node.type === 'thematicBreak') {
             placeBlock(cursor, pageHeight, 400)
         }
