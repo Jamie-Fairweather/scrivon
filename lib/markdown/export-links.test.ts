@@ -29,6 +29,29 @@ describe('safeExportHref', () => {
             expect(safeExportHref(url), url).toBeNull()
         }
     })
+
+    it('drops network shares and device paths, which Word would connect to with the reader’s sign-in (review)', () => {
+        for (const url of [
+            '//host/share/x.docx',
+            '\\\\host\\share\\x.docx',
+            '/\\host/share',
+            '\\/host/share',
+            '\\\\?\\C:\\Windows',
+            '%5c%5chost%5cshare',
+            '%5C%5Chost',
+            '/%5chost/share',
+            '%2F%2Fhost/share',
+            ' //host/share',
+            '/\n/host/share',
+            '/\t/host/share',
+        ]) {
+            expect(safeExportHref(url), JSON.stringify(url)).toBeNull()
+        }
+        // One slash is a path on the same site, and a share name later in the address is just text.
+        expect(safeExportHref('/docs/a.md')).toBe('/docs/a.md')
+        expect(safeExportHref('docs//a.md')).toBe('docs//a.md')
+        expect(safeExportHref('https://example.com//x')).toBe('https://example.com//x')
+    })
 })
 
 describe('resolveHeadingAnchor', () => {

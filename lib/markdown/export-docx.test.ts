@@ -1651,6 +1651,8 @@ describe('renderExportDocx', () => {
                 '',
                 '[run](javascript:alert(1)) [open](file:///C:/Windows/notepad.exe) [find](search-ms:query=x) [path](C:\\docs\\a.md)',
                 '',
+                '[share](//host/share/x.docx) [unc](\\\\\\\\host\\\\share\\\\x.docx)',
+                '',
                 '[web](https://example.com/safe) [doc](other.md)',
             ].join('\n')
         )
@@ -1659,9 +1661,10 @@ describe('renderExportDocx', () => {
         // Copied from a browser (percent-encoded) or written with capitals, each still reaches the heading's bookmark.
         // A badly encoded one doesn't break the export and is kept as written.
         expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual(['_Ref1', '_Ref1', '_Ref1', '%E0%A4%A'])
-        // The preview leaves these dead, so Word keeps their words as plain text, not a link that runs or opens something.
-        expect(rels).not.toMatch(/javascript:|file:|search-ms:|docs/)
-        for (const words of ['run', 'open', 'find', 'path']) {
+        // The preview leaves these dead, so Word keeps their words as plain text, not a link that runs or opens something,
+        // or that connects to a network share with the reader's sign-in.
+        expect(rels).not.toMatch(/javascript:|file:|search-ms:|docs|host/)
+        for (const words of ['run', 'open', 'find', 'path', 'share', 'unc']) {
             expect(runWith(body, words)).toBeTruthy()
             expect(runWith(body, words)).not.toContain('<w:u ')
         }

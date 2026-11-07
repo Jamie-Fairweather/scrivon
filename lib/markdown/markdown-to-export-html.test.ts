@@ -631,6 +631,8 @@ SHIKI_FAIL
                 '',
                 '[run](javascript:alert(1)) [open](file:///C:/Windows/notepad.exe) [find](search-ms:query=x) [path](C:\\docs\\a.md)',
                 '',
+                '[share](//host/share/x.docx) [unc](\\\\\\\\host\\\\share\\\\x.docx) <a href="\\\\host\\share">raw</a>',
+                '',
                 '[web](https://example.com/safe) [mail](mailto:me@example.com) [doc](other.md)',
                 '',
                 '[^1]: A note.',
@@ -642,8 +644,8 @@ SHIKI_FAIL
         expect(html).toContain('<a href="#missing">e</a>')
         // Footnote links reach their notes as before.
         expect(html).toMatch(/<a href="#user-content-fn-1" id="user-content-fnref-1"/)
-        for (const words of ['run', 'open', 'find', 'path']) expect(html).toContain(`<a>${words}</a>`)
-        expect(html).not.toMatch(/javascript:|file:|search-ms:|docs/)
+        for (const words of ['run', 'open', 'find', 'path', 'share', 'unc', 'raw']) expect(html).toContain(`<a>${words}</a>`)
+        expect(html).not.toMatch(/javascript:|file:|search-ms:|docs|href="[^"]*host/)
         expect(html).toContain('<a href="https://example.com/safe">web</a>')
         expect(html).toContain('<a href="mailto:me@example.com">mail</a>')
         expect(html).toContain('<a href="other.md">doc</a>')
