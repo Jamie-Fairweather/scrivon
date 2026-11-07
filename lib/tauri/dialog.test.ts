@@ -31,6 +31,7 @@ vi.mock('@/lib/tauri/scope', () => ({
 
 import {
     confirmCloseAfterSaveFailure,
+    confirmDeleteHiddenFolders,
     confirmOpenLargeFile,
     confirmOverwriteDiskChange,
     confirmUnsavedChanges,
@@ -323,5 +324,24 @@ describe('confirmOpenLargeFile', () => {
 
         messageMock.mockResolvedValueOnce('Cancel')
         await expect(confirmOpenLargeFile('log.md', '23 MB')).resolves.toBe(false)
+    })
+})
+
+describe('confirmDeleteHiddenFolders', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('names the hidden folders and only Delete All goes ahead', async () => {
+        messageMock.mockResolvedValueOnce('Delete All')
+        await expect(confirmDeleteHiddenFolders('proj', ['.git', 'site\node_modules'])).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain("proj also has .git and site\node_modules in it, which Scrivon doesn't show in the file list.")
+        expect(options).toMatchObject({ title: 'Delete hidden folders too?', buttons: { ok: 'Delete All', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmDeleteHiddenFolders('proj', ['.git', 'a', 'b', 'c'])).resolves.toBe(false)
+        expect(messageMock.mock.calls[1]![0]).toContain('proj also has .git, a, b and more in it')
     })
 })

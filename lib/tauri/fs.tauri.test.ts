@@ -54,6 +54,7 @@ import {
     createWorkspaceFile,
     DiskChangedError,
     duplicateWorkspaceFile,
+    findHiddenFolders,
     getWorkspaceFileSize,
     joinPath,
     listFolderNames,
@@ -522,6 +523,22 @@ describe('workspace fs (Tauri)', () => {
             },
             { kind: 'file', name: 'plan.md', path: 'C:\\Users\\me\\Documents\\plan.md' },
         ])
+    })
+
+    it('finds the folders the file list hides inside a folder, without following links', async () => {
+        const dir = (name: string) => ({ name, isDirectory: true, isFile: false, isSymlink: false })
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === 'C:\\ws\\proj')
+                return [dir('.git'), dir('site'), dir('locked'), { name: 'shared', isDirectory: false, isFile: false, isSymlink: true }]
+            if (dirPath === 'C:\\ws\\proj\\site')
+                return [{ name: 'package.json', isDirectory: false, isFile: true, isSymlink: false }, dir('dist'), dir('pages')]
+            if (dirPath === 'C:\\ws\\proj\\site\\pages') return []
+            if (dirPath === 'C:\\ws\\proj\\locked') throw 'Access is denied. (os error 5)'
+            throw new Error(`unexpected read of ${dirPath}`)
+        })
+
+        await expect(findHiddenFolders('C:\\ws\\proj')).resolves.toEqual(['.git', 'site\\dist'])
+        await expect(findHiddenFolders('C:\\ws\\proj', 1)).resolves.toEqual(['.git'])
     })
 
     it('still fails when the folder itself cannot be read', async () => {

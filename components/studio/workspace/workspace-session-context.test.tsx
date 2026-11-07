@@ -3,7 +3,13 @@ import { useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, notifyInfo, notifyWarning, type NotifyOptions } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure, confirmOverwriteDiskChange, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import {
+    confirmCloseAfterSaveFailure,
+    confirmDeleteHiddenFolders,
+    confirmOverwriteDiskChange,
+    confirmUnsavedChanges,
+    showError,
+} from '@/lib/tauri/dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
@@ -60,6 +66,7 @@ vi.mock('@/lib/tauri/dialog', () => ({
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
     confirmOverwriteDiskChange: vi.fn(async () => false),
+    confirmDeleteHiddenFolders: vi.fn(async () => false),
 }))
 
 const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
@@ -676,6 +683,39 @@ describe('file system errors', () => {
             await result.current.session.openWorkspace(path)
         })
     }
+
+    it('names the folders the file list hides before deleting a folder that has them', async () => {
+        await disk.write('C:\\ws\\sub\\.git\\HEAD', 'ref: refs/heads/main')
+        await disk.write('C:\\ws\\sub\\site\\node_modules\\x\\index.js', '')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+        expect(confirmDeleteHiddenFolders).toHaveBeenCalledWith('sub', expect.arrayContaining(['.git', 'site\\node_modules']))
+        // Cancelled: nothing is deleted.
+        expect(remove).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\sub\\.git\\HEAD')).toBe('ref: refs/heads/main')
+
+        vi.mocked(confirmDeleteHiddenFolders).mockResolvedValueOnce(true)
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+        expect(await disk.exists('C:\\ws\\sub')).toBe(false)
+    })
+
+    it("doesn't ask again before deleting a folder with nothing hidden in it", async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+
+        expect(confirmDeleteHiddenFolders).not.toHaveBeenCalled()
+        expect(await disk.exists('C:\\ws\\sub')).toBe(false)
+    })
 
     it('says why a delete failed and keeps the tabs of what is still there', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })

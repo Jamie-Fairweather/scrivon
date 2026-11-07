@@ -179,6 +179,31 @@ export async function confirmOpenLargeFile(fileName: string, size: string): Prom
     return result === confirm || result === 'Ok'
 }
 
+/**
+ * Asks before deleting a folder that also holds folders the file list doesn't show (`hidden`, such as .git
+ * or node_modules, from findHiddenFolders), since the user hasn't seen them. Resolves true only for Delete All.
+ */
+export async function confirmDeleteHiddenFolders(folderName: string, hidden: string[]): Promise<boolean> {
+    const shown = hidden.slice(0, 3)
+    const names =
+        hidden.length > shown.length
+            ? `${shown.join(', ')} and more`
+            : shown.length === 1
+              ? shown[0]!
+              : `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
+    const title = 'Delete hidden folders too?'
+    const body = `${folderName} also has ${names} in it, which Scrivon doesn't show in the file list.\n\nDeleting ${folderName} deletes them too. This can't be undone.`
+    const confirm = 'Delete All'
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}.`)
+    }
+
+    const result = await message(body, { title, kind: 'warning', buttons: { ok: confirm, cancel: 'Cancel' } })
+    return result === confirm || result === 'Ok'
+}
+
 /** What happened to a file outside Scrivon while it was open. */
 export type DiskChange = 'changed' | 'deleted'
 

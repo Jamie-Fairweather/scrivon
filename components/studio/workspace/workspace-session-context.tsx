@@ -4,11 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { defaultMarkdownFor } from '@/lib/default-markdown'
-import { pickWorkspaceFolder } from '@/lib/tauri/dialog'
+import { confirmDeleteHiddenFolders, pickWorkspaceFolder } from '@/lib/tauri/dialog'
 import {
     createWorkspaceDirectory,
     createWorkspaceFile,
     duplicateWorkspaceFile,
+    findHiddenFolders,
     getBaseName,
     getParentPath,
     isHiddenFolder,
@@ -605,6 +606,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const deleteEntry = useCallback(
         async (path: string, isDirectory: boolean) => {
+            if (isDirectory) {
+                // Deleting a folder takes everything in it, including folders the file list leaves out (a git
+                // repository, say), which the user agreed to without seeing them; so those are named first.
+                const hidden = await findHiddenFolders(path)
+                if (hidden.length > 0 && !(await confirmDeleteHiddenFolders(getBaseName(path), hidden))) return
+            }
             // A save due for a file being deleted must not write it back, so saves wait until its tabs are closed.
             const release = await coordinator.holdSaves.current(path, isDirectory)
             let whereNow = (id: string): string | null => id

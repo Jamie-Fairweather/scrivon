@@ -454,6 +454,40 @@ export async function removeWorkspacePath(path: string, { recursive = false }: {
     await remove(path, { recursive })
 }
 
+/**
+ * Folders inside `dirPath` that the file list leaves out (.git, node_modules, build output), as paths
+ * relative to it, so deleting it can say what else goes. Stops after `max`; links aren't followed (deleting
+ * a folder removes a link inside it, not what it leads to). A subfolder that can't be read is skipped.
+ */
+export async function findHiddenFolders(dirPath: string, max = 4): Promise<string[]> {
+    if (!isTauri()) return []
+    const found: string[] = []
+    const limit = createLimit(MAX_PARALLEL_READS)
+    const root = normalizePath(dirPath)
+    const sep = separatorFor(root)
+    const walk = async (path: string, prefix: string): Promise<void> => {
+        if (found.length >= max) return
+        let entries: DirEntry[]
+        try {
+            entries = await limit(() => readDir(path))
+        } catch {
+            return
+        }
+        const names = entries.map((entry) => entry.name)
+        await Promise.all(
+            entries
+                .filter((entry) => entry.isDirectory)
+                .map(async (entry) => {
+                    const relative = prefix ? `${prefix}${sep}${entry.name}` : entry.name
+                    if (!isHiddenFolder(entry.name, names)) return walk(joinPath(path, entry.name), relative)
+                    if (found.length < max) found.push(relative)
+                })
+        )
+    }
+    await walk(root, '')
+    return found
+}
+
 /** The names of everything directly inside a folder, read from disk rather than the cached tree. */
 export async function listFolderNames(dirPath: string): Promise<string[]> {
     if (!isTauri()) return []
