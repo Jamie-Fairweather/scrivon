@@ -149,6 +149,8 @@ describe('ColorPicker', () => {
                 rings.filter((name) => name.includes('/')),
                 part.className
             ).toEqual([])
+            // A plain outline-hidden leaves a transparent outline at rest, which Windows Contrast themes paint.
+            expect(part.className.split(/\s+/), part.className).not.toContain('outline-hidden')
         }
     })
 
