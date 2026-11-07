@@ -2,10 +2,17 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteProvider, useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
-import type { PaletteMode } from '@/components/studio/command-palette/types'
+import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
+import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
-const search = vi.hoisted(() => ({ enabled: false }))
+const search = vi.hoisted(() => ({
+    enabled: false,
+    groups: [] as PaletteGroup[],
+    runItem: (async () => {}) as (item: PaletteItem) => Promise<void>,
+}))
+
+vi.mock('@/components/studio/editor/editor-focus', () => ({ focusEditorFor: vi.fn() }))
 
 vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
     const { useCallback, useState } = await import('react')
@@ -18,12 +25,12 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
                 query,
                 setQuery,
                 resetSearch,
-                groups: [],
+                groups: search.groups,
                 isSearchingText: false,
                 textCapped: false,
                 textUnreadableFiles: 0,
                 textTruncatedFiles: 0,
-                runItem: async () => {},
+                runItem: (item: PaletteItem) => search.runItem(item),
                 hasWorkspace: true,
             }
         },
@@ -35,6 +42,11 @@ const palette: { openMode: (mode: PaletteMode) => void } = { openMode: () => {} 
 beforeAll(() => {
     // happy-dom has no Web Animations API, which Base UI's scroll area calls on a timer.
     if (typeof Element.prototype.getAnimations !== 'function') Element.prototype.getAnimations = () => []
+})
+
+beforeEach(() => {
+    search.groups = []
+    search.runItem = async () => {}
 })
 
 function CaptureOpenMode() {
@@ -150,5 +162,54 @@ describe('CommandPaletteProvider closing', () => {
 
         act(() => palette.openMode('files'))
         expect(screen.getByRole('combobox')).toHaveValue('')
+    })
+})
+
+describe('CommandPaletteProvider after a pick', () => {
+    const file: PaletteItem = {
+        kind: 'file',
+        value: 'file:/ws/notes.md',
+        searchText: 'notes.md',
+        path: '/ws/notes.md',
+        name: 'notes.md',
+        relativePath: 'notes.md',
+        documentKind: 'markdown',
+    }
+
+    beforeEach(() => {
+        vi.mocked(focusEditorFor).mockClear()
+        palette.openMode = () => {}
+        search.groups = [{ id: 'files', label: 'Files', items: [file] }]
+        search.runItem = async () => {}
+    })
+
+    it('puts the keyboard in the editor once the picked file has opened', async () => {
+        let finishOpening = () => {}
+        search.runItem = () => new Promise<void>((resolve) => (finishOpening = resolve))
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+
+        fireEvent.click(screen.getByRole('option', { name: /notes.md/ }))
+        // Not before the file is open: the editor would still show the old one.
+        await act(async () => {})
+        expect(focusEditorFor).not.toHaveBeenCalled()
+
+        await act(async () => finishOpening())
+        expect(focusEditorFor).toHaveBeenCalledWith('/ws/notes.md')
+    })
+
+    it('leaves focus alone after a command', async () => {
+        const run = vi.fn()
+        search.groups = [{ id: 'actions', label: 'Commands', items: [{ kind: 'action', value: 'action:x', searchText: 'x', label: 'Do X', run }] }]
+        search.runItem = async (item) => {
+            if (item.kind === 'action') await item.run()
+        }
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+
+        fireEvent.click(screen.getByRole('option', { name: /Do X/ }))
+
+        await waitFor(() => expect(run).toHaveBeenCalled())
+        expect(focusEditorFor).not.toHaveBeenCalled()
     })
 })

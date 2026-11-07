@@ -13,6 +13,7 @@ import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { documentKind } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -200,6 +201,38 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition, getEditorSelectedText })
     }, [coordinator, revealPosition, getEditorSelectedText])
+
+    // A file just opened or created (from the palette or the explorer's New menu) gets the keyboard once
+    // its tab shows and the editor is ready, so typing goes straight into it.
+    const pendingFocusRef = useRef<string | null>(null)
+    const focusPendingTab = useCallback(() => {
+        const path = pendingFocusRef.current
+        if (!path || !openRef.current || !editorRef.current || activeTabIdRef.current !== path) return
+        pendingFocusRef.current = null
+        // A frame later, so a dialog that is closing (the palette, the name prompt) has let go of focus.
+        requestAnimationFrame(() => {
+            if (openRef.current && activeTabIdRef.current === path) editorRef.current?.focus()
+        })
+    }, [])
+
+    useEffect(
+        () =>
+            registerEditorFocus((path) => {
+                // A hidden editor can't take focus; the user is working in the explorer or the preview.
+                if (!openRef.current) return
+                pendingFocusRef.current = path
+                focusPendingTab()
+            }),
+        [focusPendingTab]
+    )
+
+    // When another tab shows instead (the file couldn't be opened, or the user moved on), the request is dropped.
+    const shownTabId = activeTab?.id ?? null
+    useEffect(() => {
+        if (pendingFocusRef.current === null) return
+        if (shownTabId === pendingFocusRef.current) focusPendingTab()
+        else pendingFocusRef.current = null
+    }, [shownTabId, focusPendingTab])
 
     useEffect(() => {
         openRef.current = open
@@ -455,8 +488,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 revealMatch(editor, pending.line, pending.column, pending.length)
                 pendingRevealRef.current = null
             }
+            focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab]
     )
 
     useEffect(() => {

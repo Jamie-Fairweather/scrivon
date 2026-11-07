@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Spinner } from '@/components/ui/spinner'
+import { notifyError } from '@/lib/notify'
 
 type CommandPaletteDialogProps = {
     open: boolean
@@ -229,10 +230,22 @@ export function CommandPaletteDialog({
     hasWorkspace,
     onSelectItem,
 }: CommandPaletteDialogProps) {
+    // Set once an item is picked, until the palette opens again: a second Enter or click while it closes is ignored.
+    const busyRef = useRef(false)
+    useEffect(() => {
+        if (open) busyRef.current = false
+    }, [open])
+
+    // The palette closes first, so a slow item (a big folder, the large-file question) doesn't leave it
+    // sitting open. What the item does next (opening a file, a dialog) takes focus as it needs to.
     const handleSelect = useCallback(
-        async (item: PaletteItem) => {
-            await onSelectItem(item)
+        (item: PaletteItem) => {
+            if (busyRef.current) return
+            busyRef.current = true
             onOpenChange(false)
+            void Promise.resolve()
+                .then(() => onSelectItem(item))
+                .catch((err: unknown) => notifyError("Couldn't run that", err))
         },
         [onSelectItem, onOpenChange]
     )

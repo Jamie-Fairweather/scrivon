@@ -5,6 +5,7 @@ import { CommandPaletteDialog } from '@/components/studio/command-palette/comman
 import { queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
 import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
+import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type CommandPaletteContextValue = {
@@ -87,12 +88,11 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
 
     const handleSelectItem = useCallback(
         async (item: PaletteItem) => {
-            if (item.kind === 'text') {
-                await runItem(item)
-                coordinator.revealInEditor.current(item.path, item.line, item.column, item.length)
-                return
-            }
             await runItem(item)
+            // A text hit selects the match, which also focuses the editor. A file or tab picked here is
+            // there to be worked on, so the editor takes the keyboard as soon as it shows the file.
+            if (item.kind === 'text') coordinator.revealInEditor.current(item.path, item.line, item.column, item.length)
+            else if (item.kind === 'tab' || item.kind === 'file' || item.kind === 'recent') focusEditorFor(item.path)
         },
         [runItem, coordinator]
     )

@@ -3,6 +3,9 @@ import type { ComponentProps } from 'react'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import type { ActionPaletteItem, PaletteItem } from '@/components/studio/command-palette/types'
+import { notifyError } from '@/lib/notify'
+
+vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
 
 type DialogProps = ComponentProps<typeof CommandPaletteDialog>
 
@@ -290,5 +293,66 @@ describe('CommandPaletteDialog accessibility', () => {
     it('announces searching only once while nothing has matched yet', () => {
         renderDialog({ mode: 'text', query: 'oauth', isSearchingText: true })
         expect(screen.getAllByText(/^Searching file contents…/)).toHaveLength(1)
+    })
+})
+
+describe('CommandPaletteDialog picking an item', () => {
+    const openFolder: ActionPaletteItem = {
+        kind: 'action',
+        value: 'action:recent-workspace:C:\big',
+        searchText: 'recent workspace big',
+        label: 'Open Recent Folder: big',
+        run: () => {},
+    }
+    const groups = [{ id: 'actions', label: 'Commands', items: [openFolder] }]
+
+    it('closes before a slow item has finished, and ignores a second pick meanwhile', async () => {
+        const onSelectItem = vi.fn(() => new Promise<void>(() => {}))
+        const props = renderDialog({ query: '>big', groups, onSelectItem })
+        const option = screen.getByRole('option', { name: /Open Recent Folder: big/ })
+
+        fireEvent.click(option)
+        fireEvent.click(option)
+
+        expect(props.onOpenChange).toHaveBeenCalledWith(false)
+        await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(1))
+        expect(onSelectItem).toHaveBeenCalledWith(openFolder)
+    })
+
+    it('says so when the item fails', async () => {
+        const failure = new Error('boom')
+        renderDialog({ query: '>big', groups, onSelectItem: vi.fn(async () => Promise.reject(failure)) })
+
+        fireEvent.click(screen.getByRole('option', { name: /Open Recent Folder: big/ }))
+
+        await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't run that", failure))
+    })
+
+    it('lets the user pick again once the palette is opened again', async () => {
+        const onSelectItem = vi.fn()
+        const props: DialogProps = {
+            open: true,
+            onOpenChange: vi.fn(),
+            mode: 'all',
+            onModeChange: vi.fn(),
+            query: '>big',
+            onQueryChange: vi.fn(),
+            groups,
+            isSearchingText: false,
+            textCapped: false,
+            textTruncatedFiles: 0,
+            textUnreadableFiles: 0,
+            hasWorkspace: true,
+            onSelectItem,
+        }
+        const view = render(<CommandPaletteDialog {...props} />)
+        fireEvent.click(screen.getByRole('option', { name: /Open Recent Folder: big/ }))
+        await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(1))
+
+        view.rerender(<CommandPaletteDialog {...props} open={false} />)
+        view.rerender(<CommandPaletteDialog {...props} open />)
+        fireEvent.click(await screen.findByRole('option', { name: /Open Recent Folder: big/ }))
+
+        await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(2))
     })
 })

@@ -255,6 +255,7 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
 function tab(path: string, content: string): DocumentTab {
@@ -745,6 +746,78 @@ describe('CodeEditorPanel search hits', () => {
 
         view.rerender(<Panel open />)
         expect(coordinatorHandlers.getEditorSelectedText!()).toBe('TODO')
+    })
+})
+
+describe('CodeEditorPanel focus after opening a file', () => {
+    /** The focus waits a frame, for a closing dialog to let go first. */
+    const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+
+    it('focuses the editor once the file it was asked for is showing', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        act(() => focusEditorFor(b))
+        await nextFrame()
+        expect(editor.focused).toBe(false)
+
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
+        await waitFor(() => expect(editor.focused).toBe(true))
+    })
+
+    it('focuses straight away when that file is already showing', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+
+        act(() => focusEditorFor('/w/a.md'))
+
+        await waitFor(() => expect(editor.focused).toBe(true))
+    })
+
+    it('forgets the request when another file shows instead', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const c = '/w/c.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        // b.md couldn't be opened; the user then moves to c.md and later to b.md by hand.
+        act(() => focusEditorFor(b))
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C')], activeTabId: c })
+        setTabs(view, { tabs: [tab(a, 'A'), tab(c, 'C'), tab(b, 'B')], activeTabId: b })
+        await nextFrame()
+
+        expect(editor.focused).toBe(false)
+    })
+
+    it('leaves a hidden editor alone', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        view.rerender(<Panel open={false} />)
+
+        act(() => focusEditorFor('/w/a.md'))
+        await nextFrame()
+        view.rerender(<Panel open />)
+        await nextFrame()
+
+        expect(editor.focused).toBe(false)
+    })
+
+    it('focuses the new editor when the file opens with no tab open before', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view } = await mountEditor()
+
+        // Closing the last tab throws the editor away; the next file opens in a new one.
+        setTabs(view, { tabs: [], activeTabId: null })
+        setTabs(view, { tabs: [tab(b, 'B')], activeTabId: b })
+        act(() => focusEditorFor(b))
+
+        await waitFor(() => expect(editors).toHaveLength(2))
+        await waitFor(() => expect(editors[1]!.focused).toBe(true))
     })
 })
 
