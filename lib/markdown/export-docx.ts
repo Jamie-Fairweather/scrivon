@@ -1036,6 +1036,17 @@ function quoteMarks(state: RenderState): Marks {
     return state.quoteDepth > 0 ? { quote: true } : {}
 }
 
+/** Runs `render` with the content `extraLeft` twips further in, as it is drawn there. */
+function withExtraLeft<T>(state: RenderState, extraLeft: number, render: () => T): T {
+    const saved = state.extraLeft
+    state.extraLeft += extraLeft
+    try {
+        return render()
+    } finally {
+        state.extraLeft = saved
+    }
+}
+
 /** Renders blocks nested one step in: under a list item's text, or inside a quote. */
 async function nested<T>(state: RenderState, extraLeft: number, quote: boolean, render: () => Promise<T>): Promise<T> {
     const saved = { extraLeft: state.extraLeft, quoteDepth: state.quoteDepth }
@@ -1338,12 +1349,14 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     const prefix = item.checked === true ? '☑ ' : item.checked === false ? '☐ ' : ''
     for (const child of item.children) {
         if (child.type === 'paragraph') {
-            const inlines = renderInlines(state, child.children, quoteMarks(state))
+            const indent = listIndent(state, depth, !bare && !markerPlaced)
+            // The item's text starts a list step in, so its pictures are fitted to the width left from there.
+            const inlines = withExtraLeft(state, LIST_STEP * (depth + 1), () => renderInlines(state, child.children, quoteMarks(state)))
             if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix, quoteMarks(state)))
             blocks.push(
                 new Paragraph({
                     spacing: { after: 60, ...bodyLineSpacing(state) },
-                    indent: listIndent(state, depth, !bare && !markerPlaced),
+                    indent,
                     border: quoteBorder(state),
                     bidirectional: bidi(plainText(child)),
                     numbering: bare || markerPlaced ? undefined : { reference, level: 0 },

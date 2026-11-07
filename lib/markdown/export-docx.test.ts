@@ -491,6 +491,30 @@ describe('renderExportDocx', () => {
         expect(tocPage(xml, 'End')).toBe(4)
     })
 
+    it('fits pictures in list items to the width left beside the list, so they stay inside the margin (N39)', async () => {
+        const wide = (alt: string) => `![${alt}](${dataUrl('image/png', sizedPng(2000, 500))})`
+        const { xml } = await render(
+            [
+                `- ${wide('top')}`,
+                '    - nested',
+                '',
+                `        ${wide('nested')}`,
+                '',
+                '1. Click Settings',
+                '',
+                `   ${wide('step')}`,
+                '',
+                `> - ${wide('quoted')}`,
+            ].join('\n')
+        )
+        // The 718px text width less the list's step in: 24px at the top level, 48px one list in.
+        expect(drawingSize(xml, 'top')?.width).toBe(694)
+        expect(drawingSize(xml, 'nested')?.width).toBe(670)
+        expect(drawingSize(xml, 'step')?.width).toBe(694)
+        // In a quote, the quote's 16px step too.
+        expect(drawingSize(xml, 'quoted')?.width).toBe(678)
+    })
+
     it('estimates contents page numbers with a diagram in a list at the width it is drawn', async () => {
         renderMermaidDiagramForExport.mockImplementationOnce(() => '<svg viewBox="0 0 1436 2000"></svg>')
         svgToPngBlob.mockImplementationOnce(async () => new Blob([Uint8Array.from(sizedPng(2872, 4000))]))
