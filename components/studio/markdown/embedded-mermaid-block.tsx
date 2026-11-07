@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Maximize2 } from 'lucide-react'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { Button } from '@/components/ui/button'
@@ -10,26 +10,66 @@ import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 import { cn } from '@/lib/utils'
 
 const DIAGRAM_PADDING_X = 32
+/** Top padding (pt-10) plus bottom padding (pb-4): the top strip keeps the Expand button off the diagram. */
+const DIAGRAM_PADDING_Y = 56
+const MAX_BOUNDS_CACHE_ENTRIES = 100
+
+/**
+ * The tight bounds last measured for each block, and the SVG they were measured for, so a diagram that mounts
+ * again (switching back to its tab) is laid out at its measured size straight away, instead of at its padded size
+ * until its iframe loads and is measured again. One entry per block: editing a diagram replaces its own entry
+ * rather than pushing other diagrams out.
+ */
+const measuredBoundsByBlock = new Map<string, { svg: string; bounds: SvgContentBounds }>()
+
+function rememberMeasuredBounds(blockId: string, svg: string, bounds: SvgContentBounds): void {
+    measuredBoundsByBlock.delete(blockId)
+    measuredBoundsByBlock.set(blockId, { svg, bounds })
+    if (measuredBoundsByBlock.size > MAX_BOUNDS_CACHE_ENTRIES) {
+        const oldest = measuredBoundsByBlock.keys().next().value
+        if (oldest !== undefined) measuredBoundsByBlock.delete(oldest)
+    }
+}
+
+function rememberedBounds(blockId: string, svg: string): SvgContentBounds | null {
+    const remembered = measuredBoundsByBlock.get(blockId)
+    return remembered?.svg === svg ? remembered.bounds : null
+}
 
 type EmbeddedMermaidBlockProps = {
     source: string
     blockId: string
+    /** Position among the document's diagrams, from 0. Gives each Expand button its own name. */
+    ordinal: number
     tabId: string | null
-    onExpand: (blockId: string, source: string) => void
+    onExpand: (blockId: string, ordinal: number, source: string) => void
     className?: string
+}
+
+/** "Expand diagram 2", plus the diagram's accTitle when it has one, so screen readers can tell the buttons apart. */
+export function expandDiagramLabel(ordinal: number, source: string): string {
+    const title = /^\s*accTitle\s*:\s*(.+?)\s*$/m.exec(source)?.[1]
+    return title ? `Expand diagram ${ordinal + 1}: ${title}` : `Expand diagram ${ordinal + 1}`
 }
 
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
     return (
-        <Card className="pointer-events-none w-full select-none">
+        <Card className="w-full select-text">
             <CardPanel className="p-3">
-                <pre className="overflow-auto text-xs whitespace-pre-wrap text-muted-foreground">{message}</pre>
+                <pre className="overflow-auto text-xs wrap-anywhere whitespace-pre-wrap text-muted-foreground">{message}</pre>
             </CardPanel>
         </Card>
     )
 })
 
-export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source, blockId, tabId, onExpand, className }: EmbeddedMermaidBlockProps) {
+export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
+    source,
+    blockId,
+    ordinal,
+    tabId,
+    onExpand,
+    className,
+}: EmbeddedMermaidBlockProps) {
     const documentKey = tabId ? `${tabId}:block:${blockId}` : null
     const trimmed = source.trim()
     const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, documentKey)
@@ -52,7 +92,8 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
         }
     }, [svgForDisplay])
 
-    useEffect(() => {
+    // Measured before the browser paints, so a cached diagram's first frame is already scaled to fit.
+    useLayoutEffect(() => {
         const el = containerRef.current
         if (!el) return
 
@@ -64,14 +105,18 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
         return () => observer.disconnect()
     }, [blockId])
 
-    const onBoundsMeasured = useCallback((bounds: SvgContentBounds, measuredForSvg: string) => {
-        if (measuredForSvg === displayedSvgRef.current) {
-            setContentBounds(bounds)
-            setBoundsForSvg(measuredForSvg)
-        }
-    }, [])
+    const onBoundsMeasured = useCallback(
+        (bounds: SvgContentBounds, measuredForSvg: string) => {
+            rememberMeasuredBounds(blockId, measuredForSvg, bounds)
+            if (measuredForSvg === displayedSvgRef.current) {
+                setContentBounds(bounds)
+                setBoundsForSvg(measuredForSvg)
+            }
+        },
+        [blockId]
+    )
 
-    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : null
+    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : svgForDisplay ? rememberedBounds(blockId, svgForDisplay) : null
     const fitWidth = effectiveBounds?.width ?? dimensions?.width
     const fitHeight = effectiveBounds?.height ?? dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)
@@ -79,11 +124,14 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
     const layoutWidth = fitWidth ? fitWidth * scale : undefined
     const layoutHeight = fitHeight ? fitHeight * scale : undefined
 
-    const showDiagram = trimmed.length > 0 && Boolean(svgForDisplay) && !error && fitWidth != null && fitHeight != null
-    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0)
+    const diagramReady = trimmed.length > 0 && Boolean(svgForDisplay) && !error && fitWidth != null && fitHeight != null
+    // Without a width (not measured yet, or the preview is hidden) the diagram would draw at full size, so the
+    // placeholder holds its place instead.
+    const showDiagram = diagramReady && containerWidth > 0
+    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0 || diagramReady)
 
     return (
-        <div className={cn('relative my-4 w-full min-w-0', className)}>
+        <div className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
             <div className="absolute top-2 right-2 z-10">
                 <Button
                     type="button"
@@ -91,8 +139,8 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                     size="xs"
                     className="h-7 gap-1 shadow-sm"
                     disabled={!trimmed}
-                    onClick={() => onExpand(blockId, source)}
-                    aria-label="Expand diagram"
+                    onClick={() => onExpand(blockId, ordinal, source)}
+                    aria-label={expandDiagramLabel(ordinal, source)}
                     title="Expand diagram"
                 >
                     <Maximize2 className="size-3.5" />
@@ -105,14 +153,14 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({ source,
                     'relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-muted/30',
                     showPlaceholder ? 'flex min-h-[120px] items-center justify-center' : ''
                 )}
-                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + 32 } : undefined}
+                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + DIAGRAM_PADDING_Y } : undefined}
             >
                 {error ? (
-                    <div className="p-4">
+                    <div className="px-4 pt-10 pb-4">
                         <DiagramError message={error} />
                     </div>
                 ) : showDiagram && layoutWidth != null && layoutHeight != null ? (
-                    <div className="flex min-w-0 justify-center p-4">
+                    <div className="flex min-w-0 justify-center px-4 pt-10 pb-4">
                         <div className="relative shrink-0" style={{ width: layoutWidth, height: layoutHeight }}>
                             <div
                                 className="absolute top-0 left-0 origin-top-left"
