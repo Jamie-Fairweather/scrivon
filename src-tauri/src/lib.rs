@@ -1,4 +1,5 @@
 mod crash_report;
+mod legacy_profile;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
@@ -43,6 +44,22 @@ fn open_stores(app: &tauri::AppHandle) {
             eprintln!("Could not open {name}: {err}");
         }
     }
+}
+
+/// Builds the window from its entry in tauri.conf.json. That entry has
+/// `"create": false`, so Tauri doesn't build it before `setup` runs: the old
+/// profile has to be copied in before WebView2 opens it (see `legacy_profile`).
+fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .ok_or(tauri::Error::WindowNotFound)?
+        .clone();
+    tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+    Ok(())
 }
 
 /// Grants the frontend recursive access to a workspace folder, but only one the
@@ -101,10 +118,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
+            // First: the copied workspace.json must be there before the stores
+            // and the folder list read it, and the copied localStorage before
+            // the window opens its WebView2 profile.
+            legacy_profile::migrate(app);
             open_stores(app.handle());
             let data_dir = app.path().app_data_dir().ok();
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
-            // The main window was created before this runs.
+            build_main_window(app)?;
             crash_report::mark_started();
             Ok(())
         })
@@ -125,7 +146,7 @@ pub fn run() {
 }
 
 #[cfg(test)]
-mod capability_tests {
+mod config_tests {
     fn permissions() -> Vec<String> {
         let capability: serde_json::Value =
             serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
@@ -144,9 +165,21 @@ mod capability_tests {
         assert!(!permissions.iter().any(|p| p == "store:default"));
         assert!(!permissions.iter().any(|p| p == "store:allow-load"));
         // It still reaches the stores the app opened at startup.
-        for granted in ["store:allow-get-store", "store:allow-set", "store:allow-reload"] {
-            assert!(permissions.iter().any(|p| p == granted), "{granted}");
+        for granted in ["store:allow-get-store", "store:allow-save"] {
+            assert!(permissions.contains(&granted.to_owned()), "{granted}");
         }
+    }
+
+    #[test]
+    fn the_main_window_is_left_for_setup_to_build() {
+        // Built by build_main_window after the old profile is copied in. Tauri
+        // would otherwise build it first, and setup would then fail to start.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows = config["app"]["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0]["label"], "main");
+        assert_eq!(windows[0]["create"], false);
     }
 }
 

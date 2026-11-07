@@ -13,6 +13,8 @@
     "app": {
         "windows": [
             {
+                "label": "main",
+                "create": false,
                 "title": "Scrivon",
                 "width": 1440,
                 "height": 810,
