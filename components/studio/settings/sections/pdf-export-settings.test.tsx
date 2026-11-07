@@ -204,6 +204,20 @@ describe('PdfExportSettings fonts', () => {
         expect(screen.getByRole('combobox', { name: 'Monospace font' })).toHaveValue('Fira Code')
     })
 
+    it('lists only monospaced fonts for Monospace, keeping a saved one apart', async () => {
+        renderWithProfile(withMonoFont('Arial, Helvetica, sans-serif'))
+        const input = screen.getByRole('combobox', { name: 'Monospace font' })
+        expect(input).toHaveValue('Arial')
+        await userEvent.setup().click(input)
+        const listbox = await screen.findByRole('listbox')
+        const group = (name: string) =>
+            within(within(listbox).getByText(name).closest('[role="group"]') as HTMLElement)
+                .getAllByRole('option')
+                .map((option) => option.textContent)
+        expect(group('Saved font')).toEqual(['Arial'])
+        expect(group('Common fonts')).toEqual(['Consolas', 'Courier New', 'Monaco', 'UI Monospace'])
+    })
+
     it('filters the list as you type and saves the font picked', async () => {
         renderWithProfile(withMonoFont('"Fira Code", monospace'))
         const user = userEvent.setup()
@@ -224,7 +238,7 @@ describe('PdfExportSettings fonts', () => {
     })
 
     it('keeps what you typed when the installed fonts finish loading', async () => {
-        let finishLoading: (families: string[]) => void = () => {}
+        let finishLoading: (fonts: { family: string; monospace: boolean }[]) => void = () => {}
         vi.mocked(isTauri).mockReturnValue(true)
         vi.mocked(invoke).mockImplementation((command) =>
             command === 'list_system_fonts'

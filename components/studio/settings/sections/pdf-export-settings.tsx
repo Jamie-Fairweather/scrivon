@@ -140,7 +140,8 @@ function FontSelect({
     const [shownOptions, setShownOptions] = useState(options)
     if (!open && !focused && shownOptions !== options) setShownOptions(options)
     const slotOptions = useMemo(() => fontOptionsForSlot(shownOptions, slot), [shownOptions, slot])
-    const items = useMemo(() => ensureFontOption(slotOptions, value), [slotOptions, value])
+    // Checked against the whole list: a saved font the Monospace picker leaves out may still be installed.
+    const items = useMemo(() => ensureFontOption(slotOptions, value, shownOptions), [slotOptions, value, shownOptions])
     const groups = useMemo(() => groupFontOptions(items), [items])
     return (
         <Combobox
