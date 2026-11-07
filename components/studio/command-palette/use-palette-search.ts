@@ -34,7 +34,9 @@ import {
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
     // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
-    const foldedQuery = foldText(query)
+    // Each word may match anywhere, in any order ('code scrivon' finds C:\code\scrivon), but as typed rather
+    // than letter by letter, which would match most folders on the letters of their full paths.
+    const terms = foldText(query).split(/\s+/).filter(Boolean)
     const filtered = recentWorkspaces
         .map((path) => ({
             kind: 'workspace' as const,
@@ -43,7 +45,10 @@ function buildWorkspaceItems(recentWorkspaces: string[], query: string): Palette
             path,
             name: getBaseName(path),
         }))
-        .filter((item) => !query || foldText(item.searchText).includes(foldedQuery))
+        .filter((item) => {
+            const text = foldText(item.searchText)
+            return terms.every((term) => text.includes(term))
+        })
 
     if (filtered.length === 0) return null
     return { id: 'workspaces', label: 'Workspaces', items: filtered }

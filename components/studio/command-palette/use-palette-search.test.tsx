@@ -461,6 +461,26 @@ describe('usePaletteSearch recent folders', () => {
         act(() => result.current.setQuery('istanbul'))
         expect(groupPaths(result.current.groups, 'workspaces')).toEqual(['C:\\work\\İstanbul'])
     })
+
+    it('matches each typed word on its own, in any order', () => {
+        state.session.recentWorkspaces = ['C:\\work\\notes', 'C:\\code\\scrivon', 'D:\\scrivon-backup']
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('code scrivon'))
+        expect(groupPaths(result.current.groups, 'workspaces')).toEqual(['C:\\code\\scrivon'])
+        act(() => result.current.setQuery('scrivon code'))
+        expect(groupPaths(result.current.groups, 'workspaces')).toEqual(['C:\\code\\scrivon'])
+        act(() => result.current.setQuery('code nomatch'))
+        expect(groupPaths(result.current.groups, 'workspaces')).toEqual([])
+    })
+
+    it('keeps the most recent folder first when several match', () => {
+        state.session.recentWorkspaces = ['D:\\scrivon-backup', 'C:\\code\\scrivon']
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('scrivon'))
+        expect(groupPaths(result.current.groups, 'workspaces')).toEqual(['D:\\scrivon-backup', 'C:\\code\\scrivon'])
+    })
 })
 
 describe('usePaletteSearch theme toggle', () => {
