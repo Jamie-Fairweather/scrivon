@@ -133,10 +133,13 @@ jobs:
               with:
                   persist-credentials: false
 
-            - name: Install Rust stable
+            # Pinned, not stable: each Rust release adds clippy lints, and with -D warnings a
+            # new release would fail CI on changes that never touched Rust. Bump it on purpose
+            # and fix what the new clippy reports in the same change.
+            - name: Install Rust 1.97.1
               uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
               with:
-                  toolchain: stable
+                  toolchain: 1.97.1
                   components: clippy, rustfmt
 
             - name: Rust cache
