@@ -129,7 +129,7 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
         })
     }, [registerFitToView, fitToView])
 
-    useCanvasFitOnRequest(canvasFitRequestId, dimensions, fitToView)
+    useCanvasFitOnRequest(canvasFitRequestId, viewKey, dimensions, fitToView)
     useCanvasFitOnFirstView(dimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
 
     const emptyMessage = !viewKey
