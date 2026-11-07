@@ -127,9 +127,16 @@ export function collectUnreadableFolders(nodes: FileNode[]): FileNode[] {
     return found
 }
 
+/** True when part of the tree was left unread because the folder has too many files and folders to list them all. */
+export function isTreeTruncated(nodes: FileNode[]): boolean {
+    return nodes.some((node) => node.kind === 'directory' && (node.truncated === true || isTreeTruncated(node.children)))
+}
+
 function keepUnchangedNode(old: FileNode, node: FileNode): FileNode {
     if (old.kind === 'file' || node.kind === 'file') return old.kind === node.kind && old.name === node.name ? old : node
-    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside) return node
+    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside || old.truncated !== node.truncated) {
+        return node
+    }
     const children = keepUnchangedNodes(old.children, node.children)
     return children === old.children ? old : { ...node, children }
 }
@@ -173,8 +180,9 @@ export function changeAltersTree(
         for (const node of nodes) {
             listed.add(key(node.path))
             if (node.kind !== 'directory') continue
-            // An unreadable folder shows nothing inside it, however often it is read.
-            if (!node.unreadable) listedFolders.add(key(node.path))
+            // An unreadable folder, or one left unread in a folder too big to list, shows nothing inside it
+            // however often it is read.
+            if (!node.unreadable && !node.truncated) listedFolders.add(key(node.path))
             walk(node.children)
         }
     }

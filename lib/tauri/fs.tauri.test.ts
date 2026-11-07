@@ -72,6 +72,7 @@ import {
     watchWorkspace,
     writeWorkspaceFile,
 } from './fs'
+import { isTreeTruncated } from '@/lib/workspace/paths'
 
 describe('workspace fs (Tauri)', () => {
     beforeEach(() => {
@@ -377,6 +378,52 @@ describe('workspace fs (Tauri)', () => {
         ])
         expect(readDirMock).not.toHaveBeenCalledWith('D:\\System Volume Information')
         expect(readDirMock).not.toHaveBeenCalledWith('D:\\$RECYCLE.BIN')
+    })
+
+    it('stops going deeper once it has listed as many entries as it may, and marks the folders left unread', async () => {
+        const dir = (name: string) => ({ name, isDirectory: true, isFile: false, isSymlink: false })
+        const file = (name: string) => ({ name, isDirectory: false, isFile: true, isSymlink: false })
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === '/drive') return [dir('a'), dir('b'), file('top.md')]
+            if (dirPath === '/drive/a') return [dir('deep'), file('1.md'), file('2.md')]
+            if (dirPath === '/drive/b') return [file('3.md')]
+            return [file('never.md')]
+        })
+
+        const tree = await listWorkspaceTree('/drive', { maxEntries: 6 })
+
+        // 3 + 3 + 1 entries listed: the budget of 6 is gone before a/deep's turn.
+        expect(readDirMock).not.toHaveBeenCalledWith('/drive/a/deep')
+        expect(tree[0]).toEqual({
+            kind: 'directory',
+            name: 'a',
+            path: '/drive/a',
+            children: [
+                { kind: 'directory', name: 'deep', path: '/drive/a/deep', children: [], truncated: true },
+                { kind: 'file', name: '1.md', path: '/drive/a/1.md' },
+                { kind: 'file', name: '2.md', path: '/drive/a/2.md' },
+            ],
+        })
+        expect(tree.map((node) => node.name)).toEqual(['a', 'b', 'top.md'])
+        // A normal folder is read to the end.
+        readDirMock.mockClear()
+        expect(isTreeTruncated(await listWorkspaceTree('/drive'))).toBe(false)
+        expect(readDirMock).toHaveBeenCalledWith('/drive/a/deep')
+    })
+
+    it('stops reading when the read is replaced, and rejects instead of returning part of the tree', async () => {
+        const controller = new AbortController()
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === '/ws') {
+                // Another folder is picked while the first listing is still on its way.
+                controller.abort()
+                return [{ name: 'sub', isDirectory: true, isFile: false, isSymlink: false }]
+            }
+            return []
+        })
+
+        await expect(listWorkspaceTree('/ws', { signal: controller.signal })).rejects.toThrow()
+        expect(readDirMock).toHaveBeenCalledTimes(1)
     })
 
     it('lists several folders at once, never more than eight, and builds the same tree', async () => {

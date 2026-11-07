@@ -175,12 +175,36 @@ const WINDOWS_COMPAT_LINKS = new Set([
 const OUTSIDE_OPENED_FOLDER = /forbidden path/i
 
 /**
+ * The most files and folders one read of the tree lists. Opening a whole drive or a big network share would
+ * otherwise read all of it, hundreds of thousands of round trips, and hold it all in memory.
+ */
+export const MAX_TREE_ENTRIES = 50_000
+
+/** One read of a tree: its share of the parallel listings, the entries it may still list, and when to stop. */
+type TreeRead = { limit: Limit; budget: { left: number }; signal?: AbortSignal }
+
+/** A folder's node, read through `read`: empty and marked when it can't be listed, or isn't because the budget ran out. */
+async function readFolderNode(name: string, fullPath: string, read: TreeRead, insideLink: boolean): Promise<FileNode> {
+    try {
+        const children = await readDirTree(fullPath, read, insideLink)
+        return children
+            ? { kind: 'directory', name, path: fullPath, children }
+            : { kind: 'directory', name, path: fullPath, children: [], truncated: true }
+    } catch (err) {
+        // A read that was replaced stops altogether.
+        if (read.signal?.aborted) throw err
+        // One folder that can't be read (no permission, or deleted mid-scan) mustn't stop the rest from opening.
+        return { kind: 'directory', name, path: fullPath, children: [], unreadable: true }
+    }
+}
+
+/**
  * A symlink or junction, as the file or folder it points to. Links inside a linked folder aren't followed,
  * so a link back up the tree can't lead round in a circle. Broken links are left out, and so are linked
  * folders that can't be listed: Windows puts such links in every user folder ('My Music' in Documents).
  * A link that leads outside the opened folder can't be followed yet; it is kept, empty and marked.
  */
-async function readLink(entry: DirEntry, fullPath: string, siblingNames: string[], limit: Limit, insideLink: boolean): Promise<FileNode | null> {
+async function readLink(entry: DirEntry, fullPath: string, siblingNames: string[], read: TreeRead, insideLink: boolean): Promise<FileNode | null> {
     if (insideLink) return null
     let target: Awaited<ReturnType<typeof stat>>
     try {
@@ -196,45 +220,55 @@ async function readLink(entry: DirEntry, fullPath: string, siblingNames: string[
     }
     if (target.isFile) return { kind: 'file', name: entry.name, path: fullPath }
     if (!target.isDirectory || isHiddenFolder(entry.name, siblingNames)) return null
-    try {
-        return { kind: 'directory', name: entry.name, path: fullPath, children: await readDirTree(fullPath, limit, true) }
-    } catch {
-        return null
-    }
+    const node = await readFolderNode(entry.name, fullPath, read, true)
+    return node.kind === 'directory' && node.unreadable ? null : node
 }
 
-async function readDirTree(dirPath: string, limit: Limit, insideLink = false): Promise<FileNode[]> {
+/** The entries of a folder and everything in it, or null when it wasn't listed because the budget had run out. */
+async function readDirTree(dirPath: string, read: TreeRead, insideLink = false): Promise<FileNode[] | null> {
     // Only the listing itself takes a place, never the wait for subfolders, so nested folders can't block each other.
-    const entries = await limit(() => readDir(dirPath))
+    // The budget is checked when the listing's turn comes, so folders queued behind others stop as soon as it is used up.
+    const entries = await read.limit(async () => {
+        read.signal?.throwIfAborted()
+        if (read.budget.left <= 0) return null
+        const listed = await readDir(dirPath)
+        read.budget.left -= listed.length
+        return listed
+    })
+    if (!entries) return null
     const names = entries.map((entry) => entry.name)
     const nodes = await Promise.all(
         entries.map(async (entry): Promise<FileNode | null> => {
             const fullPath = joinPath(dirPath, entry.name)
-            if (entry.isDirectory) {
-                if (isHiddenFolder(entry.name, names)) return null
-                try {
-                    return { kind: 'directory', name: entry.name, path: fullPath, children: await readDirTree(fullPath, limit, insideLink) }
-                } catch {
-                    // One folder that can't be read (no permission, or deleted mid-scan) mustn't stop the rest from opening.
-                    return { kind: 'directory', name: entry.name, path: fullPath, children: [], unreadable: true }
-                }
-            }
+            if (entry.isDirectory) return isHiddenFolder(entry.name, names) ? null : readFolderNode(entry.name, fullPath, read, insideLink)
             if (isSaveTempFile(entry.name)) return null
             if (entry.isFile) return { kind: 'file', name: entry.name, path: fullPath }
-            if (entry.isSymlink) return readLink(entry, fullPath, names, limit, insideLink)
+            if (entry.isSymlink) return readLink(entry, fullPath, names, read, insideLink)
             return null
         })
     )
     return nodes.filter((node): node is FileNode => node !== null).sort(compareEntries)
 }
 
+export type ListWorkspaceTreeOptions = {
+    /** Stops the read (it then rejects) once another read replaces it, such as another folder being opened. */
+    signal?: AbortSignal
+    /** MAX_TREE_ENTRIES unless given. */
+    maxEntries?: number
+}
+
 /**
  * Reads the whole folder, listing several subfolders at once. Throws when the folder itself can't be
- * read; a subfolder that can't be read is kept, empty and marked `unreadable`.
+ * read; a subfolder that can't be read is kept, empty and marked `unreadable`. Once `maxEntries` files and
+ * folders are listed, the folders not read yet are kept empty and marked `truncated` (see isTreeTruncated).
  */
-export async function listWorkspaceTree(rootPath: string): Promise<FileNode[]> {
+export async function listWorkspaceTree(
+    rootPath: string,
+    { signal, maxEntries = MAX_TREE_ENTRIES }: ListWorkspaceTreeOptions = {}
+): Promise<FileNode[]> {
     if (!isTauri()) return []
-    return readDirTree(normalizePath(rootPath), createLimit(MAX_PARALLEL_READS))
+    const tree = await readDirTree(normalizePath(rootPath), { limit: createLimit(MAX_PARALLEL_READS), budget: { left: maxEntries }, signal })
+    return tree ?? []
 }
 
 function stampOf(info: { size: number; mtime: Date | null }): FileStamp {

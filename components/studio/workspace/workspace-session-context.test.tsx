@@ -1520,6 +1520,56 @@ describe('opening folders one after another', () => {
         expect(result.current.session.openingWorkspace).toBeNull()
     })
 
+    it('stops reading the earlier folder once another one is picked', async () => {
+        await disk.write('C:\\big\\sub\\deep.md', 'D')
+        const finishBig = slowFolder('C:\\big')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let openingBig!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\small')
+        })
+        await act(async () => {
+            finishBig()
+            await openingBig
+        })
+
+        // C:\big itself had been asked for already; nothing inside it is read after the switch.
+        expect(readDir).not.toHaveBeenCalledWith('C:\\big\\sub')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('says, until closed, when a folder has too many files to show them all', async () => {
+        const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+            if (dir === 'D:\\big') return Array.from({ length: 50_001 }, (_, i) => entry(`f${i}.md`, false))
+            if (dir === 'D:\\sub') return [entry('deeper', true)]
+            return [entry('x.md', false)]
+        }) as unknown as typeof readDir)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('D:\\')
+        })
+
+        expect(readDir).not.toHaveBeenCalledWith('D:\\sub\\deeper')
+        expect(result.current.session.tree[1]).toMatchObject({ name: 'sub', children: [{ name: 'deeper', children: [], truncated: true }] })
+        expect(notifyWarning).toHaveBeenCalledWith(
+            'D:\\ has too many files to show them all',
+            expect.objectContaining({ id: 'folder-too-big', timeout: 0, description: expect.stringContaining('50,000') })
+        )
+
+        await act(async () => {
+            await result.current.session.closeWorkspace()
+        })
+        expect(dismissNotification).toHaveBeenCalledWith('folder-too-big')
+    })
+
     it('opens the folder clicked last when it is picked while a slow save holds up leaving the open one', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await act(async () => {

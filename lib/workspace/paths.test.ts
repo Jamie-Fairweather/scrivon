@@ -9,6 +9,7 @@ import {
     findNameClash,
     findNodeByPath,
     folderLabels,
+    isTreeTruncated,
     keepUnchangedNodes,
     nameTakenMessage,
     shortenPath,
@@ -194,6 +195,21 @@ describe('keepUnchangedNodes', () => {
         const locked = copy(sampleTree)
         locked[0] = { kind: 'directory', name: 'docs', path: '/ws/docs', children: [], unreadable: true }
         expect(keepUnchangedNodes(sampleTree, locked)[0]).toEqual(locked[0])
+    })
+
+    it('notices a folder that was left unread, or is read in full again', () => {
+        const empty: FileNode[] = [{ kind: 'directory', name: 'docs', path: '/ws/docs', children: [] }]
+        const cut: FileNode[] = [{ kind: 'directory', name: 'docs', path: '/ws/docs', children: [], truncated: true }]
+        expect(keepUnchangedNodes(empty, cut)[0]).toBe(cut[0])
+        expect(keepUnchangedNodes(cut, empty)[0]).toBe(empty[0])
+    })
+})
+
+describe('isTreeTruncated', () => {
+    it('finds a folder left unread at any depth', () => {
+        const cut = { kind: 'directory' as const, name: 'deep', path: '/ws/docs/deep', children: [], truncated: true as const }
+        expect(isTreeTruncated([{ kind: 'directory', name: 'docs', path: '/ws/docs', children: [cut] }, ...sampleTree])).toBe(true)
+        expect(isTreeTruncated(sampleTree)).toBe(false)
     })
 })
 

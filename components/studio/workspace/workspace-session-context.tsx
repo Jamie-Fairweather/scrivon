@@ -18,6 +18,7 @@ import {
     joinPath,
     listFolderNames,
     listWorkspaceTree,
+    MAX_TREE_ENTRIES,
     normalizePath,
     readWorkspaceTextFile,
     removeWorkspacePath,
@@ -46,6 +47,7 @@ import {
     childrenOf,
     collectUnreadableFolders,
     entryNameError,
+    isTreeTruncated,
     keepUnchangedNodes,
     uniqueFileName,
     uniqueNewName,
@@ -96,6 +98,7 @@ const WorkspaceSessionContext = createContext<WorkspaceSessionContextValue | nul
 
 const RECOVERED_CHANGES_NOTICE_ID = 'recovered-changes'
 const OPENING_NOTICE_ID = 'opening-folder'
+const TRUNCATED_NOTICE_ID = 'folder-too-big'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
 /** The least time between two reads of the folder when the window gets focus or another app changes it. */
@@ -141,6 +144,22 @@ function warnAboutUnreadableFolders(tree: FileNode[]) {
               ? "Scrivon may not have permission to open them, or they link to folders outside the one you opened, which it can't open yet."
               : 'Scrivon may not have permission to open them.'
     notifyWarning(`Couldn't read ${folders.length} folders`, { description: `${names}${more} show as empty. ${why}` })
+}
+
+/**
+ * Says, until it is closed, when the folder just opened has too many files and folders to list them all (a
+ * whole drive, say), so the folders left unread showing as empty don't look like a mistake.
+ */
+function warnIfTruncated(tree: FileNode[], name: string) {
+    if (!isTreeTruncated(tree)) {
+        dismissNotification(TRUNCATED_NOTICE_ID)
+        return
+    }
+    notifyWarning(`${name} has too many files to show them all`, {
+        id: TRUNCATED_NOTICE_ID,
+        description: `Scrivon stopped after ${MAX_TREE_ENTRIES.toLocaleString()} files and folders, so some folders show as empty. Open a folder inside it to see everything there.`,
+        timeout: 0,
+    })
 }
 
 export function useWorkspaceSession(): WorkspaceSessionContextValue {
@@ -231,21 +250,32 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
     }, [isDesktop])
 
-    /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
-    // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown.
+    // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown, and
+    // an older one still running stops reading.
     const treeRead = useRef(0)
+    const treeReadAbort = useRef<AbortController | null>(null)
 
+    /** Starts a new read of the tree (or, for a folder switch, just stops the ones running): its number and its signal. */
+    const startTreeRead = useCallback(() => {
+        treeReadAbort.current?.abort()
+        const controller = new AbortController()
+        treeReadAbort.current = controller
+        return { read: ++treeRead.current, signal: controller.signal }
+    }, [])
+
+    /** Re-reads the folder. A failure is reported rather than thrown, so the action that changed the disk still finishes. */
     const refreshTree = useCallback(async () => {
         if (!workspaceRoot) return
-        const read = ++treeRead.current
+        const { read, signal } = startTreeRead()
         try {
-            const next = await listWorkspaceTree(workspaceRoot)
+            const next = await listWorkspaceTree(workspaceRoot, { signal })
             // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
             if (read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
         } catch (err) {
-            notifyError("Couldn't refresh the file list", err)
+            // A newer read took over, and shows the change.
+            if (!signal.aborted) notifyError("Couldn't refresh the file list", err)
         }
-    }, [workspaceRoot])
+    }, [workspaceRoot, startTreeRead])
 
     // The tree shown now, for telling whether a change seen by the watcher alters it.
     const treeRef = useRef(tree)
@@ -271,9 +301,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         let treeWanted = false
         let seen: { added: string[]; removed: string[] } = { added: [], removed: [] }
         const readTree = async () => {
-            const read = ++treeRead.current
+            const { read, signal } = startTreeRead()
             try {
-                const next = await listWorkspaceTree(root)
+                const next = await listWorkspaceTree(root, { signal })
                 // Nothing changed, nothing redraws: the tree shown now is kept as it is.
                 if (!disposed && read === treeRead.current) setTree((prev) => keepUnchangedNodes(prev, next))
             } catch {
@@ -363,7 +393,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             unlisten?.()
             unwatch?.()
         }
-    }, [isDesktop, workspaceRoot, coordinator])
+    }, [isDesktop, workspaceRoot, coordinator, startTreeRead])
 
     const removeRecent = useCallback(async (path: string) => {
         try {
@@ -494,7 +524,16 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     // Every open or close of a folder gets the next number. An open that a newer one has replaced (the user
     // clicked another folder while a big one was still being read) stops where it is and changes nothing.
     const workspaceRequest = useRef(0)
+    const workspaceReadAbort = useRef<AbortController | null>(null)
     const [openingWorkspace, setOpeningWorkspace] = useState<string | null>(null)
+
+    /** Starts a new open or close of a folder; a folder an older one is still reading stops being read. */
+    const startWorkspaceRequest = useCallback(() => {
+        workspaceReadAbort.current?.abort()
+        const controller = new AbortController()
+        workspaceReadAbort.current = controller
+        return { request: ++workspaceRequest.current, signal: controller.signal }
+    }, [])
 
     const openWorkspace = useCallback(
         async (requestedPath: string) => {
@@ -505,7 +544,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (openRoot && samePath(path, openRoot)) {
                 // The folder that is already open (it tops Open Recent): its tabs, unsaved edits and undo history
                 // stay as they are. A folder still being opened is dropped, so the one clicked last wins.
-                workspaceRequest.current += 1
+                startWorkspaceRequest()
                 setOpeningWorkspace(null)
                 dismissNotification(OPENING_NOTICE_ID)
                 // Saved under the open folder's own spelling, which its saved tabs are kept under.
@@ -515,7 +554,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshTree()
                 return
             }
-            const request = ++workspaceRequest.current
+            const { request, signal } = startWorkspaceRequest()
             const isCurrent = () => request === workspaceRequest.current
             const name = getBaseName(path) || path
             setOpeningWorkspace(path)
@@ -528,7 +567,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 let nextTree: FileNode[]
                 try {
                     await allowWorkspacePath(path)
-                    nextTree = await listWorkspaceTree(path)
+                    // Stops reading as soon as another folder is picked (or this one closed), however big it is.
+                    nextTree = await listWorkspaceTree(path, { signal })
                     if (!isCurrent()) return
                     // Leaving the open folder closes its tabs, so unsaved or unsavable edits are dealt with first. That
                     // happens only now, right before switching, so nothing typed while the new folder was read is lost.
@@ -551,10 +591,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 const leaving = workspaceRootRef.current ? coordinator.persistWorkspaceTabSession.current() : null
                 workspaceRootRef.current = path
                 setWorkspaceRoot(path)
-                treeRead.current += 1
+                startTreeRead()
                 setTree(nextTree)
                 coordinator.clearTabs.current()
                 warnAboutUnreadableFolders(nextTree)
+                warnIfTruncated(nextTree, name)
                 void leaving?.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err))
                 // The new folder's tree opens folders as it had them last time.
                 updateFolderToggles(null, () => new Map())
@@ -595,6 +636,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             refreshTree,
             updateFolderToggles,
             coordinator,
+            startWorkspaceRequest,
+            startTreeRead,
         ]
     )
 
@@ -616,10 +659,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     const closeWorkspace = useCallback(async () => {
         if (!(await coordinator.confirmCloseTabs.current())) return
         // Closing is the newest request: a folder still being opened, or a file list still being read, is dropped.
-        workspaceRequest.current += 1
-        treeRead.current += 1
+        startWorkspaceRequest()
+        startTreeRead()
         setOpeningWorkspace(null)
         dismissNotification(OPENING_NOTICE_ID)
+        dismissNotification(TRUNCATED_NOTICE_ID)
         const leaving = coordinator.persistWorkspaceTabSession.current()
         workspaceRootRef.current = null
         setWorkspaceRoot(null)
@@ -633,7 +677,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err)),
             settleUnsavedBackups(),
         ])
-    }, [coordinator, updateFolderToggles])
+    }, [coordinator, updateFolderToggles, startWorkspaceRequest, startTreeRead])
 
     const suggestName = useCallback(
         (parentPath: string, name: string) =>
