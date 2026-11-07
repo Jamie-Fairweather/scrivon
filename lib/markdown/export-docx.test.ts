@@ -977,8 +977,8 @@ describe('renderExportDocx', () => {
         const { parts } = await render([...lists, '> - quoted dot', '', '1. first', '', 'Gap.', '', '1. second'].join('\n'))
         const body = parts['word/document.xml']!
         const numId = (text: string) => /<w:numId w:val="(\d+)"\/>/.exec(blockWith(body, text))?.[1]
-        // docx rewrites the whole file once per numbering, so one per bullet list made export time grow with the square of the size.
-        // Now there is docx's own default, one each for top-level, nested, and quoted bullets, and one per numbered list.
+        // Bullets never restart, so there is docx's own default, one each for top-level, nested, and quoted bullets,
+        // and one per numbered list.
         expect(parts['word/numbering.xml']!.match(/<w:num w:numId=/g)).toHaveLength(1 + 3 + 2)
         expect(numId('dot 39')).toBe(numId('dot 0'))
         expect(numId('sub 39')).toBe(numId('sub 0'))
@@ -988,6 +988,23 @@ describe('renderExportDocx', () => {
         expect(blockWith(body, 'quoted dot')).toContain('<w:ind w:left="600" w:hanging="360"/>')
         // Numbered lists still restart.
         expect(numId('second')).not.toBe(numId('first'))
+    })
+
+    it('gives each of hundreds of numbered lists its own numbering, with every placeholder filled in', async () => {
+        const count = 500
+        const lists = Array.from({ length: count }, (_, index) => [`${index + 1}. item ${index}`, '', `Gap ${index}.`, '']).flat()
+        const { parts } = await render(lists.join('\n'))
+        const body = parts['word/document.xml']!
+        const ids = [...body.matchAll(/<w:numId w:val="(\d+)"\/>/g)].map((match) => match[1])
+        // docx 9.12 fills in every list's number in one pass over the document, not one pass per list.
+        expect(ids).toHaveLength(count)
+        expect(new Set(ids).size).toBe(count)
+        expect(parts['word/numbering.xml']!.match(/<w:num w:numId=/g)).toHaveLength(1 + count)
+        expect(body).not.toMatch(/\{list-\d+-\d+\}/)
+        // Each list keeps the number it starts at.
+        const start = (id: string | undefined) =>
+            new RegExp(`<w:num w:numId="${id}">[\\s\\S]*?<w:startOverride w:val="(\\d+)"/>`).exec(parts['word/numbering.xml']!)?.[1]
+        expect(start(/<w:numId w:val="(\d+)"\/>/.exec(blockWith(body, `item ${count - 1}`))?.[1])).toBe(String(count))
     })
 
     it('uses the first of two link definitions, and draws reference-style pictures', async () => {

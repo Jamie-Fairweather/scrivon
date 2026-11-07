@@ -1072,8 +1072,8 @@ const BULLETS = ['•', '◦', '▪'] as const
 
 /**
  * The numbering a list's items use. Each numbered list gets its own, so it starts at its own number. Bullet lists
- * at the same depth and indent share one: docx rewrites the whole document once per numbering, so one per list
- * made long documents take seconds to export.
+ * at the same depth and indent share one, since bullets never restart. (docx 9.12 fills in every list's number in
+ * one pass over the document, so many numbered lists stay quick to export.)
  */
 function listNumbering(state: RenderState, ordered: boolean, depth: number, start: number): string {
     const bulletKey = ordered ? null : `${depth}:${state.extraLeft}`
