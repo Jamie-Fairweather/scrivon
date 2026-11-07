@@ -1,7 +1,7 @@
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
-import { SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME } from '@/lib/theme/catalog'
+import { isLightTheme, SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME, type AppThemeId } from '@/lib/theme/catalog'
 import { getBaseName } from '@/lib/tauri/fs'
 import type { KeybindBindings } from '@/lib/settings/types'
 import type { ActionPaletteItem } from '@/components/studio/command-palette/types'
@@ -41,7 +41,8 @@ function shortcut(actionId: Parameters<typeof formatKeybindForAction>[0], keybin
 
 export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPaletteItem[] {
     const hasWorkspace = Boolean(ctx.workspaceRoot)
-    const hasActiveTab = Boolean(ctx.activeTabId)
+    // Tabs are only on screen while a folder is open, so tab commands need both.
+    const hasActiveTab = Boolean(ctx.activeTabId) && hasWorkspace
     const hasWorkspaceTab = hasActiveTab && ctx.activeTabId !== null && !isExampleTabId(ctx.activeTabId)
 
     const actions: ActionPaletteItem[] = [
@@ -186,6 +187,9 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: `action:example:${example.id}`,
             searchText: `example ${example.title} ${example.category}`,
             label: `Open Example: ${example.title}`,
+            // With no folder open only the welcome screen shows, so the example tab would stay hidden.
+            disabled: !hasWorkspace,
+            disabledReason: 'Open a folder first',
             run: () => ctx.openExample(example.id),
         })
     }
@@ -196,6 +200,8 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             value: `action:recent-workspace:${path}`,
             searchText: `recent workspace ${getBaseName(path)} ${path}`,
             label: `Open Recent Folder: ${getBaseName(path)}`,
+            // Two recent folders can share a name, so show where each one is.
+            detail: path,
             disabled: !ctx.isDesktop,
             disabledReason: 'Desktop only',
             run: () => void ctx.openWorkspace(path),
@@ -205,6 +211,33 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
     return actions
 }
 
-export function createToggleLightDark(isLight: boolean, setThemeId: (id: typeof SYSTEM_LIGHT_THEME | typeof SYSTEM_DARK_THEME) => void): () => void {
-    return () => setThemeId(isLight ? SYSTEM_DARK_THEME : SYSTEM_LIGHT_THEME)
+/** The other half of each theme family that has both a light and a dark version. */
+export const THEME_TWINS: Partial<Record<AppThemeId, AppThemeId>> = {
+    'scrivon-light': 'scrivon-dark',
+    'scrivon-dark': 'scrivon-light',
+    'zinc-light': 'zinc-dark',
+    'zinc-dark': 'zinc-light',
+    'tokyo-night': 'tokyo-night-light',
+    'tokyo-night-storm': 'tokyo-night-light',
+    'tokyo-night-light': 'tokyo-night',
+    'catppuccin-mocha': 'catppuccin-latte',
+    'catppuccin-latte': 'catppuccin-mocha',
+    nord: 'nord-light',
+    'nord-light': 'nord',
+    'github-light': 'github-dark',
+    'github-dark': 'github-light',
+    'solarized-light': 'solarized-dark',
+    'solarized-dark': 'solarized-light',
+}
+
+/** The last light/dark switch, so switching back returns to the theme the user had. */
+export type ThemeToggle = { from: AppThemeId; to: AppThemeId }
+
+/**
+ * Where 'Switch to Light/Dark Theme' goes from `current`: back to the theme the last switch
+ * came from, else the same family's light or dark twin, else Scrivon Light or Dark.
+ */
+export function themeToggleTarget(current: AppThemeId, lastToggle: ThemeToggle | null): AppThemeId {
+    if (lastToggle && lastToggle.to === current && isLightTheme(lastToggle.from) !== isLightTheme(current)) return lastToggle.from
+    return THEME_TWINS[current] ?? (isLightTheme(current) ? SYSTEM_DARK_THEME : SYSTEM_LIGHT_THEME)
 }
