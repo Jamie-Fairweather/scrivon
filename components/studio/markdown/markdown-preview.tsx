@@ -193,7 +193,14 @@ const staticMarkdownComponents: Components = {
     },
     ul: (props) => {
         const { className, ...rest } = withoutNode(props)
-        return <ul {...rest} className={cn('mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90', className)} />
+        // Disc, then circle, then square for lists inside lists, as the PDF and Word show them. The descendant
+        // selectors outrank the nested list's own list-disc.
+        return (
+            <ul
+                {...rest}
+                className={cn('mb-3 list-disc space-y-1 ps-5 text-sm text-foreground/90 [&_ul]:list-[circle] [&_ul_ul]:list-[square]', className)}
+            />
+        )
     },
     // `start` comes through, so a list that resumes at 3 is numbered from 3.
     ol: (props) => {

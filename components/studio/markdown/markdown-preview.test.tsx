@@ -58,6 +58,14 @@ describe('MarkdownPreview', () => {
             expect(container.querySelector('ol')).toHaveAttribute('start', '3')
         })
 
+        it('shows disc, circle and square bullets for lists inside lists, as the PDF and Word do (B91)', () => {
+            const { container } = preview('- one\n  - two\n    - three\n      - four')
+            const lists = Array.from(container.querySelectorAll('ul'))
+            expect(lists).toHaveLength(4)
+            // Every list carries the rules; which one applies depends on how deep it sits.
+            for (const list of lists) expect(list).toHaveClass('list-disc', '[&_ul]:list-[circle]', '[&_ul_ul]:list-[square]')
+        })
+
         it('shows a task item’s checkbox in place of its bullet', () => {
             const { container } = preview('- [ ] buy milk\n- [x] buy bread\n- no checkbox')
             const list = container.querySelector('ul')!
