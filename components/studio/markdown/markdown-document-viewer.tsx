@@ -344,9 +344,11 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             const pendingAnchor = pendingAnchorRef.current
             pendingAnchorRef.current = null
             const root = scrollAreaRef.current
-            if (root && pendingAnchor?.tabId === tabId && findAnchorTarget(root, pendingAnchor.id)) {
+            // The same file however its path is written: openFile tidies the path it was given into the tab's id.
+            const opened = pendingAnchor && tabId && isSamePath(pendingAnchor.tabId, tabId) ? pendingAnchor : null
+            if (root && opened && findAnchorTarget(root, opened.id)) {
                 // Held there while the diagrams above it are drawn, which would push it down or out of view.
-                return holdAnchorInView(root, pendingAnchor.id)
+                return holdAnchorInView(root, opened.id)
             }
         }
 

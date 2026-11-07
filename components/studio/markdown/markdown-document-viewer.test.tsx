@@ -536,6 +536,19 @@ describe('MarkdownDocumentViewer', () => {
             expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
         })
 
+        it('still scrolls to the #fragment of a file the explorer doesn’t list, once its tab opens under the tidied path (N23)', () => {
+            const { container, rerender } = render(viewer(DOC_A, '[new](docs/sub/new.md#part)'))
+            fireEvent.click(screen.getByRole('link', { name: 'new' }))
+            expect(workspace.openFile).toHaveBeenCalledWith('C:\\notes/docs/sub/new.md')
+
+            // What openFile really does: the tab's id is the path with `\` throughout.
+            const opened = 'C:\\notes\\docs\\sub\\new.md'
+            workspace.tabs = [fileTab(DOC_A), fileTab(opened)]
+            rerender(viewer(opened, '# New\n\n## Part'))
+            expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('h2#user-content-part'))
+        })
+
         describe('while the diagrams above the linked section are drawn (N22)', () => {
             /** The resize observers in use, and what each one watches. */
             const observers = new Set<{ callback: ResizeObserverCallback; targets: Element[] }>()

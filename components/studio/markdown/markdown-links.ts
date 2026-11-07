@@ -217,7 +217,8 @@ function findInTree(nodes: readonly FileNode[], path: string): string | null {
 /**
  * The path the explorer has for a file inside the open folder, so a linked file opens in the same tab whether it
  * is opened from a link or from the explorer, however the link spells it. A file the explorer doesn't list gets
- * the explorer's form of the path: the folder as written, then `/` between names.
+ * the folder as written, then `/` between names; openFile tidies that into the tab's id (`\` on Windows), so
+ * compare it with {@link isSamePath}.
  */
 export function workspaceFilePath(path: string, workspaceRoot: string, tree: readonly FileNode[]): string {
     const listed = findInTree(tree, path)
