@@ -539,6 +539,48 @@ describe('renderExportDocx', () => {
         expect(runWith(xml, 'inline')).toContain('<w:sz w:val="19"/>')
     })
 
+    it('scales headings, code, the title and Contents with the Body size, as the PDF em sizes do', async () => {
+        const source = [
+            '---',
+            'title: Report',
+            '---',
+            '',
+            ...[1, 2, 3, 4, 5, 6].flatMap((depth) => [`${'#'.repeat(depth)} H${depth}`, '']),
+            fence('js', 'code line'),
+        ].join('\n')
+        const sizes = async (bodySizePt: number) => {
+            const { parts } = await render(source, (draft) => {
+                draft.typography.bodySizePt = bodySizePt
+                draft.frontMatter.titlePage = true
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocExcludeH1 = false
+            })
+            const body = parts['word/document.xml']!
+            const styles = parts['word/styles.xml']!
+            const size = (xml: string) => Number(/<w:sz w:val="(\d+)"\/>/.exec(xml)?.[1])
+            const headingStyle = (depth: number) =>
+                size(new RegExp(`<w:style [^>]*w:styleId="Heading${depth}"[\\s\\S]*?</w:style>`).exec(styles)?.[0] ?? '')
+            // The body heading is the last run with its words; the first is its Contents entry.
+            const bodyHeading = (depth: number) => {
+                const end = body.lastIndexOf(`>H${depth}</w:t>`)
+                return size(body.slice(body.lastIndexOf('<w:r>', end), end))
+            }
+            return {
+                headings: [1, 2, 3, 4, 5, 6].map((depth) => bodyHeading(depth)),
+                styles: [1, 2, 3, 4, 5, 6].map((depth) => headingStyle(depth)),
+                code: size(runWith(body, 'code line')),
+                title: size(runWith(body, 'Report')),
+                contents: size(runWith(body, 'Contents')),
+            }
+        }
+        // The 11pt default keeps the sizes it always had.
+        expect(await sizes(11)).toEqual({ headings: [36, 30, 27, 24, 22, 20], styles: [36, 30, 27, 24, 22, 20], code: 18, title: 48, contents: 40 })
+        // At 16pt (32 half-points) headings grow with the text, so an h4 is no longer smaller than the paragraphs.
+        const large = await sizes(16)
+        expect(large).toEqual({ headings: [52, 44, 39, 35, 32, 29], styles: [52, 44, 39, 35, 32, 29], code: 26, title: 70, contents: 58 })
+        for (const size of large.headings.slice(0, 4)) expect(size).toBeGreaterThan(32)
+    })
+
     it('picks a code font Windows has and marks it fixed-pitch for Word', async () => {
         const monaco = await render('Some `code`.', (draft) => {
             draft.typography.monoFont = 'Monaco, Consolas, monospace'

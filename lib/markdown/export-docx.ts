@@ -107,8 +107,12 @@ const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 const GRID_BORDER = { style: BorderStyle.SINGLE, size: 4, color: 'E5E5E5' }
 /** Same cap the PDF cover uses (`max-height: 150mm`). */
 const LOGO_MAX_HEIGHT_MM = 150
-/** CSS heading sizes: 1.5rem, 1.25rem, 1.125rem, 1rem, then the two smaller steps. */
-const HEADING_HALF_POINTS = [36, 30, 27, 24, 22, 20] as const
+/** The PDF's heading sizes, h1 to h6, in em of the body text, so headings grow and shrink with the Body size. */
+const HEADING_EM = [1.64, 1.36, 1.23, 1.09, 1, 0.9] as const
+/** The PDF's code block, cover title and Contents title sizes, in em of the body text. */
+const CODE_EM = 0.82
+const TITLE_EM = 2.18
+const CONTENTS_TITLE_EM = 1.8
 /** CSS heading margins, in twips. 1rem = 240. */
 const HEADING_SPACING = [
     { before: 0, after: 240 },
@@ -821,6 +825,21 @@ function footnoteId(state: RenderState, identifier: string): number {
     return id
 }
 
+/** A size `em` times the body text's, in half-points, as the PDF's em sizes work. */
+function emHalfPoints(state: RenderState, em: number): number {
+    return Math.round(state.bodyHalfPoints * em)
+}
+
+/** A heading's size, in half-points. At the 11pt default that is 36, 30, 27, 24, 22 and 20. */
+function headingHalfPoints(state: RenderState, depth: number): number {
+    return emHalfPoints(state, HEADING_EM[Math.min(Math.max(depth, 1), 6) - 1]!)
+}
+
+/** Code block text, in half-points: 9pt with the 11pt default body. */
+function codeHalfPoints(state: RenderState): number {
+    return emHalfPoints(state, CODE_EM)
+}
+
 /** Footnote text is set a little smaller than the body, as Word does. */
 function footnoteHalfPoints(state: RenderState): number {
     return Math.max(16, Math.round(state.bodyHalfPoints * 0.85))
@@ -973,7 +992,8 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     const level = state.document.profile.flow.newPageFromHeading
     const bookmark = state.bookmarks.get(headingId(node))
     // A heading in a quote keeps its colour and is italic, as in the PDF.
-    const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1], italics: state.quoteDepth > 0 || undefined })
+    const size = headingHalfPoints(state, depth)
+    const inlines = renderInlines(state, node.children, { headingSize: size, italics: state.quoteDepth > 0 || undefined })
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
@@ -981,7 +1001,7 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
         bidirectional: bidi(plainText(node)),
         spacing: {
             ...HEADING_SPACING[depth - 1],
-            line: lineBoxTwip(HEADING_HALF_POINTS[depth - 1]!, state.document.profile.typography.lineHeight),
+            line: lineBoxTwip(size, state.document.profile.typography.lineHeight),
             lineRule: LineRuleType.AT_LEAST,
         },
         indent: contentIndent(state),
@@ -1228,10 +1248,11 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const theme = state.document.profile.content.codeTheme
     const fill = codeFill(theme)
     const fallback = codeColor(theme)
+    const size = codeHalfPoints(state)
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
             token.text
-                ? [new TextRun({ text: token.text, font: state.monoFont, size: 18, color: hexColor(token.color ?? fallback, fallback, fill) })]
+                ? [new TextRun({ text: token.text, font: state.monoFont, size, color: hexColor(token.color ?? fallback, fallback, fill) })]
                 : []
         )
         return new Paragraph({
@@ -1239,7 +1260,7 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
             indent: contentIndent(state),
             border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
-            children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size: 18 })],
+            children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size })],
         })
     })
 }
@@ -1677,17 +1698,18 @@ async function titleBlocks(state: RenderState): Promise<Block[]> {
               ? convertMillimetersToTwip(10)
               : 0
     const indent = titleIndent(state, edge)
+    const titleSize = emHalfPoints(state, TITLE_EM)
     blocks.push(
         new Paragraph({
             indent,
-            spacing: { before, after: 200, line: lineBoxTwip(48, profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST },
+            spacing: { before, after: 200, line: lineBoxTwip(titleSize, profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST },
             bidirectional: bidi(metadata.title),
             children: [
                 new TextRun({
                     text: metadata.title,
                     bold: true,
                     font: state.headingFont,
-                    size: 48,
+                    size: titleSize,
                     color: state.accent,
                     rightToLeft: runIsRtl(metadata.title) || undefined,
                 }),
@@ -1818,7 +1840,8 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
     if (diagram) return pxToTwip(diagram.height) + 120
     if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, width, 0, 120)
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
-    return 160 + lines * 276
+    // A code line is about 276 twips with the default 9pt code, and grows with it.
+    return 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)
 }
 
 function measureFlow(
@@ -1842,7 +1865,7 @@ function measureFlow(
             placeBlock(
                 cursor,
                 pageHeight,
-                textBlockTwip(state, plainText(node), HEADING_HALF_POINTS[depth - 1]!, width, spacing.before, spacing.after),
+                textBlockTwip(state, plainText(node), headingHalfPoints(state, depth), width, spacing.before, spacing.after),
                 breakBefore
             )
             const id = headingId(node)
@@ -1900,8 +1923,15 @@ function measureList(
     }
 }
 
-/** The "Contents" title: a 20pt line, its 200-twip space after, and the rule under it. */
-const TOC_TITLE_TWIP = 840
+/** The "Contents" title's size, in half-points: 20pt with the 11pt default body. */
+function contentsTitleHalfPoints(state: RenderState): number {
+    return emHalfPoints(state, CONTENTS_TITLE_EM)
+}
+
+/** Height of the "Contents" title: its line (about 1.3x its size), its 200-twip space after, and the rule under it. 840 at 20pt. */
+function tocTitleTwip(state: RenderState): number {
+    return Math.round(contentsTitleHalfPoints(state) * 13) + 320
+}
 
 /**
  * Height of one contents row. Its line spacing is "auto 260": 260/240 of the font's own single line,
@@ -1923,7 +1953,7 @@ function headingPages(state: RenderState): Map<string, number> {
     const { profile, tree } = state.document
     let page = (profile.frontMatter.titlePage ? 1 : 0) + 1
     const tocHeight = pageContentTwip(state, 'toc')
-    let used = TOC_TITLE_TWIP
+    let used = tocTitleTwip(state)
     let first = true
     for (const item of state.toc) {
         const height = tocRowTwip(state, item, first)
@@ -2006,7 +2036,9 @@ function tocBlocks(state: RenderState): Paragraph[] {
             indent: contentIndent(state),
             border: { bottom: { style: BorderStyle.SINGLE, size: 16, color: state.accent, space: 4 } },
             spacing: { after: 200 },
-            children: [new TextRun({ text: 'Contents', bold: true, font: state.headingFont, size: 40, color: state.accent })],
+            children: [
+                new TextRun({ text: 'Contents', bold: true, font: state.headingFont, size: contentsTitleHalfPoints(state), color: state.accent }),
+            ],
         }),
         ...entries,
     ]
@@ -2133,6 +2165,9 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
     if (state.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
     groups.push({ id: 'body', children: body })
     const watermark = await createWatermarkPng(document.profile.content.watermark, document.profile.typography.bodyFont, state.contentPx)
+    const headingStyle = (depth: number) => ({
+        run: { font: state.headingFont, size: headingHalfPoints(state, depth), bold: true, color: state.accent },
+    })
 
     const doc = new Document({
         title: document.metadata.title,
@@ -2148,12 +2183,12 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
                     run: { font: state.bodyFont, size: state.bodyHalfPoints, color: '262626' },
                     paragraph: { spacing: bodyLineSpacing(state) },
                 },
-                heading1: { run: { font: state.headingFont, size: 36, bold: true, color: state.accent } },
-                heading2: { run: { font: state.headingFont, size: 30, bold: true, color: state.accent } },
-                heading3: { run: { font: state.headingFont, size: 27, bold: true, color: state.accent } },
-                heading4: { run: { font: state.headingFont, size: 24, bold: true, color: state.accent } },
-                heading5: { run: { font: state.headingFont, size: 22, bold: true, color: state.accent } },
-                heading6: { run: { font: state.headingFont, size: 20, bold: true, color: state.accent } },
+                heading1: headingStyle(1),
+                heading2: headingStyle(2),
+                heading3: headingStyle(3),
+                heading4: headingStyle(4),
+                heading5: headingStyle(5),
+                heading6: headingStyle(6),
                 hyperlink: { run: { color: state.link, underline: { type: UnderlineType.SINGLE, color: state.link } } },
             },
         },
