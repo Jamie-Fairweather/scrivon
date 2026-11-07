@@ -1,40 +1,18 @@
 'use client'
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Maximize2 } from 'lucide-react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { CircleAlert, Maximize2 } from 'lucide-react'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
+import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
-import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 import { cn } from '@/lib/utils'
 
 const DIAGRAM_PADDING_X = 32
 /** Top padding (pt-10) plus bottom padding (pb-4): the top strip keeps the Expand button off the diagram. */
 const DIAGRAM_PADDING_Y = 56
-const MAX_BOUNDS_CACHE_ENTRIES = 100
-
-/**
- * The tight bounds last measured for each block, and the SVG they were measured for, so a diagram that mounts
- * again (switching back to its tab) is laid out at its measured size straight away, instead of at its padded size
- * until its iframe loads and is measured again. One entry per block: editing a diagram replaces its own entry
- * rather than pushing other diagrams out.
- */
-const measuredBoundsByBlock = new Map<string, { svg: string; bounds: SvgContentBounds }>()
-
-function rememberMeasuredBounds(blockId: string, svg: string, bounds: SvgContentBounds): void {
-    measuredBoundsByBlock.delete(blockId)
-    measuredBoundsByBlock.set(blockId, { svg, bounds })
-    if (measuredBoundsByBlock.size > MAX_BOUNDS_CACHE_ENTRIES) {
-        const oldest = measuredBoundsByBlock.keys().next().value
-        if (oldest !== undefined) measuredBoundsByBlock.delete(oldest)
-    }
-}
-
-function rememberedBounds(blockId: string, svg: string): SvgContentBounds | null {
-    const remembered = measuredBoundsByBlock.get(blockId)
-    return remembered?.svg === svg ? remembered.bounds : null
-}
 
 type EmbeddedMermaidBlockProps = {
     source: string
@@ -47,18 +25,34 @@ type EmbeddedMermaidBlockProps = {
 }
 
 /** "Expand diagram 2", plus the diagram's accTitle when it has one, so screen readers can tell the buttons apart. */
-export function expandDiagramLabel(ordinal: number, source: string): string {
-    const title = /^\s*accTitle\s*:\s*(.+?)\s*$/m.exec(source)?.[1]
+export function expandDiagramLabel(ordinal: number, title: string | null): string {
     return title ? `Expand diagram ${ordinal + 1}: ${title}` : `Expand diagram ${ordinal + 1}`
 }
 
+/** Shown when there is no earlier diagram. The message can be selected and copied. */
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
     return (
-        <Card className="w-full select-text">
+        <Card role="status" className="w-full select-text">
             <CardPanel className="p-3">
                 <pre className="overflow-auto text-xs wrap-anywhere whitespace-pre-wrap text-muted-foreground">{message}</pre>
             </CardPanel>
         </Card>
+    )
+})
+
+/** Shown under the last diagram that worked, which is dimmed, so the error isn't hidden behind an old picture. */
+const StaleDiagramError = memo(function StaleDiagramError({ message }: { message: string }) {
+    return (
+        <div className="px-4 pb-4 select-text">
+            <Alert variant="error" role="status">
+                <CircleAlert aria-hidden />
+                <AlertTitle>Diagram has an error</AlertTitle>
+                <AlertDescription>
+                    <pre className="max-h-32 overflow-auto font-mono text-xs wrap-anywhere whitespace-pre-wrap">{message}</pre>
+                    <p className="text-xs">Showing the last version that worked.</p>
+                </AlertDescription>
+            </Alert>
+        </div>
     )
 })
 
@@ -72,25 +66,10 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
 }: EmbeddedMermaidBlockProps) {
     const documentKey = tabId ? `${tabId}:block:${blockId}` : null
     const trimmed = source.trim()
-    const { svgForDisplay, dimensions, error, isPending } = useMermaidSvg(source, documentKey)
+    const { svgForDisplay, dimensions, error, currentError, isStale, isPending, isEmpty } = useMermaidSvg(source, documentKey)
+    const accessibility = useMemo(() => readDiagramAccessibility(source), [source])
     const containerRef = useRef<HTMLDivElement>(null)
     const [containerWidth, setContainerWidth] = useState(0)
-    const [contentBounds, setContentBounds] = useState<SvgContentBounds | null>(null)
-    const [boundsForSvg, setBoundsForSvg] = useState<string | null>(null)
-    const displayedSvgRef = useRef<string | null>(null)
-
-    useEffect(() => {
-        if (!svgForDisplay) {
-            displayedSvgRef.current = null
-            setContentBounds(null)
-            setBoundsForSvg(null)
-            return
-        }
-
-        if (displayedSvgRef.current !== svgForDisplay) {
-            displayedSvgRef.current = svgForDisplay
-        }
-    }, [svgForDisplay])
 
     // Measured before the browser paints, so a cached diagram's first frame is already scaled to fit.
     useLayoutEffect(() => {
@@ -105,30 +84,20 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
         return () => observer.disconnect()
     }, [blockId])
 
-    const onBoundsMeasured = useCallback(
-        (bounds: SvgContentBounds, measuredForSvg: string) => {
-            rememberMeasuredBounds(blockId, measuredForSvg, bounds)
-            if (measuredForSvg === displayedSvgRef.current) {
-                setContentBounds(bounds)
-                setBoundsForSvg(measuredForSvg)
-            }
-        },
-        [blockId]
-    )
-
-    const effectiveBounds = boundsForSvg === svgForDisplay ? contentBounds : svgForDisplay ? rememberedBounds(blockId, svgForDisplay) : null
-    const fitWidth = effectiveBounds?.width ?? dimensions?.width
-    const fitHeight = effectiveBounds?.height ?? dimensions?.height
+    const fitWidth = dimensions?.width
+    const fitHeight = dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)
     const scale = fitWidth && availableWidth > 0 ? Math.min(1, availableWidth / fitWidth) : 1
     const layoutWidth = fitWidth ? fitWidth * scale : undefined
     const layoutHeight = fitHeight ? fitHeight * scale : undefined
 
-    const diagramReady = trimmed.length > 0 && Boolean(svgForDisplay) && !error && fitWidth != null && fitHeight != null
+    // An older picture still draws while the current text doesn't parse, dimmed, with the error under it.
+    const diagramReady = trimmed.length > 0 && Boolean(svgForDisplay) && fitWidth != null && fitHeight != null
     // Without a width (not measured yet, or the preview is hidden) the diagram would draw at full size, so the
     // placeholder holds its place instead.
     const showDiagram = diagramReady && containerWidth > 0
-    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0 || diagramReady)
+    const staleError = isStale && currentError ? currentError : null
+    const showPlaceholder = !showDiagram && ((isPending && trimmed.length > 0) || trimmed.length === 0 || isEmpty || diagramReady)
 
     return (
         <div className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
@@ -140,7 +109,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                     className="h-7 gap-1 shadow-sm"
                     disabled={!trimmed}
                     onClick={() => onExpand(blockId, ordinal, source)}
-                    aria-label={expandDiagramLabel(ordinal, source)}
+                    aria-label={expandDiagramLabel(ordinal, accessibility.title)}
                     title="Expand diagram"
                 >
                     <Maximize2 className="size-3.5" />
@@ -160,24 +129,33 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                         <DiagramError message={error} />
                     </div>
                 ) : showDiagram && layoutWidth != null && layoutHeight != null ? (
-                    <div className="flex min-w-0 justify-center px-4 pt-10 pb-4">
-                        <div className="relative shrink-0" style={{ width: layoutWidth, height: layoutHeight }}>
-                            <div
-                                className="absolute top-0 left-0 origin-top-left"
-                                style={{
-                                    width: fitWidth,
-                                    height: fitHeight,
-                                    transform: `scale(${scale})`,
-                                }}
-                            >
-                                <DiagramIframe svg={svgForDisplay!} bounds={effectiveBounds} onBoundsMeasured={onBoundsMeasured} />
+                    <>
+                        <div className="flex min-w-0 justify-center px-4 pt-10 pb-4">
+                            <div className="relative shrink-0" style={{ width: layoutWidth, height: layoutHeight }}>
+                                <div
+                                    className={cn('absolute top-0 left-0 origin-top-left transition-opacity', staleError && 'opacity-40')}
+                                    style={{
+                                        width: fitWidth,
+                                        height: fitHeight,
+                                        transform: `scale(${scale})`,
+                                    }}
+                                >
+                                    <DiagramIframe
+                                        svg={svgForDisplay!}
+                                        label={accessibility.title ?? `Diagram ${ordinal + 1}`}
+                                        description={accessibility.description ?? undefined}
+                                    />
+                                </div>
                             </div>
                         </div>
-                    </div>
+                        {staleError ? <StaleDiagramError message={staleError} /> : null}
+                    </>
                 ) : isPending ? (
                     <p className="text-xs text-muted-foreground">Rendering diagram…</p>
                 ) : !trimmed ? (
                     <p className="text-xs text-muted-foreground">Empty Mermaid block</p>
+                ) : isEmpty ? (
+                    <p className="px-4 text-center text-xs text-muted-foreground">Nothing to draw yet. Add some nodes to see the diagram.</p>
                 ) : null}
             </div>
         </div>

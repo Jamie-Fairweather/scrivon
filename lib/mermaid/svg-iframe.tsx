@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
-import type { SvgContentBounds } from '@/lib/mermaid/svg-bounds'
 
 export function svgIframeDocument(svg: string): string {
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
@@ -26,12 +25,6 @@ type DiagramIframeProps = {
     label?: string
     /** A longer description screen readers read after the label, e.g. from the diagram's accDescr. */
     description?: string
-    /**
-     * Ignored, like onBoundsMeasured. Tight bounds needed the frame's document, which the sandbox
-     * hides, so they never worked. Kept only until embedded-mermaid-block stops passing them.
-     */
-    bounds?: SvgContentBounds | null
-    onBoundsMeasured?: (bounds: SvgContentBounds, svg: string) => void
 }
 
 const DEFAULT_LABEL = 'Mermaid diagram'
