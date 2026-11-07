@@ -484,6 +484,37 @@ describe('buildPdfExportCss', () => {
     })
 })
 
+describe('marker transparency the stamper relies on', () => {
+    /** Declarations of every rule whose selector list names `className`. */
+    function rulesFor(css: string, className: string): string[] {
+        return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+            .filter(([, selectors]) => selectors!.split(',').some((selector) => selector.trim() === `.${className}`))
+            .map(([, , declarations]) => declarations!)
+    }
+
+    it('draws every marker nearly, but not fully, transparent', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'number'
+        profile.frontMatter.toc = true
+        const css = buildPdfExportCss(profile)
+        // src-tauri/src/page_numbers.rs only treats text below MARKER_MAX_ALPHA (0.05) as a marker and cuts it
+        // out of the PDF's text; fully transparent text may not be drawn at all, which loses the page numbers.
+        for (const className of ['pdf-page-number-mark', 'pdf-toc-mark', 'pdf-heading-mark', PDF_STAMP_GLYPHS_CLASS]) {
+            const rules = rulesFor(css, className)
+            expect(rules.length, className).toBeGreaterThan(0)
+            const alphas = rules.flatMap((rule) =>
+                [...rule.matchAll(/color:\s*rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/g)].map((match) => Number(match[1]))
+            )
+            expect(alphas, className).toHaveLength(1)
+            expect(alphas[0], className).toBeGreaterThan(0)
+            expect(alphas[0], className).toBeLessThan(0.05)
+            for (const rule of rules) {
+                expect(rule, className).not.toMatch(/opacity|transparent/)
+            }
+        }
+    })
+})
+
 describe('glyph samples for the stamper', () => {
     it('lists every character a label can use, each once, with any space between digits', () => {
         expect(pdfStampGlyphText('number')).toBe('0123456789')
