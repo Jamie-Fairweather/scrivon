@@ -25,6 +25,8 @@ type DiagramIframeProps = {
     label?: string
     /** A longer description screen readers read after the label, e.g. from the diagram's accDescr. */
     description?: string
+    /** The language of the label and description, when it isn't the page's: 'en' for a name Scrivon made up inside a document in another language. */
+    lang?: string
 }
 
 const DEFAULT_LABEL = 'Mermaid diagram'
@@ -40,7 +42,7 @@ type Frames = { shown: Frame; incoming: Frame | null; nextId: number }
  * loads in a hidden second frame and takes over once it has loaded and painted, so edits never
  * flash a blank frame. Between edits there is only one frame.
  */
-export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description }: DiagramIframeProps) {
+export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description, lang }: DiagramIframeProps) {
     const [frames, setFrames] = useState<Frames>(() => ({ shown: { svg, id: 0 }, incoming: null, nextId: 1 }))
     const paintRequestRef = useRef(0)
     const descriptionId = useId()
@@ -87,6 +89,7 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_
         // hidden from screen readers and kept out of the Tab order, the loading one included.
         <div
             role="img"
+            lang={lang}
             aria-label={label}
             aria-describedby={description ? descriptionId : undefined}
             className="relative overflow-hidden"

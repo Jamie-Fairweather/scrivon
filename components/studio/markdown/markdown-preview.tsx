@@ -90,10 +90,14 @@ type BlockedRemoteImageProps = {
 /** Stands in for a web image, so opening a document doesn't tell the image's site that it was opened. */
 function BlockedRemoteImage({ src, alt, onBlocked }: BlockedRemoteImageProps) {
     useEffect(() => onBlocked(), [onBlocked])
-    const label = alt?.trim() || 'Image'
+    const ownAlt = alt?.trim()
+    const label = ownAlt || 'Image'
     return (
         <span
             role="img"
+            // All Scrivon's English words when the image has no alt text, so a screen reader reads them in an English
+            // voice inside a document in another language; with the document's own alt text, the document's language.
+            lang={ownAlt ? undefined : 'en'}
             aria-label={`Blocked web image: ${label}`}
             title={src}
             className="inline-flex max-w-full items-center gap-1 rounded-md border border-dashed border-border px-1.5 py-0.5 align-middle text-xs

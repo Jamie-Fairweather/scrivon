@@ -19,19 +19,25 @@ vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
     useMermaidSvg: () => hook.result,
 }))
 
-type ProbeProps = { svg: string; label?: string; description?: string }
+type ProbeProps = { svg: string; label?: string; description?: string; lang?: string }
 
-/** What the stand-in iframe saw: the scale it was drawn at, and the name it was given. */
-const seen = vi.hoisted(() => ({ scales: [] as string[], labels: [] as (string | undefined)[], descriptions: [] as (string | undefined)[] }))
+/** What the stand-in iframe saw: the scale it was drawn at, and the name it was given (and in which language). */
+const seen = vi.hoisted(() => ({
+    scales: [] as string[],
+    labels: [] as (string | undefined)[],
+    descriptions: [] as (string | undefined)[],
+    langs: [] as (string | undefined)[],
+}))
 
 vi.mock('@/lib/mermaid/svg-iframe', () => ({
-    DiagramIframe: function DiagramIframeProbe({ label, description }: ProbeProps) {
+    DiagramIframe: function DiagramIframeProbe({ label, description, lang }: ProbeProps) {
         const ref = useRef<HTMLDivElement>(null)
         useLayoutEffect(() => {
             // Runs before the parent's layout effects, so it sees what the first frame would draw.
             seen.scales.push(ref.current?.parentElement?.style.transform ?? '')
             seen.labels.push(label)
             seen.descriptions.push(description)
+            seen.langs.push(lang)
         })
         return <div ref={ref} data-testid="diagram" />
     },
@@ -60,6 +66,7 @@ describe('EmbeddedMermaidBlock', () => {
         seen.scales = []
         seen.labels = []
         seen.descriptions = []
+        seen.langs = []
         width = 532
         hook.result = picture('<svg data-test="scaled"></svg>')
         vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width)
@@ -132,5 +139,46 @@ describe('EmbeddedMermaidBlock', () => {
 
         expect(seen.labels.at(-1)).toBe('Diagram 3')
         expect(seen.descriptions.at(-1)).toBeUndefined()
+    })
+
+    describe('in a document in another language (review)', () => {
+        /** The language a screen reader would read `element` in: its own lang, or the nearest one around it. */
+        const langOf = (element: Element) => element.closest('[lang]')?.getAttribute('lang') ?? null
+
+        function blockInJapanese(source: string) {
+            return render(<article lang="ja">{block(source, 0)}</article>)
+        }
+
+        it('tags Scrivon’s own words as English', () => {
+            blockInJapanese('flowchart LR\n  A --> B')
+            expect(langOf(screen.getByRole('button', { name: 'Expand diagram 1' }))).toBe('en')
+            expect(seen.langs.at(-1)).toBe('en')
+        })
+
+        it('tags the error strip and the messages that stand in for a diagram as English', () => {
+            hook.result = { ...picture('<svg></svg>'), currentError: 'Parse error on line 2', isStale: true }
+            const { unmount } = blockInJapanese('flowchart LR\n  A -->')
+            expect(langOf(screen.getByRole('status'))).toBe('en')
+            unmount()
+
+            hook.result = { ...picture(''), svgForDisplay: null, dimensions: null, error: 'Parse error', currentError: 'Parse error' }
+            const card = blockInJapanese('flowchart LR\n  A -->')
+            expect(langOf(screen.getByRole('status'))).toBe('en')
+            card.unmount()
+
+            hook.result = { ...picture(''), svgForDisplay: null, dimensions: null, isPending: true }
+            blockInJapanese('flowchart LR\n  A --> B')
+            expect(langOf(screen.getByText('Rendering diagram…'))).toBe('en')
+        })
+
+        it('keeps the document’s language for names that carry the diagram’s own words', () => {
+            blockInJapanese('flowchart LR\n  accTitle: ログインの流れ\n  A --> B')
+            expect(langOf(screen.getByRole('button', { name: 'Expand diagram 1: ログインの流れ' }))).toBe('ja')
+            expect(seen.langs.at(-1)).toBeUndefined()
+
+            blockInJapanese('flowchart LR\n  accDescr: 利用者がサインインする\n  A --> B')
+            expect(seen.labels.at(-1)).toBe('Diagram 1')
+            expect(seen.langs.at(-1)).toBeUndefined()
+        })
     })
 })

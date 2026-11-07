@@ -30,6 +30,13 @@ export function expandDiagramLabel(ordinal: number, title: string | null): strin
     return title ? `Expand diagram ${ordinal + 1}: ${title}` : `Expand diagram ${ordinal + 1}`
 }
 
+/**
+ * The language of Scrivon's own words. The block sits inside the document, which is tagged with the document's
+ * language, so screen readers that switch voice by language would read them in a Japanese or Arabic voice. Text
+ * that also carries the document's words (an accTitle, say) keeps the document's language instead.
+ */
+const APP_LANG = 'en'
+
 /** Shown when there is no earlier diagram. The message can be selected and copied. */
 const DiagramError = memo(function DiagramError({ message }: { message: string }) {
     return (
@@ -44,7 +51,7 @@ const DiagramError = memo(function DiagramError({ message }: { message: string }
 /** Shown under the last diagram that worked, which is dimmed, so the error isn't hidden behind an old picture. */
 const StaleDiagramError = memo(function StaleDiagramError({ message }: { message: string }) {
     return (
-        <div className="px-4 pb-4 select-text">
+        <div lang={APP_LANG} className="px-4 pb-4 select-text">
             <Alert variant="error" role="status">
                 <CircleAlert aria-hidden />
                 <AlertTitle>Diagram has an error</AlertTitle>
@@ -102,7 +109,8 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
 
     return (
         <div className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
-            <div className="absolute top-2 right-2 z-10">
+            {/* English, unless the button's name has the diagram's own accTitle in it. */}
+            <div className="absolute top-2 right-2 z-10" lang={accessibility.title ? undefined : APP_LANG}>
                 <Button
                     type="button"
                     variant="outline"
@@ -126,7 +134,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                 style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + DIAGRAM_PADDING_Y } : undefined}
             >
                 {error ? (
-                    <div className="px-4 pt-10 pb-4">
+                    <div lang={APP_LANG} className="px-4 pt-10 pb-4">
                         <DiagramError message={error} />
                     </div>
                 ) : showDiagram && layoutWidth != null && layoutHeight != null ? (
@@ -145,6 +153,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                                         svg={svgForDisplay!}
                                         label={accessibility.title ?? `Diagram ${ordinal + 1}`}
                                         description={accessibility.description ?? undefined}
+                                        lang={accessibility.title || accessibility.description ? undefined : APP_LANG}
                                     />
                                 </div>
                             </div>
@@ -152,11 +161,17 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                         {staleError ? <StaleDiagramError message={staleError} /> : null}
                     </>
                 ) : isPending ? (
-                    <p className="text-xs text-muted-foreground">Rendering diagram…</p>
+                    <p lang={APP_LANG} className="text-xs text-muted-foreground">
+                        Rendering diagram…
+                    </p>
                 ) : !trimmed ? (
-                    <p className="text-xs text-muted-foreground">Empty Mermaid block</p>
+                    <p lang={APP_LANG} className="text-xs text-muted-foreground">
+                        Empty Mermaid block
+                    </p>
                 ) : isEmpty ? (
-                    <p className="px-4 text-center text-xs text-muted-foreground">Nothing to draw yet. Add some nodes to see the diagram.</p>
+                    <p lang={APP_LANG} className="px-4 text-center text-xs text-muted-foreground">
+                        Nothing to draw yet. Add some nodes to see the diagram.
+                    </p>
                 ) : null}
             </div>
         </div>

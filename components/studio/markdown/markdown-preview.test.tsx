@@ -169,6 +169,13 @@ describe('MarkdownPreview', () => {
         expect(container.querySelector('article')).toHaveAttribute('lang', 'en')
     })
 
+    it('tags Scrivon’s own words in a blocked web image as English, but not the document’s alt text (review)', () => {
+        const { container } = preview('# 会議の議事録\n\n今日は話し合いました。![](https://example.com/a.png) ![猫の写真](https://example.com/b.png)')
+        expect(container.querySelector('article')).toHaveAttribute('lang', 'ja')
+        expect(screen.getByRole('img', { name: 'Blocked web image: Image' })).toHaveAttribute('lang', 'en')
+        expect(screen.getByRole('img', { name: 'Blocked web image: 猫の写真' })).not.toHaveAttribute('lang')
+    })
+
     it('shows bold next to Japanese punctuation as bold, as export does (B76)', () => {
         const { container } = preview('**「重要」**です。これは**テスト。**です。')
         expect(Array.from(container.querySelectorAll('strong')).map((node) => node.textContent)).toEqual(['「重要」', 'テスト。'])
