@@ -584,6 +584,11 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 }
             }
 
+            // Tabs whose save failed and that the user chose to close without saving.
+            const discarded = new Set<string>()
+            // Text typed into a closing tab while the saves ran (or into one that had no edits then) isn't on disk
+            // yet, and the tabs are about to go: it is saved too, unless the user let that tab go unsaved.
+            const stillEdited = () => closingNow().filter((t) => !t.readOnly && t.isDirty && !discarded.has(t.id))
             let rounds = 0
             while (toSave.length > 0) {
                 rounds += 1
@@ -599,10 +604,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 )
                 let failed: Array<{ tab: DocumentTab; result: boolean | 'timeout' | 'edited' }> = results.filter((r) => r.result !== true)
                 if (failed.length === 0) {
-                    // Text typed into a closing tab while the saves ran (or into one that had no edits then) isn't
-                    // on disk yet, and the tabs are about to go: save again until none is left. Someone still typing
-                    // after a few rounds is asked, as for a save that failed.
-                    toSave = closingNow().filter((t) => !t.readOnly && t.isDirty)
+                    // Saved again until none is left. Someone still typing after a few rounds is asked, as for a
+                    // save that failed.
+                    toSave = stillEdited()
                     if (toSave.length === 0) break
                     if (rounds < MAX_SAVE_ROUNDS_BEFORE_CLOSE) continue
                     failed = toSave.map((tab) => ({ tab, result: 'edited' }))
@@ -619,9 +623,14 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     )
                 )
                 if (choice === 'cancel') return false
-                if (choice === 'discard') break
                 rounds = 0
-                toSave = failed.map((r) => r.tab)
+                if (choice === 'discard') {
+                    // Only the tabs the question named go unsaved; another closing tab typed in meanwhile is saved.
+                    for (const { tab } of failed) discarded.add(tab.id)
+                    toSave = stillEdited()
+                } else {
+                    toSave = failed.map((r) => r.tab)
+                }
             }
             return true
         },

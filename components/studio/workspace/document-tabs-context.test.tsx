@@ -1639,6 +1639,43 @@ describe('closing tabs with unsaved changes', () => {
         expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
     })
 
+    it('still saves text typed into another closing tab when the user closes one that could not be saved', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
+        const { result, coordinator, markSaved, stateOut } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        const written: Array<[id: string, content: string]> = []
+        let finishB: (() => void) | undefined
+        coordinator.flushSave.current = vi.fn(async (id: string) => {
+            // a.mmd's file is locked by another program.
+            if (id === '/ws/a.mmd') return false
+            const content = stateOut.current!.tabsRef.current.find((t) => t.id === id)!.content
+            // The first save of b.mmd is slow, like one on a network drive.
+            if (id === '/ws/b.mmd' && !written.some(([w]) => w === id)) await new Promise<void>((resolve) => (finishB = resolve))
+            written.push([id, content])
+            markSaved(id, content)
+            return true
+        })
+
+        let closing!: Promise<void>
+        act(() => {
+            closing = result.current.closeAllTabs()
+        })
+        await waitFor(() => expect(finishB).toBeDefined())
+        act(() => {
+            result.current.updateTabContent('/ws/b.mmd', 'typed in b while it saved')
+        })
+        await act(async () => {
+            finishB!()
+            await closing
+        })
+
+        // Only a.mmd was asked about, so only its edits go unsaved.
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledTimes(1)
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Access is denied. (os error 5)' }])
+        expect(written).toContainEqual(['/ws/b.mmd', 'typed in b while it saved'])
+        expect(result.current.tabs).toEqual([])
+    })
+
     it('leaves the tabs as they are until they really close', async () => {
         vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
         const { result, coordinator, cancelScheduledSave } = setup({ autosave: false })
