@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronRight, FileCode2, FileText, Folder, Link2Off, Lock } from 'lucide-react'
+import { ChevronRight, Ellipsis, FileCode2, FileText, Folder, Link2Off, Lock } from 'lucide-react'
 import { memo, useId, useRef } from 'react'
 import { FileTreeContextMenu, FileTreeRowContextMenu } from '@/components/studio/explorer/file-tree-context-menu'
 import { isMarkdownFile, isMermaidFile, isSupportedDocument } from '@/lib/tauri/fs'
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 const UNSUPPORTED_HINT = `Scrivon supports ${supportedExtensionsLabel('and')} files only`
 const UNREADABLE_HINT = "Can't be read. Scrivon may not have permission to open it."
 const LINKS_OUTSIDE_HINT = "Links to a folder outside the open one, which Scrivon can't open yet."
+const TRUNCATED_HINT = 'Not read: the open folder has too many files and folders to list them all.'
 
 // The row's fields one by one, not the row object, so a row that didn't change isn't drawn again.
 type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
@@ -42,10 +43,12 @@ export const FileTreeNode = memo(function FileTreeNode({
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
     const isMarkdown = node.kind === 'file' && isMarkdownFile(node.name)
     const isUnsupported = node.kind === 'file' && !isSupportedDocument(node.name)
-    // A folder that couldn't be listed opens onto nothing, so its row says why.
+    // A folder that couldn't be listed, or wasn't because the open folder is too big, opens onto nothing, so its row says why.
     const isUnreadable = node.kind === 'directory' && node.unreadable === true
     const linksOutside = node.kind === 'directory' && node.linksOutside === true
-    const hint = isUnsupported ? UNSUPPORTED_HINT : isUnreadable ? (linksOutside ? LINKS_OUTSIDE_HINT : UNREADABLE_HINT) : null
+    const isTruncated = node.kind === 'directory' && node.truncated === true
+    const folderHint = isUnreadable ? (linksOutside ? LINKS_OUTSIDE_HINT : UNREADABLE_HINT) : isTruncated ? TRUNCATED_HINT : null
+    const hint = isUnsupported ? UNSUPPORTED_HINT : folderHint
 
     return (
         <FileTreeRowContextMenu node={node}>
@@ -71,21 +74,23 @@ export const FileTreeNode = memo(function FileTreeNode({
                     // Not aria-disabled: an unsupported file can still be renamed, duplicated and deleted. It just won't open.
                     aria-describedby={hint ? hintId : undefined}
                     tabIndex={isTabStop ? 0 : -1}
-                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file or unreadable folder won't open.
+                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file or an unread folder won't open.
                     title={hint ? `${node.name}\n${hint}` : node.name}
                     className={cn(
                         `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none select-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,
                         // Contrast themes drop the fill and the bar, so the open file is marked in the system highlight.
                         isActive && 'font-medium forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]',
-                        (isUnsupported || isUnreadable) && 'text-muted-foreground'
+                        (isUnsupported || isUnreadable || isTruncated) && 'text-muted-foreground'
                     )}
                     onClick={() => onActivate(node, expanded)}
                     onFocus={() => onFocusRow(node.path)}
                 >
                     {node.kind === 'directory' ? (
                         <>
-                            <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', expanded && 'rotate-90')} />
+                            <ChevronRight
+                                className={cn('size-3.5 shrink-0 transition-transform motion-reduce:transition-none', expanded && 'rotate-90')}
+                            />
                             <Folder className="size-4 shrink-0 text-muted-foreground" />
                         </>
                     ) : isMermaid ? (
@@ -104,6 +109,7 @@ export const FileTreeNode = memo(function FileTreeNode({
                         ) : (
                             <Lock data-mark="unreadable" className="size-3.5 shrink-0" />
                         ))}
+                    {isTruncated && !isUnreadable && <Ellipsis data-mark="truncated" className="size-3.5 shrink-0" />}
                     {hint && (
                         <span id={hintId} hidden>
                             {hint}

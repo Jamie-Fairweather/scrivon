@@ -140,6 +140,24 @@ describe('FileTree', () => {
         expect(row.querySelector('[data-mark="unreadable"]')).not.toBeInTheDocument()
     })
 
+    it('marks a folder that was not read because the open folder is too big, so it does not look empty', () => {
+        render(<FileTree tree={[{ kind: 'directory', name: 'more', path: '/ws/more', children: [], truncated: true }, ...tree]} />)
+
+        const row = item('more')
+        const hint = 'Not read: the open folder has too many files and folders to list them all.'
+        expect(row).toHaveAccessibleDescription(hint)
+        expect(row).toHaveAttribute('title', `more\n${hint}`)
+        expect(row).toHaveClass('text-muted-foreground')
+        expect(row.querySelector('[data-mark="truncated"]')).toBeInTheDocument()
+        expect(row.querySelector('[data-mark="unreadable"]')).not.toBeInTheDocument()
+    })
+
+    it('turns the folder arrow without animating when animations are off', () => {
+        render(<FileTree tree={tree} />)
+
+        expect(item('docs').querySelector('.lucide-chevron-right')).toHaveClass('transition-transform', 'motion-reduce:transition-none')
+    })
+
     it('is a single Tab stop, on the open file', () => {
         tabs.activeTabId = '/ws/flow.mmd'
         render(<FileTree tree={tree} />)
