@@ -14,19 +14,47 @@ class FakeUri {
     }
 }
 
+/** Monaco's EndOfLinePreference and EndOfLineSequence values. */
+const EOL_PREFERENCE = { TextDefined: 0, LF: 1, CRLF: 2 }
+const EOL_SEQUENCE = { LF: 0, CRLF: 1 }
+
 class FakeModel {
     disposed = false
     readonly listeners = new Set<Listener>()
     options: { tabSize?: number; indentSize?: number | 'tabSize'; insertSpaces?: boolean } = {}
+    private lines: string[] = []
+    /** Like Monaco, one line ending for the whole buffer: the one most line breaks use. */
+    eol: '\n' | '\r\n' = '\n'
     constructor(
-        public value: string,
+        value: string,
         public readonly uri: FakeUri
-    ) {}
-    getValue() {
+    ) {
+        this.value = value
+    }
+    get value() {
+        return this.lines.join(this.eol)
+    }
+    set value(text: string) {
+        this.lines = text.split(/\r\n|\r|\n/)
+        const crlf = text.split('\r\n').length - 1
+        // With no line break at all, Monaco's default.
+        this.eol = crlf > (this.lines.length - 1) / 2 ? '\r\n' : '\n'
+    }
+    getValue(preference = EOL_PREFERENCE.TextDefined) {
+        if (preference === EOL_PREFERENCE.LF) return this.lines.join('\n')
+        if (preference === EOL_PREFERENCE.CRLF) return this.lines.join('\r\n')
         return this.value
     }
     setValue(value: string) {
         this.value = value
+        this.listeners.forEach((l) => l())
+    }
+    getEOL() {
+        return this.eol
+    }
+    /** Changes only the line ending (Monaco tells listeners, but keeps the undo history). */
+    setEOL(sequence: number) {
+        this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
         this.listeners.forEach((l) => l())
     }
     dispose() {
@@ -43,7 +71,7 @@ class FakeModel {
     }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
-        const line = this.value.split('\n')[range.startLineNumber - 1] ?? ''
+        const line = this.lines[range.startLineNumber - 1] ?? ''
         return line.slice(range.startColumn - 1, range.endColumn - 1)
     }
 }
@@ -152,7 +180,8 @@ const fakeMonaco = {
     KeyCode: { F1: 59 },
     KeyMod: { CtrlCmd: 2048 },
     editor: {
-        EndOfLinePreference: { TextDefined: 0, LF: 1, CRLF: 2 },
+        EndOfLinePreference: EOL_PREFERENCE,
+        EndOfLineSequence: EOL_SEQUENCE,
         EditorOption: { readOnly: 0 },
         create: (_container: HTMLElement, options: { model: FakeModel } & Record<string, unknown>) => {
             const editor = new FakeEditor(options.model, options)
@@ -382,6 +411,59 @@ describe('CodeEditorPanel models', () => {
         expect(editor.getValue()).toBe('notes v2')
         act(() => editor.type('!'))
         expect(updateTabContent).toHaveBeenLastCalledWith(v2, 'notes v2!')
+    })
+
+    it.each([
+        ['CRLF to LF', 'one\r\ntwo\r\n', 'one\ntwo\n'],
+        ['LF to CRLF', 'one\ntwo\n', 'one\r\ntwo\r\n'],
+    ])('takes on line endings another program changed (%s), so the next edit keeps them', async (_, before, after) => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, before)], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const model = editor.getModel()!
+
+        // The file was reloaded from disk: the same text with other line endings, and still clean.
+        setTabs(view, { tabs: [tab(a, after)], activeTabId: a })
+        expect(updateTabContent).not.toHaveBeenCalled()
+        // The buffer (and its undo history) is kept.
+        expect(editor.getModel()).toBe(model)
+
+        act(() => editor.type('x'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, `${after}x`)
+    })
+
+    it('takes on changed line endings when switching back to a tab whose file was reloaded', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'one\r\ntwo'), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        setTabs(view, { tabs: [tab(a, 'one\r\ntwo'), tab(b, 'B')], activeTabId: b })
+
+        setTabs(view, { tabs: [tab(a, 'one\ntwo'), tab(b, 'B')], activeTabId: b })
+        setTabs(view, { tabs: [tab(a, 'one\ntwo'), tab(b, 'B')], activeTabId: a })
+
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'one\ntwo!')
+    })
+
+    it('keeps the buffer of a file with mixed line endings when switching tabs', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const mixed = 'one\r\ntwo\nthree\r\n'
+        tabsState = { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const model = editor.getModel()!
+        const setValue = vi.spyOn(model, 'setValue')
+        const setEOL = vi.spyOn(model, 'setEOL')
+
+        setTabs(view, { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: b })
+        setTabs(view, { tabs: [tab(a, mixed), tab(b, 'B')], activeTabId: a })
+
+        // Monaco evened the endings out on purpose; replacing the buffer would wipe its undo history.
+        expect(editor.getModel()).toBe(model)
+        expect(setValue).not.toHaveBeenCalled()
+        expect(setEOL).not.toHaveBeenCalled()
+        expect(updateTabContent).not.toHaveBeenCalled()
     })
 
     it('does not undo keystrokes the tab has not shown yet', async () => {

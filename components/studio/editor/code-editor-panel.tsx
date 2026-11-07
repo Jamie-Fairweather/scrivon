@@ -134,6 +134,16 @@ function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
+/**
+ * The one line ending `text` uses, or null when it has no line break or mixes them. Monaco gives a buffer
+ * one line ending, so a file that mixes them is evened out on purpose and is left that way.
+ */
+function lineEndingOf(text: string): '\r\n' | '\n' | null {
+    if (!/[\r\n]/.test(text)) return null
+    if (!/\r(?!\n)|(?<!\r)\n/.test(text)) return '\r\n'
+    return text.includes('\r') ? null : '\n'
+}
+
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
 function isTab(tabId: string | null, path: string): boolean {
     return tabId !== null && samePath(tabId, path)
@@ -451,7 +461,20 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         const tab = activeTabRef.current
         const monaco = monacoRef.current
         if (!model || !tab || !monaco) return
-        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) return
+        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) {
+            // The same text, but another program may have changed only its line endings (the file was
+            // reloaded). Take them on, or the next keystroke would save the old ones over every line.
+            // setEOL keeps the undo history, unlike setValue.
+            const eol = lineEndingOf(tab.content)
+            if (eol === null || model.getEOL() === eol) return
+            suppressChangeRef.current = true
+            try {
+                model.setEOL(eol === '\r\n' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
+            } finally {
+                suppressChangeRef.current = false
+            }
+            return
+        }
         suppressChangeRef.current = true
         try {
             model.setValue(tab.content)
