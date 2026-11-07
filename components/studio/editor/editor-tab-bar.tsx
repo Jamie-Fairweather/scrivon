@@ -177,7 +177,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                         title={tab.saveError ? `${displayPath(tab.path)}\nSave failed: ${tab.saveError}` : displayPath(tab.path)}
                                     >
                                         {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
-                                        {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive" aria-hidden />}
+                                        {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive-foreground" aria-hidden />}
                                         <span dir="auto" className="truncate">
                                             {tab.name}
                                         </span>
