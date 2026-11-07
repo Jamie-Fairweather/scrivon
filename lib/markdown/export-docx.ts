@@ -1,7 +1,10 @@
 import {
     AlignmentType,
     Bookmark,
+    BookmarkEnd,
+    BookmarkStart,
     BorderStyle,
+    BuilderElement,
     Document,
     ExternalHyperlink,
     Footer,
@@ -22,6 +25,7 @@ import {
     PageOrientation,
     Paragraph,
     ShadingType,
+    StringContainer,
     Tab,
     TabStopType,
     Table,
@@ -40,14 +44,16 @@ import {
     convertMillimetersToTwip,
     type ILevelsOptions,
     type ISectionOptions,
+    type ParagraphChild,
 } from 'docx'
 import type {
     Blockquote,
     Code,
     Definition,
+    FootnoteDefinition,
     Heading,
-    Html,
     Image,
+    ImageReference,
     Link,
     LinkReference,
     List,
@@ -61,12 +67,16 @@ import type {
     Text,
 } from 'mdast'
 import { visit } from 'unist-util-visit'
+import { notifyWarning } from '@/lib/notify'
 import type { ExportDocument } from '@/lib/markdown/export-document'
+import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
+import { diagramAltText, stripAccessibilityLines, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
+import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { AppThemeId } from '@/lib/theme/catalog'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 
@@ -74,7 +84,8 @@ type Block = Paragraph | Table
 type ImageKind = 'png' | 'jpg' | 'gif' | 'bmp'
 type PreparedCode =
     | { kind: 'code'; lines: HighlightedToken[][] }
-    | { kind: 'diagram'; png: Uint8Array | null; source: string }
+    /** `size` is the SVG's own size, which the PDF draws it at. The PNG is drawn at 2x that. */
+    | { kind: 'diagram'; png: Uint8Array | null; size: { width: number; height: number } | null; source: string; alt: DiagramAltText }
     | { kind: 'error'; message: string }
 
 type Marks = {
@@ -90,6 +101,8 @@ type Marks = {
 
 const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-monospace', 'ui-serif', 'ui-sans-serif'])
 const SKIP_FONTS = new Set(['blinkmacsystemfont', 'sfmono-regular'])
+/** Fonts only Macs have. Windows has no substitute for them, so a later name in the stack wins when there is one. */
+const MAC_ONLY_FONTS = new Set(['menlo', 'monaco', 'sf mono', 'helvetica neue', 'lucida grande', 'geneva', 'apple color emoji'])
 const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 const GRID_BORDER = { style: BorderStyle.SINGLE, size: 4, color: 'E5E5E5' }
 /** Same cap the PDF cover uses (`max-height: 150mm`). */
@@ -107,6 +120,8 @@ const HEADING_SPACING = [
 ] as const
 /** PDF list padding (`padding-left: 1.25rem`) is about this. The marker hangs inside it, not in the page margin. */
 const LIST_STEP = 360
+/** PDF quotes are `padding-left: 1rem` beside the bar. Each nested quote steps in this far. */
+const QUOTE_STEP = 240
 /** PDF table cells are `padding: 0.5rem 0.75rem`. */
 const TABLE_CELL_MARGIN = { marginUnitType: WidthType.DXA, top: 120, bottom: 120, left: 180, right: 180 }
 const HEADING_LEVELS = [
@@ -118,25 +133,168 @@ const HEADING_LEVELS = [
     HeadingLevel.HEADING_6,
 ] as const
 
-function wordFont(stack: string, fallback: string): string {
-    for (const part of stack.split(',')) {
-        const name = part.trim().replace(/^["']|["']$/g, '')
-        if (!name || name.startsWith('-') || GENERIC_FONTS.has(name) || SKIP_FONTS.has(name.toLowerCase())) continue
-        return name
-    }
-    return fallback
+/** The font families a CSS stack names, in order, without generic families and browser-only names. */
+function fontNames(stack: string): string[] {
+    return stack
+        .split(',')
+        .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+        .filter((name) => name && !name.startsWith('-') && !GENERIC_FONTS.has(name.toLowerCase()) && !SKIP_FONTS.has(name.toLowerCase()))
 }
 
-function hexColor(value: string, fallback: string): string {
-    const raw = value.trim().replace(/^#/, '')
-    if (/^[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase()
-    if (/^[0-9a-fA-F]{3}$/.test(raw))
-        return raw
+function wordFont(stack: string, fallback: string): string {
+    const names = fontNames(stack)
+    return names.find((name) => !MAC_ONLY_FONTS.has(name.toLowerCase())) ?? names[0] ?? fallback
+}
+
+/**
+ * A font for Chinese, Japanese or Korean text, and its Word charset so Word swaps in one of the same script if it's
+ * missing. No charset when the script isn't known.
+ */
+type EastAsianFont = { name: string; charset?: string }
+
+const EAST_ASIAN_FONTS = {
+    japanese: { name: 'Yu Gothic', charset: '80' },
+    korean: { name: 'Malgun Gothic', charset: '81' },
+    // There is no language setting to tell Traditional from Simplified; YaHei has the characters of both.
+    chinese: { name: 'Microsoft YaHei', charset: '86' },
+} as const satisfies Record<string, EastAsianFont>
+
+/** Word's four font slots. Word draws Chinese, Japanese and Korean characters with `eastAsia` and everything else with the rest. */
+type WordFont = { ascii: string; hAnsi: string; cs: string; eastAsia?: string }
+
+const KANA = /[぀-ヿㇰ-ㇿｦ-ﾟ]/g
+const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힯]/g
+const HAN = /[㐀-䶿一-鿿豈-﫿\u{20000}-\u{3FFFD}]/u
+
+/**
+ * The East Asian font for the document, from the script its text is in: kana means Japanese, Hangul Korean,
+ * and Chinese characters alone Chinese. Undefined with no such text, so Word keeps its own choice.
+ */
+function eastAsianFont(document: ExportDocument): EastAsianFont | undefined {
+    const { metadata, profile, tree } = document
+    const parts = [metadata.title, metadata.subtitle, metadata.author, metadata.date, profile.content.watermark]
+    for (const chrome of [profile.header, profile.footer]) parts.push(chrome.left.text, chrome.right.text)
+    visit(tree, (node) => {
+        if (node.type === 'html') return
+        if ('value' in node && typeof node.value === 'string') parts.push(node.value)
+        if ('alt' in node && typeof node.alt === 'string') parts.push(node.alt)
+    })
+    const text = parts.join('\n')
+    const kana = text.match(KANA)?.length ?? 0
+    const hangul = text.match(HANGUL)?.length ?? 0
+    if (kana > 0 || hangul > 0) return kana >= hangul ? EAST_ASIAN_FONTS.japanese : EAST_ASIAN_FONTS.korean
+    return HAN.test(text) ? EAST_ASIAN_FONTS.chinese : undefined
+}
+
+/** Fonts made for Chinese, Japanese or Korean, by name, with their script's charset. Null where the name doesn't say which script. */
+const CJK_FONT_NAMES: [pattern: RegExp, charset: string | null][] = [
+    [/^(?:yu (?:gothic|mincho)|meiryo|ms p?(?:gothic|mincho)|ms ui gothic|biz ud|hiragino|noto (?:sans|serif)(?: cjk)? jp)/i, '80'],
+    [/^(?:malgun gothic|gulim|dotum|batang|gungsuh|noto (?:sans|serif)(?: cjk)? kr)/i, '81'],
+    [/^(?:microsoft yahei|dengxian|n?simsun|simhei|kaiti|fangsong|noto (?:sans|serif)(?: cjk)? sc|pingfang sc)/i, '86'],
+    [/^(?:microsoft jhenghei|p?mingliu|dfkai-sb|noto (?:sans|serif)(?: cjk)? (?:tc|hk)|pingfang (?:tc|hk))/i, '88'],
+    [/^(?:noto (?:sans|serif) cjk|source han (?:sans|serif)|pingfang)/i, null],
+]
+
+/** The charset a font name says it is for, null when it is a CJK font of no known script, undefined when it isn't one. */
+function cjkCharset(name: string): string | null | undefined {
+    const known = CJK_FONT_NAMES.find(([pattern]) => pattern.test(name))
+    if (known) return known[1]
+    // A name written in kana or Hangul, such as メイリオ or 맑은 고딕, is a Japanese or Korean font; one in Chinese characters is CJK.
+    if (name.search(KANA) >= 0) return '80'
+    if (name.search(HANGUL) >= 0) return '81'
+    return HAN.test(name) ? null : undefined
+}
+
+/**
+ * The first Chinese, Japanese or Korean font a CSS stack names, which is what the PDF draws such text with.
+ * Undefined when the stack names none. A font of no known script takes the document's.
+ */
+function stackEastAsianFont(stack: string, script: EastAsianFont | undefined): EastAsianFont | undefined {
+    for (const name of fontNames(stack)) {
+        const charset = cjkCharset(name)
+        if (charset !== undefined) return { name, charset: charset ?? script?.charset }
+    }
+    return undefined
+}
+
+function wordFontSlots(name: string, eastAsian: EastAsianFont | undefined): WordFont {
+    return { ascii: name, hAnsi: name, cs: name, eastAsia: eastAsian?.name }
+}
+
+/**
+ * Characters XML 1.0 doesn't allow: control characters other than tab, line feed and carriage return,
+ * U+FFFE/U+FFFF, and half surrogate pairs. docx writes them as they are, and one of them makes Word refuse the whole file.
+ */
+const XML_ILLEGAL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿\uD800-\uDFFF]/gu
+
+/** Text Word can open. A form feed is whitespace in the PDF's HTML, so it becomes a space; the others are dropped. */
+function xmlSafe(text: string): string {
+    return text.replace(XML_ILLEGAL, (char) => (char === '\f' ? ' ' : ''))
+}
+
+/** Copies plain data with every string made {@link xmlSafe}. */
+function xmlSafeCopy<T>(value: T): T {
+    if (typeof value === 'string') return xmlSafe(value) as T
+    if (Array.isArray(value)) return value.map(xmlSafeCopy) as T
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, xmlSafeCopy(item)])) as T
+    return value
+}
+
+/**
+ * The document with every piece of text Word will get made safe: body, code, alt text, links, title and other
+ * metadata, contents, header and footer text, and the watermark. The Settings images are only decoded, so they stay as they are.
+ */
+function xmlSafeDocument(document: ExportDocument): ExportDocument {
+    const { assets, ...text } = document
+    return { ...xmlSafeCopy(text), assets }
+}
+
+function escapeXml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+}
+
+/**
+ * docx only lists embedded fonts, so Word gets no hint about the code font.
+ * Marking it fixed-pitch makes Word swap in another monospace font when it isn't installed.
+ * Each East Asian font's charset does the same for its script, so a missing Yu Gothic becomes another Japanese font.
+ */
+function fontTableXml(monoFont: string, eastAsian: EastAsianFont[]): string {
+    const entry = (name: string, charset: string | undefined, family: string, pitch: string) =>
+        `<w:font w:name="${escapeXml(name)}">${charset ? `<w:charset w:val="${charset}"/>` : ''}<w:family w:val="${family}"/><w:pitch w:val="${pitch}"/></w:font>`
+    // A CJK code font is listed once, as the code font, with its charset.
+    const mono = eastAsian.find((font) => font.name === monoFont)
+    return [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+        entry(monoFont, mono?.charset, 'modern', 'fixed'),
+        ...eastAsian.filter((font) => font !== mono).map((font) => entry(font.name, font.charset, 'swiss', 'variable')),
+        '</w:fonts>',
+    ].join('')
+}
+
+/**
+ * CSS hex (3, 4, 6 or 8 digits) to Word's 6-digit colour. Word has no see-through text or shading,
+ * so a colour with alpha is blended onto what sits behind it: the white page unless `backdrop` says otherwise.
+ */
+function hexColor(value: string, fallback: string, backdrop = 'FFFFFF'): string {
+    let raw = value.trim().replace(/^#/, '')
+    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(raw)) return fallback
+    if (raw.length <= 4)
+        raw = raw
             .split('')
             .map((char) => `${char}${char}`)
             .join('')
-            .toUpperCase()
-    return fallback
+    const alpha = raw.length === 8 ? parseInt(raw.slice(6, 8), 16) / 255 : 1
+    return [0, 2, 4]
+        .map((offset) => {
+            const channel = parseInt(raw.slice(offset, offset + 2), 16)
+            const behind = parseInt(backdrop.slice(offset, offset + 2), 16)
+            return Math.round(channel * alpha + behind * (1 - alpha))
+                .toString(16)
+                .padStart(2, '0')
+        })
+        .join('')
+        .toUpperCase()
 }
 
 function readU32BE(bytes: Uint8Array, offset: number): number {
@@ -208,11 +366,12 @@ function fit(size: { width: number; height: number }, maxWidth: number, maxHeigh
 function decodeDataUrl(dataUrl: string): Uint8Array | null {
     const trimmed = dataUrl.trim()
     if (!trimmed) return null
-    const match = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(trimmed)
+    // Parameters such as `;charset=utf-8` may come before `;base64` and the comma.
+    const match = /^data:[^,]*?(;base64)?,([\s\S]*)$/i.exec(trimmed)
     if (!match) return null
-    const payload = match[3]!
+    const payload = match[2]!
     try {
-        if (match[2]) {
+        if (match[1]) {
             const binary = atob(payload)
             const bytes = new Uint8Array(binary.length)
             for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
@@ -224,13 +383,132 @@ function decodeDataUrl(dataUrl: string): Uint8Array | null {
     }
 }
 
-function embeddedImage(dataUrl: string, maxWidth: number, maxHeight: number, name: string): ImageRun | null {
+/** Image bytes Word can embed, and the size the PDF shows the picture at (null when the file doesn't say). */
+type DecodedImage = { kind: ImageKind; bytes: Uint8Array; size: { width: number; height: number } | null }
+
+/** A data URL as Word-ready bytes: as is for PNG/JPEG/GIF/BMP, else the PNG {@link convertImages} made from it. */
+function decodeImage(converted: Map<string, DecodedImage>, dataUrl: string): DecodedImage | null {
+    const redrawn = converted.get(dataUrl.trim())
+    if (redrawn) return redrawn
     const bytes = decodeDataUrl(dataUrl)
-    if (!bytes) return null
-    const kind = imageKind(bytes)
-    if (!kind) return null
-    const size = fit(imageSize(kind, bytes) ?? { width: maxWidth, height: maxHeight }, maxWidth, maxHeight)
-    return new ImageRun({ type: kind, data: bytes, transformation: size, altText: { name, description: name } })
+    const kind = bytes ? imageKind(bytes) : null
+    return bytes && kind ? { kind, bytes, size: imageSize(kind, bytes) } : null
+}
+
+function embeddedImage(image: DecodedImage | null, maxWidth: number, maxHeight: number, name: string, description = name): ImageRun | null {
+    if (!image) return null
+    const size = fit(image.size ?? { width: maxWidth, height: maxHeight }, maxWidth, maxHeight)
+    return new ImageRun({ type: image.kind, data: image.bytes, transformation: size, altText: { name, description } })
+}
+
+/** Longest side a redrawn image gets, well inside browser canvas limits. */
+const MAX_REDRAW_SIDE = 4096
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        // `Image` alone is the mdast type here.
+        const img = new globalThis.Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('Image could not be read.'))
+        img.src = src
+    })
+}
+
+/** The size an SVG shows at in an `<img>`: its width and height, else its viewBox. */
+function svgSize(markup: string): { width: number; height: number } | null {
+    const tag = /<svg\b[^>]*>/i.exec(markup)?.[0]
+    if (!tag) return null
+    const attribute = (name: string) => new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(tag)?.[1]?.trim() ?? ''
+    const length = (value: string) => (/^\d*\.?\d+(px)?$/i.test(value) ? parseFloat(value) : 0)
+    const width = length(attribute('width'))
+    const height = length(attribute('height'))
+    if (width > 0 && height > 0) return { width, height }
+    const box = attribute('viewBox')
+        .split(/[\s,]+/)
+        .map(Number)
+    const boxWidth = box.length === 4 ? box[2]! : 0
+    const boxHeight = box.length === 4 ? box[3]! : 0
+    if (!(boxWidth > 0 && boxHeight > 0)) return null
+    if (width > 0) return { width, height: (width * boxHeight) / boxWidth }
+    if (height > 0) return { width: (height * boxWidth) / boxHeight, height }
+    return { width: boxWidth, height: boxHeight }
+}
+
+const SVG_DATA_URL = /^data:image\/svg\+xml[;,]/i
+
+/**
+ * Draws an image Word can't take (SVG, WebP…) as a PNG, the way the PDF's `<img>` shows it. Null where that fails.
+ * `size` stays the image's own size; `shownWidth` is a wider size it will be stretched to, so vector art is drawn for that.
+ */
+async function redrawAsPng(dataUrl: string, shownWidth = 0): Promise<DecodedImage | null> {
+    if (typeof document === 'undefined' || typeof globalThis.Image === 'undefined') return null
+    const bytes = decodeDataUrl(dataUrl)
+    if (!bytes || imageKind(bytes)) return null
+    try {
+        const img = await loadImage(dataUrl)
+        const svg = SVG_DATA_URL.test(dataUrl)
+        const natural = img.naturalWidth > 0 && img.naturalHeight > 0 ? { width: img.naturalWidth, height: img.naturalHeight } : null
+        const size = (svg ? svgSize(new TextDecoder().decode(bytes)) : null) ?? natural
+        if (!size) return null
+        // Vector art is drawn at 2x the size it is shown at, so it stays sharp; pictures keep their own pixels.
+        const scale = Math.min(svg ? (2 * Math.max(size.width, shownWidth)) / size.width : 1, MAX_REDRAW_SIDE / Math.max(size.width, size.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(size.width * scale))
+        canvas.height = Math.max(1, Math.round(size.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return null
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/png'))
+        if (!blob) return null
+        return { kind: 'png', bytes: new Uint8Array(await blob.arrayBuffer()), size }
+    } catch {
+        return null
+    }
+}
+
+/** Redraws, once each, every logo, bar and body image that Word can't embed as it is. */
+async function convertImages(exportDocument: ExportDocument): Promise<Map<string, DecodedImage>> {
+    const { assets, tree } = exportDocument
+    const urls = new Set(
+        [assets.logoDataUrl, assets.header.left, assets.header.right, assets.footer.left, assets.footer.right].map((url) => url.trim())
+    )
+    visit(tree, 'image', (node: Image) => {
+        urls.add(node.url.trim())
+    })
+    const definitions = collectDefinitions(tree)
+    visit(tree, 'imageReference', (node: ImageReference) => {
+        const url = definitions.get(node.identifier)
+        if (url !== undefined) urls.add(url.trim())
+    })
+    const converted = new Map<string, DecodedImage>()
+    await Promise.all(
+        [...urls]
+            .filter((url) => url.startsWith('data:'))
+            .map(async (url) => {
+                const image = await redrawAsPng(url)
+                if (image) converted.set(url, image)
+            })
+    )
+    return converted
+}
+
+/** The logo and bar images come from Settings and have no alt text to fall back to, so say when one is left out. */
+function warnAboutDroppedImages(state: RenderState) {
+    const { profile, assets } = state.document
+    const layout = resolvePdfExportLayout(profile)
+    const slots: [used: boolean, dataUrl: string, label: string][] = [
+        [profile.frontMatter.titlePage, assets.logoDataUrl, 'title-page logo'],
+        [layout.showHeader, assets.header.left, 'header image'],
+        [layout.showHeader, assets.header.right, 'header image'],
+        [layout.showFooter, assets.footer.left, 'footer image'],
+        [layout.showFooter, assets.footer.right, 'footer image'],
+    ]
+    const dropped = [
+        ...new Set(slots.filter(([used, url]) => used && url.trim() !== '' && !decodeImage(state.images, url)).map(([, , label]) => label)),
+    ]
+    if (dropped.length === 0) return
+    const list = dropped.length === 1 ? dropped[0] : `${dropped.slice(0, -1).join(', ')} and ${dropped[dropped.length - 1]}`
+    notifyWarning("Some images aren't in the Word file", { description: `Couldn't add the ${list}. Try a PNG or JPEG file instead.` })
 }
 
 function mmToPx(mm: number): number {
@@ -245,27 +523,56 @@ function twipToEmu(twip: number): number {
     return Math.round(twip * 635)
 }
 
-/** Diagonal watermark. Returns null where canvas is unavailable; the caller then writes the words into the header. */
-async function createWatermarkPng(text: string): Promise<Uint8Array | null> {
+type Picture = { data: Uint8Array; width: number; height: number }
+
+/** The PDF watermark is `font-size: 4rem`. It is drawn at twice that so it stays sharp. */
+const WATERMARK_FONT_PX = 64 * 2
+const WATERMARK_ANGLE = Math.PI / 6
+
+/**
+ * Diagonal watermark drawn like the PDF's: bold body font at 8% black, turned 30°.
+ * The canvas is sized to the turned text so nothing is clipped. Width and height are display
+ * pixels, never wider than `maxWidth`. Null where canvas is unavailable; the caller then writes the words into the header.
+ */
+async function createWatermarkPng(text: string, fontFamily: string, maxWidth: number): Promise<Picture | null> {
     const trimmed = text.trim()
     if (!trimmed) return null
     try {
         const canvas = document.createElement('canvas')
-        canvas.width = 900
-        canvas.height = 220
         const ctx = canvas.getContext('2d')
         if (!ctx) return null
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.translate(canvas.width / 2, canvas.height / 2)
-        ctx.rotate(-Math.PI / 6)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.16)'
-        ctx.font = '700 72px sans-serif'
+        const setFont = () => {
+            // An invalid stack is ignored by the canvas, so the plain sans-serif stays.
+            ctx.font = `700 ${WATERMARK_FONT_PX}px sans-serif`
+            ctx.font = `700 ${WATERMARK_FONT_PX}px ${fontFamily}`
+        }
+        setFont()
+        const textWidth = ctx.measureText(trimmed).width
+        const textHeight = WATERMARK_FONT_PX * 1.2
+        const pad = WATERMARK_FONT_PX * 0.25
+        const cos = Math.cos(WATERMARK_ANGLE)
+        const sin = Math.sin(WATERMARK_ANGLE)
+        const boxWidth = textWidth * cos + textHeight * sin + pad * 2
+        const boxHeight = textWidth * sin + textHeight * cos + pad * 2
+        const scale = Math.min(1, (maxWidth * 2) / boxWidth)
+        canvas.width = Math.max(1, Math.ceil(boxWidth * scale))
+        canvas.height = Math.max(1, Math.ceil(boxHeight * scale))
+        // Resizing the canvas resets the context, so style it after.
+        setFont()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.08)'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
+        ctx.translate(canvas.width / 2, canvas.height / 2)
+        ctx.rotate(-WATERMARK_ANGLE)
+        ctx.scale(scale, scale)
         ctx.fillText(trimmed, 0, 0)
         const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/png'))
         if (!blob) return null
-        return new Uint8Array(await blob.arrayBuffer())
+        return {
+            data: new Uint8Array(await blob.arrayBuffer()),
+            width: Math.max(1, Math.round(canvas.width / 2)),
+            height: Math.max(1, Math.round(canvas.height / 2)),
+        }
     } catch {
         return null
     }
@@ -284,23 +591,63 @@ function errorMessage(err: unknown): string {
     return err instanceof Error ? err.message : String(err)
 }
 
-function plainText(node: { value?: string; children?: unknown[] }): string {
+type TextNode = { type?: string; value?: string; children?: unknown[] }
+
+/** The words of a node. Raw HTML is left out, as it is everywhere in the Word file. */
+function plainText(node: TextNode): string {
+    if (node.type === 'html') return ''
     if (typeof node.value === 'string') return node.value
     if (!Array.isArray(node.children)) return ''
-    return node.children.map((child) => plainText(child as { value?: string; children?: unknown[] })).join('')
+    return node.children.map((child) => plainText(child as TextNode)).join('')
+}
+
+/** Letters of right-to-left scripts: Hebrew, Arabic, Syriac, Thaana, N'Ko and the rest, with their presentation forms. */
+const RTL_LETTER = /[֐-ࣿיִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u
+
+/** Whether a block reads right to left. Like the browser's `dir="auto"`, its first letter decides. */
+function isRtl(text: string): boolean {
+    const first = /\p{L}/u.exec(text)?.[0]
+    return first !== undefined && RTL_LETTER.test(first)
+}
+
+/**
+ * Whether Word should mark a run right-to-left: it has right-to-left letters and no left-to-right ones, as Word
+ * marks text typed in Hebrew or Arabic. A run with Latin words in it is left unmarked, since the mark would
+ * also turn the spaces between those words right-to-left and swap their order.
+ */
+function runIsRtl(text: string): boolean {
+    let rtl = false
+    for (const [letter] of text.matchAll(/\p{L}/gu)) {
+        if (!RTL_LETTER.test(letter)) return false
+        rtl = true
+    }
+    return rtl
+}
+
+/** Paragraph direction for Word: set only for right-to-left text, so other paragraphs stay as they were. */
+function bidi(text: string): true | undefined {
+    return isRtl(text) || undefined
 }
 
 type RenderState = {
     document: ExportDocument
     prepared: Map<Code, PreparedCode>
+    /** PNGs redrawn from images Word can't take, keyed by their data URL. */
+    images: Map<string, DecodedImage>
+    /** The cover logo, decoded once. Null when there is none or it can't be embedded. */
+    logo: DecodedImage | null
     numbering: { reference: string; levels: ILevelsOptions[] }[]
     nextList: number
+    /** The numbering each bullet list shares, by depth and indent. Bullets never restart, so one each is enough. */
+    bulletLists: Map<string, string>
     footnotes: Record<number, { children: Paragraph[] }>
     definitions: Map<string, string>
     footnoteIds: Map<string, number>
-    bodyFont: string
-    headingFont: string
-    monoFont: string
+    /** The Chinese, Japanese or Korean fonts the body, heading and code fonts use, once each, for the font table. */
+    eastAsianFonts: EastAsianFont[]
+    bodyFont: WordFont
+    headingFont: WordFont
+    monoFont: WordFont
     accent: string
     link: string
     bodyHalfPoints: number
@@ -308,12 +655,68 @@ type RenderState = {
     contentTwip: number
     pageWidthPx: number
     pageWidthTwip: number
-    /** Paragraph inset used when the page's own side margins are zero so a bar can reach the paper edge. */
-    insetLeft: number
-    insetRight: number
+    /** Extra left indent, in twips, for blocks nested in list items and quotes. */
+    extraLeft: number
+    /** How many quotes the blocks being rendered sit inside. */
+    quoteDepth: number
+    /** Set while a footnote's text is rendered: smaller type, and no footnotes inside it. */
+    inFootnote: boolean
+    /** Text width, in pixels, of the table cell being rendered, so its pictures fit inside it. Null outside tables. */
+    cellPx: number | null
+    /** The contents entries, worded as their headings are in the body. */
+    toc: PdfExportOutlineItem[]
+    /** Each heading id's bookmark number. See {@link headingBookmarks}. */
+    bookmarks: Map<string, number>
 }
 
-function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>): RenderState {
+/**
+ * A number for each heading's bookmark, in document order. Heading ids are slugs, which can be longer than the
+ * 40 characters Word allows or start with a digit (`1-introduction`). Word drops such a bookmark, and the contents
+ * page number pointing at it then reads "Error! Bookmark not defined." after an update. See {@link bookmarkName}.
+ */
+function headingBookmarks(tree: ExportDocument['tree']): Map<string, number> {
+    const numbers = new Map<string, number>()
+    visit(tree, 'heading', (node: Heading) => {
+        const id = headingId(node)
+        if (id && !numbers.has(id)) numbers.set(id, numbers.size + 1)
+    })
+    return numbers
+}
+
+/** A hidden bookmark name, like the `_Ref` ones Word makes for cross-references: always valid, and kept out of Word's bookmark list. */
+function bookmarkName(number: number): string {
+    return `_Ref${number}`
+}
+
+/** Where a link to `#id` goes in Word: the heading's bookmark, else the id as it is. */
+function anchorFor(state: RenderState, id: string): string {
+    const number = state.bookmarks.get(id)
+    return number === undefined ? id : bookmarkName(number)
+}
+
+/** A heading's bookmark. docx gives every Bookmark the number 1, and Word needs each to have its own, so it is set here. */
+function headingBookmark(number: number, children: ParagraphChild[]): Bookmark {
+    const name = bookmarkName(number)
+    return Object.assign(new Bookmark({ id: name, children }), { start: new BookmarkStart(name, number), end: new BookmarkEnd(number) })
+}
+
+/**
+ * The contents entries with each heading's words as the body shows them. The outline's text keeps raw HTML,
+ * so a hidden comment or tag in a heading would be printed on the Contents page; an entry with no words left is dropped.
+ */
+function tocEntries(document: ExportDocument): PdfExportOutlineItem[] {
+    const words = new Map<string, string>()
+    visit(document.tree, 'heading', (node: Heading) => {
+        const id = headingId(node)
+        if (id) words.set(id, plainText(node).trim())
+    })
+    return document.toc.flatMap((item) => {
+        const text = words.get(item.id) ?? ''
+        return text ? [{ ...item, text }] : []
+    })
+}
+
+function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
     const { profile } = document
     const portrait = pdfPageSizeMm(profile)
     const landscape = profile.page.orientation === 'landscape'
@@ -321,19 +724,29 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     const marginLeft = convertMillimetersToTwip(profile.page.marginsMm.left)
     const marginRight = convertMillimetersToTwip(profile.page.marginsMm.right)
     const widthTwip = convertMillimetersToTwip(widthMm)
-    const layout = resolvePdfExportLayout(profile)
-    const sidesBleed = layout.headerBleeds || layout.footerBleeds
+    // A CJK font the stack names wins, as in the PDF. The script's Windows font stands in only when it names none.
+    const script = eastAsianFont(document)
+    const [bodyEast, headingEast, monoEast] = [profile.typography.bodyFont, profile.typography.headingFont, profile.typography.monoFont].map(
+        (stack) => stackEastAsianFont(stack, script) ?? script
+    )
+    const eastAsianFonts = [bodyEast, headingEast, monoEast].filter(
+        (font, index, all): font is EastAsianFont => font !== undefined && all.findIndex((other) => other?.name === font.name) === index
+    )
     return {
         document,
         prepared,
+        images,
+        logo: decodeImage(images, document.assets.logoDataUrl),
         numbering: [],
         nextList: 1,
+        bulletLists: new Map(),
         footnotes: {},
         definitions: collectDefinitions(document.tree),
         footnoteIds: new Map(),
-        bodyFont: wordFont(profile.typography.bodyFont, 'Calibri'),
-        headingFont: wordFont(profile.typography.headingFont, 'Calibri'),
-        monoFont: wordFont(profile.typography.monoFont, 'Consolas'),
+        eastAsianFonts,
+        bodyFont: wordFontSlots(wordFont(profile.typography.bodyFont, 'Calibri'), bodyEast),
+        headingFont: wordFontSlots(wordFont(profile.typography.headingFont, 'Calibri'), headingEast),
+        monoFont: wordFontSlots(wordFont(profile.typography.monoFont, 'Consolas'), monoEast),
         accent: hexColor(profile.brand.accentColor, '262626'),
         link: hexColor(profile.brand.linkColor.trim() || profile.brand.accentColor, '262626'),
         bodyHalfPoints: Math.round(profile.typography.bodySizePt * 2),
@@ -341,8 +754,12 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         contentTwip: widthTwip - marginLeft - marginRight,
         pageWidthPx: mmToPx(widthMm),
         pageWidthTwip: widthTwip,
-        insetLeft: sidesBleed ? marginLeft : 0,
-        insetRight: sidesBleed ? marginRight : 0,
+        extraLeft: 0,
+        quoteDepth: 0,
+        inFootnote: false,
+        cellPx: null,
+        toc: tocEntries(document),
+        bookmarks: headingBookmarks(document.tree),
     }
 }
 
@@ -359,12 +776,43 @@ function bodyLineSpacing(state: RenderState): { line: number; lineRule: (typeof 
     return { line: lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST }
 }
 
-/** Body text inset. Empty when the page margins already provide it. */
-function contentIndent(state: RenderState, extraLeft = 0): { left: number; right: number } | undefined {
-    const left = state.insetLeft + extraLeft
-    const right = state.insetRight
-    if (left === 0 && right === 0) return undefined
-    return { left, right }
+/** Left indent for a block nested in a list item or quote. Empty at the top level, where the page margins are enough. */
+function contentIndent(state: RenderState): { left: number } | undefined {
+    return state.extraLeft > 0 ? { left: state.extraLeft } : undefined
+}
+
+/** Width left for a picture once nested blocks have stepped in, or inside the table cell it sits in. */
+function availablePx(state: RenderState): number {
+    const width = Math.max(1, state.contentPx - Math.round(state.extraLeft / 15))
+    return state.cellPx === null ? width : Math.min(width, state.cellPx)
+}
+
+/** The quote bar's width, in eighths of a point, and its gap to the text, in points. */
+const QUOTE_BAR = { size: 12, space: 11 } as const
+/** How far left of a quoted paragraph's text Word draws the middle of its bar, in twips: the gap, then half the bar. */
+const QUOTE_BAR_INSET = QUOTE_BAR.space * 20 + (QUOTE_BAR.size * 20) / 8 / 2
+
+/** The quote's accent bar, on every block inside a quote. Word draws it `space` points left of the text, at the quote's edge. */
+function quoteBorder(state: RenderState) {
+    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, ...QUOTE_BAR, color: state.accent } } : undefined
+}
+
+/** Quote text is grey and italic, as in the PDF. */
+function quoteMarks(state: RenderState): Marks {
+    return state.quoteDepth > 0 ? { quote: true } : {}
+}
+
+/** Renders blocks nested one step in: under a list item's text, or inside a quote. */
+async function nested<T>(state: RenderState, extraLeft: number, quote: boolean, render: () => Promise<T>): Promise<T> {
+    const saved = { extraLeft: state.extraLeft, quoteDepth: state.quoteDepth }
+    state.extraLeft += extraLeft
+    if (quote) state.quoteDepth += 1
+    try {
+        return await render()
+    } finally {
+        state.extraLeft = saved.extraLeft
+        state.quoteDepth = saved.quoteDepth
+    }
 }
 
 function footnoteId(state: RenderState, identifier: string): number {
@@ -375,19 +823,27 @@ function footnoteId(state: RenderState, identifier: string): number {
     return id
 }
 
+/** Footnote text is set a little smaller than the body, as Word does. */
+function footnoteHalfPoints(state: RenderState): number {
+    return Math.max(16, Math.round(state.bodyHalfPoints * 0.85))
+}
+
 function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     const heading = marks.headingSize
     const color = marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined
+    const size = heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)
     return new TextRun({
         text,
         bold: marks.bold || heading !== undefined,
         italics: marks.italics || marks.quote,
         strike: marks.strike,
         font: marks.code ? state.monoFont : heading !== undefined ? state.headingFont : state.bodyFont,
-        size: marks.code ? Math.max(16, Math.round(state.bodyHalfPoints * 0.85)) : (heading ?? state.bodyHalfPoints),
+        // Code is 0.85em of the text around it, as in the PDF, so it scales up in a heading.
+        size: marks.code ? Math.max(16, Math.round(size * 0.85)) : size,
         color,
         shading: marks.code ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
         underline: marks.link ? { type: UnderlineType.SINGLE, color: state.link } : undefined,
+        rightToLeft: runIsRtl(text) || undefined,
     })
 }
 
@@ -412,24 +868,27 @@ function renderInlines(
             children.push(new TextRun({ break: 1 }))
         } else if (node.type === 'link' || node.type === 'linkReference') {
             children.push(...renderLink(state, node, marks))
-        } else if (node.type === 'image') {
-            const image = renderImage(state, node)
-            children.push(image ?? textRun(state, node.alt || node.url, marks))
-        } else if (node.type === 'imageReference') {
-            children.push(textRun(state, node.alt || node.identifier, marks))
+        } else if (node.type === 'image' || node.type === 'imageReference') {
+            const url = imageUrl(state, node)
+            const image = url === undefined ? null : renderImage(state, url, node.alt)
+            children.push(image ?? textRun(state, imageText(state, node), marks))
         } else if (node.type === 'footnoteReference') {
-            children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
-        } else {
-            children.push(textRun(state, (node as Html).value, marks))
+            // Word has no footnotes inside footnotes.
+            if (!state.inFootnote) children.push(new FootnoteReferenceRun(footnoteId(state, node.identifier)))
+        } else if (node.type === 'html') {
+            // Raw HTML is left out, as in the PDF; the words between tags are their own text nodes and stay.
+            // Only a line break tag is kept, since tables use it to break lines in a cell. Comments stay hidden.
+            if (/^<br\s*\/?>$/i.test(node.value.trim())) children.push(new TextRun({ break: 1 }))
         }
     }
     return children
 }
 
+/** Link and image definitions by label. When a label is defined twice the first one counts, as in CommonMark and the PDF. */
 function collectDefinitions(tree: ExportDocument['tree']): Map<string, string> {
     const urls = new Map<string, string>()
     visit(tree, 'definition', (node: Definition) => {
-        urls.set(node.identifier, node.url)
+        if (!urls.has(node.identifier)) urls.set(node.identifier, node.url)
     })
     return urls
 }
@@ -438,28 +897,71 @@ function renderLink(state: RenderState, node: Link | LinkReference, marks: Marks
     const inner = renderInlines(state, node.children, { ...marks, link: true })
     if (inner.length === 0) return []
     const url = node.type === 'link' ? node.url : state.definitions.get(node.identifier)!
-    if (url.startsWith('#')) return [new InternalHyperlink({ anchor: url.slice(1), children: inner })]
+    if (url.startsWith('#')) return [new InternalHyperlink({ anchor: anchorFor(state, url.slice(1)), children: inner })]
     return [new ExternalHyperlink({ link: url, children: inner })]
 }
 
-function renderImage(state: RenderState, node: Image): ImageRun | null {
-    return embeddedImage(node.url, Math.min(state.contentPx, 640), 480, node.alt || 'image')
+/**
+ * What a picture Word can't embed is written as: its alt text, else its address. A data: URL can be
+ * megabytes of base64, so it is never written out; a short placeholder stands in for it.
+ */
+function imageFallbackText(alt: string | null | undefined, url: string): string {
+    if (alt) return alt
+    return /^\s*data:/i.test(url) ? '[image]' : url
 }
 
-function paragraphOptions(state: RenderState, marks: Marks = {}) {
+/** Where a picture points: its own URL, or for `![alt][ref]` its definition's, as in the PDF. */
+function imageUrl(state: RenderState, node: Image | ImageReference): string | undefined {
+    return node.type === 'image' ? node.url : state.definitions.get(node.identifier)
+}
+
+/** The text written in place of a picture that isn't embedded. */
+function imageText(state: RenderState, node: Image | ImageReference): string {
+    const url = imageUrl(state, node)
+    if (url !== undefined) return imageFallbackText(node.alt, url)
+    return node.alt || (node.type === 'imageReference' ? node.identifier : '')
+}
+
+/** The tallest a body picture can be, in pixels: the page's text height, less the paragraph's 120-twip (8px) space after, so it fits on one page. */
+function pageHeightPx(state: RenderState): number {
+    return Math.max(1, Math.floor(pageContentTwip(state, 'body') / 15) - 8)
+}
+
+/** The box a picture whose file doesn't give its size is shown in. */
+const UNSIZED_IMAGE = { width: 640, height: 480 } as const
+
+/** A body picture's size: its own, as in the PDF, shrunk only to fit `maxWidth` (the text width where it sits) and the page. */
+function bodyImageSize(state: RenderState, image: DecodedImage, maxWidth: number): { width: number; height: number } {
+    return fit(image.size ?? UNSIZED_IMAGE, maxWidth, pageHeightPx(state))
+}
+
+/** A picture with no alt text keeps an empty description, like the PDF's `alt=""`, so Word's checker can flag it. */
+function renderImage(state: RenderState, url: string, alt: string | null | undefined): ImageRun | null {
+    const image = decodeImage(state.images, url)
+    if (!image) return null
+    return new ImageRun({
+        type: image.kind,
+        data: image.bytes,
+        transformation: bodyImageSize(state, image, availablePx(state)),
+        altText: { name: alt || 'Picture', description: alt ?? '' },
+    })
+}
+
+function paragraphOptions(state: RenderState) {
     return {
         spacing: { after: 120, ...bodyLineSpacing(state) },
-        border: marks.quote ? { left: { style: BorderStyle.SINGLE, size: 12, color: state.accent, space: 8 } } : undefined,
-        indent: contentIndent(state, marks.quote ? 120 : 0),
+        border: quoteBorder(state),
+        indent: contentIndent(state),
     }
 }
 
-function renderParagraph(state: RenderState, node: MdParagraph, marks: Marks = {}): Paragraph {
-    const justify = state.document.profile.typography.justify && !marks.quote
+function renderParagraph(state: RenderState, node: MdParagraph): Paragraph {
+    const justify = state.document.profile.typography.justify && state.quoteDepth === 0
     return new Paragraph({
-        ...paragraphOptions(state, marks),
+        ...paragraphOptions(state),
         alignment: justify ? AlignmentType.JUSTIFIED : undefined,
-        children: renderInlines(state, node.children, marks),
+        bidirectional: bidi(plainText(node)),
+        children: renderInlines(state, node.children, quoteMarks(state)),
     })
 }
 
@@ -471,37 +973,51 @@ function headingId(node: Heading): string {
 function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean): Paragraph {
     const depth = Math.min(Math.max(node.depth, 1), 6)
     const level = state.document.profile.flow.newPageFromHeading
-    const id = headingId(node)
-    const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1] })
+    const bookmark = state.bookmarks.get(headingId(node))
+    // A heading in a quote keeps its colour and is italic, as in the PDF.
+    const inlines = renderInlines(state, node.children, { headingSize: HEADING_HALF_POINTS[depth - 1], italics: state.quoteDepth > 0 || undefined })
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
         pageBreakBefore: level >= 1 && !isFirstBlock && node.depth <= level,
         keepNext: true,
+        bidirectional: bidi(plainText(node)),
         spacing: {
             ...HEADING_SPACING[depth - 1],
             line: lineBoxTwip(HEADING_HALF_POINTS[depth - 1]!, state.document.profile.typography.lineHeight),
             lineRule: LineRuleType.AT_LEAST,
         },
         indent: contentIndent(state),
-        children: id ? [new Bookmark({ id, children: inlines })] : inlines,
+        border: quoteBorder(state),
+        children: bookmark === undefined ? inlines : [headingBookmark(bookmark, inlines)],
     })
 }
 
-function listIndent(state: RenderState, depth: number, hang: boolean): { left: number; hanging: number; right: number } {
-    const text = state.insetLeft + LIST_STEP * (depth + 1)
-    return { left: text, hanging: hang ? LIST_STEP : 0, right: state.insetRight }
+function listIndent(state: RenderState, depth: number, hang: boolean): { left: number; hanging: number } {
+    return { left: state.extraLeft + LIST_STEP * (depth + 1), hanging: hang ? LIST_STEP : 0 }
 }
 
+/** The PDF's bullets: a disc at the top level, a circle one list in, and a square from there on. */
+const BULLETS = ['•', '◦', '▪'] as const
+
+/**
+ * The numbering a list's items use. Each numbered list gets its own, so it starts at its own number. Bullet lists
+ * at the same depth and indent share one: docx rewrites the whole document once per numbering, so one per list
+ * made long documents take seconds to export.
+ */
 function listNumbering(state: RenderState, ordered: boolean, depth: number, start: number): string {
+    const bulletKey = ordered ? null : `${depth}:${state.extraLeft}`
+    const shared = bulletKey === null ? undefined : state.bulletLists.get(bulletKey)
+    if (shared) return shared
     const reference = `list-${state.nextList}`
     state.nextList += 1
+    if (bulletKey !== null) state.bulletLists.set(bulletKey, reference)
     state.numbering.push({
         reference,
         levels: [
             {
                 level: 0,
                 format: ordered ? LevelFormat.DECIMAL : LevelFormat.BULLET,
-                text: ordered ? '%1.' : '•',
+                text: ordered ? '%1.' : BULLETS[Math.min(depth, BULLETS.length - 1)],
                 alignment: AlignmentType.START,
                 start,
                 style: { paragraph: { indent: listIndent(state, depth, true) } },
@@ -513,26 +1029,31 @@ function listNumbering(state: RenderState, ordered: boolean, depth: number, star
 
 async function renderList(state: RenderState, list: List, depth: number): Promise<Block[]> {
     const ordered = list.ordered === true
-    const reference = listNumbering(state, ordered, depth, ordered && list.start && list.start > 1 ? list.start : 1)
+    // A list may start at 0, as the PDF's <ol start="0"> does.
+    const reference = listNumbering(state, ordered, depth, ordered ? (list.start ?? 1) : 1)
     const blocks: Block[] = []
-    for (const item of list.children) blocks.push(...(await renderListItem(state, item, reference, depth)))
+    for (const item of list.children) blocks.push(...(await renderListItem(state, item, reference, depth, ordered)))
     return blocks
 }
 
-async function renderListItem(state: RenderState, item: ListItem, reference: string, depth: number): Promise<Block[]> {
+async function renderListItem(state: RenderState, item: ListItem, reference: string, depth: number, ordered: boolean): Promise<Block[]> {
     const blocks: Block[] = []
     let markerPlaced = false
     const task = item.checked === true || item.checked === false
+    // The checkbox stands in for a bullet, but a numbered task keeps its number, with the box after it.
+    const bare = task && !ordered
     const prefix = item.checked === true ? '☑ ' : item.checked === false ? '☐ ' : ''
     for (const child of item.children) {
         if (child.type === 'paragraph') {
-            const inlines = renderInlines(state, child.children)
-            if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix))
+            const inlines = renderInlines(state, child.children, quoteMarks(state))
+            if (prefix && !markerPlaced) inlines.unshift(textRun(state, prefix, quoteMarks(state)))
             blocks.push(
                 new Paragraph({
                     spacing: { after: 60, ...bodyLineSpacing(state) },
-                    indent: listIndent(state, depth, !task && !markerPlaced),
-                    numbering: task || markerPlaced ? undefined : { reference, level: 0 },
+                    indent: listIndent(state, depth, !bare && !markerPlaced),
+                    border: quoteBorder(state),
+                    bidirectional: bidi(plainText(child)),
+                    numbering: bare || markerPlaced ? undefined : { reference, level: 0 },
                     children: inlines,
                 })
             )
@@ -540,7 +1061,8 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
         } else if (child.type === 'list') {
             blocks.push(...(await renderList(state, child, depth + 1)))
         } else {
-            blocks.push(...(await renderBlocks(state, [child])))
+            // Code, tables, and quotes line up with the item's text, as in the PDF.
+            blocks.push(...(await nested(state, LIST_STEP * (depth + 1), false, () => renderBlocks(state, [child]))))
         }
     }
     if (!markerPlaced) {
@@ -548,6 +1070,8 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
             new Paragraph({
                 spacing: { after: 60, ...bodyLineSpacing(state) },
                 indent: listIndent(state, depth, true),
+                border: quoteBorder(state),
+                bidirectional: bidi(plainText(item)),
                 numbering: { reference, level: 0 },
             })
         )
@@ -555,54 +1079,143 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     return blocks
 }
 
+/** Everything inside a quote, not only its paragraphs, gets the bar, the indent, and the quote text style. */
 async function renderBlockquote(state: RenderState, node: Blockquote): Promise<Block[]> {
-    const blocks: Block[] = []
-    for (const child of node.children) {
-        if (child.type === 'paragraph') blocks.push(renderParagraph(state, child, { quote: true, italics: true }))
-        else blocks.push(...(await renderBlocks(state, [child])))
-    }
-    return blocks
+    return nested(state, QUOTE_STEP, true, () => renderBlocks(state, node.children))
+}
+
+/** The header's column count. Like the PDF, short rows are padded to it and extra cells are dropped. */
+function tableColumns(table: MdTable): number {
+    return Math.max(1, table.align?.length || table.children[0]!.children.length)
 }
 
 function renderTable(state: RenderState, table: MdTable): Table {
-    const width = Math.max(1, state.contentTwip)
+    // In a quote, the table's left edge carries the quote bar, so it moves out to where the bar runs beside the text.
+    const indent = state.quoteDepth > 0 ? state.extraLeft - QUOTE_BAR_INSET : state.extraLeft
+    const width = Math.max(1, state.contentTwip - indent)
+    const columns = tableColumns(table)
+    const widths = columnWidths(table, columns, width)
     return new Table({
         width: { size: width, type: WidthType.DXA },
-        columnWidths: columnWidths(table, width),
-        indent: state.insetLeft > 0 ? { size: state.insetLeft, type: WidthType.DXA } : undefined,
+        columnWidths: widths,
+        indent: indent !== 0 ? { size: indent, type: WidthType.DXA } : undefined,
         margins: TABLE_CELL_MARGIN,
         layout: TableLayoutType.FIXED,
-        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, table.align, rowIndex === 0)),
+        // A right-to-left header row puts the first column on the right.
+        visuallyRightToLeft: bidi(plainText(table.children[0]!)),
+        rows: table.children.map((row, rowIndex) => renderTableRow(state, row, widths, table.align, rowIndex === 0)),
     })
 }
 
-function columnWidths(table: MdTable, width: number): number[] {
-    const count = table.children[0]!.children.length
-    const column = Math.round(width / count)
-    return Array.from({ length: count }, () => column)
+/** A picture in a cell counts as this many characters when columns are sized. */
+const TABLE_IMAGE_UNITS = 20
+/** Column weights, in characters, are kept in this range so one long column can't squeeze the rest to nothing. */
+const TABLE_WEIGHT_RANGE = { min: 4, max: 60 } as const
+/** No column is made narrower than this (0.625in) unless the table is too narrow for that. */
+const TABLE_MIN_COLUMN_TWIP = 900
+
+/** How wide a cell's content is, in narrow characters. Bold header text is a little wider. */
+function cellUnits(cell: MdTableCell, header: boolean): number {
+    let images = 0
+    visit(cell, (node) => {
+        if (node.type === 'image' || node.type === 'imageReference') images += 1
+    })
+    return textUnits(plainText(cell), 1 / 0.45) * (header ? 1.1 : 1) + images * TABLE_IMAGE_UNITS
 }
 
-function renderTableRow(state: RenderState, row: MdTableRow, align: MdTable['align'], header: boolean): TableRow {
+/**
+ * Column widths, in twips, that add up to `width`. Each column gets a share in line with its longest
+ * cell, like the PDF's automatic table layout, so a short ID column leaves room for a long description.
+ * Every column keeps a minimum width, and the rounding is settled on the last column.
+ */
+function columnWidths(table: MdTable, columns: number, width: number): number[] {
+    const weights = Array.from({ length: columns }, (_, index) => {
+        let longest = 0
+        table.children.forEach((row, rowIndex) => {
+            const cell = row.children[index]
+            if (cell) longest = Math.max(longest, cellUnits(cell, rowIndex === 0))
+        })
+        return Math.min(TABLE_WEIGHT_RANGE.max, Math.max(TABLE_WEIGHT_RANGE.min, longest))
+    })
+    const floor = Math.min(TABLE_MIN_COLUMN_TWIP, Math.floor(width / columns))
+    // Columns whose share would fall under the floor are pinned to it; the rest share what is left by weight.
+    const pinned = new Set<number>()
+    let widths: number[] = []
+    for (let pass = 0; pass <= columns; pass += 1) {
+        const free = weights.reduce((sum, weight, index) => (pinned.has(index) ? sum : sum + weight), 0)
+        const room = width - floor * pinned.size
+        widths = weights.map((weight, index) => (pinned.has(index) ? floor : Math.floor((room * weight) / free)))
+        const under = widths.findIndex((size, index) => !pinned.has(index) && size < floor)
+        if (under < 0) break
+        pinned.add(under)
+    }
+    widths[columns - 1]! += width - widths.reduce((sum, size) => sum + size, 0)
+    return widths
+}
+
+/** Text width, in pixels, of a cell in a column `columnTwip` wide. Pictures in the cell are kept inside it. */
+function cellTextPx(columnTwip: number): number {
+    return Math.max(1, Math.floor((columnTwip - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right) / 15))
+}
+
+function renderTableRow(state: RenderState, row: MdTableRow, widths: number[], align: MdTable['align'], header: boolean): TableRow {
     return new TableRow({
         tableHeader: header,
-        children: row.children.map((cell, index) => renderTableCell(state, cell, align?.[index], header)),
+        children: widths.map((columnTwip, index) =>
+            renderTableCell(state, row.children[index] ?? { type: 'tableCell', children: [] }, columnTwip, align?.[index], header, index === 0)
+        ),
     })
 }
 
-function renderTableCell(state: RenderState, cell: MdTableCell, align: 'left' | 'center' | 'right' | null | undefined, header: boolean): TableCell {
-    return new TableCell({
-        verticalAlign: VerticalAlignTable.TOP,
-        margins: TABLE_CELL_MARGIN,
-        shading: header ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
-        borders: { top: GRID_BORDER, bottom: GRID_BORDER, left: GRID_BORDER, right: GRID_BORDER },
-        children: [
-            new Paragraph({
-                spacing: { after: 0, ...bodyLineSpacing(state) },
-                alignment: align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.END : AlignmentType.START,
-                children: renderInlines(state, cell.children, header ? { bold: true } : {}),
-            }),
-        ],
-    })
+/**
+ * A column's alignment for Word. Word's start and end swap sides in a right-to-left cell, but `---:` means the right
+ * side whatever the text, as it does in the PDF, so there right is start and left is end. With no alignment, the
+ * text's own direction decides, like the PDF's `dir="auto"`.
+ */
+function cellAlignment(align: 'left' | 'center' | 'right' | null | undefined, rtl: boolean) {
+    if (align === 'center') return AlignmentType.CENTER
+    if (align === 'right') return rtl ? AlignmentType.START : AlignmentType.END
+    if (align === 'left') return rtl ? AlignmentType.END : AlignmentType.START
+    return AlignmentType.START
+}
+
+function renderTableCell(
+    state: RenderState,
+    cell: MdTableCell,
+    columnTwip: number,
+    align: 'left' | 'center' | 'right' | null | undefined,
+    header: boolean,
+    first: boolean
+): TableCell {
+    const saved = state.cellPx
+    state.cellPx = cellTextPx(columnTwip)
+    const rtl = bidi(plainText(cell))
+    try {
+        return new TableCell({
+            width: { size: columnTwip, type: WidthType.DXA },
+            verticalAlign: VerticalAlignTable.TOP,
+            margins: TABLE_CELL_MARGIN,
+            shading: header ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
+            borders: {
+                top: GRID_BORDER,
+                bottom: GRID_BORDER,
+                // In a quote, the first column's edge is the quote bar, so the bar runs on past the table.
+                left: first && state.quoteDepth > 0 ? { style: BorderStyle.SINGLE, size: QUOTE_BAR.size, color: state.accent } : GRID_BORDER,
+                right: GRID_BORDER,
+            },
+            children: [
+                new Paragraph({
+                    spacing: { after: 0, ...bodyLineSpacing(state) },
+                    alignment: cellAlignment(align, rtl === true),
+                    bidirectional: rtl,
+                    // Quoted tables have grey italic text too.
+                    children: renderInlines(state, cell.children, { ...quoteMarks(state), bold: header || undefined }),
+                }),
+            ],
+        })
+    } finally {
+        state.cellPx = saved
+    }
 }
 
 function codeFill(theme: PdfExportProfile['content']['codeTheme']): string {
@@ -619,15 +1232,34 @@ function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Parag
     const fallback = codeColor(theme)
     return lines.map((line, index) => {
         const runs = line.flatMap((token) =>
-            token.text ? [new TextRun({ text: token.text, font: state.monoFont, size: 18, color: hexColor(token.color ?? fallback, fallback) })] : []
+            token.text
+                ? [new TextRun({ text: token.text, font: state.monoFont, size: 18, color: hexColor(token.color ?? fallback, fallback, fill) })]
+                : []
         )
         return new Paragraph({
             shading: { type: ShadingType.CLEAR, fill },
             indent: contentIndent(state),
+            border: quoteBorder(state),
             spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 80 : 0, line: 276, lineRule: LineRuleType.AUTO },
             children: runs.length > 0 ? runs : [new TextRun({ text: ' ', font: state.monoFont, size: 18 })],
         })
     })
+}
+
+/**
+ * A diagram's size on the page: the SVG's own size, as in the PDF, shrunk only to fit `maxWidth` (the text width
+ * where it is drawn) and the page height. Null when there is no usable picture, so the source is shown instead.
+ */
+function diagramDisplaySize(
+    state: RenderState,
+    prepared: Extract<PreparedCode, { kind: 'diagram' }>,
+    maxWidth = availablePx(state)
+): { width: number; height: number } | null {
+    const pixels = prepared.png ? imageSize('png', prepared.png) : null
+    if (!pixels) return null
+    // Without an SVG size, half the 2x picture is the same thing.
+    const natural = prepared.size ?? { width: pixels.width / 2, height: pixels.height / 2 }
+    return fit(natural, maxWidth, pageHeightPx(state))
 }
 
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
@@ -635,7 +1267,7 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
         return [new Paragraph({ ...paragraphOptions(state), children: [textRun(state, prepared.message, { code: true })] })]
     }
     if (prepared.kind === 'diagram') {
-        const size = prepared.png ? imageSize('png', prepared.png) : null
+        const size = diagramDisplaySize(state, prepared)
         if (!prepared.png || !size)
             return renderCodeLines(
                 state,
@@ -648,8 +1280,8 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
                     new ImageRun({
                         type: 'png',
                         data: prepared.png,
-                        transformation: fit(size, Math.min(state.contentPx, 640), 480),
-                        altText: { name: 'Diagram', description: 'Diagram' },
+                        transformation: size,
+                        altText: prepared.alt,
                     }),
                 ],
             }),
@@ -662,23 +1294,64 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
     const blocks: Block[] = []
     for (let index = 0; index < nodes.length; index += 1) {
         const node = nodes[index]!
-        if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && index === 0))
+        // "First" means nothing has been written yet. Link definitions, footnotes, and raw HTML before it write nothing.
+        if (node.type === 'heading') blocks.push(renderHeading(state, node, parentIsRoot && blocks.length === 0))
         else if (node.type === 'paragraph') blocks.push(renderParagraph(state, node))
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
         else if (node.type === 'blockquote') blocks.push(...(await renderBlockquote(state, node)))
         else if (node.type === 'code') blocks.push(...renderPrepared(state, state.prepared.get(node)!))
-        else if (node.type === 'table') blocks.push(renderTable(state, node))
+        else if (node.type === 'table') blocks.push(...(state.inFootnote ? tableAsText(state, node) : [renderTable(state, node)]))
         else if (node.type === 'thematicBreak') {
-            blocks.push(new Paragraph({ border: { bottom: GRID_BORDER }, indent: contentIndent(state), spacing: { before: 200, after: 200 } }))
-        } else if (node.type === 'html') {
-            blocks.push(new Paragraph({ ...paragraphOptions(state), children: [textRun(state, (node as Html).value)] }))
+            blocks.push(
+                new Paragraph({
+                    border: { bottom: GRID_BORDER, ...quoteBorder(state) },
+                    indent: contentIndent(state),
+                    spacing: { before: 200, after: 200 },
+                })
+            )
         } else if (node.type === 'footnoteDefinition') {
             const id = footnoteId(state, node.identifier)
-            const note = plainText(node).trim()
-            state.footnotes[id] = { children: [new Paragraph({ children: [new TextRun(note || ' ')] })] }
+            state.footnotes[id] = { children: await renderFootnote(state, node) }
         }
+        // Raw HTML blocks, comments included, are left out, as in the PDF. Link definitions have nothing to show.
     }
     return blocks
+}
+
+function footnoteParagraph(children: ReturnType<typeof renderInlines>, text: string): Paragraph {
+    return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, bidirectional: bidi(text), children })
+}
+
+/** Word footnotes hold only paragraphs, so a table in one is written a row per line, its cells split by bars. */
+function tableAsText(state: RenderState, table: MdTable): Paragraph[] {
+    const columns = tableColumns(table)
+    return table.children.map((row) => {
+        const text =
+            row.children
+                .slice(0, columns)
+                .map((cell) => plainText(cell).trim())
+                .join(' | ') || ' '
+        return footnoteParagraph([textRun(state, text)], text)
+    })
+}
+
+/**
+ * A footnote's text with its links, formatting, pictures and paragraphs, in the smaller footnote size.
+ * It sits at the foot of the page, so the indent and quote bar of whatever it was written in don't carry over.
+ */
+async function renderFootnote(state: RenderState, node: FootnoteDefinition): Promise<Paragraph[]> {
+    const saved = { extraLeft: state.extraLeft, quoteDepth: state.quoteDepth, inFootnote: state.inFootnote }
+    Object.assign(state, { extraLeft: 0, quoteDepth: 0, inFootnote: true })
+    try {
+        const paragraphs: Paragraph[] = []
+        for (const child of node.children) {
+            if (child.type === 'paragraph') paragraphs.push(footnoteParagraph(renderInlines(state, child.children), plainText(child)))
+            else for (const block of await renderBlocks(state, [child])) if (block instanceof Paragraph) paragraphs.push(block)
+        }
+        return paragraphs.length > 0 ? paragraphs : [footnoteParagraph([textRun(state, ' ')], '')]
+    } finally {
+        Object.assign(state, saved)
+    }
 }
 
 function chromeVisible(profile: PdfExportProfile, kind: 'header' | 'footer', group: 'title' | 'toc' | 'body'): boolean {
@@ -696,11 +1369,19 @@ function edgeDistance(bleeds: boolean, marginMm: number): number {
     return convertMillimetersToTwip(Math.min(8, marginMm))
 }
 
+/** The PDF bar's default text colour. */
+const CHROME_TEXT_COLOR = '404040'
+
+/** The PDF bar's `font-size: 0.85em`. */
+function chromeHalfPoints(state: RenderState): number {
+    return Math.round(state.bodyHalfPoints * 0.85)
+}
+
 function pageNumberRuns(state: RenderState, color: string): TextRun[] {
     const { profile, metadata } = state.document
     const format = profile.footer.pageNumbers
     const run = (text?: string, field?: (typeof PageNumber)[keyof typeof PageNumber]) =>
-        new TextRun({ text, children: field ? [field] : undefined, font: state.bodyFont, size: state.bodyHalfPoints, color })
+        new TextRun({ text, children: field ? [field] : undefined, font: state.bodyFont, size: chromeHalfPoints(state), color })
     if (format === 'none') return []
     if (format === 'page-n') return [run('Page '), run(undefined, PageNumber.CURRENT)]
     if (format === 'n-of-total') return [run(undefined, PageNumber.CURRENT), run(' / '), run(undefined, PageNumber.TOTAL_PAGES)]
@@ -725,10 +1406,15 @@ function chromeParagraph(
     align: (typeof AlignmentType)[keyof typeof AlignmentType],
     children: (TextRun | ImageRun)[]
 ) {
-    const bleeds =
-        kind === 'header' ? resolvePdfExportLayout(state.document.profile).headerBleeds : resolvePdfExportLayout(state.document.profile).footerBleeds
+    const { profile } = state.document
+    const bleeds = kind === 'header' ? resolvePdfExportLayout(profile).headerBleeds : resolvePdfExportLayout(profile).footerBleeds
+    // A bar that runs to the paper edge pads its text out to the page margins, so it lines up with the body.
+    const margins = profile.page.marginsMm
     const pad = bleeds
-        ? { left: align === AlignmentType.RIGHT ? 0 : state.insetLeft, right: align === AlignmentType.RIGHT ? state.insetRight : 0 }
+        ? {
+              left: align === AlignmentType.RIGHT ? 0 : convertMillimetersToTwip(margins.left),
+              right: align === AlignmentType.RIGHT ? convertMillimetersToTwip(margins.right) : 0,
+          }
         : { left: 0, right: 0 }
     return new Paragraph({
         alignment: align,
@@ -743,25 +1429,31 @@ function chromeGap(mm: number): Paragraph {
     return new Paragraph({ spacing: { before: 0, after: 0, line: Math.max(20, convertMillimetersToTwip(mm)), lineRule: LineRuleType.EXACT } })
 }
 
-function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph | Table)[] {
+/**
+ * The header or footer bar. The page keeps its real side margins, so a bar that ignores them is
+ * pulled out to the paper edge with a negative indent. `zeroSides` is a page with no side margins at all (the edge-to-edge cover).
+ */
+function chromeTable(state: RenderState, kind: 'header' | 'footer', zeroSides: boolean): (Paragraph | Table)[] {
     const { profile, metadata, assets } = state.document
     const layout = resolvePdfExportLayout(profile)
     const chrome = kind === 'header' ? profile.header : profile.footer
     const bleeds = kind === 'header' ? layout.headerBleeds : layout.footerBleeds
-    const sidesBleed = layout.headerBleeds || layout.footerBleeds
+    const marginLeft = convertMillimetersToTwip(profile.page.marginsMm.left)
+    const indent = bleeds ? (zeroSides ? 0 : -marginLeft) : zeroSides ? marginLeft : 0
     const images = kind === 'header' ? assets.header : assets.footer
-    const color = hexColor(chrome.textColor, '262626')
+    const fill = chrome.backgroundColor.trim() ? hexColor(chrome.backgroundColor, 'FFFFFF') : undefined
+    const color = hexColor(chrome.textColor, CHROME_TEXT_COLOR, fill)
     const maxHeight = chrome.heightMm > 0 ? mmToPx(chrome.heightMm) : 28
-    const leftImage = embeddedImage(images.left, 160, maxHeight, `${kind} left`)
-    const rightImage = embeddedImage(images.right, 160, maxHeight, `${kind} right`)
+    const leftImage = embeddedImage(decodeImage(state.images, images.left), 160, maxHeight, `${kind} left`)
+    const rightImage = embeddedImage(decodeImage(state.images, images.right), 160, maxHeight, `${kind} right`)
     const leftText = resolvePdfChromeText(chrome.left.text, metadata)
     const rightRuns = kind === 'footer' ? pageNumberRuns(state, color) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
-    const leftChildren = [...(leftImage ? [leftImage] : []), ...(leftText ? [textRun(state, leftText)] : [])]
+    const leftChildren = [...(leftImage ? [leftImage] : []), ...textRuns(state, leftText, color)]
     const rightChildren = [...rightRuns, ...(rightImage ? [rightImage] : [])]
     const width = bleeds ? state.pageWidthTwip : state.contentTwip
     const leftWidth = Math.max(1, Math.round(width / 2))
     const rightWidth = Math.max(1, width - leftWidth)
-    const shading = chrome.backgroundColor.trim() ? { type: ShadingType.CLEAR, fill: hexColor(chrome.backgroundColor, 'FFFFFF') } : undefined
+    const shading = fill ? { type: ShadingType.CLEAR, fill } : undefined
     const cell = (cellWidth: number, children: (TextRun | ImageRun)[], align: (typeof AlignmentType)[keyof typeof AlignmentType]) =>
         new TableCell({
             width: { size: cellWidth, type: WidthType.DXA },
@@ -774,7 +1466,7 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
     const table = new Table({
         width: { size: width, type: WidthType.DXA },
         columnWidths: [leftWidth, rightWidth],
-        indent: !bleeds && sidesBleed ? { size: state.insetLeft, type: WidthType.DXA } : undefined,
+        indent: indent !== 0 ? { size: indent, type: WidthType.DXA } : undefined,
         layout: TableLayoutType.FIXED,
         margins: { marginUnitType: WidthType.DXA, top: 0, bottom: 0, left: 0, right: 0 },
         borders: { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER, insideHorizontal: NO_BORDER, insideVertical: NO_BORDER },
@@ -790,13 +1482,13 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer'): (Paragraph 
 }
 
 function textRuns(state: RenderState, text: string, color: string): TextRun[] {
-    return text ? [new TextRun({ text, font: state.bodyFont, size: state.bodyHalfPoints, color })] : []
+    return text ? [new TextRun({ text, font: state.bodyFont, size: chromeHalfPoints(state), color })] : []
 }
 
-function watermarkBlocks(state: RenderState, png: Uint8Array | null): Paragraph[] {
+function watermarkBlocks(state: RenderState, picture: Picture | null): Paragraph[] {
     const text = state.document.profile.content.watermark.trim()
     if (!text) return []
-    if (!png) {
+    if (!picture) {
         return [
             new Paragraph({
                 alignment: AlignmentType.CENTER,
@@ -811,8 +1503,8 @@ function watermarkBlocks(state: RenderState, png: Uint8Array | null): Paragraph[
             children: [
                 new ImageRun({
                     type: 'png',
-                    data: png,
-                    transformation: { width: 500, height: 140 },
+                    data: picture.data,
+                    transformation: { width: picture.width, height: picture.height },
                     floating: {
                         horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, align: HorizontalPositionAlign.CENTER },
                         verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, align: VerticalPositionAlign.CENTER },
@@ -831,10 +1523,10 @@ function headerShowsOnTitle(profile: PdfExportProfile): boolean {
     return layout.showHeader && profile.header.hideOnFirstPages === 'none'
 }
 
-/** A cover image that should run to the paper edge. The PDF keys this off the logo path; here the resolved image is what gets drawn. */
+/** A cover image that should run to the paper edge. The PDF keys this off the logo path; here the image that actually gets drawn decides. */
 function logoHasBleed(state: RenderState): boolean {
-    const { profile, assets } = state.document
-    return profile.frontMatter.titlePage && profile.brand.logoIgnoreMargins && assets.logoDataUrl.trim() !== ''
+    const { profile } = state.document
+    return profile.frontMatter.titlePage && profile.brand.logoIgnoreMargins && state.logo !== null
 }
 
 /**
@@ -843,9 +1535,9 @@ function logoHasBleed(state: RenderState): boolean {
  * floating image would sit in the margin, which Word on the web clips.
  */
 function coverIsInline(state: RenderState): boolean {
-    const { profile, toc } = state.document
+    const { profile } = state.document
     if (!logoHasBleed(state) || headerShowsOnTitle(profile)) return false
-    const next: 'toc' | 'body' = toc.length > 0 ? 'toc' : 'body'
+    const next: 'toc' | 'body' = state.toc.length > 0 ? 'toc' : 'body'
     return (
         chromeVisible(profile, 'header', 'title') !== chromeVisible(profile, 'header', next) ||
         chromeVisible(profile, 'footer', 'title') !== chromeVisible(profile, 'footer', next)
@@ -902,15 +1594,15 @@ async function cropCover(
 
 async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx: number } | null> {
     const { profile, assets } = state.document
-    const bytes = decodeDataUrl(assets.logoDataUrl)
-    if (!bytes) return null
-    const kind = imageKind(bytes)
-    if (!kind) return null
-    const intrinsic = imageSize(kind, bytes)
+    if (!state.logo) return null
     const bleed = profile.brand.logoIgnoreMargins
     const inline = coverIsInline(state)
     // Stay a hair inside the sheet. Rounding millimetres up to pixels makes the image wider than the page, and Word then wraps it.
     const maxWidth = bleed ? Math.max(1, Math.floor(state.pageWidthTwip / 15)) : state.contentPx
+    // A logo that ignores margins is stretched to the page width, so an SVG one is drawn again for that width, not its own small size.
+    const logoUrl = assets.logoDataUrl.trim()
+    const stretched = bleed && SVG_DATA_URL.test(logoUrl) ? await redrawAsPng(logoUrl, maxWidth) : null
+    const { bytes, kind, size: intrinsic } = stretched ?? state.logo
     const maxHeight = mmToPx(LOGO_MAX_HEIGHT_MM)
     let width = maxWidth
     let height = maxHeight
@@ -959,9 +1651,9 @@ async function coverLogo(state: RenderState): Promise<{ run: ImageRun; heightPx:
     }
 }
 
+/** The edge-to-edge cover page has no margins of its own, so its text is indented by them instead. */
 function titleIndent(state: RenderState, edge: boolean): { left: number; right: number } | undefined {
-    const inset = contentIndent(state)
-    if (inset || !edge) return inset
+    if (!edge) return undefined
     const { left, right } = state.document.profile.page.marginsMm
     return { left: convertMillimetersToTwip(left), right: convertMillimetersToTwip(right) }
 }
@@ -991,7 +1683,17 @@ async function titleBlocks(state: RenderState): Promise<Block[]> {
         new Paragraph({
             indent,
             spacing: { before, after: 200, line: lineBoxTwip(48, profile.typography.lineHeight), lineRule: LineRuleType.AT_LEAST },
-            children: [new TextRun({ text: metadata.title, bold: true, font: state.headingFont, size: 48, color: state.accent })],
+            bidirectional: bidi(metadata.title),
+            children: [
+                new TextRun({
+                    text: metadata.title,
+                    bold: true,
+                    font: state.headingFont,
+                    size: 48,
+                    color: state.accent,
+                    rightToLeft: runIsRtl(metadata.title) || undefined,
+                }),
+            ],
         })
     )
     for (const line of [metadata.subtitle, metadata.author, metadata.date]) {
@@ -1000,7 +1702,16 @@ async function titleBlocks(state: RenderState): Promise<Block[]> {
             new Paragraph({
                 indent,
                 spacing: { after: 80 },
-                children: [new TextRun({ text: line, font: state.bodyFont, size: state.bodyHalfPoints, color: '525252' })],
+                bidirectional: bidi(line),
+                children: [
+                    new TextRun({
+                        text: line,
+                        font: state.bodyFont,
+                        size: state.bodyHalfPoints,
+                        color: '525252',
+                        rightToLeft: runIsRtl(line) || undefined,
+                    }),
+                ],
             })
         )
     }
@@ -1046,20 +1757,39 @@ function placeBlock(cursor: { page: number; used: number }, pageHeight: number, 
     cursor.used += block
 }
 
-function textBlockTwip(state: RenderState, text: string, halfPoints: number, width: number, before: number, after: number): number {
-    const line = lineBoxTwip(halfPoints, state.document.profile.typography.lineHeight)
-    const charTwip = Math.max(60, Math.round(halfPoints * 4.5))
-    const perLine = Math.max(8, Math.floor(Math.max(width, charTwip) / charTwip))
-    const length = Math.max(1, text.replace(/\s+/g, ' ').trim().length)
-    return before + Math.ceil(length / perLine) * line + after
+/** Characters a full em wide: Chinese, Japanese and Korean script, full-width forms, and emoji. */
+const WIDE_CHAR = /[ᄀ-ᅟ⺀-〿぀-ヿ㄀-ㇿ㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]|\p{Emoji_Presentation}/u
+
+/** Length of `text` in narrow-character widths, counted by code point so a surrogate pair is one character. A wide one counts `wide`. */
+function textUnits(text: string, wide: number): number {
+    let units = 0
+    for (const char of text.replace(/\s+/g, ' ').trim()) units += WIDE_CHAR.test(char) ? wide : 1
+    return units
 }
 
-function imageTwip(state: RenderState, dataUrl: string): number {
-    const bytes = decodeDataUrl(dataUrl)
-    const kind = bytes ? imageKind(bytes) : null
-    const size = bytes && kind ? imageSize(kind, bytes) : null
-    const fitted = fit(size ?? { width: Math.min(state.contentPx, 640), height: 200 }, Math.min(state.contentPx, 640), 480)
-    return pxToTwip(fitted.height)
+/** How many lines `text` wraps to in `width` twips. Most characters are about 0.45 em wide; wide ones a full em. */
+function lineCount(text: string, halfPoints: number, width: number): number {
+    const charTwip = Math.max(60, Math.round(halfPoints * 4.5))
+    const perLine = Math.max(8, Math.floor(Math.max(width, charTwip) / charTwip))
+    return Math.max(1, Math.ceil(textUnits(text, (halfPoints * 10) / charTwip) / perLine))
+}
+
+function textBlockTwip(state: RenderState, text: string, halfPoints: number, width: number, before: number, after: number): number {
+    const line = lineBoxTwip(halfPoints, state.document.profile.typography.lineHeight)
+    return before + lineCount(text, halfPoints, width) * line + after
+}
+
+/**
+ * Width, in pixels, a picture or diagram gets in a text column `width` twips wide, as the renderer works it out from
+ * the nesting. Never wider than the page's text width, so rounding can't make it bigger than the drawing.
+ */
+function measuredPx(state: RenderState, width: number): number {
+    return Math.max(1, Math.min(state.contentPx, Math.floor(width / 15)))
+}
+
+/** Height of a body picture, sized the way {@link renderImage} draws it. */
+function imageTwip(state: RenderState, image: DecodedImage, width: number): number {
+    return pxToTwip(bodyImageSize(state, image, measuredPx(state, width)).height)
 }
 
 function paragraphTwip(state: RenderState, node: MdParagraph, width: number): number {
@@ -1067,8 +1797,13 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     const parts: string[] = []
     const walk = (nodes: PhrasingContent[]) => {
         for (const child of nodes) {
-            if (child.type === 'image') image = Math.max(image, imageTwip(state, child.url))
-            else if (child.type === 'text') parts.push(child.value)
+            if (child.type === 'image' || child.type === 'imageReference') {
+                // A picture Word can't embed is written as its alt text, so it takes a line, not a picture's height.
+                const url = imageUrl(state, child)
+                const decoded = url === undefined ? null : decodeImage(state.images, url)
+                if (decoded) image = Math.max(image, imageTwip(state, decoded, width))
+                else parts.push(imageText(state, child))
+            } else if (child.type === 'text' || child.type === 'inlineCode') parts.push(child.value)
             else if ('children' in child) walk(child.children)
         }
     }
@@ -1078,14 +1813,12 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
 }
 
-function codeTwip(state: RenderState, node: Code): number {
+/** Height of a code block or diagram in a text column `width` twips wide: a diagram in a list or quote is drawn narrower, so shorter. */
+function codeTwip(state: RenderState, node: Code, width: number): number {
     const prepared = state.prepared.get(node)
-    if (prepared?.kind === 'diagram' && prepared.png) {
-        const size = imageSize('png', prepared.png)
-        const fitted = fit(size ?? { width: 640, height: 200 }, Math.min(state.contentPx, 640), 480)
-        return pxToTwip(fitted.height) + 120
-    }
-    if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, state.contentTwip, 0, 120)
+    const diagram = prepared?.kind === 'diagram' ? diagramDisplaySize(state, prepared, measuredPx(state, width)) : null
+    if (diagram) return pxToTwip(diagram.height) + 120
+    if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, width, 0, 120)
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
     return 160 + lines * 276
 }
@@ -1121,24 +1854,24 @@ function measureFlow(
         } else if (node.type === 'list') {
             measureList(state, node, 0, width, pages, cursor, pageHeight)
         } else if (node.type === 'blockquote') {
-            measureFlow(state, node.children, Math.max(200, width - 120), pages, cursor, pageHeight, false)
+            measureFlow(state, node.children, Math.max(200, width - QUOTE_STEP), pages, cursor, pageHeight, false)
         } else if (node.type === 'code') {
-            placeBlock(cursor, pageHeight, codeTwip(state, node))
+            placeBlock(cursor, pageHeight, codeTwip(state, node, width))
         } else if (node.type === 'table') {
-            const columns = Math.max(1, node.children[0].children.length)
-            const column = Math.max(200, Math.floor(width / columns) - 360)
+            // Each cell wraps in its own column's width, as renderTable sizes them; its margins add 120 above.
+            const widths = columnWidths(node, tableColumns(node), width)
             let table = 200
             for (const row of node.children) {
                 let rowHeight = 240
-                for (const cell of row.children)
-                    rowHeight = Math.max(rowHeight, textBlockTwip(state, plainText(cell), state.bodyHalfPoints, column, 120, 120))
+                row.children.slice(0, widths.length).forEach((cell, index) => {
+                    const text = Math.max(200, widths[index]! - TABLE_CELL_MARGIN.left - TABLE_CELL_MARGIN.right)
+                    rowHeight = Math.max(rowHeight, 120 + paragraphTwip(state, { type: 'paragraph', children: cell.children }, text))
+                })
                 table += rowHeight
             }
             placeBlock(cursor, pageHeight, table)
         } else if (node.type === 'thematicBreak') {
             placeBlock(cursor, pageHeight, 400)
-        } else if (node.type === 'html') {
-            placeBlock(cursor, pageHeight, textBlockTwip(state, node.value, state.bodyHalfPoints, width, 0, 120))
         }
     }
 }
@@ -1169,15 +1902,33 @@ function measureList(
     }
 }
 
-/** Page each contents entry lands on. Word on the web never fills a TOC field, so the number is written in. */
+/** The "Contents" title: a 20pt line, its 200-twip space after, and the rule under it. */
+const TOC_TITLE_TWIP = 840
+
+/**
+ * Height of one contents row. Its line spacing is "auto 260": 260/240 of the font's own single line,
+ * which is about 1.3x the font size. A long heading wraps, leaving room on the right for the leader and number.
+ */
+function tocRowTwip(state: RenderState, item: { level: number; text: string }, first: boolean): number {
+    const level = Math.min(Math.max(item.level, 1), 6)
+    const halfPoints = tocHalfPoints(state, level)
+    const line = Math.round((halfPoints * 10 * 1.3 * 260) / 240)
+    const width = Math.max(1, state.contentTwip - (level - 1) * 240 - 720)
+    return tocEntrySpacing(level, first).before + lineCount(item.text, halfPoints, width) * line
+}
+
+/**
+ * Page each contents entry lands on, from a rough layout of the document. It is the stored result of each
+ * entry's PAGEREF field, because Word on the web never updates fields.
+ */
 function headingPages(state: RenderState): Map<string, number> {
-    const { profile, toc, tree } = state.document
+    const { profile, tree } = state.document
     let page = (profile.frontMatter.titlePage ? 1 : 0) + 1
     const tocHeight = pageContentTwip(state, 'toc')
-    let used = 560
+    let used = TOC_TITLE_TWIP
     let first = true
-    for (const item of toc) {
-        const height = tocEntrySpacing(item.level, first).before + 260
+    for (const item of state.toc) {
+        const height = tocRowTwip(state, item, first)
         first = false
         if (used + height > tocHeight) {
             page += 1
@@ -1192,32 +1943,61 @@ function headingPages(state: RenderState): Map<string, number> {
     return pages
 }
 
-function tocRun(state: RenderState, text: string, level: number, pageNumber = false): TextRun {
-    const size = level >= 4 ? Math.round(state.bodyHalfPoints * 0.9) : level === 3 ? Math.round(state.bodyHalfPoints * 0.94) : state.bodyHalfPoints
+function tocHalfPoints(state: RenderState, level: number): number {
+    return level >= 4 ? Math.round(state.bodyHalfPoints * 0.9) : level === 3 ? Math.round(state.bodyHalfPoints * 0.94) : state.bodyHalfPoints
+}
+
+function tocRunStyle(state: RenderState, level: number, pageNumber: boolean) {
     const color = pageNumber ? '404040' : level <= 1 ? '171717' : level >= 4 ? '525252' : level === 3 ? '404040' : '262626'
-    return new TextRun({ text, bold: level <= 1 && !pageNumber, font: state.bodyFont, size, color })
+    return { bold: level <= 1 && !pageNumber, font: state.bodyFont, size: tocHalfPoints(state, level), color }
+}
+
+function tocRun(state: RenderState, text: string, level: number): TextRun {
+    return new TextRun({ text, ...tocRunStyle(state, level, false) })
+}
+
+function fieldChar(type: 'begin' | 'separate' | 'end') {
+    return new BuilderElement<{ type: string }>({ name: 'w:fldChar', attributes: { type: { key: 'w:fldCharType', value: type } } })
+}
+
+/**
+ * The entry's page number as a PAGEREF field to the heading's bookmark. The estimate is the field's stored
+ * result, so Word on the web shows it, and desktop Word puts in the real page when fields are updated (F9).
+ */
+function tocPageRun(state: RenderState, bookmark: string, page: number, level: number): TextRun {
+    return new TextRun({
+        children: [
+            fieldChar('begin'),
+            new StringContainer('w:instrText', `PAGEREF ${bookmark} \\h`),
+            fieldChar('separate'),
+            String(page),
+            fieldChar('end'),
+        ],
+        ...tocRunStyle(state, level, true),
+    })
 }
 
 function tocBlocks(state: RenderState): Paragraph[] {
     const pages = headingPages(state)
-    const tab = state.contentTwip + state.insetLeft
+    const tab = state.contentTwip
     let first = true
-    const entries = state.document.toc.map((item) => {
+    const entries = state.toc.map((item) => {
         const level = Math.min(Math.max(item.level, 1), 6)
         const spacing = tocEntrySpacing(level, first)
         first = false
-        const left = state.insetLeft + (level - 1) * 240
+        const left = (level - 1) * 240
+        const bookmark = anchorFor(state, item.id)
         return new Paragraph({
             spacing,
-            indent: { left, right: state.insetRight },
+            indent: { left },
             tabStops: [{ type: TabStopType.RIGHT, position: Math.max(left + 240, tab), leader: LeaderType.DOT }],
             children: [
                 new InternalHyperlink({
-                    anchor: item.id,
+                    anchor: bookmark,
                     children: [
                         tocRun(state, item.text, level),
                         new TextRun({ children: [new Tab()], font: state.bodyFont, size: state.bodyHalfPoints }),
-                        tocRun(state, String(pages.get(item.id) ?? 1), level, true),
+                        tocPageRun(state, bookmark, pages.get(item.id) ?? 1, level),
                     ],
                 }),
             ],
@@ -1236,14 +2016,18 @@ function tocBlocks(state: RenderState): Paragraph[] {
 
 type FrontGroup = 'title' | 'toc' | 'body'
 
+/** A cover page on its own with no header, so its image can run to every paper edge on a zero-margin page. */
+function isCoverEdge(state: RenderState, showHeader: boolean, titleOnly: boolean): boolean {
+    return titleOnly && logoHasBleed(state) && !showHeader
+}
+
 function sectionProperties(state: RenderState, showHeader: boolean, showFooter: boolean, titleOnly: boolean): ISectionOptions['properties'] {
     const { profile } = state.document
     const layout = resolvePdfExportLayout(profile)
     const portrait = pdfPageSizeMm(profile)
     const landscape = profile.page.orientation === 'landscape'
     const margins = profile.page.marginsMm
-    const sidesBleed = layout.headerBleeds || layout.footerBleeds
-    const coverEdge = titleOnly && logoHasBleed(state) && !showHeader
+    const coverEdge = isCoverEdge(state, showHeader, titleOnly)
     const center = titleOnly && !logoHasBleed(state)
     const topMm = coverEdge
         ? 0
@@ -1251,7 +2035,9 @@ function sectionProperties(state: RenderState, showHeader: boolean, showFooter: 
           ? Math.max(margins.top, profile.header.heightMm + profile.header.gapMm)
           : margins.top
     const bottomMm = layout.footerBleeds && showFooter ? Math.max(margins.bottom, profile.footer.heightMm + profile.footer.gapMm) : margins.bottom
-    const zeroSides = sidesBleed || coverEdge
+    // Only the edge-to-edge cover drops the side margins. Bars that ignore margins reach the edge on their own (see chromeTable),
+    // so footnotes and anything typed later in Word keep the real margins.
+    const zeroSides = coverEdge
     return {
         verticalAlign: center ? VerticalAlignSection.CENTER : undefined,
         page: {
@@ -1273,7 +2059,7 @@ function sectionProperties(state: RenderState, showHeader: boolean, showFooter: 
     }
 }
 
-function buildSections(state: RenderState, groups: { id: FrontGroup; children: Block[] }[], watermark: Uint8Array | null): ISectionOptions[] {
+function buildSections(state: RenderState, groups: { id: FrontGroup; children: Block[] }[], watermark: Picture | null): ISectionOptions[] {
     const { profile } = state.document
     const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; children: Block[] }[] = []
     for (const group of groups) {
@@ -1281,7 +2067,10 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         const showFooter = chromeVisible(profile, 'footer', group.id)
         const key = `${showHeader}:${showFooter}`
         const previous = merged[merged.length - 1]
-        if (previous && previous.key === key) {
+        // A cover with no bleeding image is centred on its page, which only works in a section of its own.
+        // A bleeding cover stays merged: its spacing assumes it shares the next page's margins.
+        const keepTitleAlone = previous?.titleOnly === true && !logoHasBleed(state)
+        if (previous && previous.key === key && !keepTitleAlone) {
             previous.titleOnly = false
             previous.children.push(new Paragraph({ children: [new PageBreak()] }), ...group.children)
         } else {
@@ -1290,7 +2079,8 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
     }
 
     return merged.map((section, index) => {
-        const chrome = section.showHeader ? chromeTable(state, 'header') : []
+        const zeroSides = isCoverEdge(state, section.showHeader, section.titleOnly)
+        const chrome = section.showHeader ? chromeTable(state, 'header', zeroSides) : []
         const headerChildren = [...chrome, ...watermarkBlocks(state, watermark)]
         return {
             properties: {
@@ -1298,7 +2088,7 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
                 type: index === 0 ? undefined : SectionType.NEXT_PAGE,
             },
             headers: headerChildren.length > 0 ? { default: new Header({ children: headerChildren }) } : undefined,
-            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer') }) } : undefined,
+            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer', zeroSides) }) } : undefined,
             children: section.children,
         }
     })
@@ -1308,36 +2098,52 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     const text = node.value.replace(/\n$/, '')
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         try {
-            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
-            return { kind: 'diagram', png: await diagramPng(svg, profile.content.mermaidThemeId), source: text }
+            // The alt text comes from the accTitle and accDescr lines, which the renderer would draw as stray boxes.
+            const svg = renderMermaidDiagramForExport(stripAccessibilityLines(text), profile.content.mermaidThemeId)
+            return {
+                kind: 'diagram',
+                png: await diagramPng(svg, profile.content.mermaidThemeId),
+                size: getSvgDimensions(svg),
+                source: text,
+                alt: diagramAltText(text),
+            }
         } catch (err) {
-            return { kind: 'error', message: errorMessage(err) }
+            return { kind: 'error', message: xmlSafe(errorMessage(err)) }
         }
     }
-    return { kind: 'code', lines: await highlightFencedCodeTokens(text, node.lang ?? undefined, profile.content.codeTheme) }
+    try {
+        return { kind: 'code', lines: await highlightFencedCodeTokens(text, node.lang ?? undefined, profile.content.codeTheme) }
+    } catch {
+        // Like the PDF, a block that can't be highlighted is still written, in the theme's plain code colour.
+        return { kind: 'code', lines: text.split('\n').map((line) => [{ text: line }]) }
+    }
 }
 
 /** Word renderer for an {@link ExportDocument}. */
-export async function renderExportDocx(document: ExportDocument): Promise<Uint8Array> {
+export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
+    const document = xmlSafeDocument(source)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {
         codes.push(node)
     })
     const preparedList = await Promise.all(codes.map((node) => prepareCode(node, document.profile)))
     const prepared = new Map(codes.map((node, index) => [node, preparedList[index]!]))
-    const state = createState(document, prepared)
+    const state = createState(document, prepared, await convertImages(document))
     const body = await renderBlocks(state, document.tree.children, true)
     const groups: { id: FrontGroup; children: Block[] }[] = []
     if (document.profile.frontMatter.titlePage) groups.push({ id: 'title', children: await titleBlocks(state) })
-    if (document.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
+    if (state.toc.length > 0) groups.push({ id: 'toc', children: tocBlocks(state) })
     groups.push({ id: 'body', children: body })
-    const watermark = await createWatermarkPng(document.profile.content.watermark)
+    const watermark = await createWatermarkPng(document.profile.content.watermark, document.profile.typography.bodyFont, state.contentPx)
 
     const doc = new Document({
         title: document.metadata.title,
-        creator: document.metadata.author || undefined,
+        // An empty string, not undefined, so docx leaves these out instead of writing 'Un-named'.
+        creator: document.metadata.author || '',
+        lastModifiedBy: document.metadata.author || '',
         description: document.metadata.subtitle || undefined,
-        features: { updateFields: true },
+        // No `updateFields`: it makes Word ask about updating fields every time the file opens.
+        // Header and footer page numbers refresh on their own; the contents numbers show their estimate until F9.
         styles: {
             default: {
                 document: {
@@ -1358,6 +2164,9 @@ export async function renderExportDocx(document: ExportDocument): Promise<Uint8A
         sections: buildSections(state, groups, watermark),
     })
 
-    const buffer = await Packer.toBuffer(doc)
+    const buffer = await Packer.toBuffer(doc, undefined, [
+        { path: 'word/fontTable.xml', data: fontTableXml(state.monoFont.ascii, state.eastAsianFonts) },
+    ])
+    warnAboutDroppedImages(state)
     return new Uint8Array(buffer)
 }
