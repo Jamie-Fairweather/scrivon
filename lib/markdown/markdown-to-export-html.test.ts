@@ -791,6 +791,28 @@ SHIKI_FAIL
         expect(html).not.toMatch(/\.pdf-body img \{[^}]*width: auto/)
     })
 
+    it('keeps a raw HTML paragraph’s own alignment when body text is justified (N33)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.typography.justify = true
+        const { html } = await markdownToExportHtml(
+            [
+                '<p align="center"><img src="data:image/png;base64,AAAA" alt="logo"></p>',
+                '',
+                'Plain text.',
+                '',
+                '<p align="right">Signed, Ada</p>',
+            ].join('\n'),
+            { profile, assets: EMPTY_ASSETS }
+        )
+        expect(html).toContain('<p align="center" dir="auto"><img src="data:image/png;base64,AAAA" alt="logo"></p>')
+        expect(html).toContain('<p align="right" dir="auto">Signed, Ada</p>')
+        // Only paragraphs with no alignment of their own, like the plain one, are justified.
+        expect(html).toContain('<p dir="auto">Plain text.</p>')
+        expect(html).toContain('.pdf-body > p:not([align]) { text-align: justify; }')
+        expect(html).not.toContain('.pdf-body > p {')
+    })
+
     it('marks task items and keeps their checkboxes, which the stylesheet puts in place of the bullet (N32)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml('- [ ] Milk\n- [x] Bread\n\n1. [ ] One\n\nText\n\n- [ ] Loose\n\n- [x] Items', {

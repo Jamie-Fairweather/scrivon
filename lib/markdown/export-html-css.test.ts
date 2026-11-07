@@ -259,10 +259,12 @@ describe('buildPdfExportCss', () => {
         )
     })
 
-    it('justifies only top-level body paragraphs', () => {
+    it('justifies only top-level body paragraphs, leaving one its HTML aligns as it is (N33)', () => {
         const profile = createDefaultPdfExportProfile()
         profile.typography.justify = true
-        expect(buildPdfExportCss(profile)).toContain('.pdf-body > p { text-align: justify; }')
+        const css = buildPdfExportCss(profile)
+        expect(css).toContain('.pdf-body > p:not([align]) { text-align: justify; }')
+        expect(css).not.toContain('.pdf-body > p {')
     })
 
     it('applies letter landscape, link fallback, chrome, watermark, and heading breaks', () => {

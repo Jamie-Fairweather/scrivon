@@ -469,7 +469,12 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   h5 { margin: 1rem 0 0.5rem; font-size: 1em; font-weight: 600; }
   h6 { margin: 1rem 0 0.5rem; font-size: 0.9em; font-weight: 600; }
   p { margin: 0 0 0.75rem; }
-  ${profile.typography.justify ? '.pdf-body > p { text-align: justify; }' : ''}
+  ${
+      profile.typography.justify
+          ? `/* A paragraph whose HTML aligns it (<p align="center">) keeps that: this rule would override the attribute. */
+  .pdf-body > p:not([align]) { text-align: justify; }`
+          : ''
+  }
   /* Each item steps in from its own start side, so a right-to-left item in a left-to-right list keeps its bullet on the page. */
   ul, ol { margin: 0 0 0.75rem; padding-inline-start: 0; }
   li { margin: 0.25rem 0; margin-inline-start: 1.25rem; word-break: break-word; }
