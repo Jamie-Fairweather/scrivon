@@ -26,10 +26,21 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
     message: vi.fn(async () => undefined),
 }))
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(async () => undefined),
-    isTauri: vi.fn(() => false),
-}))
+vi.mock('@tauri-apps/api/core', async () => {
+    const fs = await import('@tauri-apps/plugin-fs')
+    return {
+        // The app's save command (src-tauri/src/atomic_write.rs, sent by writeWorkspaceFile in lib/tauri/fs.ts)
+        // writes through the plugin-fs mock here, so a test sees every save as a writeFile of the file itself.
+        invoke: vi.fn(async (command: string, args?: unknown) => {
+            if (command !== 'save_workspace_file' || !ArrayBuffer.isView(args)) return undefined
+            const body = new Uint8Array(args.buffer, args.byteOffset, args.byteLength)
+            const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)
+            await fs.writeFile(new TextDecoder().decode(body.subarray(4, 4 + length)), body.slice(4 + length))
+            return undefined
+        }),
+        isTauri: vi.fn(() => false),
+    }
+})
 
 // getStore hands out an empty store with every public Store member (the `implements` makes tsc flag any that
 // are missing), so the real lib/tauri/store.ts also works in a test that un-mocks it, whichever methods it calls.

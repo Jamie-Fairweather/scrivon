@@ -249,6 +249,8 @@ describe('save error notices', () => {
         act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'more text'))
 
         expect(result.current.tabs.tabs[0]?.saveError).toBe('The network path was not found. (os error 53)')
+        // Saving now uses up the autosave the typing started, so it can't land in a later test.
+        await save()
     })
 
     it('saves again from the notice and reports a new failure', async () => {

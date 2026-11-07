@@ -14,6 +14,7 @@ import {
     type DirEntry,
     type WatchEvent,
 } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '@/lib/tauri/platform'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
 import { decodeText, DEFAULT_TEXT_FORMAT, encodeText, type DecodedText, type TextFileFormat } from '@/lib/workspace/text-encoding'
@@ -322,30 +323,25 @@ export async function getWorkspaceFileSize(path: string): Promise<number | null>
 
 const SAVE_TEMP_FILE = /^\.scrivon-save-[a-z0-9]+\.tmp$/
 
-/** The temporary file a save writes before it replaces the real one. Left behind only if the app dies mid-save. */
+/**
+ * The temporary file a save writes before it replaces the real one (src-tauri/src/atomic_write.rs names it).
+ * Left behind only if the app dies mid-save.
+ */
 function isSaveTempFile(name: string): boolean {
     return SAVE_TEMP_FILE.test(name)
 }
 
-function saveTempPath(path: string): string {
-    const id = Math.random().toString(36).slice(2, 10) || '0'
-    return joinPath(getParentPath(path), `.scrivon-save-${id}.tmp`)
-}
-
-/** Antivirus, sync and search tools can hold a just-written file for a moment, so replacing it is tried a few times. */
-const REPLACE_ATTEMPTS = 5
-const REPLACE_RETRY_MS = 50
-
-async function replaceFile(tempPath: string, path: string): Promise<void> {
-    for (let attempt = 1; ; attempt++) {
-        try {
-            await rename(tempPath, path)
-            return
-        } catch (err) {
-            if (attempt >= REPLACE_ATTEMPTS) throw err
-            await new Promise((resolve) => setTimeout(resolve, REPLACE_RETRY_MS))
-        }
-    }
+/**
+ * The app's save command takes raw bytes, so a file of several MB isn't sent as a list of numbers: the
+ * path's length in bytes (4, little endian), the path as UTF-8, then the file's bytes.
+ */
+function saveRequestBody(path: string, bytes: Uint8Array): Uint8Array {
+    const pathBytes = new TextEncoder().encode(path)
+    const body = new Uint8Array(4 + pathBytes.length + bytes.length)
+    new DataView(body.buffer).setUint32(0, pathBytes.length, true)
+    body.set(pathBytes, 4)
+    body.set(bytes, 4 + pathBytes.length)
+    return body
 }
 
 /** Windows file attributes that a file put in place of the original wouldn't have. */
@@ -355,8 +351,6 @@ const FILE_ATTRIBUTE_SYSTEM = 0x4
 type FileOnDisk = {
     /** Written straight into the file rather than replaced; see inspectFile. */
     inPlace: boolean
-    /** Its Unix permission bits (macOS, Linux), which the file that replaces it is given too. */
-    mode?: number
     stamp: FileStamp
 }
 
@@ -372,9 +366,9 @@ async function inspectFile(path: string): Promise<FileOnDisk | null> {
     // A link is written through, not replaced: replacing would turn it into a plain file cut off from the file
     // it points to. A hidden or system file is too, since the new file would show up without those marks.
     const attributes = info.fileAttributes ?? 0
+    // (A hard link is written through as well; the save command checks that, since only it can tell on Windows.)
     const inPlace = info.isSymlink || (info.nlink ?? 1) > 1 || (attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) !== 0
-    const mode = typeof info.mode === 'number' ? info.mode & 0o7777 : undefined
-    if (!info.isSymlink) return { inPlace, mode, stamp: stampOf(info) }
+    if (!info.isSymlink) return { inPlace, stamp: stampOf(info) }
     try {
         return { inPlace, stamp: stampOf(await stat(path)) }
     } catch {
@@ -404,12 +398,13 @@ export type WriteWorkspaceFileOptions = {
 }
 
 /**
- * Saves text in the file's own encoding. The bytes go to a temporary file next to it, which then replaces
- * the file in one step. So a save that fails or is cut short (full disk, unplugged drive, crash) leaves the
- * old version, never an empty or half-written file. If the write or the replace fails, the temporary file is removed.
- * Where a file can be changed but not replaced (no right to add files to its folder, or another program has
- * it open), it is written in place as before, rather than never saving. Resolves to the saved file's new
- * stamp (null if it couldn't be read).
+ * Saves text in the file's own encoding. The app's save command writes the bytes to a temporary file next
+ * to it, flushes them to the disk, and then puts that file in its place in one step (on Windows keeping its
+ * permissions, attributes and other streams). So a save that fails or is cut short (full disk, unplugged
+ * drive, crash, power cut) leaves the old version, never an empty or half-written file. Where a file can be
+ * changed but not replaced (no right to add files to its folder, or another program has it open), it is
+ * written in place as before, rather than never saving. Resolves to the saved file's new stamp (null if it
+ * couldn't be read).
  */
 export async function writeWorkspaceFile(
     path: string,
@@ -427,18 +422,10 @@ export async function writeWorkspaceFile(
         await writeFile(path, bytes)
         return readStamp(path)
     }
-    const tempPath = saveTempPath(path)
     try {
-        // A private (600) note or a script (755) stays that way.
-        await writeFile(tempPath, bytes, current?.mode === undefined ? { createNew: true } : { createNew: true, mode: current.mode })
-        await replaceFile(tempPath, path)
+        // It removes its temporary file itself when anything fails.
+        await invoke('save_workspace_file', saveRequestBody(normalizePath(path), bytes))
     } catch (err) {
-        // A write cut short (full disk, drive gone) can leave part of the temporary file behind too.
-        try {
-            await removeWorkspacePath(tempPath)
-        } catch {
-            // Never created, or already gone with the drive.
-        }
         if (!current || !cannotReplace(err)) throw err
         console.warn(`Couldn't replace ${path}, so it is written in place`, err)
         await writeFile(path, bytes)

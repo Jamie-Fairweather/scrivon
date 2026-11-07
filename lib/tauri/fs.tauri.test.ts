@@ -15,6 +15,7 @@ const {
     lstatMock,
     existsMock,
     watchMock,
+    invokeMock,
 } = vi.hoisted(() => ({
     isTauriMock: vi.fn(),
     readDirMock: vi.fn(),
@@ -30,10 +31,15 @@ const {
     lstatMock: vi.fn(),
     existsMock: vi.fn(),
     watchMock: vi.fn(),
+    invokeMock: vi.fn(),
 }))
 
 vi.mock('@/lib/tauri/platform', () => ({
     isTauri: isTauriMock,
+}))
+
+vi.mock('@tauri-apps/api/core', () => ({
+    invoke: invokeMock,
 }))
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
@@ -81,12 +87,16 @@ describe('workspace fs (Tauri)', () => {
         existsMock.mockResolvedValue(false)
         lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null })
         renameMock.mockResolvedValue(undefined)
+        invokeMock.mockResolvedValue(undefined)
     })
 
-    /** Where the last save wrote its bytes, and what that temporary file was then renamed to. */
+    /** What the last save asked the app's save command to write, and where (see saveRequestBody). */
     function lastSave() {
-        const [tempPath, bytes, options] = writeFileMock.mock.calls.at(-1)!
-        return { tempPath, bytes, options, replaced: renameMock.mock.calls.find((call) => call[0] === tempPath)?.[1] }
+        const call = invokeMock.mock.calls.findLast(([command]) => command === 'save_workspace_file')
+        if (!call) return undefined
+        const body = call[1] as Uint8Array
+        const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)
+        return { path: new TextDecoder().decode(body.subarray(4, 4 + length)), bytes: body.slice(4 + length) }
     }
 
     it('reads workspace files through Tauri', async () => {
@@ -97,75 +107,53 @@ describe('workspace fs (Tauri)', () => {
         expect(statMock).not.toHaveBeenCalled()
     })
 
-    it('writes workspace files through Tauri as UTF-8 by default', async () => {
+    it('saves through the app, which replaces the file in one step, as UTF-8 by default', async () => {
         await writeWorkspaceFile('/ws/diagram.mmd', 'updated é')
-        expect(lastSave()).toEqual({
-            tempPath: expect.stringMatching(/^\/ws\/\.scrivon-save-[a-z0-9]+\.tmp$/),
-            bytes: new TextEncoder().encode('updated é'),
-            options: { createNew: true },
-            replaced: '/ws/diagram.mmd',
-        })
+        expect(lastSave()).toEqual({ path: '/ws/diagram.mmd', bytes: new TextEncoder().encode('updated é') })
+        // Sent as raw bytes, not a JSON list of numbers.
+        expect(invokeMock.mock.calls[0]![1]).toBeInstanceOf(Uint8Array)
+        expect(writeFileMock).not.toHaveBeenCalled()
+        expect(renameMock).not.toHaveBeenCalled()
     })
 
-    it('leaves the old file alone and removes the temporary one when it cannot be replaced', async () => {
-        renameMock.mockRejectedValue('The specified network name is no longer available. (os error 64)')
+    it('sends a path with any letters in it, in the one form the app uses', async () => {
+        await writeWorkspaceFile('C:/Users/zoë/笔记/notes.md', 'x')
+        expect(lastSave()?.path).toBe('C:\\Users\\zoë\\笔记\\notes.md')
+    })
+
+    it('leaves the old file alone when it cannot be replaced (a drive gone, a full disk)', async () => {
+        invokeMock.mockRejectedValue('The specified network name is no longer available. (os error 64)')
         await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('The specified network name is no longer available. (os error 64)')
-        const { tempPath } = lastSave()
-        expect(tempPath).toMatch(/^C:\\ws\\\.scrivon-save-[a-z0-9]+\.tmp$/)
-        expect(renameMock).toHaveBeenCalledTimes(5)
-        expect(removeMock).toHaveBeenCalledWith(tempPath, { recursive: false })
+        invokeMock.mockRejectedValue('There is not enough space on the disk. (os error 112)')
+        await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('There is not enough space on the disk. (os error 112)')
         // Nothing was ever written to the real file.
-        expect(writeFileMock).toHaveBeenCalledTimes(1)
+        expect(writeFileMock).not.toHaveBeenCalled()
     })
 
     it('writes in place when another program keeps the file from being replaced', async () => {
-        renameMock.mockRejectedValue('The process cannot access the file because it is being used by another process. (os error 32)')
+        invokeMock.mockRejectedValue('The process cannot access the file because it is being used by another process. (os error 32)')
         await writeWorkspaceFile('C:\\ws\\notes.md', 'new')
-        expect(renameMock).toHaveBeenCalledTimes(5)
-        expect(removeMock).toHaveBeenCalledTimes(1)
-        expect(writeFileMock).toHaveBeenLastCalledWith('C:\\ws\\notes.md', new TextEncoder().encode('new'))
+        expect(writeFileMock).toHaveBeenCalledExactlyOnceWith('C:\\ws\\notes.md', new TextEncoder().encode('new'))
     })
 
     it('writes in place when it may change the file but not add one next to it', async () => {
-        writeFileMock.mockRejectedValueOnce('failed to open file: Permission denied (os error 13)')
+        invokeMock.mockRejectedValueOnce('Permission denied (os error 13)')
         await writeWorkspaceFile('/ws/shared.md', 'new')
-        expect(renameMock).not.toHaveBeenCalled()
         expect(writeFileMock).toHaveBeenLastCalledWith('/ws/shared.md', new TextEncoder().encode('new'))
     })
 
     it('still fails, without touching the file, when there is nothing there to write into', async () => {
         lstatMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
-        writeFileMock.mockRejectedValueOnce('Access is denied. (os error 5)')
+        invokeMock.mockRejectedValueOnce('Access is denied. (os error 5)')
         await expect(writeWorkspaceFile('C:\\ws\\new.md', 'new')).rejects.toBe('Access is denied. (os error 5)')
-        expect(writeFileMock).toHaveBeenCalledTimes(1)
-    })
-
-    it('keeps the Unix permissions of the file it replaces', async () => {
-        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: 1, mode: 0o100600 })
-        await writeWorkspaceFile('/home/me/private.md', 'secret')
-        expect(lastSave().options).toEqual({ createNew: true, mode: 0o600 })
+        expect(writeFileMock).not.toHaveBeenCalled()
     })
 
     it('writes a hidden or system file in place, so it keeps those marks', async () => {
         lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null, nlink: null, fileAttributes: 0x22 })
         await writeWorkspaceFile('C:\\ws\\.notes.md', 'text')
         expect(writeFileMock).toHaveBeenCalledWith('C:\\ws\\.notes.md', new TextEncoder().encode('text'))
-        expect(renameMock).not.toHaveBeenCalled()
-    })
-
-    it('removes the temporary file when writing it fails part way', async () => {
-        writeFileMock.mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
-        await expect(writeWorkspaceFile('C:\\ws\\notes.md', 'new')).rejects.toBe('There is not enough space on the disk. (os error 112)')
-        const { tempPath } = lastSave()
-        expect(removeMock).toHaveBeenCalledWith(tempPath, { recursive: false })
-        expect(renameMock).not.toHaveBeenCalled()
-    })
-
-    it('tries the replace again when the file is busy for a moment', async () => {
-        renameMock.mockRejectedValueOnce('The process cannot access the file because it is being used by another process. (os error 32)')
-        await writeWorkspaceFile('/ws/a.md', 'text')
-        expect(renameMock).toHaveBeenCalledTimes(2)
-        expect(lastSave().replaced).toBe('/ws/a.md')
+        expect(invokeMock).not.toHaveBeenCalled()
     })
 
     it('writes through a link instead of replacing it with a plain file', async () => {
@@ -173,7 +161,7 @@ describe('workspace fs (Tauri)', () => {
         statMock.mockResolvedValue({ size: 4, mtime: null })
         await writeWorkspaceFile('/ws/linked.md', 'text')
         expect(writeFileMock).toHaveBeenCalledWith('/ws/linked.md', new TextEncoder().encode('text'))
-        expect(renameMock).not.toHaveBeenCalled()
+        expect(invokeMock).not.toHaveBeenCalled()
     })
 
     it('saves a UTF-16 file with a byte-order mark the way it was read', async () => {
@@ -184,7 +172,7 @@ describe('workspace fs (Tauri)', () => {
         expect(file).toMatchObject({ content: '# Café', format: { encoding: 'utf-16le', bom: true } })
 
         await writeWorkspaceFile('C:\\ws\\notes.md', file.content, { format: file.format })
-        expect(lastSave()).toMatchObject({ bytes: original, replaced: 'C:\\ws\\notes.md' })
+        expect(lastSave()).toEqual({ bytes: original, path: 'C:\\ws\\notes.md' })
     })
 
     it('notes when and how big a file was when it was read, and after it is saved', async () => {
@@ -207,6 +195,7 @@ describe('workspace fs (Tauri)', () => {
         // Only the time changed (same size) still counts as a change.
         await expect(writeWorkspaceFile('/ws/a.md', 'mine', { expected: { mtimeMs: 1000, size: 9 } })).rejects.toMatchObject({ change: 'changed' })
         expect(writeFileMock).not.toHaveBeenCalled()
+        expect(invokeMock).not.toHaveBeenCalled()
     })
 
     it('refuses to bring back a file deleted outside the app, unless saved without a check', async () => {
@@ -214,10 +203,10 @@ describe('workspace fs (Tauri)', () => {
         existsMock.mockResolvedValue(false)
 
         await expect(writeWorkspaceFile('/ws/gone.md', 'mine', { expected: null })).rejects.toMatchObject({ change: 'deleted' })
-        expect(writeFileMock).not.toHaveBeenCalled()
+        expect(invokeMock).not.toHaveBeenCalled()
 
         await writeWorkspaceFile('/ws/gone.md', 'mine')
-        expect(lastSave().replaced).toBe('/ws/gone.md')
+        expect(lastSave()?.path).toBe('/ws/gone.md')
     })
 
     it('treats an unknown time as unchanged when the size matches', () => {
@@ -231,7 +220,7 @@ describe('workspace fs (Tauri)', () => {
         readFileMock.mockResolvedValueOnce(withMark)
         const file = await readWorkspaceTextFile('/ws/a.md')
         await writeWorkspaceFile('/ws/a.md', file.content, { format: file.format })
-        expect(lastSave()).toMatchObject({ bytes: withMark, replaced: '/ws/a.md' })
+        expect(lastSave()).toMatchObject({ bytes: withMark, path: '/ws/a.md' })
 
         readFileMock.mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
         await expect(readWorkspaceTextFile('/ws/ansi.md')).resolves.toMatchObject({ content: 'Café', issue: 'legacy-encoding' })

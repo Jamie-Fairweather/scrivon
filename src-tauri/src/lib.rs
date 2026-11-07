@@ -1,3 +1,4 @@
+mod atomic_write;
 mod close_watchdog;
 mod crash_report;
 mod legacy_profile;
@@ -174,6 +175,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
+            atomic_write::save_workspace_file,
             close_watchdog::close_ack,
             pdf_export::export_html_to_pdf,
             pdf_export::read_export_image,
