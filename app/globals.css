@@ -38,9 +38,11 @@
     --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
     --accent: --alpha(var(--color-black) / 4%);
     --accent-foreground: var(--color-neutral-800);
-    /* The fill behind the white text of Delete and Restore buttons: red-700 keeps it at 4.5:1 or more,
-       also at 90% on hover. Red text and icons on the page use --destructive-foreground. */
-    --destructive: var(--color-red-700);
+    /* --destructive is the red of faint tints: invalid-field borders and rings, error fills. Red text
+       and icons use --destructive-foreground. --destructive-fill sits behind the white text of Delete
+       and Restore buttons: red-700 keeps that at 4.5:1 or more, also at 90% on hover. */
+    --destructive: var(--color-red-500);
+    --destructive-fill: var(--color-red-700);
     --border: --alpha(var(--color-black) / 8%);
     --input: --alpha(var(--color-black) / 10%);
     --ring: var(--color-neutral-400);
@@ -87,6 +89,7 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-fill: var(--destructive-fill);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -206,7 +209,9 @@
     --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--color-neutral-100);
-    --destructive: var(--color-red-600);
+    /* A lighter red keeps the faint tints visible on dark backgrounds; the button fill can be darker. */
+    --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
+    --destructive-fill: var(--color-red-600);
     --border: --alpha(var(--color-white) / 6%);
     --input: --alpha(var(--color-white) / 8%);
     --ring: var(--color-neutral-500);

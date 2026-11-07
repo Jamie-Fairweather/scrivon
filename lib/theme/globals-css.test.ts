@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { contrastRatio, hexColorMix } from '@/lib/theme/color-mix'
+import { contrastRatio, hexColorMix, relativeLuminance } from '@/lib/theme/color-mix'
 
 /** app/globals.css without its comments. */
 const css = readFileSync(path.resolve(__dirname, '../../app/globals.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -29,7 +29,20 @@ function themeColor(selector: string, name: string): string {
     const value = new RegExp(String.raw`${name}:\s*([^;]+);`).exec(block)?.[1]?.trim() ?? ''
     const palette = /^var\((--color-[a-z]+-\d+)\)$/.exec(value)?.[1]
     if (!palette) return value
-    return new RegExp(String.raw`${palette}:\s*([^;]+);`).exec(tailwindTheme)?.[1]?.trim() ?? ''
+    return paletteColor(palette)
+}
+
+/** A colour in Tailwind's palette (oklch), such as `--color-red-500`. */
+function paletteColor(name: string): string {
+    return new RegExp(String.raw`${name}:\s*([^;]+);`).exec(tailwindTheme)?.[1]?.trim() ?? ''
+}
+
+/** A colour themeColor finds, as sRGB hex: a palette shade, or `color-mix(in srgb, <shade> N%, var(--color-white))`. */
+function themeColorHex(selector: string, name: string): string {
+    const value = themeColor(selector, name)
+    const mix = /^color-mix\(in srgb, var\((--color-[a-z]+-\d+)\) ([\d.]+)%, var\(--color-white\)\)$/.exec(value)
+    if (!mix) return oklchToHex(value)
+    return hexColorMix(oklchToHex(paletteColor(mix[1]!)), '#ffffff', Number(mix[2]))
 }
 
 /** An `oklch(L% C h)` colour as sRGB hex, clipped to the sRGB range like the browser does. */
@@ -109,13 +122,19 @@ describe('app/globals.css', () => {
 
     describe('the red fill of Delete and Restore buttons', () => {
         it('keeps their white text at 4.5:1 in light themes, also at 90% on hover over a dialog', () => {
-            const fill = oklchToHex(themeColor(':root', '--destructive'))
+            const fill = themeColorHex(':root', '--destructive-fill')
             expect(contrastRatio('#ffffff', fill)).toBeGreaterThanOrEqual(4.5)
             expect(contrastRatio('#ffffff', hexColorMix(fill, '#ffffff', 90))).toBeGreaterThanOrEqual(4.5)
         })
 
         it('keeps their white text at 4.5:1 in dark themes', () => {
-            expect(contrastRatio('#ffffff', oklchToHex(themeColor('.dark', '--destructive')))).toBeGreaterThanOrEqual(4.5)
+            expect(contrastRatio('#ffffff', themeColorHex('.dark', '--destructive-fill'))).toBeGreaterThanOrEqual(4.5)
+        })
+
+        it('leaves the lighter red for the faint borders and rings of invalid fields in dark themes', () => {
+            // The button's darker red would make those borders about a quarter fainter on a dark background.
+            const tint = relativeLuminance(themeColorHex('.dark', '--destructive'))!
+            expect(tint).toBeGreaterThan(relativeLuminance(themeColorHex('.dark', '--destructive-fill'))!)
         })
     })
 
