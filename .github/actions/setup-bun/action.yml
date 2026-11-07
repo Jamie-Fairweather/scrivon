@@ -16,7 +16,7 @@ runs:
         # changes, the older node_modules is restored and bun install downloads only what changed.
         - name: Restore Bun dependencies
           id: bun-cache
-          uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+          uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
           with:
               path: node_modules
               key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -41,7 +41,7 @@ runs:
         # building an old tag) doesn't save, so it can't put that tag's packages in dev's cache.
         - name: Save Bun dependencies
           if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.bun-cache.outputs.cache-hit != 'true'
-          uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+          uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
           with:
               path: node_modules
               key: ${{ steps.bun-cache.outputs.cache-primary-key }}
