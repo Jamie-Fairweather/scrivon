@@ -62,9 +62,7 @@
 }
 
 @theme inline {
-    --animate-skeleton: skeleton 2s -1s infinite linear;
     --font-heading: var(--font-sans);
-    --animate-caret-blink: 1s ease-out infinite caret-blink;
     --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
     --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
     --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
@@ -115,22 +113,6 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
-    @keyframes skeleton {
-        to {
-            background-position: -200% 0;
-        }
-    }
-    @keyframes caret-blink {
-        0%,
-        70%,
-        to {
-            opacity: 1;
-        }
-        20%,
-        50% {
-            opacity: 0;
-        }
-    }
     @keyframes toast-success-odd {
         0% {
             scale: 1;
