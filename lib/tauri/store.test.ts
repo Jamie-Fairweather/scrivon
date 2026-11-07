@@ -15,6 +15,8 @@ const fake = vi.hoisted(() => ({
     notOpened: new Set<string>(),
     saveError: null as unknown,
     openError: null as unknown,
+    /** The name the app shell gave a damaged workspace.json it moved aside at startup (take_store_recovery). */
+    keptAs: null as string | null,
 }))
 
 function parseStoreFile(path: string): Record<string, unknown> {
@@ -80,6 +82,15 @@ vi.mock('@tauri-apps/plugin-store', () => {
     }
 })
 
+vi.mock('@tauri-apps/api/core', () => ({
+    invoke: vi.fn(async (command: string) => {
+        if (command !== 'take_store_recovery') throw new Error(`unexpected command ${command}`)
+        const name = fake.keptAs
+        fake.keptAs = null
+        return name
+    }),
+}))
+
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: vi.fn(() => true) }))
 vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
@@ -110,6 +121,7 @@ describe('workspace store', () => {
         fake.notOpened.clear()
         fake.saveError = null
         fake.openError = null
+        fake.keptAs = null
         vi.mocked(notifyWarning).mockClear()
         vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     })
@@ -150,6 +162,48 @@ describe('workspace store', () => {
             expect(await store.getRecentWorkspaces()).toEqual([])
             expect(notifyWarning).not.toHaveBeenCalled()
             expect(onDisk('workspace.backup.json')).toEqual({ snapshot: SAVED })
+        })
+
+        it('is filled from the copy when the app shell kept it aside, and says where it went', async () => {
+            // The app shell moved the damaged file away before the store opened, so it reads as missing.
+            fake.keptAs = 'workspace.json.corrupt-1731000000'
+            fake.disk.set('workspace.backup.json', JSON.stringify({ snapshot: SAVED }))
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            expect(onDisk('workspace.json')).toEqual(SAVED)
+            expect(notifyWarning).toHaveBeenCalledTimes(1)
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Recent folders restored',
+                expect.objectContaining({ description: expect.stringContaining('kept as workspace.json.corrupt-1731000000') })
+            )
+
+            // The name is handed out once: the next launch reads the restored file without a word.
+            vi.mocked(notifyWarning).mockClear()
+            fake.caches.clear()
+            expect(await (await launch()).getRecentWorkspaces()).toEqual(['C:\\notes', 'D:\\work'])
+            expect(notifyWarning).not.toHaveBeenCalled()
+        })
+
+        it('says the lists start empty and where the damaged file went when there is no copy', async () => {
+            fake.keptAs = 'workspace.json.corrupt-1731000000'
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Recent folders were reset',
+                expect.objectContaining({ description: expect.stringContaining('kept as workspace.json.corrupt-1731000000') })
+            )
+        })
+
+        it('starts quietly when it cannot ask whether the file was kept aside', async () => {
+            const { invoke } = await import('@tauri-apps/api/core')
+            vi.mocked(invoke).mockRejectedValueOnce(new Error('no such command'))
+            fake.disk.set('workspace.backup.json', JSON.stringify({ snapshot: SAVED }))
+            const store = await launch()
+
+            expect(await store.getRecentWorkspaces()).toEqual([])
+            expect(notifyWarning).not.toHaveBeenCalled()
         })
 
         it('reads the file once however many callers ask for it at the same time', async () => {

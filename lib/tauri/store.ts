@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { getStore as getAppStore, type Store } from '@tauri-apps/plugin-store'
 import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
@@ -90,8 +91,27 @@ async function openStore(): Promise<Store> {
         readError = err
     }
     if (readError === null) void keepStoreBackup(s)
-    else if (!FILE_MISSING.test(errorMessage(readError, ''))) await recoverStore(s, readError)
+    else if (!FILE_MISSING.test(errorMessage(readError, ''))) await recoverStore(s, readError, null)
+    else {
+        // Missing because the app shell moved a damaged file aside, or simply not there yet (a first launch).
+        const keptAs = await takeDamagedStoreName()
+        if (keptAs) await recoverStore(s, readError, keptAs)
+    }
     return s
+}
+
+/**
+ * The name the app shell gave a workspace.json it couldn't read, which it moved aside at startup so nothing
+ * saves over it (src-tauri/src/store_recovery.rs). Handed out once per launch; null when nothing was moved.
+ */
+async function takeDamagedStoreName(): Promise<string | null> {
+    try {
+        const name = await invoke<unknown>('take_store_recovery')
+        return typeof name === 'string' && name ? name : null
+    } catch (err) {
+        console.warn("Couldn't check whether workspace.json was damaged", err)
+        return null
+    }
 }
 
 async function openBackupStore(): Promise<Store> {
@@ -116,8 +136,11 @@ async function readStoreBackup(): Promise<Record<string, unknown> | null> {
     return Object.keys(snapshot).length > 0 ? (snapshot as Record<string, unknown>) : null
 }
 
-/** workspace.json is there but couldn't be read: it is filled from the copy, before anything can save over it. */
-async function recoverStore(s: Store, readError: unknown): Promise<void> {
+/**
+ * workspace.json couldn't be read: it is filled from the copy, before anything can save over it. `keptAs`
+ * names the damaged file when the app shell kept it aside.
+ */
+async function recoverStore(s: Store, readError: unknown, keptAs: string | null): Promise<void> {
     console.warn("Couldn't read workspace.json", readError)
     // Still held from earlier in this run (the window was reloaded): that is newer than the copy.
     if ((await s.length()) > 0) return
@@ -133,15 +156,16 @@ async function recoverStore(s: Store, readError: unknown): Promise<void> {
         console.warn("Couldn't restore workspace.json from its copy", err)
     }
     const what = "Scrivon couldn't read the file that keeps your recent folders and open tabs"
+    const kept = keptAs ? ` The damaged file was kept as ${keptAs} in Scrivon's data folder.` : ''
     if (restored) {
         notifyWarning('Recent folders restored', {
             id: STORE_DAMAGED_NOTICE_ID,
-            description: `${what}, so it brought back the copy from when Scrivon last started. Your documents aren't affected.`,
+            description: `${what}, so it brought back the copy from when Scrivon last started.${kept} Your documents aren't affected.`,
         })
     } else {
         notifyWarning('Recent folders were reset', {
             id: STORE_DAMAGED_NOTICE_ID,
-            description: `${what}, so those lists start empty. Your documents aren't affected.`,
+            description: `${what}, so those lists start empty.${kept} Your documents aren't affected.`,
         })
     }
 }

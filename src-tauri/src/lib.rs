@@ -5,6 +5,7 @@ mod legacy_profile;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
+mod store_recovery;
 mod system_fonts;
 mod updater;
 mod workspace_access;
@@ -17,6 +18,7 @@ use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 
 use close_watchdog::CloseWatchdog;
+use store_recovery::StoreRecovery;
 use updater::PendingUpdate;
 use workspace_access::WorkspaceAccess;
 
@@ -34,8 +36,8 @@ const STORES: [(&str, bool); 4] = [
 /// can only use these (`getStore`), never open a store itself: the plugin's
 /// `load` takes any path, and an absolute one would let a script in the window
 /// write a JSON file anywhere on disk, such as the Startup folder (S02). A
-/// damaged file is ignored here and the store starts empty; the frontend's
-/// `reload()` then says why and brings back its copy.
+/// damaged workspace.json has already been set aside (`store_recovery`); any
+/// other damaged file is ignored here and its store starts empty.
 fn open_stores(app: &tauri::AppHandle) {
     for (name, auto_save) in STORES {
         let builder = tauri_plugin_store::StoreBuilder::new(app, name);
@@ -156,8 +158,10 @@ pub fn run() {
             // and the folder list read it, and the copied localStorage before
             // the window opens its WebView2 profile.
             legacy_profile::migrate(app);
-            open_stores(app.handle());
             let data_dir = app.path().app_data_dir().ok();
+            // Before the store and the folder list read workspace.json (D24).
+            app.manage(StoreRecovery::set_aside_damaged(data_dir.as_deref()));
+            open_stores(app.handle());
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             build_main_window(app)?;
             show_main_window_later(app);
@@ -179,6 +183,7 @@ pub fn run() {
             close_watchdog::close_ack,
             pdf_export::export_html_to_pdf,
             pdf_export::read_export_image,
+            store_recovery::take_store_recovery,
             system_fonts::list_system_fonts,
             updater::check_for_app_update,
             updater::install_app_update,
