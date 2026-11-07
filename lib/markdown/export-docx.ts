@@ -1190,12 +1190,20 @@ function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Mark
     return children
 }
 
+/**
+ * Whether `text` is only the spaces HTML collapses to nothing on an empty line. A no-break space (`&nbsp;`) isn't
+ * one, so a paragraph of it still shows, as the blank line it is in the preview and PDF.
+ */
+function onlyCollapsibleSpace(text: string): boolean {
+    return /^[ \t\n\f\r]*$/.test(text)
+}
+
 /** Whether a paragraph shows nothing: only anchors from raw HTML (see {@link HTML_ANCHORS}) and spaces, or nothing at all. */
 function showsNothing(nodes: PhrasingContent[]): boolean {
     return nodes.every(
         (node) =>
             node.type === 'html' ||
-            (node.type === 'text' && !node.value.trim()) ||
+            (node.type === 'text' && onlyCollapsibleSpace(node.value)) ||
             ((node.type === 'emphasis' || node.type === 'strong' || node.type === 'delete') && showsNothing(node.children))
     )
 }
@@ -2226,7 +2234,7 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
     walk(node.children)
     const lineTwip = lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight)
     const wrapped = lines.reduce((count, text) => count + lineCount(text, state.bodyHalfPoints, width), 0)
-    const textHeight = lines.length > 1 || lines[0]!.trim() ? wrapped * lineTwip + 120 : 120
+    const textHeight = lines.length > 1 || !onlyCollapsibleSpace(lines[0]!) ? wrapped * lineTwip + 120 : 120
     return image > 0 ? Math.max(textHeight, image + 120) : textHeight
 }
 

@@ -1903,6 +1903,18 @@ describe('renderExportDocx', () => {
         expect(body.match(/<w:p>/g)).toHaveLength(9)
     })
 
+    it('keeps a paragraph of only &nbsp; as the blank line the preview and PDF show (review)', async () => {
+        const { parts } = await render('One\n\n&nbsp;\n\nTwo')
+        expect(parts['word/document.xml']!.match(/<w:p>/g)).toHaveLength(3)
+        // The contents page numbers count it as a line too.
+        const spacers = Array.from({ length: 40 }, () => ['&nbsp;', '']).flat()
+        const { xml } = await render(['# Start', '', ...spacers, '# End'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        expect(tocPage(xml, 'End')).toBe(3)
+    })
+
     it('links only to safe addresses, and finds #heading links however they are written (S10, B55)', async () => {
         const { parts } = await render(
             [
