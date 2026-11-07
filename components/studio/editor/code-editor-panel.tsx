@@ -79,6 +79,13 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
         invisibleCharacters: false,
         nonBasicASCII: false,
     },
+    // Word suggestions off, as in VS Code for Markdown: prose isn't code, and Enter must always
+    // start a new line rather than swap the word just typed for one from another file.
+    quickSuggestions: false,
+    wordBasedSuggestions: 'off',
+    suggestOnTriggerCharacters: false,
+    acceptSuggestionOnEnter: 'off',
+    snippetSuggestions: 'none',
     scrollbar: {
         vertical: 'auto',
         // Only appears when a line is wider than the pane (word wrap off or at a column).

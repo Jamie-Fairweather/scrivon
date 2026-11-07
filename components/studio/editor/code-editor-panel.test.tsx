@@ -582,6 +582,19 @@ describe('CodeEditorPanel unicode highlighting', () => {
     })
 })
 
+describe('CodeEditorPanel suggestions', () => {
+    it('offers no word suggestions while writing, and Enter never accepts one', async () => {
+        tabsState = { tabs: [tab('/w/notes.md', 'then there'), tab('/w/other.md', 'theory')], activeTabId: '/w/notes.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options).toMatchObject({
+            quickSuggestions: false,
+            wordBasedSuggestions: 'off',
+            suggestOnTriggerCharacters: false,
+            acceptSuggestionOnEnter: 'off',
+        })
+    })
+})
+
 describe('CodeEditorPanel keeps editing state', () => {
     it('keeps the buffer (and its undo history) when the open file is renamed', async () => {
         const a = '/w/a.md'
