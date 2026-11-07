@@ -46,6 +46,10 @@ describe('resolveKeyPath', () => {
 
     it('expands ~ to the home folder', () => {
         expect(resolveKeyPath('~/.tauri/scrivon.key', { root, home })).toBe(join(home, '.tauri', 'scrivon.key'))
+    })
+
+    // A backslash only separates folders on Windows; elsewhere it is part of the file name.
+    it.runIf(process.platform === 'win32')('expands ~\\ to the home folder on Windows', () => {
         expect(resolveKeyPath('~\\.tauri\\scrivon.key', { root, home })).toBe(join(home, '.tauri', 'scrivon.key'))
     })
 })
