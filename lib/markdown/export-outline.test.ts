@@ -1,0 +1,97 @@
+import type { Root } from 'mdast'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
+import { describe, expect, it } from 'vitest'
+import { collectPdfExportOutline, filterPdfExportOutline } from '@/lib/markdown/export-outline'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+
+function parse(body: string): Root {
+    return unified().use(remarkParse).use(markdownRemarkPlugins).parse(body) as Root
+}
+
+describe('collectPdfExportOutline', () => {
+    it('collects headings with unique ids and writes them onto the nodes', () => {
+        const tree = parse(`# Title
+## One
+### Deep
+## One
+#### Four
+`)
+        const items = collectPdfExportOutline(tree)
+        expect(items).toEqual([
+            { id: 'title', level: 1, text: 'Title' },
+            { id: 'one', level: 2, text: 'One' },
+            { id: 'deep', level: 3, text: 'Deep' },
+            { id: 'one-1', level: 2, text: 'One' },
+            { id: 'four', level: 4, text: 'Four' },
+        ])
+        const headings = tree.children.filter((node) => node.type === 'heading')
+        expect(headings.map((node) => node.data?.hProperties?.id)).toEqual(['title', 'one', 'deep', 'one-1', 'four'])
+    })
+
+    it('ignores hashes inside fenced code and counts setext headings', () => {
+        const tree = parse('Setext\n======\n\n```bash\n# not a heading\n```\n\n## Real')
+        expect(collectPdfExportOutline(tree)).toEqual([
+            { id: 'setext', level: 1, text: 'Setext' },
+            { id: 'real', level: 2, text: 'Real' },
+        ])
+    })
+
+    it('skips leafless inline nodes such as images when reading heading text', () => {
+        const tree = parse('## See ![diagram](a.png) here')
+        expect(collectPdfExportOutline(tree)).toEqual([{ id: 'see--here', level: 2, text: 'See  here' }])
+    })
+
+    it('makes the same ids as GitHub, so README-style links still land', () => {
+        const tree = parse(
+            [
+                '## Alerts / admonitions (GFM on GitHub)',
+                '## Install & Setup',
+                '## Step 1 - Install',
+                '## Résumé',
+                '## 概要',
+                '## snake_case_name',
+            ].join('\n\n')
+        )
+        expect(collectPdfExportOutline(tree).map((item) => item.id)).toEqual([
+            'alerts--admonitions-gfm-on-github',
+            'install--setup',
+            'step-1---install',
+            'résumé',
+            '概要',
+            'snake_case_name',
+        ])
+    })
+
+    it('never gives a repeated heading the id of another heading', () => {
+        const tree = parse('## One\n\n## One 1\n\n## One\n\n## One')
+        expect(collectPdfExportOutline(tree).map((item) => item.id)).toEqual(['one', 'one-1', 'one-2', 'one-3'])
+        const before = parse('## One 1\n\n## One\n\n## One')
+        expect(collectPdfExportOutline(before).map((item) => item.id)).toEqual(['one-1', 'one', 'one-2'])
+    })
+
+    it('leaves raw HTML and comments out of the text and the id, keeping text inside tags (S03)', () => {
+        const tree = parse('# Pricing <!-- internal: 40% margin -->\n\n## Keys <kbd>Ctrl</kbd>\n\n## Café <sup>2</sup>')
+        expect(collectPdfExportOutline(tree)).toEqual([
+            { id: 'pricing', level: 1, text: 'Pricing' },
+            { id: 'keys-ctrl', level: 2, text: 'Keys Ctrl' },
+            { id: 'café-2', level: 2, text: 'Café 2' },
+        ])
+    })
+
+    it('uses the plain text of inline markup and slugifies punctuation-only headings', () => {
+        const tree = parse('## `code` and *emphasis*\n\n## !!!\n\n##')
+        expect(collectPdfExportOutline(tree)).toEqual([
+            { id: 'code-and-emphasis', level: 2, text: 'code and emphasis' },
+            { id: 'section', level: 2, text: '!!!' },
+        ])
+    })
+})
+
+describe('filterPdfExportOutline', () => {
+    it('respects depth and h1 exclusion', () => {
+        const items = collectPdfExportOutline(parse('# Title\n## One\n### Deep\n#### Four'))
+        expect(filterPdfExportOutline(items, 2, true)).toEqual([{ id: 'one', level: 2, text: 'One' }])
+        expect(filterPdfExportOutline(items, 3, false).map((item) => item.id)).toEqual(['title', 'one', 'deep'])
+    })
+})

@@ -1,8 +1,8 @@
 'use client'
 
 import { useAppTheme } from '@/components/theme/app-theme-provider'
-import { APP_DARK_THEME_IDS, APP_LIGHT_THEME_IDS, APP_THEME_LABELS, getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
-import { MenuCheckboxItem, MenuGroup, MenuSub, MenuSubPopup, MenuSubTrigger } from '@/components/ui/menu'
+import { APP_DARK_THEME_IDS, APP_LIGHT_THEME_IDS, APP_THEME_LABELS, getDiagramColors, isAppThemeId, type AppThemeId } from '@/lib/theme/catalog'
+import { MenuGroup, MenuGroupLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger } from '@/components/ui/menu'
 
 function ThemeSwatch({ id }: { id: AppThemeId }) {
     const colors = getDiagramColors(id)
@@ -14,44 +14,40 @@ function ThemeSwatch({ id }: { id: AppThemeId }) {
     )
 }
 
-function ThemeMenuItems({ ids }: { ids: AppThemeId[] }) {
-    const { themeId, setThemeId } = useAppTheme()
-
+function ThemeMenuGroup({ label, ids }: { label: string; ids: AppThemeId[] }) {
     return (
-        <>
+        <MenuGroup>
+            <MenuGroupLabel>{label}</MenuGroupLabel>
             {ids.map((id) => (
-                <MenuCheckboxItem key={id} checked={themeId === id} onCheckedChange={() => setThemeId(id)} className="gap-2">
-                    <ThemeSwatch id={id} />
-                    <span className="truncate">{APP_THEME_LABELS[id]}</span>
-                </MenuCheckboxItem>
+                <MenuRadioItem key={id} value={id}>
+                    <span className="flex min-w-0 items-center gap-2">
+                        <ThemeSwatch id={id} />
+                        <span className="truncate">{APP_THEME_LABELS[id]}</span>
+                    </span>
+                </MenuRadioItem>
             ))}
-        </>
+        </MenuGroup>
     )
 }
 
+/** Options > Theme: one list of every theme, grouped Dark / Light, picked as a single choice. */
 export function ThemeMenu() {
+    const { themeId, setThemeId } = useAppTheme()
+
     return (
         <MenuSub>
             <MenuSubTrigger>Theme</MenuSubTrigger>
             <MenuSubPopup className="max-h-96 min-w-52 overflow-y-auto">
-                <MenuGroup>
-                    <MenuSub>
-                        <MenuSubTrigger>Dark</MenuSubTrigger>
-                        <MenuSubPopup className="min-w-52">
-                            <MenuGroup>
-                                <ThemeMenuItems ids={APP_DARK_THEME_IDS} />
-                            </MenuGroup>
-                        </MenuSubPopup>
-                    </MenuSub>
-                    <MenuSub>
-                        <MenuSubTrigger>Light</MenuSubTrigger>
-                        <MenuSubPopup className="min-w-52">
-                            <MenuGroup>
-                                <ThemeMenuItems ids={APP_LIGHT_THEME_IDS} />
-                            </MenuGroup>
-                        </MenuSubPopup>
-                    </MenuSub>
-                </MenuGroup>
+                <MenuRadioGroup
+                    value={themeId}
+                    onValueChange={(value: unknown) => {
+                        if (typeof value === 'string' && isAppThemeId(value)) setThemeId(value)
+                    }}
+                >
+                    <ThemeMenuGroup label="Dark" ids={APP_DARK_THEME_IDS} />
+                    <MenuSeparator />
+                    <ThemeMenuGroup label="Light" ids={APP_LIGHT_THEME_IDS} />
+                </MenuRadioGroup>
             </MenuSubPopup>
         </MenuSub>
     )

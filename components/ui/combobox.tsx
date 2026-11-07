@@ -171,11 +171,13 @@ export function ComboboxPopup({
 
     return (
         <ComboboxPrimitive.Portal {...portalProps}>
+            {/* z-[60] like Select and Popover, so the list draws over the title bar, which is raised to z-60
+                while a dialog is open (TITLEBAR_ABOVE_DIALOGS_CLASS). */}
             <ComboboxPrimitive.Positioner
                 align={align}
                 alignOffset={alignOffset}
                 anchor={anchor}
-                className="z-50 select-none"
+                className="z-[60] select-none"
                 data-slot="combobox-positioner"
                 side={side}
                 sideOffset={sideOffset}

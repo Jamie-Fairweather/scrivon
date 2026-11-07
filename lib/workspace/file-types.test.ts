@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { documentKind, isMarkdownFile, isMermaidFile, isSupportedDocument } from './file-types'
+import {
+    documentExtension,
+    documentKind,
+    fileExtension,
+    isMarkdownFile,
+    isMermaidFile,
+    isSupportedDocument,
+    supportedExtensionsLabel,
+    withDocumentExtension,
+} from './file-types'
+
+describe('supportedExtensionsLabel', () => {
+    it('lists every extension Scrivon opens, .mermaid included', () => {
+        expect(supportedExtensionsLabel('and')).toBe('.md, .mmd and .mermaid')
+        expect(supportedExtensionsLabel('or')).toBe('.md, .mmd or .mermaid')
+        for (const ext of ['.md', '.mmd', '.mermaid']) expect(isSupportedDocument(`file${ext}`)).toBe(true)
+    })
+})
 
 describe('isMarkdownFile', () => {
     it('matches .md case-insensitively', () => {
@@ -32,5 +49,46 @@ describe('documentKind', () => {
         expect(documentKind('flow.mmd')).toBe('mermaid')
         expect(documentKind('flow.mermaid')).toBe('mermaid')
         expect(documentKind('image.png')).toBeNull()
+    })
+})
+
+describe('documentExtension', () => {
+    it('returns the supported extension as written, or null', () => {
+        expect(documentExtension('notes.md')).toBe('.md')
+        expect(documentExtension('Flow.MMD')).toBe('.MMD')
+        expect(documentExtension('flow.mermaid')).toBe('.mermaid')
+        expect(documentExtension('image.png')).toBeNull()
+        expect(documentExtension('drafts')).toBeNull()
+    })
+})
+
+describe('fileExtension', () => {
+    it('returns the extension of any file as written, or null when it has none', () => {
+        expect(fileExtension('a.png')).toBe('.png')
+        expect(fileExtension('Photo.JPG')).toBe('.JPG')
+        expect(fileExtension('backup.tar.gz')).toBe('.gz')
+        expect(fileExtension('notes.md')).toBe('.md')
+        expect(fileExtension('.gitignore')).toBeNull()
+        expect(fileExtension('drafts')).toBeNull()
+        expect(fileExtension('a.')).toBeNull()
+        expect(fileExtension('Dr. Smith')).toBeNull()
+    })
+})
+
+describe('withDocumentExtension', () => {
+    it('adds the extension only when the name has no supported one', () => {
+        expect(withDocumentExtension('login flow', '.mmd')).toBe('login flow.mmd')
+        expect(withDocumentExtension('v1.2 plan', '.md')).toBe('v1.2 plan.md')
+        expect(withDocumentExtension('notes.md', '.mmd')).toBe('notes.md')
+        expect(withDocumentExtension('flow.MERMAID', '.mmd')).toBe('flow.MERMAID')
+        expect(withDocumentExtension('', '.mmd')).toBe('')
+        expect(withDocumentExtension('Notes 2026.11.07', '.md')).toBe('Notes 2026.11.07.md')
+        expect(withDocumentExtension('Dr. Smith', '.md')).toBe('Dr. Smith.md')
+    })
+
+    it('leaves a name with another extension as typed, so it is refused instead of becoming todo.txt.md', () => {
+        expect(withDocumentExtension('todo.txt', '.md')).toBe('todo.txt')
+        expect(withDocumentExtension('notes.TXT', '.mmd')).toBe('notes.TXT')
+        expect(isSupportedDocument(withDocumentExtension('todo.txt', '.md'))).toBe(false)
     })
 })

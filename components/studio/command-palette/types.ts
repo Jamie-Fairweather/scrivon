@@ -7,6 +7,8 @@ export type ActionPaletteItem = {
     value: string
     searchText: string
     label: string
+    /** Muted second line, e.g. the full path of a recent folder. */
+    detail?: string
     shortcut?: string
     disabled?: boolean
     disabledReason?: string
@@ -19,6 +21,8 @@ export type TabPaletteItem = {
     searchText: string
     path: string
     name: string
+    relativePath: string
+    documentKind: DocumentKind
     isDirty: boolean
 }
 
@@ -38,11 +42,17 @@ export type TextPaletteItem = {
     searchText: string
     path: string
     name: string
+    relativePath: string
+    documentKind: DocumentKind
     line: number
     column: number
     length: number
     preview: string
+    /** Where the match starts inside `preview`; `length` is how long it is. */
+    previewMatchStart: number
     source: 'buffer' | 'disk'
+    /** Set on the last search's hits while a new search runs, so they stay in place but can't be opened. */
+    disabled?: boolean
 }
 
 export type RecentPaletteItem = {
@@ -77,5 +87,7 @@ export type TextSearchHit = {
     column: number
     length: number
     preview: string
+    /** Where the match starts inside `preview`; `length` is how long it is. */
+    previewMatchStart: number
     source: 'buffer' | 'disk'
 }

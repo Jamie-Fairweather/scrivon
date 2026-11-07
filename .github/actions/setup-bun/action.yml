@@ -1,31 +1,47 @@
 name: Setup Bun and dependencies
-description: Install Bun with dependency and Next.js build caches
+description: Install Bun and the dependencies, with a node_modules cache
 
 runs:
     using: composite
     steps:
         - name: Setup Bun
-          uses: oven-sh/setup-bun@v2
-
-        - name: Cache Bun dependencies
-          uses: actions/cache@v4
+          uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
           with:
-              path: |
-                  ~/.bun/install/cache
-                  node_modules
+              # Same Bun as local development: keep in step with "packageManager" in package.json.
+              bun-version: 1.4.2
+
+        # Only node_modules, not also Bun's own download cache (~/.bun/install/cache): that is a second
+        # full copy of the same ~50k files, and on Windows runners unpacking both took 45-100 s (the
+        # cache sits on C: and the workspace on D:, so Bun copies instead of linking). When bun.lock
+        # changes, the older node_modules is restored and bun install downloads only what changed.
+        - name: Restore Bun dependencies
+          id: bun-cache
+          uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          with:
+              path: node_modules
               key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
               restore-keys: |
                   bun-${{ runner.os }}-
 
-        - name: Cache Next.js build
-          uses: actions/cache@v4
-          with:
-              path: .next/cache
-              key: next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('next.config.mjs', 'postcss.config.mjs', 'tsconfig.json', 'app/**', 'components/**', 'hooks/**', 'lib/**', 'scripts/**') }}
-              restore-keys: |
-                  next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
-                  next-${{ runner.os }}-
+        # Only pushes to dev save a copy (the last step); everything else reads dev's. A new copy starts
+        # from an empty node_modules, because bun install leaves packages that are no longer in bun.lock,
+        # and a copy built on top of an older one would keep them for good.
+        - name: Start a new dev copy from scratch
+          if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.bun-cache.outputs.cache-hit != 'true'
+          run: rm -rf node_modules
+          shell: bash
 
         - name: Install dependencies
           run: bun install --frozen-lockfile
           shell: bash
+
+        # Saved from dev pushes only. Pull requests and release runs on rc and main read dev's copy, since
+        # dev is the default branch. A copy saved on a PR could only be read by that PR, and one saved on
+        # rc or main only by that branch and PRs into it. A manual run started from dev (for example
+        # building an old tag) doesn't save, so it can't put that tag's packages in dev's cache.
+        - name: Save Bun dependencies
+          if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.bun-cache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          with:
+              path: node_modules
+              key: ${{ steps.bun-cache.outputs.cache-primary-key }}

@@ -4,6 +4,9 @@ on:
     pull_request:
     push:
         branches: [dev]
+    # release.yml runs these same checks before it tags anything, unless a push run on dev already
+    # passed them on the same files.
+    workflow_call:
 
 concurrency:
     group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -12,6 +15,9 @@ concurrency:
 permissions:
     contents: read
 
+# release.yml trusts a passing push run on dev with the same files instead of running this again, so
+# every job and step that guards a release must also run on pushes to dev. Never make one depend on
+# github.ref being rc or main: put a check that should only run before a release in release.yml.
 jobs:
     frontend:
         name: Lint, build, and test
@@ -21,7 +27,7 @@ jobs:
             id-token: write
         steps:
             - name: Checkout
-              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   persist-credentials: false
 
@@ -31,15 +37,52 @@ jobs:
             - name: Lint
               run: bun run lint
 
+            - name: Type check
+              run: bun run typecheck
+
+            # The Tauri CLI refuses to build when these differ, and only bundle-windows runs it,
+            # which pull requests skip.
+            - name: Check Tauri npm and crate versions match
+              run: node scripts/check-tauri-versions.mjs
+
+            # The build's postbuild step (generate-licenses.mjs) runs `cargo metadata` to list the Rust
+            # crates for the licences dialog, which downloads every crate in the Windows build.
+            - name: Install Rust 1.97.1
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: 1.97.1
+
+            - name: Cache Cargo registry
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: |
+                      ~/.cargo/registry/index
+                      ~/.cargo/registry/cache
+                      ~/.cargo/git/db
+                  key: cargo-registry-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+                  restore-keys: |
+                      cargo-registry-${{ runner.os }}-
+
             - name: Build Next.js app
               run: bun run build
+
+            # The build regenerates these and always ships the fresh copy. A diff only means the
+            # committed copy is stale (for example after a Dependabot bump), so this warns instead of failing.
+            - name: Check generated files are committed
+              shell: bash
+              run: |
+                  if ! git diff --quiet -- lib/legal/third-party-licenses.ts lib/examples; then
+                    git diff --stat -- lib/legal/third-party-licenses.ts lib/examples
+                    echo "::warning title=Generated files are out of date::Run 'bun run build' and commit lib/legal/third-party-licenses.ts and lib/examples."
+                  fi
 
             - name: Test with coverage
               run: bun run test:coverage
 
+            # Only for pushes to dev, not when release.yml calls this for main or rc.
             - name: Upload coverage to Codecov
-              if: github.event_name == 'push'
-              uses: codecov/codecov-action@cddd853df119a48c5be31a973f8cd97e12e35e16 # v6.0.1
+              if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+              uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
               with:
                   files: coverage/lcov.info
                   flags: frontend
@@ -51,7 +94,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout
-              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   persist-credentials: false
 
@@ -69,14 +112,127 @@ jobs:
                     libayatana-appindicator3-dev \
                     librsvg2-dev
 
-            - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+            - name: Install Rust 1.97.1
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: 1.97.1
 
+            # The Rust caches are saved from dev only. Pull requests and release runs on rc and main read
+            # dev's (the default branch's). The copies they saved could only be read by that same PR, or
+            # by that branch and PRs into it, so they mostly just filled the 10 GB cache limit (0.5-1 GB each).
             - name: Rust cache
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
+                  save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+            # --locked: fail when Cargo.lock is out of date instead of quietly rewriting it.
+            - name: Test
+              run: cargo test --locked
+              working-directory: src-tauri
+
+    # Windows is the main platform. The WebView2 PDF exporter and the Windows shortcut
+    # blocking are #[cfg(windows)], so the Linux job above never compiles them. Clippy and the
+    # tests build in debug, which leaves out the release-only Windows code (the crash message box,
+    # turning off WebView2's browser keys, setting the taskbar ID), so a second Clippy run checks
+    # that. The installer and its NSIS hooks are only built by the bundle-windows job below.
+    rust-windows:
+        name: Rust tests (Windows)
+        runs-on: windows-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            # Pinned, not stable: each Rust release adds clippy lints, and with -D warnings a
+            # new release would fail CI on changes that never touched Rust. The release builds
+            # (release.yml, build-release.yml) use this same version, so the shipped exe is built
+            # by the compiler these checks ran. Bump every `toolchain:` in .github/workflows
+            # together, on purpose, and fix what the new clippy reports in the same change.
+            - name: Install Rust 1.97.1
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: 1.97.1
+                  components: clippy, rustfmt
+
+            # Saved from dev only, like the Rust tests job's.
+            - name: Rust cache
+              uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+              with:
+                  workspaces: src-tauri -> target
+                  save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+            - name: Check formatting
+              run: cargo fmt --check
+              working-directory: src-tauri
+
+            # -D warnings: a new warning fails the build instead of scrolling past in the log.
+            - name: Clippy
+              run: cargo clippy --all-targets --locked -- -D warnings
+              working-directory: src-tauri
+
+            # The code under #[cfg(not(debug_assertions))], which only release builds have. This
+            # checks it without the slow optimised build, and needs no web build (out/).
+            - name: Clippy (release build)
+              run: cargo clippy --release --all-targets --locked -- -D warnings
+              working-directory: src-tauri
 
             - name: Test
-              run: cargo test
+              run: cargo test --locked
               working-directory: src-tauri
+
+    # Builds the installer the way release.yml does, without the updater files (they need the
+    # signing key). Nothing else builds windows/installer-hooks.nsh or a full release build, so
+    # without this a break there only shows up after semantic-release has tagged a version.
+    # It takes a while, so it runs on pushes (to dev, and release.yml's own run of this file
+    # before it tags anything, unless dev's run already passed on the same files), not on every
+    # pull request.
+    bundle-windows:
+        name: Build Windows installer
+        if: github.event_name == 'push'
+        runs-on: windows-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Setup Bun and dependencies
+              uses: ./.github/actions/setup-bun
+
+            - name: Install Rust 1.97.1
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: 1.97.1
+
+            # Saved from dev only, like the Rust tests job's. The release builds (release.yml,
+            # build-release.yml) read this same cache (shared-key), so they start with dev's compiled
+            # crates instead of building all ~350 from scratch. Only works while they build the same
+            # way: same Rust, Cargo.lock, Cargo.toml and CARGO_* variables. Don't add CARGO_* env here.
+            - name: Rust cache
+              uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+              with:
+                  workspaces: src-tauri -> target
+                  shared-key: windows-release
+                  save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+            - name: Build the installer
+              shell: bash
+              run: bun run tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+    # Catches Windows path handling (backslashes, drive letters) that POSIX-only runs miss.
+    frontend-windows:
+        name: Unit tests (Windows)
+        runs-on: windows-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Setup Bun and dependencies
+              uses: ./.github/actions/setup-bun
+
+            - name: Test
+              run: bun run test:run

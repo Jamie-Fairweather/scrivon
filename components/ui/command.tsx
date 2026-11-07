@@ -41,9 +41,14 @@ export function CommandDialogBackdrop({ className, ...props }: CommandDialogPrim
 }
 
 export function CommandDialogViewport({ className, ...props }: CommandDialogPrimitive.Viewport.Props): React.ReactElement {
+    // The window's title bar stays above open dialogs (window-titlebar-controls.tsx), so start below it.
     return (
         <CommandDialogPrimitive.Viewport
-            className={cn('fixed inset-0 z-50 flex flex-col items-center px-4 py-[max(--spacing(4),4vh)] sm:py-[10vh]', className)}
+            className={cn(
+                `fixed inset-0 z-50 flex flex-col items-center px-4 py-[max(--spacing(4),4vh)] pt-[max(calc(var(--titlebar-height)+--spacing(4)),4vh)]
+                sm:py-[10vh] sm:pt-[max(calc(var(--titlebar-height)+--spacing(4)),10vh)]`,
+                className
+            )}
             data-slot="command-dialog-viewport"
             {...props}
         />
@@ -154,10 +159,14 @@ export function CommandSeparator({ className, ...props }: React.ComponentProps<t
     return <AutocompleteSeparator className={cn('my-2', className)} data-slot="command-separator" {...props} />
 }
 
+/** On a highlighted row the hint takes the row's text colour: muted text is not readable on the accent fill. */
 export function CommandShortcut({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
     return (
         <kbd
-            className={cn('ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground/72', className)}
+            className={cn(
+                'ms-auto font-sans text-xs font-medium tracking-widest text-muted-foreground in-data-highlighted:text-accent-foreground',
+                className
+            )}
             data-slot="command-shortcut"
             {...props}
         />

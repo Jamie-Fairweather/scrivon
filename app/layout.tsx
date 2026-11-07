@@ -12,9 +12,8 @@ import { DisableNativeContextMenu } from '@/components/disable-native-context-me
 
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono', preload: true })
 
-const interHeading = Inter({ subsets: ['latin'], variable: '--font-heading', preload: true })
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans', preload: true })
+// Load the italic face too, so Markdown *emphasis* and quotes render slanted.
+const inter = Inter({ subsets: ['latin'], style: ['normal', 'italic'], variable: '--font-sans', preload: true })
 
 export const metadata: Metadata = {
     title: 'Scrivon',
@@ -27,7 +26,7 @@ export default function RootLayout({
     children: React.ReactNode
 }>) {
     return (
-        <html lang="en" className={cn('h-full overflow-hidden', inter.variable, interHeading.variable, geistMono.variable)} suppressHydrationWarning>
+        <html lang="en" className={cn('h-full overflow-hidden', inter.variable, geistMono.variable)} suppressHydrationWarning>
             <head>
                 <script dangerouslySetInnerHTML={{ __html: getThemeBootScript() }} />
             </head>

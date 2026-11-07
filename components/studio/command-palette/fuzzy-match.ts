@@ -1,10 +1,7 @@
-/** Returns a score when query matches as a subsequence, or null if no match. Higher is better. */
-export function fuzzyScore(text: string, query: string): number | null {
-    if (!query) return 0
+import { foldText } from '@/components/studio/command-palette/fold-text'
 
-    const hay = text.toLowerCase()
-    const needle = query.toLowerCase()
-
+/** Scores `needle` as a subsequence of `hay` (both folded), without the length penalty. */
+function subsequenceScore(hay: string, needle: string): number | null {
     let score = 0
     let hayIdx = 0
     let consecutive = 0
@@ -31,8 +28,35 @@ export function fuzzyScore(text: string, query: string): number | null {
         if (!found) return null
     }
 
-    score -= hay.length * 0.05
     return score
+}
+
+/** Returns a score when query matches as a subsequence, or null if no match. Higher is better. */
+export function fuzzyScore(text: string, query: string): number | null {
+    if (!query) return 0
+
+    const hay = foldText(text)
+    const score = subsequenceScore(hay, foldText(query))
+    if (score === null) return null
+    return score - hay.length * 0.05
+}
+
+/**
+ * Like fuzzyScore, but each space-separated term must match on its own, in any order,
+ * so "docs readme" finds "readme.md docs/readme.md".
+ */
+export function fuzzyScoreTerms(text: string, query: string): number | null {
+    const terms = query.trim().split(/\s+/).filter(Boolean)
+    if (terms.length <= 1) return fuzzyScore(text, terms[0] ?? '')
+
+    const hay = foldText(text)
+    let total = 0
+    for (const term of terms) {
+        const score = subsequenceScore(hay, foldText(term))
+        if (score === null) return null
+        total += score
+    }
+    return total - hay.length * 0.05
 }
 
 export function fuzzyRank<T>(items: T[], query: string, getSearchText: (item: T) => string): Array<{ item: T; score: number }> {
@@ -42,7 +66,7 @@ export function fuzzyRank<T>(items: T[], query: string, getSearchText: (item: T)
 
     const ranked: Array<{ item: T; score: number }> = []
     for (const item of items) {
-        const score = fuzzyScore(getSearchText(item), query)
+        const score = fuzzyScoreTerms(getSearchText(item), query)
         if (score !== null) ranked.push({ item, score })
     }
 

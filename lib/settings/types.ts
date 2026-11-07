@@ -1,7 +1,10 @@
 import type { AppThemeId } from '@/lib/theme/catalog'
+import type { PdfExportSettings } from '@/lib/settings/pdf-export-types'
 
 export type EditorWordWrap = 'on' | 'off' | 'wordWrapColumn'
 export type EditorLineNumbers = 'on' | 'off' | 'relative'
+
+export type { PdfExportSettings }
 
 export type KeybindChord = {
     key: string
@@ -43,8 +46,12 @@ export type AppSettings = {
         fontSize: number
         tabSize: number
         wordWrap: EditorWordWrap
+        /** Where lines wrap when wordWrap is 'wordWrapColumn'. */
+        wordWrapColumn: number
         lineNumbers: EditorLineNumbers
         minimap: boolean
+        /** Tab and Shift+Tab move focus out of the editor instead of indenting (Monaco's tab focus mode). */
+        tabMovesFocus: boolean
     }
     workspace: {
         maxRecentFolders: number
@@ -52,6 +59,7 @@ export type AppSettings = {
     updates: {
         checkOnLaunch: boolean
     }
+    pdfExport: PdfExportSettings
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }
 

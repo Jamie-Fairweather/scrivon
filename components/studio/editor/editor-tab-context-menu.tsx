@@ -6,23 +6,24 @@ import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/conte
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 
 export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; children: React.ReactNode }) {
-    const { tabs, setActiveTab, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
+    const { tabs, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
     const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
 
+    // The menu doesn't switch tabs, so closing a background tab leaves you on the one you were in.
     const onContextMenu = useCallback(
         (e: React.MouseEvent) => {
             e.preventDefault()
             e.stopPropagation()
-            void setActiveTab(tabId)
             openAt({ x: e.clientX, y: e.clientY })
         },
-        [openAt, setActiveTab, tabId]
+        [openAt]
     )
 
     const canCloseOthers = tabs.length > 1
 
     return (
-        <span onContextMenu={onContextMenu} className="contents">
+        // data-menu-open lets the tab show which one the open menu is for.
+        <span onContextMenu={onContextMenu} className="contents" data-menu-open={open || undefined}>
             {children}
             <ContextMenuAtPoint open={open} onOpenChange={onOpenChange} anchor={anchor} align="start" className="min-w-44">
                 <MenuItem onClick={() => void closeTab(tabId)}>Close</MenuItem>

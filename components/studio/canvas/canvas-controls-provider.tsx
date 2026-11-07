@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 
 type CanvasControlsContextValue = {
     canFitToView: boolean
@@ -32,9 +32,9 @@ export function CanvasControlsProvider({ children }: { children: ReactNode }) {
         fitFnRef.current?.()
     }, [])
 
-    return (
-        <CanvasControlsContext.Provider value={{ canFitToView, setCanFitToView, fitToView, registerFitToView }}>
-            {children}
-        </CanvasControlsContext.Provider>
-    )
+    // Kept the same between renders: this sits inside WorkspaceProvider, which draws again on every keystroke,
+    // and a new object would draw every consumer (the menu bar, the palette search) again with it.
+    const value = useMemo(() => ({ canFitToView, setCanFitToView, fitToView, registerFitToView }), [canFitToView, fitToView, registerFitToView])
+
+    return <CanvasControlsContext.Provider value={value}>{children}</CanvasControlsContext.Provider>
 }

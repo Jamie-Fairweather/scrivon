@@ -18,3 +18,43 @@ export function documentKind(name: string): DocumentKind | null {
     if (isMermaidFile(name)) return 'mermaid'
     return null
 }
+
+/** The extensions of the files Scrivon opens, in the order messages list them. */
+const SUPPORTED_EXTENSIONS = ['.md', '.mmd', '.mermaid']
+
+/** The supported extensions for a message: `.md, .mmd and .mermaid` (or `or`), so no message leaves one out. */
+export function supportedExtensionsLabel(conjunction: 'and' | 'or'): string {
+    return `${SUPPORTED_EXTENSIONS.slice(0, -1).join(', ')} ${conjunction} ${SUPPORTED_EXTENSIONS.at(-1)}`
+}
+
+const DOCUMENT_EXTENSIONS = ['.mermaid', '.mmd', '.md']
+
+/** The extension that makes `name` a document Scrivon opens, as written (`.md`, `.MMD`, `.mermaid`), or null. */
+export function documentExtension(name: string): string | null {
+    const lower = name.toLowerCase()
+    const ext = DOCUMENT_EXTENSIONS.find((e) => lower.endsWith(e))
+    return ext ? name.slice(name.length - ext.length) : null
+}
+
+/**
+ * The extension of any file name, as written: `.png` in `screenshot.png`. Null when there is none: no dot, only a
+ * leading one (`.gitignore`), a dot at the end, or a space after the last dot (`Dr. Smith`).
+ */
+export function fileExtension(name: string): string | null {
+    const dot = name.lastIndexOf('.')
+    if (dot <= 0 || dot === name.length - 1) return null
+    const ext = name.slice(dot)
+    return /\s/.test(ext) ? null : ext
+}
+
+/** An extension the user typed, such as `.txt`: a dot, then a letter and up to nine more letters or digits. */
+const TYPED_EXTENSION = /\.[a-z][a-z0-9]{0,9}$/i
+
+/**
+ * Adds `extension` when `name` has none: `login flow` becomes `login flow.mmd`, and `v1.2 plan` or
+ * `Notes 2026.11.07` get one too. A name with an extension of its own is left as typed, so `todo.txt`
+ * gets the "must end with .md…" message instead of quietly becoming `todo.txt.md`.
+ */
+export function withDocumentExtension(name: string, extension: string): string {
+    return !name || TYPED_EXTENSION.test(name) ? name : `${name}${extension}`
+}

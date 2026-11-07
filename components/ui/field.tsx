@@ -26,7 +26,13 @@ export function FieldItem({ className, ...props }: FieldPrimitive.Item.Props): R
 }
 
 export function FieldDescription({ className, ...props }: FieldPrimitive.Description.Props): React.ReactElement {
-    return <FieldPrimitive.Description className={cn('text-xs text-muted-foreground', className)} data-slot="field-description" {...props} />
+    return (
+        <FieldPrimitive.Description
+            className={cn('text-xs text-muted-foreground data-disabled:opacity-64', className)}
+            data-slot="field-description"
+            {...props}
+        />
+    )
 }
 
 export function FieldError({ className, ...props }: FieldPrimitive.Error.Props): React.ReactElement {
