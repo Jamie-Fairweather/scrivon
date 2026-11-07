@@ -528,6 +528,8 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   table:not(.pdf-chrome-table) .pdf-long-word,
   table.pdf-wide-table:not(.pdf-chrome-table) th,
   table.pdf-wide-table:not(.pdf-chrome-table) td { overflow-wrap: anywhere; }
+  /* A raw HTML <td nowrap> wraps too: one long unbroken line would make the table wider than the page. */
+  table:not(.pdf-chrome-table) :is(td, th)[nowrap] { white-space: normal; }
   /* Markdown column alignment (:-: and --:) arrives as an align attribute, which any stylesheet rule would override. */
   table:not(.pdf-chrome-table) th[align="left"],
   table:not(.pdf-chrome-table) td[align="left"] { text-align: left; }

@@ -866,6 +866,19 @@ SHIKI_FAIL
         expect(html).toContain('.pdf-body pre:not([class]) {')
     })
 
+    it('lets a raw HTML <td nowrap> or <th nowrap> wrap, so a long cell can’t widen the table past the page (B08)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const long = 'a long sentence that would not fit across the page if it never wrapped '.repeat(3).trim()
+        const { html } = await markdownToExportHtml(
+            `Before.\n\n<table><tr><th nowrap>Head</th></tr><tr><td nowrap>${long}</td></tr></table>\n\nAfter.`,
+            { assets: EMPTY_ASSETS }
+        )
+        // The attribute survives the sanitizer and would print as white-space: nowrap without the override.
+        expect(html).toMatch(/<th nowrap[^>]*>Head<\/th>/)
+        expect(html).toMatch(new RegExp(`<td nowrap[^>]*>${long}</td>`))
+        expect(html).toContain('table:not(.pdf-chrome-table) :is(td, th)[nowrap] { white-space: normal; }')
+    })
+
     it('keeps the screen-reader-only footnotes heading out of the printed page, and off a page of its own (N34)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()
