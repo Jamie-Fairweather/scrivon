@@ -1905,7 +1905,7 @@ describe('renderExportDocx', () => {
     it('links to <a name> and id anchors from raw HTML, as the PDF does, without a blank line for them (N41)', async () => {
         const { parts } = await render(
             [
-                '[a](#install) [b](#usage) [c](#x) [d](#faq) [e](#setup) [f](#in-link) [g](#end) [h](#code)',
+                '[a](#install) [b](#usage) [c](#x) [d](#faq) [e](#setup) [f](#in-link) [g](#end) [h](#code) [i](#pic)',
                 '',
                 '<a name="install"></a>',
                 '',
@@ -1921,6 +1921,8 @@ describe('renderExportDocx', () => {
                 '',
                 '- item',
                 '',
+                '<img id="pic" src="https://example.com/pic.png" alt="Pic">',
+                '',
                 '<a name="code"></a>',
                 '',
                 fence('js', 'let x = 1'),
@@ -1935,7 +1937,7 @@ describe('renderExportDocx', () => {
         const names = new Set(marks.map(({ name }) => name))
         // Every link lands on a bookmark that is in the file, and each anchor's bookmark is written once.
         const anchors = [...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1]!)
-        expect(anchors).toHaveLength(9)
+        expect(anchors).toHaveLength(10)
         for (const anchor of anchors) expect(names).toContain(anchor)
         expect(names.size).toBe(marks.length)
         // The anchor above the heading is at the heading's start, not on a blank line of its own.
@@ -1949,9 +1951,11 @@ describe('renderExportDocx', () => {
         expect(blockWith(body, 'item')).toContain(`w:name="${anchors[1]}"`)
         expect(blockWith(body, 'item')).not.toContain(`w:name="${anchors[4]}"`)
         expect(blockWith(body, 'let x = 1')).toContain(`w:name="${anchors[7]}"`)
+        // A picture's id marks it too.
+        expect(blockWith(body, 'Pic')).toContain(`w:name="${anchors[8]}"`)
         // Inside a link the bookmark is written before it, and the last one gets a paragraph of its own at the end.
         expect(blockWith(body, 'Back', '<w:hyperlink ')).not.toContain('bookmark')
-        expect(body.match(/<w:p>/g)).toHaveLength(9)
+        expect(body.match(/<w:p>/g)).toHaveLength(10)
     })
 
     it('keeps a paragraph of only &nbsp; as the blank line the preview and PDF show (review)', async () => {

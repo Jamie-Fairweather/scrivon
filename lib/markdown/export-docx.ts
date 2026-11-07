@@ -367,33 +367,34 @@ function htmlLines(root: HastRoot): HtmlLine[] {
                 })
             } else if (node.type === 'text') {
                 text(node.value.replace(/[ \t\n\f\r]+/g, ' '), marks)
-            } else if (node.type === 'element' && node.tagName === 'br') {
-                lineBreak(marks)
-            } else if (node.type === 'element' && node.tagName === 'img') {
-                const { alt, src } = node.properties
-                const description = typeof alt === 'string' ? xmlSafe(alt) : ''
-                if (typeof src === 'string') line.leaves.push({ node: { type: 'image', url: xmlSafe(src), alt: description }, marks })
-                else if (description) text(description, marks)
             } else if (node.type === 'element') {
                 const tag = node.tagName
-                const { align: own, href, id, name } = node.properties
+                const { align: own, alt, href, id, name, src } = node.properties
                 const blockAlign = typeof own === 'string' ? own.toLowerCase() : align
                 const block = HTML_BLOCK_TAGS.has(tag)
                 if (block) endLine(blockAlign)
                 if (isTableCell(node) && nodes.slice(0, index).some(isTableCell)) text(' | ', {})
-                // The PDF links to any id, and to an old-style <a name> (resolveLinks).
+                // The PDF links to any id, a picture's or a line break's too, and to an old-style <a name> (resolveLinks).
                 for (const anchor of [id, tag === 'a' ? name : undefined]) {
                     if (typeof anchor === 'string' && anchor) line.leaves.push({ node: htmlAnchor(xmlSafe(anchor)), marks: {} })
                 }
-                if (tag === 'hr') line.rule = true
-                const inner: HtmlMarks = {
-                    bold: marks.bold || HTML_BOLD_TAGS.has(tag) || undefined,
-                    italics: marks.italics || HTML_ITALIC_TAGS.has(tag) || undefined,
-                    strike: marks.strike || HTML_STRIKE_TAGS.has(tag) || undefined,
-                    code: marks.code || HTML_CODE_TAGS.has(tag) || undefined,
-                    href: tag === 'a' && typeof href === 'string' ? xmlSafe(href) : marks.href,
+                if (tag === 'br') {
+                    lineBreak(marks)
+                } else if (tag === 'img') {
+                    const description = typeof alt === 'string' ? xmlSafe(alt) : ''
+                    if (typeof src === 'string') line.leaves.push({ node: { type: 'image', url: xmlSafe(src), alt: description }, marks })
+                    else if (description) text(description, marks)
+                } else {
+                    if (tag === 'hr') line.rule = true
+                    const inner: HtmlMarks = {
+                        bold: marks.bold || HTML_BOLD_TAGS.has(tag) || undefined,
+                        italics: marks.italics || HTML_ITALIC_TAGS.has(tag) || undefined,
+                        strike: marks.strike || HTML_STRIKE_TAGS.has(tag) || undefined,
+                        code: marks.code || HTML_CODE_TAGS.has(tag) || undefined,
+                        href: tag === 'a' && typeof href === 'string' ? xmlSafe(href) : marks.href,
+                    }
+                    walk(node.children, inner, blockAlign, pre || tag === 'pre')
                 }
-                walk(node.children, inner, blockAlign, pre || tag === 'pre')
                 if (block) endLine(align)
             }
         })
