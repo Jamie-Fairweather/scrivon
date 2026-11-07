@@ -1443,6 +1443,29 @@ describe('changes made outside Scrivon', () => {
             expect(result.current.session.tree.map((n) => n.name)).toEqual(['notes.md'])
         })
 
+        it('shows the new text of an open file straight away, even right after the folder was read', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\notes.md')
+            })
+            // Another app adds a file, so the folder is read again; the next read has to wait a few seconds.
+            const readsBefore = vi.mocked(readDir).mock.calls.length
+            await disk.write('C:\\ws\\from-sync.md', '# new')
+            await act(async () => {
+                report!({ type: { create: { kind: 'any' } }, paths: ['C:\\ws\\from-sync.md'], attrs: null })
+            })
+            await waitFor(() => expect(readDir).toHaveBeenCalledTimes(readsBefore + 1))
+
+            await disk.write('C:\\ws\\notes.md', 'saved by another editor')
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+            })
+
+            await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
+            expect(readDir).toHaveBeenCalledTimes(readsBefore + 1)
+        })
+
         it('still reads the folder on focus where it cannot be watched', async () => {
             vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
@@ -1557,6 +1580,31 @@ describe('changes made outside Scrivon', () => {
             windowFocus.handler!({ payload: true })
             await new Promise((resolve) => setTimeout(resolve, 20))
         })
+        expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1)
+    })
+
+    it('shows the new text of an open file when the window gets focus again soon after, without reading the folder again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        const readsAfterOpen = vi.mocked(readDir).mock.calls.length
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1))
+
+        // Saved in VS Code, then back to Scrivon within a few seconds.
+        await disk.write('C:\\ws\\notes.md', 'saved in VS Code')
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved in VS Code', isDirty: false }))
         expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1)
     })
 })

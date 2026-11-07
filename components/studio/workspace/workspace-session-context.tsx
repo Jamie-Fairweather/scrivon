@@ -105,7 +105,7 @@ const OPENING_NOTICE_ID = 'opening-folder'
 const TRUNCATED_NOTICE_ID = 'folder-too-big'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
-/** The least time between two reads of the folder when the window gets focus or another app changes it. */
+/** The least time between two reads of the folder when the window gets focus or another app changes it (open files don't wait). */
 const FOCUS_RELOAD_GAP_MS = 5_000
 /** Past this many changed paths waiting to be looked at, the folder is simply read again. */
 const MAX_SEEN_CHANGES = 1_000
@@ -409,13 +409,36 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 console.warn("Couldn't check the open files for changes", err)
             }
         }
+        // The open files cost one look each, so they don't wait for the gap below: a file another app saved shows
+        // its new text straight away, before the user types in the old one. One run at a time; a change seen
+        // during a run gets one more.
+        let tabsReloading = false
+        let tabsAgain = false
+        const requestTabs = () => {
+            if (tabsReloading) {
+                tabsAgain = true
+                return
+            }
+            tabsReloading = true
+            void (async () => {
+                try {
+                    do {
+                        tabsAgain = false
+                        await reloadTabs()
+                    } while (tabsAgain && !disposed)
+                } finally {
+                    tabsReloading = false
+                }
+            })()
+        }
         const reload = async () => {
-            reloading = true
             const withTree = treeWanted || changeAltersTree(treeRef.current, root, seen)
             treeWanted = false
             seen = { added: [], removed: [] }
+            if (!withTree) return
+            reloading = true
             try {
-                await Promise.all([withTree ? readTree() : undefined, reloadTabs()])
+                await readTree()
             } finally {
                 reloading = false
                 lastReloadEnd = Date.now()
@@ -448,6 +471,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         const onFocus = () => {
             treeWanted = true
             request()
+            requestTabs()
         }
         const onDiskChange = (change: WorkspaceChange) => {
             // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
@@ -457,6 +481,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (seen.added.length + seen.removed.length > MAX_SEEN_CHANGES) treeWanted = true
             }
             request()
+            requestTabs()
         }
         // Where the folder can't be watched (some network drives), coming back to the window still reads it. So
         // does a folder too big to show it all (a whole drive): something in it changes all the time, and
