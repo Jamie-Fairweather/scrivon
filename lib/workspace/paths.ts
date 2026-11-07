@@ -1,5 +1,5 @@
-import { samePath } from '@/lib/tauri/fs'
-import { isSupportedDocument } from '@/lib/workspace/file-types'
+import { getBaseName, getParentPath, samePath } from '@/lib/tauri/fs'
+import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
@@ -57,6 +57,38 @@ export function uniqueNewName(base: string, existing: Iterable<string>): string 
     return `${stem} ${i}${ext}`
 }
 
+export type FolderLabel = {
+    path: string
+    name: string
+    /** The folder it is in, only when another folder in the list has the same name; otherwise null. */
+    location: string | null
+}
+
+/**
+ * How to label a list of folders, such as the recent folders: by name, plus where each one is when two
+ * share a name (`docs` in C:\work and in D:\personal), so they can be told apart. Letter case is ignored.
+ */
+export function folderLabels(paths: readonly string[]): FolderLabel[] {
+    const names = paths.map((path) => getBaseName(path))
+    const counts = new Map<string, number>()
+    for (const name of names) counts.set(name.toLowerCase(), (counts.get(name.toLowerCase()) ?? 0) + 1)
+    return paths.map((path, i) => {
+        const name = names[i]!
+        const shared = (counts.get(name.toLowerCase()) ?? 0) > 1
+        return { path, name, location: shared ? getParentPath(path) || null : null }
+    })
+}
+
+/**
+ * Shortens a long path in the middle, keeping its start and its end: `C:\Users\jamie\…\notes\docs`.
+ * Works on whole characters, so an emoji or other character outside the basic range is never cut in half.
+ */
+export function shortenPath(path: string, max = 56, head = 20, tail = 32): string {
+    const chars = Array.from(path)
+    if (chars.length <= max) return path
+    return `${chars.slice(0, head).join('')}…${chars.slice(-tail).join('')}`
+}
+
 export function collectFilePaths(nodes: FileNode[]): Set<string> {
     const paths = new Set<string>()
     const walk = (items: FileNode[]) => {
@@ -79,6 +111,44 @@ export function collectFileNames(nodes: FileNode[]): Set<string> {
     }
     walk(nodes)
     return names
+}
+
+/** Folders in the tree that couldn't be read, so they show up empty. */
+export function collectUnreadableFolders(nodes: FileNode[]): FileNode[] {
+    const found: FileNode[] = []
+    const walk = (items: FileNode[]) => {
+        for (const node of items) {
+            if (node.kind !== 'directory') continue
+            if (node.unreadable) found.push(node)
+            else walk(node.children)
+        }
+    }
+    walk(nodes)
+    return found
+}
+
+function keepUnchangedNode(old: FileNode, node: FileNode): FileNode {
+    if (old.kind === 'file' || node.kind === 'file') return old.kind === node.kind && old.name === node.name ? old : node
+    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside) return node
+    const children = keepUnchangedNodes(old.children, node.children)
+    return children === old.children ? old : { ...node, children }
+}
+
+/**
+ * A tree read again (`next`), using the nodes of the one shown now (`prev`) wherever nothing changed, and
+ * `prev` itself when nothing changed at all. So reading the folder again after a window focus redraws
+ * nothing when no file was added, removed or renamed, and only the changed folders otherwise.
+ */
+export function keepUnchangedNodes(prev: FileNode[], next: FileNode[]): FileNode[] {
+    const before = new Map(prev.map((node) => [node.path, node]))
+    let same = prev.length === next.length
+    const merged = next.map((node, i) => {
+        const old = before.get(node.path)
+        const kept = old ? keepUnchangedNode(old, node) : node
+        if (kept !== prev[i]) same = false
+        return kept
+    })
+    return same ? prev : merged
 }
 
 export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
@@ -112,7 +182,7 @@ export function nameTakenMessage(node: FileNode): string {
     return `A ${node.kind === 'directory' ? 'folder' : 'file'} named "${node.name}" already exists here.`
 }
 
-export const UNSUPPORTED_FILE_NAME_MESSAGE = 'File name must end with .md, .mmd or .mermaid.'
+export const UNSUPPORTED_FILE_NAME_MESSAGE = `File name must end with ${supportedExtensionsLabel('or')}.`
 
 /**
  * Why `name` can't be used for a new or renamed entry among `siblings`, or null when it can.
@@ -121,7 +191,9 @@ export const UNSUPPORTED_FILE_NAME_MESSAGE = 'File name must end with .md, .mmd 
 export function entryNameError(name: string, kind: FileNode['kind'], siblings: FileNode[], ignorePath?: string): string | null {
     const invalid = validateFileName(name)
     if (invalid) return invalid
-    if (kind === 'file' && !isSupportedDocument(name.trim())) return UNSUPPORTED_FILE_NAME_MESSAGE
+    // A file Scrivon doesn't open (an image, say) can be renamed to anything; only a document has to stay one.
+    const renamingOtherFile = ignorePath !== undefined && !isSupportedDocument(getBaseName(ignorePath))
+    if (kind === 'file' && !renamingOtherFile && !isSupportedDocument(name.trim())) return UNSUPPORTED_FILE_NAME_MESSAGE
     const clash = findNameClash(siblings, name, ignorePath)
     return clash ? nameTakenMessage(clash) : null
 }

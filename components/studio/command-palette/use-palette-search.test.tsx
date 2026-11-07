@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { readTextFile } from '@tauri-apps/plugin-fs'
+import { readFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { getWorkspaceFileSize } from '@/lib/tauri/fs'
@@ -11,6 +11,9 @@ import type { FileNode } from '@/lib/workspace/types'
 import { searchWorkspaceContent } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
+
+/** Files are read as bytes and decoded, so text has to come back encoded. */
+const utf8 = (text: string) => new TextEncoder().encode(text)
 
 const state = vi.hoisted(() => ({
     session: {
@@ -85,9 +88,9 @@ describe('usePaletteSearch text search', () => {
         state.session.workspaceRoot = '/ws'
         state.session.tree = [file('/ws/a.md'), file('/ws/gone.md'), file('/ws/b.md')]
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockImplementation(async (path) => {
+        vi.mocked(readFile).mockImplementation(async (path) => {
             if (String(path) === '/ws/gone.md') throw new Error('The system cannot find the file specified. (os error 2)')
-            return 'the oauth flow'
+            return utf8('the oauth flow')
         })
     })
 
@@ -152,7 +155,7 @@ describe('usePaletteSearch one-character queries', () => {
         state.session.tree = [file('/ws/a.md')]
         state.tabs.tabs = []
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockImplementation(async () => '図表の説明')
+        vi.mocked(readFile).mockImplementation(async () => utf8('図表の説明'))
     })
 
     it('searches file contents for a single Japanese character', async () => {
@@ -163,7 +166,7 @@ describe('usePaletteSearch one-character queries', () => {
     })
 
     it('searches file contents for a single character in Find in Workspace', async () => {
-        vi.mocked(readTextFile).mockImplementation(async () => 'x marks the spot')
+        vi.mocked(readFile).mockImplementation(async () => utf8('x marks the spot'))
         const { result } = renderHook(() => usePaletteSearch('text', true))
 
         act(() => result.current.setQuery('x'))
@@ -179,7 +182,7 @@ describe('usePaletteSearch file cache', () => {
         state.session.tree = [file('/ws/a.md'), file('/ws/b.md')]
         state.tabs.tabs = []
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockImplementation(async () => 'the oauth flow')
+        vi.mocked(readFile).mockImplementation(async () => utf8('the oauth flow'))
         vi.mocked(getWorkspaceFileSize).mockImplementation(async () => 14)
     })
 
@@ -188,12 +191,12 @@ describe('usePaletteSearch file cache', () => {
 
         act(() => result.current.setQuery('oauth'))
         await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md', '/ws/b.md']))
-        expect(readTextFile).toHaveBeenCalledTimes(2)
+        expect(readFile).toHaveBeenCalledTimes(2)
 
         act(() => result.current.setQuery('oauth flow'))
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md', '/ws/b.md'])
-        expect(readTextFile).toHaveBeenCalledTimes(2)
+        expect(readFile).toHaveBeenCalledTimes(2)
     })
 
     it('reads files fresh after the palette is closed and opened again', async () => {
@@ -205,7 +208,7 @@ describe('usePaletteSearch file cache', () => {
 
         act(() => result.current.setQuery('oauth'))
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
-        expect(readTextFile).toHaveBeenCalledTimes(4)
+        expect(readFile).toHaveBeenCalledTimes(4)
     })
 })
 
@@ -403,7 +406,7 @@ describe('usePaletteSearch commands next to text hits', () => {
         state.tabs.tabs = []
         state.tabs.activeTabId = null
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockImplementation(async () => '- todo: pick a theme')
+        vi.mocked(readFile).mockImplementation(async () => utf8('- todo: pick a theme'))
     })
 
     it('opens a text hit, not a command, when a word found in files is typed', async () => {

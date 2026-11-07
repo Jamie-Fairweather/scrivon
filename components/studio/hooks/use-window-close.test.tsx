@@ -59,11 +59,23 @@ describe('useWindowCloseHandler', () => {
         expect(confirmCloseTabs).toHaveBeenCalledWith()
     })
 
+    it('removes the copies of unsaved text before the window goes, once closing is sure', async () => {
+        const releaseAllTabs = vi.fn(async () => {})
+        state.coordinator.releaseAllTabs.current = releaseAllTabs
+        renderHook(() => useWindowCloseHandler())
+
+        await expect(requestClose()).resolves.toEqual({ closed: true })
+        expect(releaseAllTabs).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the window open when the user cancels or saving failed', async () => {
+        const releaseAllTabs = vi.fn(async () => {})
         state.coordinator.confirmCloseTabs.current = vi.fn(async () => false)
+        state.coordinator.releaseAllTabs.current = releaseAllTabs
         renderHook(() => useWindowCloseHandler())
 
         await expect(requestClose()).resolves.toEqual({ closed: false })
+        expect(releaseAllTabs).not.toHaveBeenCalled()
     })
 
     it('removes a listener that finishes registering after the hook is gone', async () => {

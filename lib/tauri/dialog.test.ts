@@ -31,6 +31,10 @@ vi.mock('@/lib/tauri/scope', () => ({
 
 import {
     confirmCloseAfterSaveFailure,
+    confirmDeleteHiddenFolders,
+    confirmKeptChangesWithoutFolder,
+    confirmOpenLargeFile,
+    confirmOverwriteDiskChange,
     confirmUnsavedChanges,
     pickOpenFile,
     pickSavePath,
@@ -102,7 +106,7 @@ describe('pickOpenFile', () => {
         expect(openMock).not.toHaveBeenCalled()
     })
 
-    it('returns the file path without granting access to its folder', async () => {
+    it('returns the file path without opening up its folder', async () => {
         isTauriMock.mockReturnValue(true)
         openMock.mockResolvedValue('C:\\Users\\me\\Downloads\\logo.png')
         await expect(pickOpenFile({ title: 'Choose image' })).resolves.toBe('C:\\Users\\me\\Downloads\\logo.png')
@@ -113,8 +117,9 @@ describe('pickOpenFile', () => {
                 title: 'Choose image',
             })
         )
-        openMock.mockResolvedValue('G:\\logo.png')
-        await expect(pickOpenFile()).resolves.toBe('G:\\logo.png')
+        openMock.mockResolvedValue('C:\\logo.png')
+        await expect(pickOpenFile()).resolves.toBe('C:\\logo.png')
+        // The image is read by the export's own command, so neither Downloads nor the whole drive is opened up.
         expect(allowWorkspacePathMock).not.toHaveBeenCalled()
     })
 
@@ -253,5 +258,116 @@ describe('confirmCloseAfterSaveFailure', () => {
 
         messageMock.mockResolvedValueOnce('Cancel')
         await expect(confirmCloseAfterSaveFailure([{ name: 'a.md' }])).resolves.toBe('cancel')
+    })
+
+    it('offers Keep Waiting instead of Try Again when a save is only slow', async () => {
+        messageMock.mockResolvedValueOnce('Keep Waiting')
+        await expect(confirmCloseAfterSaveFailure([{ name: 'a.md', stillSaving: true }])).resolves.toBe('retry')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('Scrivon is still saving a.md. The drive may be slow or offline.')
+        expect(options).toMatchObject({ title: 'Still saving', buttons: { yes: 'Keep Waiting', no: 'Close Without Saving', cancel: 'Cancel' } })
+
+        // With a real failure in the list too, trying again is still the first choice.
+        messageMock.mockResolvedValueOnce('Try Again')
+        await confirmCloseAfterSaveFailure([
+            { name: 'a.md', stillSaving: true },
+            { name: 'b.md', error: 'Disk full' },
+        ])
+        expect(messageMock.mock.calls[1]![0]).toContain('a.md: Still saving. The drive may be slow or offline.')
+        expect(messageMock.mock.calls[1]![1]).toMatchObject({ title: "Couldn't save", buttons: { yes: 'Try Again' } })
+    })
+})
+
+describe('confirmOverwriteDiskChange', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('asks before replacing a file changed elsewhere, and only Overwrite goes ahead', async () => {
+        messageMock.mockResolvedValueOnce('Overwrite')
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('a.md was changed outside Scrivon')
+        expect(options).toMatchObject({ title: 'File changed on disk', buttons: { ok: 'Overwrite', cancel: "Don't Save" } })
+
+        messageMock.mockResolvedValueOnce("Don't Save")
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+    })
+
+    it('offers to save a deleted file again', async () => {
+        messageMock.mockResolvedValueOnce('Save Again')
+        await expect(confirmOverwriteDiskChange('a.md', 'deleted')).resolves.toBe(true)
+        expect(messageMock.mock.calls[0]![1]).toMatchObject({ title: 'File deleted', buttons: { ok: 'Save Again', cancel: "Don't Save" } })
+    })
+
+    it('never overwrites outside Tauri when it cannot ask', async () => {
+        isTauriMock.mockReturnValue(false)
+        await expect(confirmOverwriteDiskChange('a.md', 'changed')).resolves.toBe(false)
+        expect(messageMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('confirmOpenLargeFile', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('says how big the file is and opens it only when the user agrees', async () => {
+        messageMock.mockResolvedValueOnce('Open Read-Only')
+        await expect(confirmOpenLargeFile('log.md', '23 MB')).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('log.md is 23 MB')
+        expect(options).toMatchObject({ title: 'Large file', buttons: { ok: 'Open Read-Only', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmOpenLargeFile('log.md', '23 MB')).resolves.toBe(false)
+    })
+})
+
+describe('confirmDeleteHiddenFolders', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('names the hidden folders and only Delete All goes ahead', async () => {
+        messageMock.mockResolvedValueOnce('Delete All')
+        await expect(confirmDeleteHiddenFolders('proj', ['.git', 'site\node_modules'])).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain("proj also has .git and site\node_modules in it, which Scrivon doesn't show in the file list.")
+        expect(options).toMatchObject({ title: 'Delete hidden folders too?', buttons: { ok: 'Delete All', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmDeleteHiddenFolders('proj', ['.git', 'a', 'b', 'c'])).resolves.toBe(false)
+        expect(messageMock.mock.calls[1]![0]).toContain('proj also has .git, a, b and more in it')
+    })
+})
+
+describe('confirmKeptChangesWithoutFolder', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('offers to save the kept changes elsewhere, discard them, or keep them, and closing keeps them', async () => {
+        messageMock.mockResolvedValueOnce('Save Copies…')
+        await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md'])).resolves.toBe('save')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain("Scrivon kept your unsaved changes to a.md from last time, but it can't open Notes to put them back.")
+        expect(options).toMatchObject({
+            title: 'Unsaved changes from last time',
+            buttons: { yes: 'Save Copies…', no: 'Discard', cancel: 'Keep for Later' },
+        })
+
+        messageMock.mockResolvedValueOnce('Discard')
+        await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md', 'b.md'])).resolves.toBe('discard')
+        expect(messageMock.mock.calls[1]![0]).toContain('your unsaved changes to 2 files')
+
+        messageMock.mockResolvedValueOnce(null)
+        await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md'])).resolves.toBe('keep')
     })
 })

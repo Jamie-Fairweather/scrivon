@@ -1,18 +1,35 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, type ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { exists, mkdir, readDir, readFile, readTextFile, remove, rename, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
-import { notifyError, type NotifyOptions } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { exists, lstat, mkdir, readDir, readFile, readTextFile, remove, rename, stat, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
+import {
+    confirmCloseAfterSaveFailure,
+    confirmDeleteHiddenFolders,
+    confirmKeptChangesWithoutFolder,
+    confirmOpenLargeFile,
+    confirmOverwriteDiskChange,
+    confirmUnsavedChanges,
+    pickWorkspaceFolder,
+    showError,
+} from '@/lib/tauri/dialog'
+import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
-import { addRecentWorkspace, getRecentWorkspaces, getWorkspaceTabSession, removeRecentWorkspace } from '@/lib/tauri/store'
+import {
+    addRecentWorkspace,
+    getFolderToggles,
+    getRecentWorkspaces,
+    getWorkspaceTabSession,
+    removeRecentWorkspace,
+    setFolderToggles,
+} from '@/lib/tauri/store'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 
-const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 } }))
+const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 }, workspace: { maxRecentFolders: 10 } }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: settingsState, setAutosaveEnabled: vi.fn() }),
@@ -21,16 +38,30 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 vi.mock('@/lib/tauri/store', () => ({
     getRecentWorkspaces: vi.fn(async () => []),
     addRecentWorkspace: vi.fn(async (path: string) => [path]),
+    clampRecentWorkspaceLimit: (limit: number) => limit,
     removeRecentWorkspace: vi.fn(async () => []),
     getWorkspaceTabSession: vi.fn(async () => null),
     setWorkspaceTabSession: vi.fn(async () => undefined),
     getRecentFiles: vi.fn(async () => []),
     addRecentFile: vi.fn(async () => []),
+    getFolderToggles: vi.fn(async () => []),
+    setFolderToggles: vi.fn(async () => undefined),
+}))
+
+vi.mock('@/lib/tauri/backups', () => ({
+    saveUnsavedBackup: vi.fn(async () => undefined),
+    deleteUnsavedBackup: vi.fn(async () => undefined),
+    listUnsavedBackups: vi.fn(async () => []),
+    settleUnsavedBackups: vi.fn(async () => undefined),
 }))
 
 vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyError: vi.fn(() => 'toast'),
+    notifyWarning: vi.fn(() => 'toast'),
+    notifyInfo: vi.fn(() => 'toast'),
+    notifySuccess: vi.fn(() => 'toast'),
+    dismissNotification: vi.fn(),
 }))
 
 vi.mock('@/lib/tauri/dialog', () => ({
@@ -38,6 +69,23 @@ vi.mock('@/lib/tauri/dialog', () => ({
     showError: vi.fn(async () => undefined),
     confirmUnsavedChanges: vi.fn(async () => 'cancel'),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel'),
+    confirmOverwriteDiskChange: vi.fn(async () => false),
+    confirmDeleteHiddenFolders: vi.fn(async () => false),
+    confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
+    confirmOpenLargeFile: vi.fn(async () => false),
+}))
+
+const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
+
+vi.mock('@tauri-apps/api/window', () => ({
+    getCurrentWindow: () => ({
+        onFocusChanged: async (handler: (event: { payload: boolean }) => void) => {
+            windowFocus.handler = handler
+            return () => {
+                if (windowFocus.handler === handler) windowFocus.handler = undefined
+            }
+        },
+    }),
 }))
 
 type Entry = { name: string; isDirectory: boolean; isFile: boolean; isSymlink: boolean }
@@ -50,6 +98,10 @@ function createWindowsDisk(files: Record<string, string>) {
     const key = (path: string | URL) => String(path).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
     const contents = new Map(Object.entries(files).map(([path, text]) => [key(path), { path, text }]))
     const folders = new Map<string, string>()
+    // Each write gets a later modified time; a rename keeps it, like a real disk.
+    let clock = 1
+    const mtimes = new Map<string, number>()
+    const touch = (path: string | URL) => mtimes.set(key(path), ++clock)
     const isFolder = (k: string) => folders.has(k) || [...contents.keys()].some((c) => c.startsWith(`${k}\\`))
     return {
         contents,
@@ -61,6 +113,7 @@ function createWindowsDisk(files: Record<string, string>) {
         write: async (path: string | URL, text: string, options?: { createNew?: boolean }) => {
             if (options?.createNew && (contents.has(key(path)) || isFolder(key(path)))) throw 'The file exists. (os error 80)'
             contents.set(key(path), { path: String(path), text })
+            touch(path)
         },
         readBytes: async (path: string | URL) => {
             const file = contents.get(key(path))
@@ -70,17 +123,41 @@ function createWindowsDisk(files: Record<string, string>) {
         writeBytes: async (path: string | URL, data: Uint8Array | ReadableStream<Uint8Array>, options?: { createNew?: boolean }) => {
             if (options?.createNew && (contents.has(key(path)) || isFolder(key(path)))) throw 'The file exists. (os error 80)'
             contents.set(key(path), { path: String(path), text: new TextDecoder().decode(data as Uint8Array) })
+            touch(path)
+        },
+        stat: async (path: string | URL) => {
+            const file = contents.get(key(path))
+            if (file) {
+                const size = new TextEncoder().encode(file.text).length
+                return { isFile: true, isDirectory: false, isSymlink: false, size, mtime: new Date(mtimes.get(key(path)) ?? 1), nlink: null }
+            }
+            if (isFolder(key(path))) return { isFile: false, isDirectory: true, isSymlink: false, size: 0, mtime: null, nlink: null }
+            throw 'The system cannot find the file specified. (os error 2)'
         },
         exists: async (path: string | URL) => contents.has(key(path)) || isFolder(key(path)),
         mkdir: async (path: string | URL) => {
             if (contents.has(key(path)) || isFolder(key(path))) throw 'Cannot create a file when that file already exists. (os error 183)'
             folders.set(key(path), String(path))
         },
+        /** Like plugin-fs: a folder that isn't empty is only removed with `recursive`. */
+        remove: async (path: string | URL, options?: { recursive?: boolean }) => {
+            const k = key(path)
+            if (contents.delete(k)) return
+            if (!isFolder(k)) throw new Error(`not found: ${String(path)}`)
+            const inside = [...contents.keys(), ...folders.keys()].filter((c) => c.startsWith(`${k}\\`))
+            if (inside.length > 0 && !options?.recursive) throw 'The directory is not empty. (os error 145)'
+            for (const c of inside) {
+                contents.delete(c)
+                folders.delete(c)
+            }
+            folders.delete(k)
+        },
         rename: async (from: string | URL, to: string | URL) => {
             const file = contents.get(key(from))
             if (!file) throw new Error(`not found: ${String(from)}`)
             contents.delete(key(from))
             contents.set(key(to), { path: String(to), text: file.text })
+            mtimes.set(key(to), mtimes.get(key(from)) ?? 1)
         },
         list: async (dir: string): Promise<Entry[]> => {
             if (!isFolder(key(dir)))
@@ -106,8 +183,11 @@ function mountDisk(disk: ReturnType<typeof createWindowsDisk>) {
     vi.mocked(exists).mockImplementation(disk.exists)
     vi.mocked(mkdir).mockImplementation(disk.mkdir)
     vi.mocked(rename).mockImplementation(disk.rename)
+    vi.mocked(remove).mockImplementation(disk.remove)
     vi.mocked(readFile).mockImplementation(disk.readBytes)
     vi.mocked(writeFile).mockImplementation(disk.writeBytes)
+    vi.mocked(stat).mockImplementation(disk.stat as unknown as typeof stat)
+    vi.mocked(lstat).mockImplementation(disk.stat as unknown as typeof lstat)
 }
 
 function useHarness() {
@@ -120,7 +200,7 @@ function createWrapper(coordinatorOut: { current?: WorkspaceCoordinatorRefs } = 
         const tabsState = useDocumentTabsState()
         return (
             <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
-                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
+                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs} workspaceRoot={workspaceRoot}>
                     {children}
                 </DocumentSaveProvider>
             </DocumentTabsProvider>
@@ -195,10 +275,13 @@ describe('WorkspaceSessionProvider on Windows paths', () => {
         expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\sub\\c.mmd'])
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\sub\\c.mmd')
 
+        // The folder still holds c.mmd, so this only works when the delete is recursive.
         await act(async () => {
             await result.current.session.deleteEntry('C:\\ws/sub', true)
         })
         expect(result.current.tabs.tabs).toEqual([])
+        expect(await disk.exists('C:\\ws\\sub\\c.mmd')).toBe(false)
+        expect(notifyError).not.toHaveBeenCalledWith("Couldn't delete sub", expect.anything())
     })
 
     it('restores a saved session with mixed separators as one tab per file', async () => {
@@ -217,6 +300,19 @@ describe('WorkspaceSessionProvider on Windows paths', () => {
         })
         expect(result.current.session.workspaceRoot).toBe('C:\\ws')
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\sub\\a.mmd')
+    })
+
+    it('reopens a saved tab for a file that is not UTF-8 as read-only, and says why', async () => {
+        vi.mocked(getWorkspaceTabSession).mockResolvedValueOnce({ tabIds: ['C:\\ws\\sub\\a.mmd'], activeTabId: 'C:\\ws\\sub\\a.mmd' })
+        vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'Café', readOnly: true }))
+        expect(notifyWarning).toHaveBeenCalledWith('a.mmd is read-only', expect.objectContaining({ id: 'read-only:C:\\ws\\sub\\a.mmd' }))
     })
 })
 
@@ -245,7 +341,7 @@ describe('leaving a folder with unsaved edits', () => {
     it('keeps the folder and its edits open when saving fails and the user cancels', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openAndEdit(result)
-        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
 
         await act(async () => {
             await result.current.session.closeWorkspace()
@@ -263,7 +359,7 @@ describe('leaving a folder with unsaved edits', () => {
     it('closes the folder without saving only when the user chooses to', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openAndEdit(result)
-        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
         vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
 
         await act(async () => {
@@ -303,7 +399,7 @@ describe('leaving a folder with unsaved edits', () => {
             await result.current.session.closeWorkspace()
         })
         expect(result.current.session.workspaceRoot).toBeNull()
-        expect(writeTextFile).not.toHaveBeenCalled()
+        expect(writeFile).not.toHaveBeenCalled()
         expect(await disk.read('C:\\ws\\a.mmd')).toBe('graph TD')
     })
 })
@@ -324,6 +420,18 @@ describe('creating files and folders', () => {
             await result.current.session.openWorkspace('C:\\ws')
         })
     }
+
+    it('starts a new document with a heading named after the file', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.createFile('C:\\ws', 'meeting-notes.md')
+        })
+
+        expect(await disk.read('C:\\ws\\meeting-notes.md')).toBe('# Meeting notes\n\n')
+        expect(result.current.tabs.activeTab?.content).toBe('# Meeting notes\n\n')
+    })
 
     it('refuses a name already used in the folder, in any letter case, instead of overwriting it', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
@@ -372,6 +480,31 @@ describe('creating files and folders', () => {
         expect(notifyError).not.toHaveBeenCalled()
     })
 
+    it('opens the new file without waiting for the file list to be read again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        // A big folder: reading the file list again takes as long as the test wants.
+        let finishListing!: () => void
+        const listed = new Promise<void>((resolve) => (finishListing = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            await listed
+            return disk.list(dir)
+        }) as unknown as typeof readDir)
+
+        let creating!: Promise<void>
+        act(() => {
+            creating = result.current.session.createFile('C:\\ws', 'flow.mmd', 'graph LR')
+        })
+        await waitFor(() => expect(result.current.tabs.activeTabId).toBe('C:\\ws\\flow.mmd'))
+        expect(result.current.session.tree.map((node) => node.name)).not.toContain('flow.mmd')
+
+        await act(async () => {
+            finishListing()
+            await creating
+        })
+        expect(result.current.session.tree.map((node) => node.name)).toContain('flow.mmd')
+    })
+
     it('refuses a folder name that is already taken', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)
@@ -383,6 +516,25 @@ describe('creating files and folders', () => {
         expect(mkdir).not.toHaveBeenCalled()
         expect(notifyError).toHaveBeenCalledWith("Couldn't create folder Docs", undefined, {
             description: 'A folder named "docs" already exists here.',
+        })
+    })
+
+    it('shows a new build folder, and says why a folder the file list leaves out seems to vanish', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.createFolder('C:\\ws', 'build')
+        })
+        expect(result.current.session.tree.map((node) => node.name)).toContain('build')
+        expect(notifyInfo).not.toHaveBeenCalledWith('build is hidden', expect.anything())
+
+        await act(async () => {
+            await result.current.session.createFolder('C:\\ws', 'node_modules')
+        })
+        expect(result.current.session.tree.map((node) => node.name)).not.toContain('node_modules')
+        expect(notifyInfo).toHaveBeenCalledWith('node_modules is hidden', {
+            description: 'Scrivon leaves tool and build folders like this one out of the file list.',
         })
     })
 
@@ -503,6 +655,22 @@ describe('renaming', () => {
         expect(result.current.tabs.tabs.map((t) => t.name)).toEqual(['Draft.md'])
         expect(notifyError).not.toHaveBeenCalled()
     })
+
+    it('renames a file Scrivon does not open to any name, such as fixing its letter case', async () => {
+        await disk.write('C:\\ws\\logo.PNG', 'PNG BYTES')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWithDraftTab(result)
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\logo.PNG', 'logo.png', false)
+        })
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\logo.png', 'logo-dark.png', false)
+        })
+
+        expect(await disk.read('C:\\ws\\logo-dark.png')).toBe('PNG BYTES')
+        expect(notifyError).not.toHaveBeenCalled()
+    })
 })
 
 describe('file system errors', () => {
@@ -521,6 +689,39 @@ describe('file system errors', () => {
             await result.current.session.openWorkspace(path)
         })
     }
+
+    it('names the folders the file list hides before deleting a folder that has them', async () => {
+        await disk.write('C:\\ws\\sub\\.git\\HEAD', 'ref: refs/heads/main')
+        await disk.write('C:\\ws\\sub\\site\\node_modules\\x\\index.js', '')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+        expect(confirmDeleteHiddenFolders).toHaveBeenCalledWith('sub', expect.arrayContaining(['.git', 'site\\node_modules']))
+        // Cancelled: nothing is deleted.
+        expect(remove).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\sub\\.git\\HEAD')).toBe('ref: refs/heads/main')
+
+        vi.mocked(confirmDeleteHiddenFolders).mockResolvedValueOnce(true)
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+        expect(await disk.exists('C:\\ws\\sub')).toBe(false)
+    })
+
+    it("doesn't ask again before deleting a folder with nothing hidden in it", async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub', true)
+        })
+
+        expect(confirmDeleteHiddenFolders).not.toHaveBeenCalled()
+        expect(await disk.exists('C:\\ws\\sub')).toBe(false)
+    })
 
     it('says why a delete failed and keeps the tabs of what is still there', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
@@ -557,6 +758,66 @@ describe('file system errors', () => {
             options.action!.onClick()
         })
         expect(removeRecentWorkspace).toHaveBeenCalledWith('D:\\gone')
+    })
+
+    it('says so when a folder could not be removed from the recent list, instead of failing silently', async () => {
+        vi.mocked(getRecentWorkspaces).mockResolvedValueOnce(['D:\\old'])
+        vi.mocked(removeRecentWorkspace).mockRejectedValueOnce('no app data folder')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+
+        await act(async () => {
+            await result.current.session.removeRecent('D:\\old')
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't update recent folders", 'no app data folder')
+        expect(result.current.session.recentWorkspaces).toEqual(['D:\\old'])
+    })
+
+    it('opens a folder with a subfolder it cannot read, and says which one shows as empty', async () => {
+        const list = disk.list
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'C:\\ws\\sub') throw 'Access is denied. (os error 5)'
+            return list(dir)
+        }) as unknown as typeof readDir)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await openWorkspace(result)
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.session.tree).toEqual([{ kind: 'directory', name: 'sub', path: 'C:\\ws\\sub', children: [], unreadable: true }])
+        expect(notifyWarning).toHaveBeenCalledWith("Couldn't read the folder sub", {
+            description: 'It shows as empty. Scrivon may not have permission to open it.',
+        })
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('shows a linked folder that leads outside the opened one, and says why it is empty', async () => {
+        const list = disk.list
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (dir === 'C:\\ws') return [...(await list(dir)), { name: 'shared', isDirectory: false, isFile: false, isSymlink: true }]
+            return list(dir)
+        }) as unknown as typeof readDir)
+        const diskStat = disk.stat
+        vi.mocked(stat).mockImplementation((async (path: string) => {
+            if (path === 'C:\\ws\\shared') throw 'forbidden path: C:\\ws\\shared'
+            return diskStat(path)
+        }) as unknown as typeof stat)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await openWorkspace(result)
+
+        expect(result.current.session.tree.find((node) => node.name === 'shared')).toEqual({
+            kind: 'directory',
+            name: 'shared',
+            path: 'C:\\ws\\shared',
+            children: [],
+            unreadable: true,
+            linksOutside: true,
+        })
+        expect(notifyWarning).toHaveBeenCalledWith("Couldn't open the linked folder shared", {
+            description: "It shows as empty. It links to a folder outside the one you opened, which Scrivon can't open yet.",
+        })
     })
 
     it('still opens a created file when the file list fails to reload', async () => {
@@ -654,5 +915,871 @@ describe('duplicating', () => {
         expect(await disk.read('C:\\ws\\notes copy 2.md')).toBe('UNSAVED EDITS')
         expect(await disk.read('C:\\ws\\notes.md')).toBe('SAVED')
         expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\notes.md')).toMatchObject({ isDirty: true, content: 'UNSAVED EDITS' })
+    })
+
+    it('copies a file Scrivon does not open without trying to open the copy', async () => {
+        await disk.write('C:\\ws\\logo.png', 'PNG BYTES')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.duplicateFile('C:\\ws\\logo.png')
+        })
+
+        expect(await disk.read('C:\\ws\\logo copy.png')).toBe('PNG BYTES')
+        expect(showError).not.toHaveBeenCalled()
+        expect(notifyError).not.toHaveBeenCalled()
+        expect(result.current.tabs.tabs).toEqual([])
+    })
+})
+
+describe('changes made outside Scrivon', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // A long delay keeps the autosave timer out of the way; the tests save when they choose to.
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine v1' })
+        mountDisk(disk)
+    })
+
+    async function openAndEdit(result: { current: ReturnType<typeof useHarness> }, text = 'MY EDITS') {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', text))
+    }
+
+    async function save() {
+        let ok!: boolean
+        await act(async () => {
+            ok = await coordinatorOut.current!.flushSave.current('C:\\ws\\notes.md')
+        })
+        return ok
+    }
+
+    it('saves again and again without asking when nothing else touched the file', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await expect(save()).resolves.toBe(true)
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
+        await expect(save()).resolves.toBe(true)
+
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS 2')
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('asks before saving over a change made in another app, and keeps that change when told to', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        await disk.write('C:\\ws\\notes.md', 'edited in VS Code')
+
+        await expect(save()).resolves.toBe(false)
+
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited in VS Code')
+        expect(result.current.tabs.tabs[0]).toMatchObject({
+            content: 'MY EDITS',
+            isDirty: true,
+            saveError: 'It was changed outside Scrivon since you opened it.',
+        })
+        expect(notifyError).toHaveBeenCalledWith("Couldn't save notes.md", expect.anything(), expect.objectContaining({ timeout: 0 }))
+
+        // Typing doesn't ask again after every pause; switching tabs doesn't either.
+        act(() => coordinatorOut.current!.flushSaveOnTabLeave.current('C:\\ws\\notes.md'))
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(1)
+
+        // Try Again on the notice asks once more, and Overwrite saves.
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        await expect(save()).resolves.toBe(true)
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: false, saveError: undefined })
+
+        // The overwrite is now the version the tab knows, so the next save doesn't ask.
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS 2'))
+        await expect(save()).resolves.toBe(true)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
+    })
+
+    it('asks before bringing back a file deleted in another app', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndEdit(result)
+        disk.contents.clear()
+
+        await expect(save()).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'deleted')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValueOnce(true)
+        await expect(save()).resolves.toBe(true)
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('MY EDITS')
+    })
+
+    it('shows files added in another app when the window gets focus again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        await disk.write('C:\\ws\\from-git.md', '# new')
+
+        await act(async () => {
+            windowFocus.handler!({ payload: false })
+        })
+        expect(result.current.session.tree.map((n) => n.name)).toEqual(['notes.md'])
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(result.current.session.tree.map((n) => n.name)).toEqual(['from-git.md', 'notes.md']))
+    })
+
+    it('reads the folder again at most every few seconds on focus, and redraws nothing when nothing changed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await waitFor(() => expect(windowFocus.handler).toBeDefined())
+        const shown = result.current.session.tree
+        const readsAfterOpen = vi.mocked(readDir).mock.calls.length
+
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1))
+        expect(result.current.session.tree).toBe(shown)
+
+        // Back again straight away (alt-tab, or a dialog closing): not read again yet.
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(readDir).toHaveBeenCalledTimes(readsAfterOpen + 1)
+    })
+})
+
+describe('unsaved text kept from a crash', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+
+    // What the disk mock reports for a file that hasn't been written since the test began.
+    const untouched = (text: string) => ({ mtimeMs: 1, size: new TextEncoder().encode(text).length })
+
+    function kept(path: string, content: string, overrides: Partial<UnsavedBackup> = {}): UnsavedBackup {
+        return { path, root: 'C:\\ws', content, stamp: untouched('on disk'), savedAt: 1, ...overrides }
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue(false)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'on disk', 'C:\\ws\\other.md': 'same' })
+        mountDisk(disk)
+    })
+
+    afterEach(() => {
+        vi.mocked(listUnsavedBackups).mockReset()
+        vi.mocked(listUnsavedBackups).mockResolvedValue([])
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    async function save(path: string) {
+        let ok!: boolean
+        await act(async () => {
+            ok = await coordinatorOut.current!.flushSave.current(path)
+        })
+        return ok
+    }
+
+    describe('when their folder is gone', () => {
+        const gone = (path: string, content: string, overrides: Partial<UnsavedBackup> = {}) =>
+            kept(path, content, { root: 'D:\\renamed', ...overrides })
+
+        async function openGone(result: { current: ReturnType<typeof useHarness> }) {
+            await act(async () => {
+                await result.current.session.openWorkspace('D:\\renamed')
+            })
+            await waitFor(() => expect(confirmKeptChangesWithoutFolder).toHaveBeenCalled())
+        }
+
+        it('keeps them for later when the user says so, or just closes the question', async () => {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([gone('D:\\renamed\\a.md', 'mine')])
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            expect(confirmKeptChangesWithoutFolder).toHaveBeenCalledWith('renamed', ['a.md'])
+            expect(notifyError).toHaveBeenCalledWith("Couldn't open renamed", expect.anything(), expect.anything())
+            expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+
+        it('discards them when the user chooses to, so the notice stops coming back', async () => {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([gone('D:\\renamed\\a.md', 'mine'), kept('C:\\ws\\notes.md', 'other folder')])
+            vi.mocked(confirmKeptChangesWithoutFolder).mockResolvedValueOnce('discard')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            await waitFor(() => expect(deleteUnsavedBackup).toHaveBeenCalledWith('D:\\renamed\\a.md'))
+            expect(deleteUnsavedBackup).toHaveBeenCalledTimes(1)
+            expect(dismissNotification).toHaveBeenCalledWith('recovered-changes')
+        })
+
+        it('saves them as new files in a folder the user picks, then lets the copies go', async () => {
+            await disk.write('C:\\rescue\\a.md', 'already here')
+            vi.mocked(listUnsavedBackups).mockResolvedValue([
+                gone('D:\\renamed\\a.md', 'mine'),
+                gone('D:\\renamed\\b.md', 'B', { format: { encoding: 'utf-16le', bom: true } }),
+            ])
+            vi.mocked(confirmKeptChangesWithoutFolder).mockResolvedValueOnce('save')
+            vi.mocked(pickWorkspaceFolder).mockResolvedValueOnce('C:\\rescue')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            await waitFor(() => expect(deleteUnsavedBackup).toHaveBeenCalledTimes(2))
+            expect(pickWorkspaceFolder).toHaveBeenCalledWith('Save Copies To')
+            expect(await disk.read('C:\\rescue\\a.md')).toBe('already here')
+            expect(await disk.read('C:\\rescue\\a 2.md')).toBe('mine')
+            // Stored the way the file was: UTF-16 with a byte-order mark.
+            expect(vi.mocked(writeFile)).toHaveBeenCalledWith('C:\\rescue\\b.md', new Uint8Array([0xff, 0xfe, 0x42, 0x00]), { createNew: true })
+            expect(notifySuccess).toHaveBeenCalledWith('Saved 2 files', { description: "They're in rescue." })
+        })
+
+        it('keeps them when saving the copies fails', async () => {
+            vi.mocked(listUnsavedBackups).mockResolvedValue([gone('D:\\renamed\\a.md', 'mine')])
+            vi.mocked(confirmKeptChangesWithoutFolder).mockResolvedValueOnce('save')
+            vi.mocked(pickWorkspaceFolder).mockResolvedValueOnce('E:\\unplugged')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+            await openGone(result)
+
+            await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't save the copies", expect.anything()))
+            expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+        })
+    })
+
+    it('reopens the file with the unsaved text, not saved yet, and says so', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        expect(result.current.tabs.tabs).toEqual([
+            expect.objectContaining({ id: 'C:\\ws\\notes.md', content: 'typed before the crash', isDirty: true }),
+        ])
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('on disk')
+        expect(notifyWarning).toHaveBeenCalledWith(
+            'Recovered unsaved changes',
+            expect.objectContaining({ id: 'recovered-changes', timeout: 0, description: expect.stringContaining('notes.md') })
+        )
+
+        await expect(save('C:\\ws\\notes.md')).resolves.toBe(true)
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('typed before the crash')
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+    })
+
+    it('asks before saving the recovered text over a file changed in another app since', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'mine', { stamp: untouched('older') })])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        await expect(save('C:\\ws\\notes.md')).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('notes.md', 'changed')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('on disk')
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'mine', isDirty: true })
+    })
+
+    it('brings the text back even when the file was deleted since, and asks before saving it there again', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\gone.md', 'only copy')])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\gone.md', content: 'only copy', isDirty: true })])
+        await expect(save('C:\\ws\\gone.md')).resolves.toBe(false)
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledWith('gone.md', 'deleted')
+    })
+
+    it('leaves other folders alone and forgets a copy that is already on disk', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            kept('D:\\elsewhere\\x.md', 'not this folder', { root: 'D:\\elsewhere' }),
+            kept('C:\\ws\\other.md', 'same'),
+        ])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\other.md', content: 'same', isDirty: false })])
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\other.md')
+        expect(notifyWarning).not.toHaveBeenCalledWith('Recovered unsaved changes', expect.anything())
+    })
+
+    it('offers to open the folder with unsaved changes when the app starts', async () => {
+        vi.mocked(listUnsavedBackups).mockResolvedValue([kept('C:\\ws\\notes.md', 'typed before the crash')])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+
+        await waitFor(() =>
+            expect(notifyWarning).toHaveBeenCalledWith(
+                'Unsaved changes from last time',
+                expect.objectContaining({ id: 'recovered-changes', action: expect.objectContaining({ label: 'Open Folder' }) })
+            )
+        )
+        const options = vi.mocked(notifyWarning).mock.calls.find((call) => call[0] === 'Unsaved changes from last time')![1] as NotifyOptions
+        expect(options.description).toContain('notes.md in ws')
+
+        await act(async () => {
+            options.action!.onClick()
+        })
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'typed before the crash', isDirty: true }))
+    })
+
+    it('moves the copy with the file when it is renamed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'unsaved'))
+
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'renamed.md', false)
+        })
+
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('C:\\ws\\notes.md')
+        await waitFor(
+            () =>
+                expect(saveUnsavedBackup).toHaveBeenCalledWith(
+                    expect.objectContaining({ path: 'C:\\ws\\renamed.md', content: 'unsaved', root: 'C:\\ws' })
+                ),
+            { timeout: 3000 }
+        )
+    })
+})
+
+describe('opening folders one after another', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({
+            'C:\\big\\a.md': 'A',
+            'C:\\small\\b.md': 'B',
+            'C:\\ws\\notes.md': 'mine',
+            'C:\\ws\\other.md': 'other',
+        })
+        mountDisk(disk)
+    })
+
+    afterEach(() => {
+        vi.mocked(getWorkspaceTabSession).mockReset()
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue(null)
+    })
+
+    /** Makes reading the file list of `folder` wait until the test lets it finish. */
+    function slowFolder(folder: string) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (String(dir).toLowerCase().startsWith(folder.toLowerCase())) await done
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        return finish
+    }
+
+    it('opens the folder clicked last, even when an earlier one finishes reading later', async () => {
+        vi.mocked(getWorkspaceTabSession).mockImplementation(async (root: string) =>
+            root === 'C:\\big' ? { tabIds: ['C:\\big\\a.md'], activeTabId: 'C:\\big\\a.md' } : { tabIds: ['C:\\small\\b.md'], activeTabId: null }
+        )
+        const finishBig = slowFolder('C:\\big')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let openingBig!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\small')
+        })
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+
+        await act(async () => {
+            finishBig()
+            await openingBig
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\small\\b.md'])
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('opens the folder clicked last when it is picked while a slow save holds up leaving the open one', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'edited'))
+        let finishSave!: () => void
+        const saveGate = new Promise<void>((resolve) => (finishSave = resolve))
+        vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+            await saveGate
+            return disk.writeBytes(path, data as Uint8Array, options)
+        })
+
+        let openingBig!: Promise<void>
+        let openingSmall!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        // Leaving C:\ws waits for notes.md to save; meanwhile the user picks another folder.
+        await waitFor(() => expect(writeFile).toHaveBeenCalled())
+        act(() => {
+            openingSmall = result.current.session.openWorkspace('C:\\small')
+        })
+        await act(async () => {
+            finishSave()
+            await Promise.all([openingBig, openingSmall])
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('edited')
+        expect(writeFile).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the open folder when it is picked again while another one is still being read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        const finishBig = slowFolder('C:\\big')
+
+        let openingBig!: Promise<void>
+        act(() => {
+            openingBig = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            finishBig()
+            await openingBig
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['notes.md', 'other.md'])
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('saves what was typed in the open folder while the next one was being read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        const finishBig = slowFolder('C:\\big')
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\big')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'typed while waiting'))
+        await act(async () => {
+            finishBig()
+            await opening
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\big')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('typed while waiting')
+    })
+
+    it('says when a folder is slow to open, and clears that once it is open', async () => {
+        const finishBig = slowFolder('C:\\big')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\big')
+        })
+        expect(result.current.session.openingWorkspace).toBe('C:\\big')
+        await waitFor(() => expect(notifyInfo).toHaveBeenCalledWith('Opening big…', expect.objectContaining({ id: 'opening-folder', timeout: 0 })))
+
+        await act(async () => {
+            finishBig()
+            await opening
+        })
+        expect(dismissNotification).toHaveBeenCalledWith('opening-folder')
+        expect(result.current.session.openingWorkspace).toBeNull()
+        expect(result.current.session.workspaceRoot).toBe('C:\\big')
+    })
+
+    it('drops a folder still being opened when the open one is closed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        const finishBig = slowFolder('C:\\big')
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\big')
+        })
+        await act(async () => {
+            await result.current.session.closeWorkspace()
+        })
+        await act(async () => {
+            finishBig()
+            await opening
+        })
+
+        expect(result.current.session.workspaceRoot).toBeNull()
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('asks before reading a very large file again when reopening the tabs, and leaves it closed on Cancel', async () => {
+        await disk.write('C:\\ws\\huge.log.md', 'big')
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue({
+            tabIds: ['C:\\ws\\huge.log.md', 'C:\\ws\\notes.md'],
+            activeTabId: 'C:\\ws\\huge.log.md',
+        })
+        vi.mocked(stat).mockImplementation((async (path: string) => {
+            const info = await disk.stat(path)
+            return String(path).endsWith('huge.log.md') ? { ...info, size: 80 * 1024 * 1024 } : info
+        }) as unknown as typeof stat)
+        vi.mocked(confirmOpenLargeFile).mockResolvedValueOnce(false)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+
+        expect(confirmOpenLargeFile).toHaveBeenCalledWith('huge.log.md', '80 MB')
+        expect(readFile).not.toHaveBeenCalledWith('C:\\ws\\huge.log.md')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md'])
+    })
+
+    it('keeps a file the user opened while the saved tabs were still loading', async () => {
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue({ tabIds: ['C:\\ws\\notes.md'], activeTabId: 'C:\\ws\\notes.md' })
+        let finishNotes!: () => void
+        const notesRead = new Promise<void>((resolve) => (finishNotes = resolve))
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            if (String(path).endsWith('notes.md')) await notesRead
+            return disk.readBytes(path)
+        })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        let opening!: Promise<void>
+        act(() => {
+            opening = result.current.session.openWorkspace('C:\\ws')
+        })
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\other.md')
+        })
+        await act(async () => {
+            finishNotes()
+            await opening
+        })
+
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md', 'C:\\ws\\other.md'])
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\other.md')
+    })
+})
+
+describe('saves around rename and delete', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // A short delay, so the autosave comes due while the rename or delete is still going on.
+        settingsState.autosave = { enabled: true, delayMs: 50 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'v1' })
+        mountDisk(disk)
+    })
+
+    const pause = (ms: number) =>
+        act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, ms))
+        })
+
+    /** From now on, reading the file list waits until the test lets it finish (a big folder). */
+    function slowListing() {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            await done
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        return finish
+    }
+
+    async function openAndType(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'edited'))
+    }
+
+    it('never brings back a deleted file when its autosave comes due during the delete', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndType(result)
+        const finishListing = slowListing()
+
+        let deleting!: Promise<void>
+        act(() => {
+            deleting = result.current.session.deleteEntry('C:\\ws\\notes.md', false)
+        })
+        await pause(150)
+        await act(async () => {
+            finishListing()
+            await deleting
+        })
+        await pause(100)
+
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(result.current.tabs.tabs).toEqual([])
+        // Not even a question about putting it back.
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('saves a pending autosave under the new name and never writes the old one again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndType(result)
+        const finishListing = slowListing()
+
+        let renaming!: Promise<void>
+        act(() => {
+            renaming = result.current.session.renameEntry('C:\\ws\\notes.md', 'renamed.md', false)
+        })
+        await pause(150)
+        await act(async () => {
+            finishListing()
+            await renaming
+        })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ id: 'C:\\ws\\renamed.md', isDirty: false, isSaving: false }))
+        expect(await disk.read('C:\\ws\\renamed.md')).toBe('edited')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(confirmOverwriteDiskChange).not.toHaveBeenCalled()
+    })
+
+    it('lets a save that is already writing finish before the file is renamed', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await openAndType(result)
+        let finishWrite!: () => void
+        const written = new Promise<void>((resolve) => (finishWrite = resolve))
+        vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+            await written
+            return disk.writeBytes(path, data as Uint8Array, options)
+        })
+
+        let saving!: Promise<boolean>
+        let renaming!: Promise<void>
+        act(() => {
+            saving = coordinatorOut.current!.flushSave.current('C:\\ws\\notes.md')
+            renaming = result.current.session.renameEntry('C:\\ws\\notes.md', 'renamed.md', false)
+        })
+        await pause(20)
+        expect(await disk.exists('C:\\ws\\renamed.md')).toBe(false)
+
+        await act(async () => {
+            finishWrite()
+            await Promise.all([saving, renaming])
+        })
+
+        expect(await disk.read('C:\\ws\\renamed.md')).toBe('edited')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(result.current.tabs.tabs[0]).toMatchObject({ id: 'C:\\ws\\renamed.md', isDirty: false, isSaving: false })
+    })
+})
+
+describe('recent folders', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        settingsState.workspace = { maxRecentFolders: 10 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        mountDisk(createWindowsDisk({ 'C:\\ws\\notes.md': 'mine' }))
+    })
+
+    afterEach(() => {
+        settingsState.workspace = { maxRecentFolders: 10 }
+    })
+
+    it('shows no more folders than the limit as soon as it is lowered, and keeps the rest until a folder is opened', async () => {
+        const saved = ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d', 'C:\\e']
+        vi.mocked(getRecentWorkspaces).mockResolvedValueOnce(saved)
+        const { result, rerender } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.recentWorkspaces).toEqual(saved))
+
+        // Typing '15' into the setting passes through '1'; that mustn't cut the saved list.
+        settingsState.workspace = { maxRecentFolders: 1 }
+        rerender()
+        expect(result.current.session.recentWorkspaces).toEqual(['C:\\a'])
+        settingsState.workspace = { maxRecentFolders: 3 }
+        rerender()
+        expect(result.current.session.recentWorkspaces).toEqual(['C:\\a', 'C:\\b', 'C:\\c'])
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        expect(addRecentWorkspace).toHaveBeenCalledWith('C:\\ws', 3)
+    })
+
+    it('leaves the open folder and its tabs alone when it is opened again, and only reads its files again', async () => {
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => {
+            result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'unsaved edit')
+        })
+        const tabsBefore = result.current.tabs.tabs
+        vi.mocked(readDir).mockClear()
+        vi.mocked(addRecentWorkspace).mockClear()
+
+        await act(async () => {
+            await result.current.session.openWorkspace('c:/WS/')
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.tabs.tabs).toBe(tabsBefore)
+        expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'unsaved edit', isDirty: true })
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+        expect(confirmUnsavedChanges).not.toHaveBeenCalled()
+        expect(readDir).toHaveBeenCalledWith('C:\\ws')
+        expect(addRecentWorkspace).toHaveBeenCalledWith('C:\\ws', 10)
+    })
+})
+
+describe('folders opened and closed in the file tree', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\docs\\deep\\a.md': 'A', 'C:\\ws\\notes\\b.md': 'B', 'C:\\other\\c.md': 'C' })
+        mountDisk(disk)
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }, path = 'C:\\ws') {
+        await act(async () => {
+            await result.current.session.openWorkspace(path)
+        })
+    }
+
+    it('keeps each choice for as long as the folder is open, and remembers it for next time', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs\\deep', true))
+
+        expect([...result.current.session.folderToggles]).toEqual([
+            ['C:\\ws\\docs', false],
+            ['C:\\ws\\docs\\deep', true],
+        ])
+        expect(vi.mocked(setFolderToggles).mock.calls.at(-1)).toEqual(['C:\\ws', result.current.session.folderToggles])
+    })
+
+    it('opens a folder with the choices remembered for it, and the next folder without them', async () => {
+        vi.mocked(getFolderToggles).mockImplementation(async (root) => (root === 'C:\\ws' ? [['C:\\ws\\docs', false]] : []))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await waitFor(() => expect(result.current.session.folderToggles.get('C:\\ws\\docs')).toBe(false))
+
+        await open(result, 'C:\\other')
+
+        expect(result.current.session.folderToggles.size).toBe(0)
+    })
+
+    it('keeps a choice made while the remembered ones are still being read', async () => {
+        let finishReading!: (toggles: Array<[string, boolean]>) => void
+        vi.mocked(getFolderToggles).mockImplementation(() => new Promise((resolve) => (finishReading = resolve)))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', true))
+        await act(async () =>
+            finishReading([
+                ['C:\\ws\\docs', false],
+                ['C:\\ws\\notes', false],
+            ])
+        )
+
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({ 'C:\\ws\\docs': true, 'C:\\ws\\notes': false })
+        expect(vi.mocked(setFolderToggles).mock.calls.at(-1)).toEqual(['C:\\ws', result.current.session.folderToggles])
+    })
+
+    it('moves the choices with a renamed folder and drops them for a deleted one', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', true))
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs\\deep', false))
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\notes', false))
+
+        // The stand-in disk renames files only; this moves a folder and what is in it.
+        vi.mocked(rename).mockImplementation(async (from, to) => {
+            const prefix = `${String(from)}\\`.toLowerCase()
+            for (const [key, file] of [...disk.contents]) {
+                if (!key.startsWith(prefix)) continue
+                disk.contents.delete(key)
+                const path = `${String(to)}${file.path.slice(String(from).length)}`
+                disk.contents.set(path.toLowerCase(), { path, text: file.text })
+            }
+        })
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\docs', 'manual', true)
+        })
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({
+            'C:\\ws\\manual': true,
+            'C:\\ws\\manual\\deep': false,
+            'C:\\ws\\notes': false,
+        })
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\notes', true)
+        })
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({ 'C:\\ws\\manual': true, 'C:\\ws\\manual\\deep': false })
+    })
+
+    it('keeps the same function to call, so tree rows that use it are not drawn again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        const first = result.current.session.setFolderExpanded
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+
+        expect(result.current.session.setFolderExpanded).toBe(first)
     })
 })

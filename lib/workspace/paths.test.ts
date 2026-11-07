@@ -3,10 +3,14 @@ import {
     childrenOf,
     collectFileNames,
     collectFilePaths,
+    collectUnreadableFolders,
     entryNameError,
     findNameClash,
     findNodeByPath,
+    folderLabels,
+    keepUnchangedNodes,
     nameTakenMessage,
+    shortenPath,
     uniqueFileName,
     uniqueNewName,
     validateFileName,
@@ -104,6 +108,38 @@ describe('uniqueNewName', () => {
     })
 })
 
+describe('folderLabels', () => {
+    it('labels folders by name, adding where they are only when two share a name', () => {
+        expect(folderLabels(['C:\\work\\docs', 'D:\\personal\\Docs', 'C:\\work\\notes'])).toEqual([
+            { path: 'C:\\work\\docs', name: 'docs', location: 'C:\\work' },
+            { path: 'D:\\personal\\Docs', name: 'Docs', location: 'D:\\personal' },
+            { path: 'C:\\work\\notes', name: 'notes', location: null },
+        ])
+    })
+
+    it('names a drive root by its path', () => {
+        expect(folderLabels(['E:\\'])).toEqual([{ path: 'E:\\', name: 'E:\\', location: null }])
+    })
+})
+
+describe('shortenPath', () => {
+    it('leaves a short path as it is', () => {
+        expect(shortenPath('C:\\work\\docs')).toBe('C:\\work\\docs')
+    })
+
+    it('keeps the start and end of a long path', () => {
+        expect(shortenPath('abcdefghij', 6, 2, 3)).toBe('ab…hij')
+    })
+
+    it('never cuts an emoji in half', () => {
+        const path = `C:\\${'😀'.repeat(10)}`
+        const short = shortenPath(path, 6, 4, 2)
+        expect(short).toBe('C:\\😀…😀😀')
+        expect(short).not.toContain('\uFFFD')
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(short)).toBe(false)
+    })
+})
+
 describe('collectFilePaths', () => {
     it('collects all file paths in the tree', () => {
         expect(collectFilePaths(sampleTree)).toEqual(new Set(['/ws/docs/readme.md', '/ws/docs/diagram.mmd', '/ws/root.mmd']))
@@ -113,6 +149,50 @@ describe('collectFilePaths', () => {
 describe('collectFileNames', () => {
     it('collects all node names including directories', () => {
         expect(collectFileNames(sampleTree)).toEqual(new Set(['docs', 'readme.md', 'diagram.mmd', 'root.mmd']))
+    })
+})
+
+describe('collectUnreadableFolders', () => {
+    it('finds folders that could not be read, at any depth', () => {
+        const locked = { kind: 'directory' as const, name: 'locked', path: '/ws/docs/locked', children: [], unreadable: true as const }
+        const tree = [{ kind: 'directory' as const, name: 'docs', path: '/ws/docs', children: [locked] }, ...sampleTree]
+        expect(collectUnreadableFolders(tree)).toEqual([locked])
+        expect(collectUnreadableFolders(sampleTree)).toEqual([])
+    })
+})
+
+describe('keepUnchangedNodes', () => {
+    const copy = (nodes: FileNode[]): FileNode[] => structuredClone(nodes)
+
+    it('keeps the tree shown now when a new read found no change', () => {
+        expect(keepUnchangedNodes(sampleTree, copy(sampleTree))).toBe(sampleTree)
+    })
+
+    it('keeps unchanged folders and files, and uses the new ones only where something changed', () => {
+        const next = copy(sampleTree)
+        const docs = next[0] as Extract<FileNode, { kind: 'directory' }>
+        docs.children.push({ kind: 'file', name: 'zz.md', path: '/ws/docs/zz.md' })
+
+        const merged = keepUnchangedNodes(sampleTree, next)
+
+        expect(merged).not.toBe(sampleTree)
+        expect(merged).toEqual(next)
+        // root.mmd didn't change; docs did, but its two old files are still the same objects.
+        expect(merged[1]).toBe(sampleTree[1])
+        const mergedDocs = merged[0] as Extract<FileNode, { kind: 'directory' }>
+        const oldDocs = sampleTree[0] as Extract<FileNode, { kind: 'directory' }>
+        expect(mergedDocs).not.toBe(oldDocs)
+        expect(mergedDocs.children[0]).toBe(oldDocs.children[0])
+    })
+
+    it('notices a removed entry, a renamed one and a folder that became unreadable', () => {
+        expect(keepUnchangedNodes(sampleTree, copy(sampleTree).slice(0, 1))).toEqual(sampleTree.slice(0, 1))
+        const renamed = copy(sampleTree)
+        renamed[1] = { kind: 'file', name: 'Root.mmd', path: '/ws/root.mmd' }
+        expect(keepUnchangedNodes(sampleTree, renamed)[1]).toBe(renamed[1])
+        const locked = copy(sampleTree)
+        locked[0] = { kind: 'directory', name: 'docs', path: '/ws/docs', children: [], unreadable: true }
+        expect(keepUnchangedNodes(sampleTree, locked)[0]).toEqual(locked[0])
     })
 })
 
@@ -179,5 +259,11 @@ describe('entryNameError', () => {
 
     it('lets a renamed entry keep its own name in another letter case', () => {
         expect(entryNameError('Diagram.mmd', 'file', docs, '/ws/docs/diagram.mmd')).toBeNull()
+    })
+
+    it('lets a file Scrivon does not open be renamed to any name, but keeps a document a document', () => {
+        expect(entryNameError('logo.png', 'file', docs, '/ws/docs/logo.PNG')).toBeNull()
+        expect(entryNameError('logo-dark.png', 'file', docs, '/ws/docs/logo.png')).toBeNull()
+        expect(entryNameError('diagram.txt', 'file', docs, '/ws/docs/diagram.mmd')).toBe('File name must end with .md, .mmd or .mermaid.')
     })
 })

@@ -1,14 +1,15 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { rename, writeFile } from '@tauri-apps/plugin-fs'
 import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
-import { confirmCloseAfterSaveFailure } from '@/lib/tauri/dialog'
+import { deleteUnsavedBackup, saveUnsavedBackup, settleUnsavedBackups } from '@/lib/tauri/backups'
+import { confirmCloseAfterSaveFailure, confirmUnsavedChanges } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab } from '@/lib/workspace/types'
-import { DocumentSaveProvider, useDocumentSave } from './document-save-context'
+import { BACKUP_DELAY_MS, DocumentSaveProvider, useDocumentSave } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
-import { createWorkspaceCoordinatorRefs } from './workspace-coordinator'
+import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 
 const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 } }))
 
@@ -25,15 +26,24 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
 vi.mock('@/lib/tauri/dialog', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/tauri/dialog')>()),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
+    confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
+}))
+
+vi.mock('@/lib/tauri/backups', () => ({
+    saveUnsavedBackup: vi.fn(async () => undefined),
+    deleteUnsavedBackup: vi.fn(async () => undefined),
+    listUnsavedBackups: vi.fn(async () => []),
+    settleUnsavedBackups: vi.fn(async () => undefined),
 }))
 
 function tab(id: string, overrides: Partial<DocumentTab> = {}): DocumentTab {
     return { id, path: id, name: id.split('/').pop()!, content: 'v0', isDirty: false, isSaving: false, ...overrides }
 }
 
-function createWrapper(initialTabs: DocumentTab[]) {
+function createWrapper(initialTabs: DocumentTab[], coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}) {
     return function Wrapper({ children }: { children: ReactNode }) {
         const coordinator = useMemo(() => createWorkspaceCoordinatorRefs(), [])
+        coordinatorOut.current = coordinator
         const tabsState = useDocumentTabsState()
         const seeded = useRef(false)
         useLayoutEffect(() => {
@@ -45,7 +55,7 @@ function createWrapper(initialTabs: DocumentTab[]) {
         }, [tabsState])
         return (
             <DocumentTabsProvider coordinator={coordinator} workspaceRoot="/ws" tabsState={tabsState}>
-                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs}>
+                <DocumentSaveProvider coordinator={coordinator} tabsRef={tabsState.tabsRef} setTabs={tabsState.setTabs} workspaceRoot="/ws">
                     {children}
                 </DocumentSaveProvider>
             </DocumentTabsProvider>
@@ -57,19 +67,26 @@ function useHarness() {
     return { save: useDocumentSave(), tabs: useDocumentTabs() }
 }
 
-/** Makes every write wait until the test finishes it, and records what reached the disk. */
+/**
+ * Makes every write wait until the test finishes it, and records what reached the disk. A save writes a
+ * temporary file and then renames it over the real one.
+ */
 function deferWrites() {
     const disk = new Map<string, string>()
     const pending: Array<() => void> = []
-    vi.mocked(writeTextFile).mockImplementation(
-        (path, content) =>
+    vi.mocked(writeFile).mockImplementation(
+        (path, data) =>
             new Promise<void>((resolve) => {
                 pending.push(() => {
-                    disk.set(String(path), content)
+                    disk.set(String(path), new TextDecoder().decode(data as Uint8Array))
                     resolve()
                 })
             })
     )
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+        disk.set(String(to), disk.get(String(from))!)
+        disk.delete(String(from))
+    })
     const finishNext = async () => {
         await act(async () => {
             pending.shift()?.()
@@ -83,6 +100,8 @@ describe('DocumentSaveProvider', () => {
         vi.clearAllMocks()
         settingsState.autosave = { enabled: true, delayMs: 400 }
         vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
     })
 
     it('keeps a tab dirty when it was edited while its save was running, then saves the newer text', async () => {
@@ -141,13 +160,35 @@ describe('DocumentSaveProvider', () => {
         await writes.finishNext()
         await expect(flushAll).resolves.toBe(true)
 
-        expect(vi.mocked(writeTextFile).mock.calls.map((call) => call[1])).toEqual(['v1', 'v2'])
+        expect(vi.mocked(writeFile).mock.calls.map((call) => new TextDecoder().decode(call[1] as Uint8Array))).toEqual(['v1', 'v2'])
         expect(writes.disk.get('/ws/a.mmd')).toBe('v2')
+        expect([...writes.disk.keys()]).toEqual(['/ws/a.mmd'])
         expect(result.current.tabs.tabs[0]?.isDirty).toBe(false)
     })
 
+    it('saves a UTF-16 file as UTF-16 with its byte-order mark', async () => {
+        const written = new Map<string, Uint8Array>()
+        vi.mocked(writeFile).mockImplementation(async (path, data) => {
+            written.set(String(path), data as Uint8Array)
+        })
+        vi.mocked(rename).mockImplementation(async (from, to) => {
+            written.set(String(to), written.get(String(from))!)
+        })
+        const { result } = renderHook(useHarness, {
+            wrapper: createWrapper([tab('/ws/ps.md', { content: 'A', format: { encoding: 'utf-16le', bom: true } })]),
+        })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        act(() => result.current.tabs.updateTabContent('/ws/ps.md', 'é'))
+        await act(async () => {
+            await result.current.save.flushSave('/ws/ps.md')
+        })
+
+        expect(written.get('/ws/ps.md')).toEqual(new Uint8Array([0xff, 0xfe, 0xe9, 0x00]))
+    })
+
     it('keeps the real error text when a save fails', async () => {
-        vi.mocked(writeTextFile).mockRejectedValueOnce('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValueOnce('The network path was not found. (os error 53)')
         const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
         await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
 
@@ -157,7 +198,7 @@ describe('DocumentSaveProvider', () => {
         })
 
         expect(ok).toBe(false)
-        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: true, saveError: 'Access is denied. (os error 5)' })
+        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: true, saveError: 'The network path was not found. (os error 53)' })
     })
 })
 
@@ -166,10 +207,12 @@ describe('save error notices', () => {
         vi.clearAllMocks()
         settingsState.autosave = { enabled: true, delayMs: 400 }
         vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
     })
 
     async function failingTab() {
-        vi.mocked(writeTextFile).mockRejectedValue('Access is denied. (os error 5)')
+        vi.mocked(writeFile).mockRejectedValue('The network path was not found. (os error 53)')
         const rendered = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: true })]) })
         await waitFor(() => expect(rendered.result.current.tabs.tabs).toHaveLength(1))
         const save = async () => {
@@ -187,14 +230,14 @@ describe('save error notices', () => {
         await save()
 
         expect(notifyError).toHaveBeenCalledTimes(1)
-        expect(notifyError).toHaveBeenCalledWith("Couldn't save a.mmd", 'Access is denied. (os error 5)', {
+        expect(notifyError).toHaveBeenCalledWith("Couldn't save a.mmd", 'The network path was not found. (os error 53)', {
             id: 'save-error:/ws/a.mmd',
-            description: 'Access is denied. (os error 5)',
+            description: 'The network path was not found. (os error 53)',
             timeout: 0,
             action: { label: 'Try Again', onClick: expect.any(Function) },
         })
 
-        vi.mocked(writeTextFile).mockResolvedValue(undefined)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
         await save()
         expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
     })
@@ -205,7 +248,7 @@ describe('save error notices', () => {
 
         act(() => result.current.tabs.updateTabContent('/ws/a.mmd', 'more text'))
 
-        expect(result.current.tabs.tabs[0]?.saveError).toBe('Access is denied. (os error 5)')
+        expect(result.current.tabs.tabs[0]?.saveError).toBe('The network path was not found. (os error 53)')
     })
 
     it('saves again from the notice and reports a new failure', async () => {
@@ -219,7 +262,7 @@ describe('save error notices', () => {
 
         await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(2))
         expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
-        expect(writeTextFile).toHaveBeenCalledTimes(2)
+        expect(writeFile).toHaveBeenCalledTimes(2)
     })
 
     it('clears the notice when the tab is closed without saving', async () => {
@@ -234,5 +277,147 @@ describe('save error notices', () => {
 
         expect(result.current.tabs.tabs).toEqual([])
         expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
+    })
+})
+
+describe('copies of unsaved text', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
+    })
+
+    async function typeAndWait(result: { current: ReturnType<typeof useHarness> }, steps: Array<[text: string, waitMs: number]>) {
+        vi.useFakeTimers()
+        try {
+            for (const [text, waitMs] of steps) {
+                act(() => result.current.tabs.updateTabContent('/ws/a.mmd', text))
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(waitMs)
+                })
+            }
+        } finally {
+            vi.useRealTimers()
+        }
+    }
+
+    it('keeps a copy a second after typing stops, with autosave off, and drops it once the file is saved', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { disk: { stamp: null } })]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        await typeAndWait(result, [
+            ['draft 1', 500],
+            ['draft 2', BACKUP_DELAY_MS],
+        ])
+
+        expect(saveUnsavedBackup).toHaveBeenCalledTimes(1)
+        expect(saveUnsavedBackup).toHaveBeenCalledWith(expect.objectContaining({ path: '/ws/a.mmd', root: '/ws', content: 'draft 2', stamp: null }))
+        expect(writeFile).not.toHaveBeenCalled()
+
+        await act(async () => {
+            await result.current.save.flushSave('/ws/a.mmd')
+        })
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
+    })
+
+    it('keeps the copy while saving fails', async () => {
+        vi.mocked(writeFile).mockRejectedValue('The device is not ready. (os error 21)')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+
+        await act(async () => {
+            await result.current.save.flushSave('/ws/a.mmd')
+        })
+
+        expect(saveUnsavedBackup).toHaveBeenCalledTimes(1)
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+    })
+
+    it('drops the copy when the user closes the file without saving', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+
+        await act(async () => {
+            await result.current.tabs.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(writeFile).not.toHaveBeenCalled()
+        // Only the window or folder going away waits for that to reach the disk; closing a tab doesn't.
+        expect(settleUnsavedBackups).not.toHaveBeenCalled()
+    })
+
+    it('waits for the copies to be removed before the window closes', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd')], coordinatorOut) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+        vi.mocked(deleteUnsavedBackup).mockClear()
+
+        await act(async () => {
+            expect(await coordinatorOut.current!.confirmCloseTabs.current()).toBe(true)
+            await coordinatorOut.current!.releaseAllTabs.current()
+        })
+
+        expect(deleteUnsavedBackup).toHaveBeenCalledWith('/ws/a.mmd')
+        expect(vi.mocked(settleUnsavedBackups).mock.invocationCallOrder[0]).toBeGreaterThan(
+            vi.mocked(deleteUnsavedBackup).mock.invocationCallOrder[0]!
+        )
+    })
+
+    it("doesn't rewrite the copies when a tab without edits closes", async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { isDirty: false })]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        await act(async () => {
+            await result.current.tabs.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(deleteUnsavedBackup).not.toHaveBeenCalled()
+    })
+
+    it('never copies text the user did not type, such as a read-only file', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([tab('/ws/a.mmd', { readOnly: true })]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+        await typeAndWait(result, [['draft', BACKUP_DELAY_MS]])
+
+        expect(saveUnsavedBackup).not.toHaveBeenCalled()
+    })
+})
+
+describe('turning autosave back on', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 50 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
+    })
+
+    it('saves the tabs that already have unsaved edits, but not read-only ones', async () => {
+        const { result, rerender } = renderHook(useHarness, {
+            wrapper: createWrapper([tab('/ws/a.mmd'), tab('/ws/b.mmd'), tab('/ws/locked.md', { readOnly: true, isDirty: true })]),
+        })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(3))
+        act(() => {
+            result.current.tabs.updateTabContent('/ws/a.mmd', 'edit a')
+            result.current.tabs.updateTabContent('/ws/b.mmd', 'edit b')
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(writeFile).not.toHaveBeenCalled()
+
+        settingsState.autosave = { enabled: true, delayMs: 50 }
+        rerender()
+
+        await waitFor(() => expect(result.current.tabs.tabs.map((t) => t.isDirty)).toEqual([false, false, true]))
+        expect(writeFile).toHaveBeenCalledTimes(2)
     })
 })

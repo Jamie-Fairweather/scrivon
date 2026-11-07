@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { readTextFile } from '@tauri-apps/plugin-fs'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFile, stat } from '@tauri-apps/plugin-fs'
+import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile } from '@/lib/tauri/store'
-import { confirmCloseAfterSaveFailure, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
+import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { DocumentTabsProvider, useActiveTabId, useDocumentTabActions, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -16,8 +17,15 @@ vi.mock('@/lib/tauri/dialog', async (importOriginal) => {
         showError: vi.fn(actual.showError),
         confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
         confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
+        confirmOpenLargeFile: vi.fn(async () => false),
     }
 })
+
+vi.mock('@/lib/notify', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/notify')>()),
+    notifyWarning: vi.fn(() => 'toast'),
+    dismissNotification: vi.fn(),
+}))
 
 type WrapperOptions = {
     initial?: { tabs: DocumentTab[]; activeTabId: string | null }
@@ -254,7 +262,7 @@ describe('DocumentTabsProvider', () => {
 
     it('reads file content when running inside Tauri', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce('graph TD\n  A --> B')
+        vi.mocked(readFile).mockResolvedValueOnce(new TextEncoder().encode('graph TD\n  A --> B'))
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper({ workspaceRoot: '/ws' }),
@@ -267,6 +275,91 @@ describe('DocumentTabsProvider', () => {
         await waitFor(() => {
             expect(result.current.tabs[0]?.content).toBe('graph TD\n  A --> B')
         })
+    })
+
+    it('opens a file that is not UTF-8 read-only, says why, and lets the user edit it as UTF-8', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        // "Café" saved by old Notepad as ANSI (Windows-1252): not valid UTF-8.
+        vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await result.current.openFile('/ws/old.md')
+        })
+
+        expect(result.current.tabs[0]).toMatchObject({ content: 'Café', readOnly: true, encodingIssue: 'legacy-encoding' })
+        expect(notifyWarning).toHaveBeenCalledWith('old.md is read-only', {
+            id: 'read-only:/ws/old.md',
+            description: "It isn't saved as UTF-8, so it's shown as Windows-1252 and left as it is. If you edit it, it will be saved as UTF-8.",
+            timeout: 0,
+            action: { label: 'Edit as UTF-8', onClick: expect.any(Function) },
+        })
+
+        // Typing is ignored while it is read-only, so nothing can be saved over the original bytes.
+        act(() => result.current.updateTabContent('/ws/old.md', 'changed'))
+        expect(result.current.tabs[0]?.content).toBe('Café')
+
+        const options = vi.mocked(notifyWarning).mock.calls[0]![1] as NotifyOptions
+        act(() => options.action!.onClick())
+        expect(dismissNotification).toHaveBeenCalledWith('read-only:/ws/old.md')
+        expect(result.current.tabs[0]).toMatchObject({ readOnly: false, encodingIssue: undefined, format: { encoding: 'utf-8', bom: false } })
+
+        act(() => result.current.updateTabContent('/ws/old.md', 'Café!'))
+        expect(result.current.tabs[0]).toMatchObject({ content: 'Café!', isDirty: true })
+    })
+
+    it('keeps the encoding of a UTF-16 file on its tab', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0xff, 0xfe, 0x41, 0x00]))
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await result.current.openFile('/ws/ps.md')
+        })
+
+        expect(result.current.tabs[0]).toMatchObject({ content: 'A', format: { encoding: 'utf-16le', bom: true } })
+        expect(result.current.tabs[0]?.readOnly).toBeUndefined()
+        expect(notifyWarning).not.toHaveBeenCalled()
+    })
+
+    it('asks before opening a very large file, and opens it read-only with a way to edit it anyway', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const big = { isFile: true, isDirectory: false, isSymlink: false, size: 6 * 1024 * 1024, mtime: null, nlink: null }
+        // One look at the size before each open, and one more when the file is read.
+        vi.mocked(stat)
+            .mockResolvedValueOnce(big as never)
+            .mockResolvedValueOnce(big as never)
+            .mockResolvedValueOnce(big as never)
+        vi.mocked(confirmOpenLargeFile).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+        vi.mocked(readFile).mockResolvedValueOnce(new TextEncoder().encode('# log'))
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await result.current.openFile('/ws/big.md')
+        })
+        expect(confirmOpenLargeFile).toHaveBeenCalledWith('big.md', '6.0 MB')
+        expect(readFile).not.toHaveBeenCalled()
+        expect(result.current.tabs).toEqual([])
+
+        await act(async () => {
+            await result.current.openFile('/ws/big.md')
+        })
+        expect(result.current.tabs[0]).toMatchObject({ content: '# log', readOnly: true, largeFile: true })
+        expect(notifyWarning).toHaveBeenCalledWith('big.md is read-only', {
+            id: 'read-only:/ws/big.md',
+            description: "It's 6.0 MB, which is big enough to make editing slow.",
+            timeout: 0,
+            action: { label: 'Edit Anyway', onClick: expect.any(Function) },
+        })
+        act(() => result.current.updateTabContent('/ws/big.md', 'typed'))
+        expect(result.current.tabs[0]?.content).toBe('# log')
+
+        const options = vi.mocked(notifyWarning).mock.calls[0]![1] as NotifyOptions
+        act(() => options.action!.onClick())
+        expect(dismissNotification).toHaveBeenCalledWith('read-only:/ws/big.md')
+        expect(result.current.tabs[0]).toMatchObject({ readOnly: false, largeFile: undefined })
+        act(() => result.current.updateTabContent('/ws/big.md', '# log!'))
+        expect(result.current.tabs[0]).toMatchObject({ content: '# log!', isDirty: true })
     })
 
     it('focuses an already-open workspace file', async () => {
@@ -311,7 +404,7 @@ describe('DocumentTabsProvider', () => {
 
     it('shows an error when opening a file fails', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockRejectedValueOnce(new Error('Permission denied'))
+        vi.mocked(readFile).mockRejectedValueOnce(new Error('Permission denied'))
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper(),
@@ -322,6 +415,44 @@ describe('DocumentTabsProvider', () => {
         })
 
         expect(showError).toHaveBeenCalledWith('Open failed', 'Permission denied')
+    })
+
+    it('opens the file without an error when remembering the open tabs fails', async () => {
+        vi.mocked(setWorkspaceTabSession).mockRejectedValue('The process cannot access the file. (os error 32)')
+        vi.mocked(addRecentFile).mockRejectedValue('The process cannot access the file. (os error 32)')
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const unhandled = vi.fn()
+        process.on('unhandledRejection', unhandled)
+        try {
+            const { result } = renderHook(() => useDocumentTabs(), {
+                wrapper: createTabsWrapper({ workspaceRoot: '/ws' }),
+            })
+
+            await act(async () => {
+                await result.current.openFile('/ws/a.mmd')
+            })
+            await act(async () => {
+                await result.current.openFile('/ws/b.mmd')
+            })
+            await act(async () => {
+                await result.current.setActiveTab('/ws/a.mmd')
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(showError).not.toHaveBeenCalled()
+            expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/a.mmd', '/ws/b.mmd'])
+            expect(result.current.activeTabId).toBe('/ws/a.mmd')
+            expect(unhandled).not.toHaveBeenCalled()
+        } finally {
+            process.off('unhandledRejection', unhandled)
+            warn.mockRestore()
+            vi.mocked(setWorkspaceTabSession)
+                .mockReset()
+                .mockImplementation(async () => undefined)
+            vi.mocked(addRecentFile)
+                .mockReset()
+                .mockImplementation(async () => [])
+        }
     })
 
     it('switches active tabs and flushes save on leave', async () => {
@@ -369,7 +500,7 @@ describe('DocumentTabsProvider', () => {
 
     it('does not track recent files when opening a new file without a workspace root', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockResolvedValueOnce('content')
+        vi.mocked(readFile).mockResolvedValueOnce(new TextEncoder().encode('content'))
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper(),
@@ -420,6 +551,31 @@ describe('DocumentTabsProvider', () => {
 
         expect(result.current.tabs[0]).toMatchObject({ id: '/ws/new.mmd', path: '/ws/new.mmd', name: 'new.mmd' })
         expect(result.current.activeTabId).toBe('/ws/new.mmd')
+    })
+
+    it('keeps the active tab selected when the folder it is in is renamed', async () => {
+        const initial = {
+            tabs: [tab('/ws/other.mmd', 'other.mmd'), tab('/ws/docs/readme.md', 'readme.md')],
+            activeTabId: '/ws/docs/readme.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+        vi.mocked(setWorkspaceTabSession).mockClear()
+
+        act(() => {
+            coordinator.remapTabsAfterRename.current('/ws/docs', '/ws/manual', 'manual')
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/other.mmd', '/ws/manual/readme.md'])
+        expect(result.current.activeTabId).toBe('/ws/manual/readme.md')
+        expect(result.current.activeTab).toMatchObject({ path: '/ws/manual/readme.md', name: 'readme.md' })
+        expect(setWorkspaceTabSession).toHaveBeenCalledWith('/ws', {
+            tabIds: ['/ws/other.mmd', '/ws/manual/readme.md'],
+            activeTabId: '/ws/manual/readme.md',
+        })
     })
 
     it('closes tabs when coordinator delete handler runs', async () => {
@@ -553,6 +709,49 @@ describe('DocumentTabsProvider', () => {
 
     it('throws when useDocumentTabs is used outside the provider', () => {
         expect(() => renderHook(() => useDocumentTabs())).toThrow('useDocumentTabs must be used within WorkspaceProvider')
+        expect(() => renderHook(() => useDocumentTabActions())).toThrow('useDocumentTabActions must be used within WorkspaceProvider')
+        expect(() => renderHook(() => useActiveTabId())).toThrow('useActiveTabId must be used within WorkspaceProvider')
+    })
+
+    it('leaves parts that only use the tab actions or the open tab id alone while the user types', async () => {
+        const initial = { tabs: [tab('/ws/a.md', 'a.md'), tab('/ws/b.md', 'b.md')], activeTabId: '/ws/a.md' }
+        const renders = { actions: 0, activeId: 0 }
+        const seenIds: Array<string | null> = []
+        function ActionsOnly() {
+            useDocumentTabActions()
+            renders.actions += 1
+            return null
+        }
+        function ActiveIdOnly() {
+            seenIds.push(useActiveTabId())
+            renders.activeId += 1
+            return null
+        }
+        const TabsWrapper = createTabsWrapper({ initial })
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: ({ children }) => (
+                <TabsWrapper>
+                    <ActionsOnly />
+                    <ActiveIdOnly />
+                    {children}
+                </TabsWrapper>
+            ),
+        })
+        await waitFor(() => expect(result.current.activeTabId).toBe('/ws/a.md'))
+        const before = { ...renders }
+
+        act(() => result.current.updateTabContent('/ws/a.md', 'typed'))
+        act(() => result.current.updateTabContent('/ws/a.md', 'typed more'))
+
+        expect(result.current.activeTab?.content).toBe('typed more')
+        expect(renders).toEqual(before)
+
+        await act(async () => {
+            await result.current.setActiveTab('/ws/b.md')
+        })
+
+        expect(seenIds.at(-1)).toBe('/ws/b.md')
+        expect(renders.actions).toBe(before.actions)
     })
 
     it('persists session with first workspace tab when active tab is an example', async () => {
@@ -757,7 +956,7 @@ describe('DocumentTabsProvider', () => {
 
     it('shows a generic error when opening a file fails with a non-Error value', async () => {
         vi.mocked(isTauri).mockReturnValue(true)
-        vi.mocked(readTextFile).mockRejectedValueOnce('Permission denied')
+        vi.mocked(readFile).mockRejectedValueOnce('Permission denied')
 
         const { result } = renderHook(() => useDocumentTabs(), {
             wrapper: createTabsWrapper(),
@@ -1185,22 +1384,55 @@ describe('closing tabs with unsaved changes', () => {
             vi.useRealTimers()
         }
 
-        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'Saving is taking too long.' }])
+        // Saves of one tab wait their turn, so the question says it is still saving rather than offering a new try.
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', stillSaving: true }])
         expect(result.current.tabs).toHaveLength(2)
     })
 
-    it('ignores a second close request while the first is still being answered', async () => {
+    it('does not count time the user spends answering a question during the save', async () => {
+        const { result, coordinator } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        // The save is waiting on "File changed on disk: Overwrite?" for 25 seconds, then succeeds.
+        let asking = true
+        let finish!: (ok: boolean) => void
+        coordinator.isAskingUser.current = () => asking
+        coordinator.flushSave.current = vi.fn(() => new Promise<boolean>((resolve) => (finish = resolve)))
+
+        vi.useFakeTimers()
+        try {
+            let closing!: Promise<void>
+            act(() => {
+                closing = result.current.closeTab('/ws/a.mmd')
+            })
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(25_000)
+            })
+            expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
+            asking = false
+            finish(true)
+            await act(async () => {
+                await closing
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+
+        expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
+        expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('gives a second close request the answer to the first instead of asking twice or ignoring it', async () => {
         let answer!: (choice: 'discard') => void
         vi.mocked(confirmUnsavedChanges).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
-        const { result } = setup({ autosave: false })
+        const { result, coordinator } = setup({ autosave: false })
         await waitFor(() => expect(result.current.tabs).toHaveLength(3))
 
         let first!: Promise<void>
+        let second!: Promise<boolean>
         act(() => {
             first = result.current.closeTab('/ws/a.mmd')
-        })
-        await act(async () => {
-            await result.current.closeTab('/ws/a.mmd')
+            // Like a second click on the window's X while the first question is still open.
+            second = coordinator.confirmCloseTabs.current(['/ws/a.mmd'])
         })
         expect(confirmUnsavedChanges).toHaveBeenCalledTimes(1)
 
@@ -1208,6 +1440,189 @@ describe('closing tabs with unsaved changes', () => {
             answer('discard')
             await first
         })
+        await expect(second).resolves.toBe(true)
+        expect(confirmUnsavedChanges).toHaveBeenCalledTimes(1)
         expect(result.current.tabs).toHaveLength(2)
+    })
+
+    it('asks about the other tabs once the first question is answered, when the second request is about more', async () => {
+        let answer!: (choice: 'discard') => void
+        vi.mocked(confirmUnsavedChanges)
+            .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+            .mockResolvedValueOnce('cancel')
+        const { result, coordinator } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        let first!: Promise<void>
+        let all!: Promise<boolean>
+        act(() => {
+            first = result.current.closeTab('/ws/a.mmd')
+            all = coordinator.confirmCloseTabs.current()
+        })
+        await act(async () => {
+            answer('discard')
+            await first
+        })
+
+        await expect(all).resolves.toBe(false)
+        // a.mmd is closed by then, so only b.mmd is left to ask about.
+        expect(confirmUnsavedChanges).toHaveBeenLastCalledWith(['b.mmd'])
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
+    })
+
+    it('leaves the tabs as they are until they really close', async () => {
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('discard')
+        const { result, coordinator, cancelScheduledSave } = setup({ autosave: false })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        // A folder switch asks first, but may then not happen (another folder was picked meanwhile).
+        await act(async () => {
+            await expect(coordinator.confirmCloseTabs.current()).resolves.toBe(true)
+        })
+        expect(cancelScheduledSave).not.toHaveBeenCalled()
+
+        act(() => coordinator.clearTabs.current())
+        expect(cancelScheduledSave.mock.calls.map(([id]) => id)).toEqual(['/ws/a.mmd', '/ws/b.mmd', '/ws/c.mmd'])
+    })
+})
+
+describe('opening files that are slow to read', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
+
+    /** Makes reading `slowPath` wait until the test lets it finish; other files read straight away. */
+    function slowRead(slowPath: string) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            if (String(path) === slowPath) await done
+            return new TextEncoder().encode(`text of ${String(path)}`)
+        })
+        return finish
+    }
+
+    afterEach(() => {
+        vi.mocked(readFile).mockReset()
+        vi.mocked(readFile).mockResolvedValue(new Uint8Array())
+    })
+
+    it('opens a file once when it is clicked again while it is still being read', async () => {
+        const finish = slowRead('/ws/big.md')
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        let first!: Promise<void>
+        let second!: Promise<void>
+        act(() => {
+            first = result.current.openFile('/ws/big.md')
+            second = result.current.openFile('/ws/big.md')
+        })
+        await act(async () => {
+            finish()
+            await Promise.all([first, second])
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/big.md'])
+        expect(result.current.activeTabId).toBe('/ws/big.md')
+        expect(readFile).toHaveBeenCalledTimes(1)
+        expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/big.md'], activeTabId: '/ws/big.md' })
+    })
+
+    it('shows the file clicked last when an earlier, slower one finishes after it', async () => {
+        const finish = slowRead('/ws/big.md')
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ workspaceRoot: '/ws' }) })
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        await act(async () => {
+            await result.current.openFile('/ws/small.md')
+        })
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/small.md', '/ws/big.md'])
+        expect(result.current.activeTabId).toBe('/ws/small.md')
+    })
+
+    it('keeps the tab the user switched to while another file was still being read', async () => {
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')], activeTabId: '/ws/a.mmd' }
+        const finish = slowRead('/ws/big.md')
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+
+        let big!: Promise<void>
+        act(() => {
+            big = result.current.openFile('/ws/big.md')
+        })
+        await act(async () => {
+            await result.current.setActiveTab('/ws/b.mmd')
+        })
+        await act(async () => {
+            finish()
+            await big
+        })
+
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/a.mmd', '/ws/b.mmd', '/ws/big.md'])
+        expect(result.current.activeTabId).toBe('/ws/b.mmd')
+    })
+})
+
+describe('changes to several tabs at once', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('keeps an edit to another tab made just before a tab is closed', async () => {
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')], activeTabId: '/ws/a.mmd' }
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+
+        await act(async () => {
+            result.current.updateTabContent('/ws/b.mmd', 'typed in b')
+            await result.current.closeTab('/ws/a.mmd')
+        })
+
+        expect(result.current.tabs).toEqual([expect.objectContaining({ id: '/ws/b.mmd', content: 'typed in b', isDirty: true })])
+        expect(result.current.activeTabId).toBe('/ws/b.mmd')
+    })
+
+    it('keeps an edit to another tab made just before a file is renamed or deleted', async () => {
+        const initial = {
+            tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd'), tab('/ws/c.mmd', 'c.mmd')],
+            activeTabId: '/ws/a.mmd',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const { result } = renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        act(() => {
+            result.current.updateTabContent('/ws/b.mmd', 'typed in b')
+            coordinator.remapTabsAfterRename.current('/ws/a.mmd', '/ws/renamed.mmd', 'renamed.mmd')
+            coordinator.closeTabsForDelete.current('/ws/c.mmd', false)
+        })
+
+        expect(result.current.tabs).toEqual([
+            expect.objectContaining({ id: '/ws/renamed.mmd' }),
+            expect.objectContaining({ id: '/ws/b.mmd', content: 'typed in b', isDirty: true }),
+        ])
+        expect(result.current.activeTabId).toBe('/ws/renamed.mmd')
+    })
+
+    it('never saves the same file twice in the list of open tabs', async () => {
+        const initial = { tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/a.mmd', 'a.mmd')], activeTabId: '/ws/a.mmd' }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        renderHook(() => useDocumentTabs(), { wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }) })
+
+        await act(async () => {
+            await coordinator.persistWorkspaceTabSession.current()
+        })
+
+        expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/a.mmd'], activeTabId: '/ws/a.mmd' })
     })
 })

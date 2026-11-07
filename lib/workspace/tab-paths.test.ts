@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { remapTabsAfterRename, tabsToCloseOnDelete } from './tab-paths'
+import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from './tab-paths'
 import type { DocumentTab } from './types'
 
 function tab(id: string, path: string, name = id): DocumentTab {
@@ -72,5 +72,41 @@ describe('tabsToCloseOnDelete', () => {
         ]
         expect(tabsToCloseOnDelete(tabs, 'C:\\ws/flow.mmd', false)).toEqual([tabs[0]])
         expect(tabsToCloseOnDelete(tabs, 'C:\\ws/docs', true)).toEqual([tabs[1]])
+    })
+})
+
+describe('remapPathAfterRename', () => {
+    it('follows the renamed entry and anything inside it, and leaves other paths alone', () => {
+        expect(remapPathAfterRename('/ws/docs', '/ws/docs', '/ws/manual')).toBe('/ws/manual')
+        expect(remapPathAfterRename('/ws/docs/guide.md', '/ws/docs', '/ws/manual')).toBe('/ws/manual/guide.md')
+        expect(remapPathAfterRename('C:\\ws\\Docs\\a\\b.md', 'c:/ws/docs', 'C:\\ws\\manual')).toBe('C:\\ws\\manual\\a\\b.md')
+        expect(remapPathAfterRename('/ws/docs-old/x.md', '/ws/docs', '/ws/manual')).toBe('/ws/docs-old/x.md')
+        expect(remapPathAfterRename('example:flow', '/ws/docs', '/ws/manual')).toBe('example:flow')
+    })
+})
+
+describe('remapPathKeysAfterRename', () => {
+    it('moves the entries for a renamed folder and everything inside it', () => {
+        const toggles = new Map([
+            ['C:\\ws\\docs', true],
+            ['C:\\ws\\docs\\deep', true],
+            ['C:\\ws\\docs-old', false],
+        ])
+        expect([...remapPathKeysAfterRename(toggles, 'C:\\ws\\Docs', 'C:\\ws\\manual')]).toEqual([
+            ['C:\\ws\\manual', true],
+            ['C:\\ws\\manual\\deep', true],
+            ['C:\\ws\\docs-old', false],
+        ])
+    })
+})
+
+describe('dropPathKeysAfterDelete', () => {
+    it('drops the entries for a deleted folder and everything inside it', () => {
+        const toggles = new Map([
+            ['/ws/docs', true],
+            ['/ws/docs/deep', false],
+            ['/ws/docs-old', true],
+        ])
+        expect([...dropPathKeysAfterDelete(toggles, '/ws/docs')]).toEqual([['/ws/docs-old', true]])
     })
 })

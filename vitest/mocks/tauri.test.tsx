@@ -5,6 +5,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { describe, expect, it, vi } from 'vitest'
 import { WorkspaceSessionProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-session-context'
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
+import { SettingsProvider } from '@/components/studio/settings/settings-provider'
 import { isTauri } from '@/lib/tauri/platform'
 
 const root = join(__dirname, '..', '..')
@@ -58,9 +59,11 @@ describe('shared Tauri mocks', () => {
         }
 
         render(
-            <WorkspaceSessionProvider coordinator={createWorkspaceCoordinatorRefs()}>
-                <RecentCount />
-            </WorkspaceSessionProvider>
+            <SettingsProvider>
+                <WorkspaceSessionProvider coordinator={createWorkspaceCoordinatorRefs()}>
+                    <RecentCount />
+                </WorkspaceSessionProvider>
+            </SettingsProvider>
         )
 
         expect(await screen.findByText('0 recent')).toBeInTheDocument()
@@ -71,7 +74,7 @@ describe('shared Tauri mocks', () => {
         vi.mocked(isTauri).mockReturnValue(true)
         try {
             expect(await store.getRecentWorkspaces()).toEqual([])
-            expect(await store.addRecentWorkspace('C:\\Notes')).toEqual(['C:\\Notes'])
+            expect(await store.addRecentWorkspace('C:\\Notes', 10)).toEqual(['C:\\Notes'])
             expect(await store.getWorkspaceTabSession('C:\\Notes')).toBeNull()
             await store.setLastOpenedFile('C:\\Notes', 'C:\\Notes\\a.md')
             expect(LazyStore).toHaveBeenCalledWith('workspace.json')

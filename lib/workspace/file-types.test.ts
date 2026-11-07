@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { documentExtension, documentKind, isMarkdownFile, isMermaidFile, isSupportedDocument, withDocumentExtension } from './file-types'
+import {
+    documentExtension,
+    documentKind,
+    isMarkdownFile,
+    isMermaidFile,
+    isSupportedDocument,
+    supportedExtensionsLabel,
+    withDocumentExtension,
+} from './file-types'
+
+describe('supportedExtensionsLabel', () => {
+    it('lists every extension Scrivon opens, .mermaid included', () => {
+        expect(supportedExtensionsLabel('and')).toBe('.md, .mmd and .mermaid')
+        expect(supportedExtensionsLabel('or')).toBe('.md, .mmd or .mermaid')
+        for (const ext of ['.md', '.mmd', '.mermaid']) expect(isSupportedDocument(`file${ext}`)).toBe(true)
+    })
+})
 
 describe('isMarkdownFile', () => {
     it('matches .md case-insensitively', () => {
@@ -52,5 +68,13 @@ describe('withDocumentExtension', () => {
         expect(withDocumentExtension('notes.md', '.mmd')).toBe('notes.md')
         expect(withDocumentExtension('flow.MERMAID', '.mmd')).toBe('flow.MERMAID')
         expect(withDocumentExtension('', '.mmd')).toBe('')
+        expect(withDocumentExtension('Notes 2026.11.07', '.md')).toBe('Notes 2026.11.07.md')
+        expect(withDocumentExtension('Dr. Smith', '.md')).toBe('Dr. Smith.md')
+    })
+
+    it('leaves a name with another extension as typed, so it is refused instead of becoming todo.txt.md', () => {
+        expect(withDocumentExtension('todo.txt', '.md')).toBe('todo.txt')
+        expect(withDocumentExtension('notes.TXT', '.mmd')).toBe('notes.TXT')
+        expect(isSupportedDocument(withDocumentExtension('todo.txt', '.md'))).toBe(false)
     })
 })

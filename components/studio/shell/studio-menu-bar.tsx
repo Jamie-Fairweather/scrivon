@@ -6,6 +6,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
+import { folderLabels } from '@/lib/workspace/paths'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
 import {
@@ -114,9 +115,12 @@ export function StudioMenuBar() {
                                     <MenuSubTrigger>Open Recent</MenuSubTrigger>
                                     <MenuSubPopup className="min-w-56">
                                         <MenuGroup>
-                                            {recentWorkspaces.map((path) => (
+                                            {folderLabels(recentWorkspaces).map(({ path, location }) => (
                                                 <MenuItem key={path} disabled={!isDesktop} onClick={() => void openWorkspace(path)} title={path}>
                                                     <span className="truncate">{getBaseName(path)}</span>
+                                                    {location && (
+                                                        <span className="ms-auto truncate ps-4 text-xs text-muted-foreground">{location}</span>
+                                                    )}
                                                 </MenuItem>
                                             ))}
                                         </MenuGroup>

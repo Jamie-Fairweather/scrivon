@@ -69,6 +69,7 @@ vi.mock(
     '@/lib/tauri/store',
     () =>
         ({
+            clampRecentWorkspaceLimit: vi.fn((limit: number) => limit),
             getRecentWorkspaces: vi.fn(async () => []),
             addRecentWorkspace: vi.fn(async () => []),
             removeRecentWorkspace: vi.fn(async () => []),
@@ -76,6 +77,8 @@ vi.mock(
             setLastOpenedFile: vi.fn(async () => undefined),
             setWorkspaceTabSession: vi.fn(async () => undefined),
             getWorkspaceTabSession: vi.fn(async () => null),
+            getFolderToggles: vi.fn(async () => []),
+            setFolderToggles: vi.fn(async () => undefined),
             getRecentFiles: vi.fn(async () => []),
             addRecentFile: vi.fn(async () => []),
         }) satisfies typeof import('@/lib/tauri/store')

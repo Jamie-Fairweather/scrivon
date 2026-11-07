@@ -5,13 +5,7 @@ import { useWorkspaceSession } from '@/components/studio/workspace/workspace-pro
 import { APP_NAME, APP_TAGLINE } from '@/lib/app-branding'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-
-function truncatePath(path: string, max = 56): string {
-    if (path.length <= max) return path
-    const start = path.slice(0, 20)
-    const end = path.slice(-32)
-    return `${start}…${end}`
-}
+import { shortenPath as truncatePath } from '@/lib/workspace/paths'
 
 export function WelcomeScreen() {
     const { isDesktop, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, removeRecent } = useWorkspaceSession()

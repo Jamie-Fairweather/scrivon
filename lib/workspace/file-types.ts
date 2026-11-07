@@ -19,6 +19,14 @@ export function documentKind(name: string): DocumentKind | null {
     return null
 }
 
+/** The extensions of the files Scrivon opens, in the order messages list them. */
+const SUPPORTED_EXTENSIONS = ['.md', '.mmd', '.mermaid']
+
+/** The supported extensions for a message: `.md, .mmd and .mermaid` (or `or`), so no message leaves one out. */
+export function supportedExtensionsLabel(conjunction: 'and' | 'or'): string {
+    return `${SUPPORTED_EXTENSIONS.slice(0, -1).join(', ')} ${conjunction} ${SUPPORTED_EXTENSIONS.at(-1)}`
+}
+
 const DOCUMENT_EXTENSIONS = ['.mermaid', '.mmd', '.md']
 
 /** The extension that makes `name` a document Scrivon opens, as written (`.md`, `.MMD`, `.mermaid`), or null. */
@@ -28,7 +36,14 @@ export function documentExtension(name: string): string | null {
     return ext ? name.slice(name.length - ext.length) : null
 }
 
-/** Adds `extension` unless `name` already ends in one Scrivon opens: `login flow` becomes `login flow.mmd`. */
+/** An extension the user typed, such as `.txt`: a dot, then a letter and up to nine more letters or digits. */
+const TYPED_EXTENSION = /\.[a-z][a-z0-9]{0,9}$/i
+
+/**
+ * Adds `extension` when `name` has none: `login flow` becomes `login flow.mmd`, and `v1.2 plan` or
+ * `Notes 2026.11.07` get one too. A name with an extension of its own is left as typed, so `todo.txt`
+ * gets the "must end with .md…" message instead of quietly becoming `todo.txt.md`.
+ */
 export function withDocumentExtension(name: string, extension: string): string {
-    return !name || isSupportedDocument(name) ? name : `${name}${extension}`
+    return !name || TYPED_EXTENSION.test(name) ? name : `${name}${extension}`
 }
