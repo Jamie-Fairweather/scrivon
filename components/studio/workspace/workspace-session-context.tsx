@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
-import { DEFAULT_MARKDOWN } from '@/lib/default-markdown'
+import { defaultMarkdownFor } from '@/lib/default-markdown'
 import { pickWorkspaceFolder } from '@/lib/tauri/dialog'
 import {
     createWorkspaceDirectory,
@@ -427,7 +427,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 notifyError(failed, undefined, { description: problem })
                 return
             }
-            const resolvedContent = content ?? (isMarkdownFile(name) ? DEFAULT_MARKDOWN : DEFAULT_DIAGRAM)
+            const resolvedContent = content ?? (isMarkdownFile(name) ? defaultMarkdownFor(name) : DEFAULT_DIAGRAM)
             const path = joinPath(parentPath, name)
             try {
                 await createWorkspaceFile(path, resolvedContent)

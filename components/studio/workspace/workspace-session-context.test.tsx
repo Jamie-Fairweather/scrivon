@@ -399,6 +399,18 @@ describe('creating files and folders', () => {
         })
     }
 
+    it('starts a new document with a heading named after the file', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.createFile('C:\\ws', 'meeting-notes.md')
+        })
+
+        expect(await disk.read('C:\\ws\\meeting-notes.md')).toBe('# Meeting notes\n\n')
+        expect(result.current.tabs.activeTab?.content).toBe('# Meeting notes\n\n')
+    })
+
     it('refuses a name already used in the folder, in any letter case, instead of overwriting it', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)
