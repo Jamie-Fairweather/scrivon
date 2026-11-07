@@ -186,6 +186,43 @@ describe('workspace store', () => {
         })
     })
 
+    describe('folders that leave the recent folders', () => {
+        const KEPT = {
+            'recent-workspaces': ['C:\\notes', 'D:\\work'],
+            'open-tabs:C:\\notes': { tabIds: ['C:\\notes\\private.md'], activeTabId: 'C:\\notes\\private.md' },
+            'last-file:C:\\notes': 'C:\\notes\\private.md',
+            'recent-files:c:/Notes': ['c:/Notes/private.md'],
+            'open-tabs:D:\\work': { tabIds: ['D:\\work\\plan.md'], activeTabId: 'D:\\work\\plan.md' },
+            'recent-files:D:\\work': ['D:\\work\\plan.md'],
+        }
+
+        it('forgets the open tabs and file lists of a folder removed from the list', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(KEPT))
+            const store = await launch()
+
+            expect(await store.removeRecentWorkspace('C:\\notes')).toEqual(['D:\\work'])
+
+            expect(onDisk('workspace.json')).toEqual({
+                'recent-workspaces': ['D:\\work'],
+                'open-tabs:D:\\work': KEPT['open-tabs:D:\\work'],
+                'recent-files:D:\\work': KEPT['recent-files:D:\\work'],
+            })
+            expect(await store.getWorkspaceTabSession('C:\\notes')).toBeNull()
+        })
+
+        it('forgets them for a folder that drops off the end of the list', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(KEPT))
+            const store = await launch()
+
+            expect(await store.addRecentWorkspace('E:\\new', 2)).toEqual(['E:\\new', 'C:\\notes'])
+
+            const saved = onDisk('workspace.json')!
+            expect(Object.keys(saved).filter((key) => key.includes('D:\\work'))).toEqual([])
+            expect(saved['recent-workspaces']).toEqual(['E:\\new', 'C:\\notes'])
+            expect(saved['open-tabs:C:\\notes']).toEqual(KEPT['open-tabs:C:\\notes'])
+        })
+    })
+
     describe('the recent folders limit', () => {
         it('keeps as many folders as the limit it is given', async () => {
             fake.disk.set('workspace.json', JSON.stringify({ 'recent-workspaces': ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d'] }))

@@ -158,6 +158,18 @@ export async function getRecentWorkspaces(): Promise<string[]> {
     return toPathList(await s.get<unknown>(RECENT_KEY))
 }
 
+/**
+ * Forgets what was kept for a folder that left the recent folders: its open tabs, last file and recent
+ * files, which name the user's files. Keys written with other separators or letter case go too.
+ */
+async function forgetWorkspace(s: LazyStore, root: string): Promise<void> {
+    const prefixes = [OPEN_TABS_PREFIX, LAST_FILE_PREFIX, RECENT_FILES_PREFIX]
+    for (const key of await s.keys()) {
+        const prefix = prefixes.find((p) => key.startsWith(p))
+        if (prefix && samePath(key.slice(prefix.length), root)) await s.delete(key)
+    }
+}
+
 /** Puts a folder first in the recent folders, keeping at most `limit` (the live setting). */
 export async function addRecentWorkspace(path: string, limit: number): Promise<string[]> {
     const s = await getStore()
@@ -167,6 +179,7 @@ export async function addRecentWorkspace(path: string, limit: number): Promise<s
     const added = normalizePath(path)
     const next = [added, ...current.filter((p) => !samePath(p, added))].slice(0, clampRecentWorkspaceLimit(limit))
     await s.set(RECENT_KEY, next)
+    for (const dropped of current.filter((p) => !next.some((kept) => samePath(kept, p)))) await forgetWorkspace(s, dropped)
     await saveStore(s)
     return next
 }
@@ -177,6 +190,7 @@ export async function removeRecentWorkspace(path: string): Promise<string[]> {
 
     const next = (await getRecentWorkspaces()).filter((p) => !samePath(p, path))
     await s.set(RECENT_KEY, next)
+    await forgetWorkspace(s, path)
     await saveStore(s)
     return next
 }
