@@ -146,6 +146,20 @@ describe('StudioMenuBar', () => {
         expect(await item('notes')).not.toHaveAttribute('aria-disabled', 'true')
     })
 
+    it('keeps Hebrew folder names in order in an Open Recent tooltip', async () => {
+        const LRM = '\u200E'
+        mockContexts({ isDesktop: true, workspaceRoot: null, openingWorkspace: null, recentWorkspaces: ['D:\\מסמכים\\פרויקט'] })
+        render(<StudioMenuBar />)
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'File' }))
+        await user.click(await screen.findByRole('menuitem', { name: 'Open Recent' }))
+
+        const item = await screen.findByRole('menuitem', { name: 'פרויקט' })
+        expect(item).toHaveAttribute('title', `${LRM}D:\\${LRM}מסמכים\\${LRM}פרויקט${LRM}`)
+        expect(within(item).getByText('פרויקט')).toHaveAttribute('dir', 'auto')
+    })
+
     it("follows the user's own key bindings and shows nothing for an unbound action", async () => {
         const keybinds = createDefaultKeybinds(false)
         keybinds['view.toggleExplorer'] = [{ key: 'b', ctrl: true, alt: true }]

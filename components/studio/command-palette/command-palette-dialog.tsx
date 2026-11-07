@@ -26,6 +26,8 @@ import {
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Spinner } from '@/components/ui/spinner'
 import { notifyError } from '@/lib/notify'
+import { cn } from '@/lib/utils'
+import { displayPath } from '@/lib/workspace/display-path'
 
 type CommandPaletteDialogProps = {
     open: boolean
@@ -103,9 +105,11 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
             <CommandItem onClick={handleClick} value={item.value}>
                 <DocumentIcon kind={item.documentKind} />
                 <span className="min-w-0 flex-1">
-                    <span className="block truncate">{item.name}</span>
+                    <span dir="auto" className="block truncate text-left">
+                        {item.name}
+                    </span>
                     <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
-                        {item.relativePath}
+                        {displayPath(item.relativePath)}
                     </span>
                 </span>
                 {item.isDirty ? (
@@ -128,9 +132,11 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                     <DocumentIcon kind={item.documentKind} />
                 )}
                 <span className="min-w-0 flex-1">
-                    <span className="block truncate">{item.name}</span>
+                    <span dir="auto" className="block truncate text-left">
+                        {item.name}
+                    </span>
                     <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
-                        {item.relativePath}
+                        {displayPath(item.relativePath)}
                     </span>
                 </span>
             </CommandItem>
@@ -142,8 +148,12 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
             <CommandItem onClick={handleClick} value={item.value}>
                 <FolderIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1">
-                    <span className="block truncate">{item.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">{item.path}</span>
+                    <span dir="auto" className="block truncate text-left">
+                        {item.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
+                        {displayPath(item.path)}
+                    </span>
                 </span>
             </CommandItem>
         )
@@ -156,11 +166,13 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
             <DocumentIcon kind={item.documentKind} />
             <span className="min-w-0 flex-1">
                 <span className="block truncate">
-                    {item.name}
+                    {/* Set apart, so a right-to-left name can't pull the folder or the line number out of order. */}
+                    <span dir="auto">{item.name}</span>
                     {/* The folder tells apart files with the same name, e.g. docs/README.md and api/README.md. */}
                     {folder ? (
-                        <span className="text-xs text-muted-foreground in-data-highlighted:text-accent-foreground"> {folder}</span>
-                    ) : null} · {item.line}:{item.column}
+                        <span className="text-xs text-muted-foreground in-data-highlighted:text-accent-foreground"> {displayPath(folder)}</span>
+                    ) : null}{' '}
+                    · {item.line}:{item.column}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
                     {highlightPreview(item.preview, item.previewMatchStart, item.length)}
@@ -327,7 +339,15 @@ export function CommandPaletteDialog({
                     <CommandInput
                         aria-label={MODE_INPUT_LABELS[mode]}
                         // Make room for the filter chip so typed text doesn't run under it.
-                        className={filterLabel ? '*:data-[slot=autocomplete-input]:pe-24 sm:*:data-[slot=autocomplete-input]:pe-24' : undefined}
+                        className={cn(
+                            filterLabel && '*:data-[slot=autocomplete-input]:pe-24 sm:*:data-[slot=autocomplete-input]:pe-24',
+                            // A Hebrew or Arabic query turns the box right to left, which swaps its start and end padding, but the
+                            // search icon stays on the left and the chip on the right. Keep the padding beside each of them.
+                            `*:data-[slot=autocomplete-input]:rtl:pe-[calc(--spacing(8.5)-1px)]
+                            sm:*:data-[slot=autocomplete-input]:rtl:pe-[calc(--spacing(8)-1px)]`,
+                            filterLabel && '*:data-[slot=autocomplete-input]:rtl:ps-24 sm:*:data-[slot=autocomplete-input]:rtl:ps-24'
+                        )}
+                        dir="auto"
                         endAddon={endAddon}
                         onFocus={handleInputFocus}
                         onKeyDown={handleInputKeyDown}

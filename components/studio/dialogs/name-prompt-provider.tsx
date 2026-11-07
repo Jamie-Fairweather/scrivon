@@ -113,6 +113,8 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                     aria-describedby={error ? errorId : undefined}
                                     aria-invalid={error ? true : undefined}
                                     autoFocus
+                                    // A Hebrew or Arabic name reads right to left as it is typed.
+                                    dir="auto"
                                     id={inputId}
                                     nativeInput
                                     onChange={(e) => setValue(e.target.value)}

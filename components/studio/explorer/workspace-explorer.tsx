@@ -77,7 +77,7 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
                     <div className="flex flex-row items-center justify-between gap-2 px-1">
                         <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium text-muted-foreground uppercase">Workspace</p>
-                            <p className="truncate text-sm font-medium" title={workspaceName ?? undefined}>
+                            <p dir="auto" className="truncate text-left text-sm font-medium" title={workspaceName ?? undefined}>
                                 {workspaceName}
                             </p>
                         </div>

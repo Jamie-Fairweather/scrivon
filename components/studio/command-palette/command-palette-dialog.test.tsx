@@ -261,6 +261,47 @@ describe('CommandPaletteDialog secondary text', () => {
     })
 })
 
+describe('CommandPaletteDialog right-to-left names', () => {
+    const LRM = '‎'
+
+    it('keeps Hebrew folders in order in a path, and lets the name take its own direction', () => {
+        const tab: PaletteItem = { ...dirtyTab, value: 'tab:hebrew', name: 'סיכום.md', relativePath: 'מסמכים/פרויקט/סיכום.md', isDirty: false }
+        renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [tab] }] })
+
+        const option = screen.getByRole('option')
+        expect(within(option).getByText(`${LRM}מסמכים/${LRM}פרויקט/${LRM}סיכום.md${LRM}`)).toBeInTheDocument()
+        expect(within(option).getByText('סיכום.md')).toHaveAttribute('dir', 'auto')
+    })
+
+    it('sets a text hit apart from its folder and line, so a Hebrew name cannot pull them out of order', () => {
+        const hit: PaletteItem = {
+            kind: 'text',
+            value: 'text:/ws/מסמכים/סיכום.md:4:1',
+            searchText: 'סיכום.md',
+            path: '/ws/מסמכים/סיכום.md',
+            name: 'סיכום.md',
+            relativePath: 'מסמכים/סיכום.md',
+            documentKind: 'markdown',
+            line: 4,
+            column: 1,
+            length: 3,
+            preview: 'abc',
+            previewMatchStart: 0,
+            source: 'disk',
+        }
+        renderDialog({ mode: 'text', query: 'abc', groups: [{ id: 'text', label: 'Text', items: [hit] }] })
+
+        const option = screen.getByRole('option')
+        expect(within(option).getByText('סיכום.md')).toHaveAttribute('dir', 'auto')
+        expect(within(option).getByText(`${LRM}מסמכים${LRM}`, { exact: false })).toBeInTheDocument()
+    })
+
+    it('lets the search box follow the direction of what is typed', () => {
+        renderDialog()
+        expect(screen.getByRole('combobox')).toHaveAttribute('dir', 'auto')
+    })
+})
+
 describe('CommandPaletteDialog icons', () => {
     it('shows the document icon for an upper-case .MD tab', () => {
         const tab: PaletteItem = {

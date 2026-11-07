@@ -9,6 +9,7 @@ import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-c
 import { getTabFolderHints } from '@/components/studio/editor/tab-labels'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { displayPath } from '@/lib/workspace/display-path'
 import { documentKind } from '@/lib/workspace/file-types'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { Button } from '@/components/ui/button'
@@ -173,16 +174,18 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                         tabIndex={tab.id === focusableTabId ? 0 : -1}
                                         className="flex min-w-0 flex-1 items-center gap-1 truncate py-2 pr-1 pl-3 text-left text-xs"
                                         onClick={() => void setActiveTab(tab.id)}
-                                        title={tab.saveError ? `${tab.path}\nSave failed: ${tab.saveError}` : tab.path}
+                                        title={tab.saveError ? `${displayPath(tab.path)}\nSave failed: ${tab.saveError}` : displayPath(tab.path)}
                                     >
                                         {tab.readOnly && <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
                                         {tab.saveError && <CircleAlert className="size-3 shrink-0 text-destructive" aria-hidden />}
-                                        <span className="truncate">{tab.name}</span>
+                                        <span dir="auto" className="truncate">
+                                            {tab.name}
+                                        </span>
                                         {folderHint && (
                                             // Shrinks much faster than the name, so it is cut off first.
                                             <span className="shrink-[100] truncate text-[10px] text-muted-foreground">
                                                 <span className="sr-only">in </span>
-                                                {folderHint}
+                                                {displayPath(folderHint)}
                                             </span>
                                         )}
                                         {status && <span className="sr-only">, {status}</span>}

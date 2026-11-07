@@ -95,7 +95,9 @@ export const FileTreeNode = memo(function FileTreeNode({
                     ) : (
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
                     )}
-                    <span className="truncate">{node.name}</span>
+                    <span dir="auto" className="truncate">
+                        {node.name}
+                    </span>
                     {isUnreadable &&
                         (linksOutside ? (
                             <Link2Off data-mark="links-outside" className="size-3.5 shrink-0" />

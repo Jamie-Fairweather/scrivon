@@ -8,6 +8,7 @@ import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
+import { displayPath } from '@/lib/workspace/display-path'
 import { folderLabels } from '@/lib/workspace/paths'
 import { OpenSourceLicensesDialog } from '@/components/studio/dialogs/open-source-licenses-dialog'
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
@@ -129,7 +130,7 @@ export function StudioMenuBar() {
                                                         key={path}
                                                         disabled={!isDesktop || opening}
                                                         onClick={() => void openWorkspace(path)}
-                                                        title={current ? `${path} (current folder)` : path}
+                                                        title={current ? `${displayPath(path)} (current folder)` : displayPath(path)}
                                                         aria-current={current || undefined}
                                                         aria-busy={opening || undefined}
                                                     >
@@ -141,13 +142,15 @@ export function StudioMenuBar() {
                                                         ) : (
                                                             <span className="-mx-0.5 size-4.5 shrink-0 sm:size-4" aria-hidden />
                                                         )}
-                                                        <span className="truncate">{getBaseName(path)}</span>
+                                                        <span dir="auto" className="truncate">
+                                                            {getBaseName(path)}
+                                                        </span>
                                                         {location && (
                                                             <span
                                                                 className="ms-auto truncate ps-4 text-xs text-muted-foreground
                                                                     in-data-highlighted:text-accent-foreground"
                                                             >
-                                                                {location}
+                                                                {displayPath(location)}
                                                             </span>
                                                         )}
                                                     </MenuItem>

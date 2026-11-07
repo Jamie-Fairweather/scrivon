@@ -6,6 +6,7 @@ import { APP_NAME, APP_TAGLINE } from '@/lib/app-branding'
 import { Button } from '@/components/ui/button'
 import { getBaseName, samePath } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
+import { displayPath } from '@/lib/workspace/display-path'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import { shortenPath as truncatePath } from '@/lib/workspace/paths'
 
@@ -72,8 +73,12 @@ export function WelcomeScreen() {
                                                 aria-disabled={opening || undefined}
                                             >
                                                 <span className="flex min-w-0 flex-1 flex-col items-start">
-                                                    <span className="max-w-full truncate text-sm font-medium">{name}</span>
-                                                    <span className="max-w-full truncate text-xs text-muted-foreground">{truncatePath(path)}</span>
+                                                    <span dir="auto" className="max-w-full truncate text-sm font-medium">
+                                                        {name}
+                                                    </span>
+                                                    <span className="max-w-full truncate text-xs text-muted-foreground">
+                                                        {displayPath(truncatePath(path))}
+                                                    </span>
                                                 </span>
                                                 {opening && <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />}
                                             </button>

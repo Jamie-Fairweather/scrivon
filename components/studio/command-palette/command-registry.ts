@@ -5,6 +5,7 @@ import { isLightTheme, SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME, type AppThemeId } 
 import { getBaseName, samePath } from '@/lib/tauri/fs'
 import type { KeybindBindings } from '@/lib/settings/types'
 import type { ActionPaletteItem } from '@/components/studio/command-palette/types'
+import { displayPath } from '@/lib/workspace/display-path'
 
 export type CommandRegistryContext = {
     isDesktop: boolean
@@ -216,7 +217,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             searchText: `recent workspace ${getBaseName(path)} ${path}`,
             label: `Open Recent Folder: ${getBaseName(path)}`,
             // Two recent folders can share a name, so show where each one is (the note first, so it isn't cut off).
-            detail: current ? `Current folder · ${path}` : path,
+            detail: current ? `Current folder · ${displayPath(path)}` : displayPath(path),
             disabled: !ctx.isDesktop,
             disabledReason: 'Desktop only',
             run: () => void ctx.openWorkspace(path),

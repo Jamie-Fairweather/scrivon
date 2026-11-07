@@ -79,4 +79,15 @@ describe('WelcomeScreen recent folders', () => {
         expect(screen.getByRole('button', { name: 'Open Folder' })).toHaveAttribute('aria-busy', 'true')
         expect(screen.getByRole('button', { name: /^small/ })).not.toHaveAttribute('aria-busy')
     })
+
+    it('keeps Hebrew folder names in order in the path, and lets each name take its own direction', () => {
+        const LRM = '\u200E'
+        mockSession({ recentWorkspaces: ['C:\\Users\\Dana\\מסמכים\\פרויקט'] })
+
+        render(<WelcomeScreen />)
+
+        // A mark after each separator stops the two Hebrew folders from swapping places.
+        expect(screen.getByText(`${LRM}C:\\${LRM}Users\\${LRM}Dana\\${LRM}מסמכים\\${LRM}פרויקט${LRM}`)).toBeInTheDocument()
+        expect(screen.getByText('פרויקט')).toHaveAttribute('dir', 'auto')
+    })
 })
