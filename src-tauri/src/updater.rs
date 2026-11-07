@@ -39,7 +39,9 @@ struct AttemptRecord {
 #[derive(Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateAttempt {
-    /// The version the update was going to install.
+    /// The version running now when it installed (which may be a newer one
+    /// the user installed by hand), or else the one the update was going to
+    /// install.
     pub version: String,
     /// False when the app is still on the version it had before the update.
     pub installed: bool,
@@ -175,6 +177,23 @@ mod tests {
             take_attempt(&dir, "1.5.0"),
             Some(UpdateAttempt {
                 version: "1.5.0".into(),
+                installed: true,
+            })
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_next_launch_names_the_version_running_after_one_installed_by_hand() {
+        // The in-app update to 1.5.0 didn't install; the user then installed
+        // 1.5.1 from the releases page.
+        let dir = temp_data_dir();
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+
+        assert_eq!(
+            take_attempt(&dir, "1.5.1"),
+            Some(UpdateAttempt {
+                version: "1.5.1".into(),
                 installed: true,
             })
         );
@@ -489,9 +508,14 @@ fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
     let bytes = std::fs::read(&file).ok()?;
     let _ = std::fs::remove_file(&file);
     let record: AttemptRecord = serde_json::from_slice(&bytes).ok()?;
+    let installed = record.from != current_version;
     Some(UpdateAttempt {
-        installed: record.from != current_version,
-        version: record.to,
+        version: if installed {
+            current_version.to_string()
+        } else {
+            record.to
+        },
+        installed,
     })
 }
 

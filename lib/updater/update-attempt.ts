@@ -1,22 +1,24 @@
-import { notifySuccess, notifyWarning } from '@/lib/notify'
+import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { invoke } from '@tauri-apps/api/core'
+import { openUrl } from '@tauri-apps/plugin-opener'
 
 export const RELEASES_URL = 'https://github.com/Jamie-Fairweather/scrivon/releases/latest'
 
 /** Mirrors `UpdateAttempt` in src-tauri/src/updater.rs. */
 type UpdateAttempt = {
-    /** The version the update was going to install. */
+    /** The version running now when it installed (perhaps one installed by hand), else the one the update was going to install. */
     version: string
     /** False when the app is still on the version it had before the update. */
     installed: boolean
 }
 
+/** In the browser: in the app's window, window.open would open a popup of the app instead. */
 async function openReleasesPage(): Promise<void> {
     try {
-        await invoke('plugin:opener|open_url', { url: RELEASES_URL })
-    } catch {
-        window.open(RELEASES_URL, '_blank', 'noopener')
+        await openUrl(RELEASES_URL)
+    } catch (err) {
+        notifyError("Couldn't open the releases page", err)
     }
 }
 

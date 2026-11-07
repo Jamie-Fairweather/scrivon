@@ -1,20 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.hoisted(() => vi.fn())
+const openUrl = vi.hoisted(() => vi.fn())
 const isTauri = vi.hoisted(() => vi.fn(() => true))
+const notifyError = vi.hoisted(() => vi.fn())
 const notifySuccess = vi.hoisted(() => vi.fn())
 const notifyWarning = vi.hoisted(() => vi.fn())
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri }))
-vi.mock('@/lib/notify', () => ({ notifySuccess, notifyWarning }))
+vi.mock('@/lib/notify', () => ({ notifyError, notifySuccess, notifyWarning }))
 
 import { RELEASES_URL, reportLastUpdateAttempt } from '@/lib/updater/update-attempt'
 
 describe('reportLastUpdateAttempt', () => {
     beforeEach(() => {
         invoke.mockReset()
+        openUrl.mockReset()
         isTauri.mockReturnValue(true)
+        notifyError.mockReset()
         notifySuccess.mockReset()
         notifyWarning.mockReset()
     })
@@ -33,9 +38,21 @@ describe('reportLastUpdateAttempt', () => {
         expect(options.timeout).toBe(0)
         expect(options.action.label).toBe('Download')
 
-        invoke.mockResolvedValueOnce(undefined)
+        openUrl.mockResolvedValueOnce(undefined)
         options.action.onClick()
-        await vi.waitFor(() => expect(invoke).toHaveBeenLastCalledWith('plugin:opener|open_url', { url: RELEASES_URL }))
+        await vi.waitFor(() => expect(openUrl).toHaveBeenCalledWith(RELEASES_URL))
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('says so when the releases page could not be opened in the browser', async () => {
+        invoke.mockResolvedValueOnce({ version: '1.5.0', installed: false })
+        await reportLastUpdateAttempt()
+        const error = new Error('No browser is set up.')
+        openUrl.mockRejectedValueOnce(error)
+
+        notifyWarning.mock.calls[0]![1].action.onClick()
+
+        await vi.waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't open the releases page", error))
     })
 
     it('confirms an update that installed', async () => {
