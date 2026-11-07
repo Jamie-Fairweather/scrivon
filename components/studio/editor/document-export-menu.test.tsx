@@ -132,8 +132,14 @@ describe('DocumentExportMenu', () => {
 
         fireEvent.click(button)
         const saveSvg = await screen.findByRole('menuitem', { name: 'Save SVG' })
+        const savePng = screen.getByRole('menuitem', { name: 'Save PNG' })
         expect(saveSvg).toHaveAttribute('aria-disabled', 'true')
-        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).toHaveAttribute('aria-disabled', 'true')
+        expect(savePng).toHaveAttribute('aria-disabled', 'true')
+        // A spinner on each says they are waiting for the drawing, not broken.
+        expect(saveSvg).toHaveAttribute('aria-busy', 'true')
+        expect(savePng).toHaveAttribute('aria-busy', 'true')
+        expect(saveSvg.querySelector('svg.animate-spin')).not.toBeNull()
+        expect(savePng.querySelector('svg.animate-spin')).not.toBeNull()
         fireEvent.click(saveSvg)
         // The export code loads on first use, so give a click that got through time to arrive.
         await act(async () => {
@@ -145,8 +151,11 @@ describe('DocumentExportMenu', () => {
         diagram.isStale = false
         view.rerender(<DocumentExportMenu />)
         expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-disabled')
+        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-busy')
         const enabled = screen.getByRole('menuitem', { name: 'Save SVG' })
         expect(enabled).not.toHaveAttribute('aria-disabled')
+        expect(enabled).not.toHaveAttribute('aria-busy')
+        expect(enabled.querySelector('svg.animate-spin')).toBeNull()
         fireEvent.click(enabled)
         await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', 'light', expect.objectContaining({ tabName: 'flow.mmd' })))
     })

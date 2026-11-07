@@ -56,6 +56,8 @@ export function DocumentExportMenu() {
     // The text on screen is newer than the picture and may turn out broken or empty. Only the items wait for
     // it: dimming the whole Export button too would make it flicker on every keystroke.
     const diagramItemDisabled = diagramDisabled || isStale
+    // A spinner on those items says why they are off for now.
+    const diagramDrawing = isStale && !diagramDisabled
     const pdfDisabled = !hasMarkdown || exporting
 
     const runExport = async (action: () => Promise<void>) => {
@@ -127,14 +129,19 @@ export function DocumentExportMenu() {
                             <>
                                 <MenuItem
                                     disabled={diagramItemDisabled}
+                                    aria-busy={diagramDrawing || undefined}
                                     onClick={() =>
                                         void runExport(async () => (await loadDiagramExport()).exportSvg(diagramExportSource, themeId, diagramTarget))
                                     }
                                 >
                                     Save SVG
+                                    {diagramDrawing && <Loader2 className="animate-spin" aria-hidden />}
                                 </MenuItem>
                                 <MenuSub>
-                                    <MenuSubTrigger disabled={diagramItemDisabled}>Save PNG</MenuSubTrigger>
+                                    <MenuSubTrigger disabled={diagramItemDisabled} aria-busy={diagramDrawing || undefined}>
+                                        Save PNG
+                                        {diagramDrawing && <Loader2 className="animate-spin" aria-hidden />}
+                                    </MenuSubTrigger>
                                     <MenuSubPopup className="min-w-36">
                                         <MenuGroup>
                                             {PNG_SCALES.map(({ label, scale }) => (
