@@ -812,6 +812,15 @@ SHIKI_FAIL
         expect(html).not.toMatch(/\.pdf-body img \{[^}]*width: auto/)
     })
 
+    it('prints a raw HTML <pre> as a plain block the stylesheet wraps, so a long line can’t shrink every page (B08)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const line = 'x'.repeat(200)
+        const { html } = await markdownToExportHtml(`Before.\n\n<pre>${line}</pre>\n\nAfter.`, { assets: EMPTY_ASSETS })
+        // No class, so it gets the raw <pre> rule and not a code block's or an error's.
+        expect(html).toMatch(new RegExp(`<div class="pdf-body">[\\s\\S]*<pre dir="ltr">${line}</pre>`))
+        expect(html).toContain('.pdf-body pre:not([class]) {')
+    })
+
     it('keeps the screen-reader-only footnotes heading out of the printed page, and off a page of its own (N34)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const profile = createDefaultPdfExportProfile()

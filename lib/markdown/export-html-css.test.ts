@@ -26,12 +26,22 @@ describe('buildPdfExportCss', () => {
 
     it('wraps long code lines instead of cutting them off at the box edge', () => {
         const css = buildPdfExportCss(createDefaultPdfExportProfile())
-        for (const selector of ['.code-block pre.shiki {', '.code-block pre:not(.shiki) {']) {
+        for (const selector of ['.code-block pre.shiki {', '.code-block pre:not(.shiki) {', '.pdf-body pre:not([class]) {']) {
             const rule = css.slice(css.indexOf(selector), css.indexOf('}', css.indexOf(selector)))
-            expect(rule).toContain('white-space: pre-wrap;')
-            expect(rule).toContain('overflow-wrap: anywhere;')
-            expect(rule).not.toContain('overflow-x: auto')
+            expect(rule, selector).toContain('white-space: pre-wrap;')
+            expect(rule, selector).toContain('overflow-wrap: anywhere;')
+            expect(rule, selector).not.toContain('overflow-x: auto')
         }
+    })
+
+    it('wraps a raw HTML <pre> too, without restyling code blocks or diagram errors (B08)', () => {
+        const css = buildPdfExportCss(createDefaultPdfExportProfile())
+        // As strong as the code block rules, which come after it and so keep their own look; .export-error has a class.
+        expect(css.indexOf('.pdf-body pre:not([class]) {')).toBeGreaterThan(-1)
+        expect(css.indexOf('.pdf-body pre:not([class]) {')).toBeLessThan(css.indexOf('.code-block pre:not(.shiki) {'))
+        expect(css).toMatch(/\.pdf-body pre:not\(\[class\]\) \{[^}]*font-size: 0\.82em;/)
+        // A raw <hr width="3000"> can't widen the page either.
+        expect(css).toMatch(/\bhr \{[^}]*max-width: 100%;/)
     })
 
     it('keeps wide content from stretching the page past its width', () => {

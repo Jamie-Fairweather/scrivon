@@ -491,7 +491,8 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     color: #525252;
     font-style: italic;
   }
-  hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; }
+  /* max-width: a raw <hr width="3000"> can't widen the page either. */
+  hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; max-width: 100%; }
   /*
    * The footnotes' "Footnotes" heading is for screen readers only, as in the preview: printed, it would be an
    * English heading in any document, and a new page with 'New page from heading'. A rule sets the notes apart instead.
@@ -538,6 +539,17 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-avoid-break {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+  /*
+   * A raw HTML <pre> (ASCII art, terminal output) wraps like a code block: one line wider than the
+   * page would make Chromium shrink every page. The code block rules below come later and win.
+   */
+  .pdf-body pre:not([class]) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: ${profile.typography.monoFont};
+    font-size: 0.82em;
+    tab-size: 2;
   }
   .code-block { margin: 0 0 1rem; }
   .code-block pre.shiki {
