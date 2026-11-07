@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
-import { renderMermaidDiagramAsync, SupersededRenderError } from '@/lib/mermaid/render-client'
+import { RendererLoadError, renderMermaidDiagramAsync, SupersededRenderError } from '@/lib/mermaid/render-client'
 import {
     forgetDocumentSvgs,
     isBeingEdited,
@@ -104,7 +104,9 @@ export function useMermaidSvg(source: string, documentKey: string | null) {
                 (err: unknown) => {
                     if (err instanceof SupersededRenderError) return
                     const message = err instanceof Error ? err.message : String(err)
-                    storeRenderError(themeId, documentKey, trimmedSource, message, startedAt)
+                    // A renderer that didn't load says nothing about the text, so it isn't remembered for it:
+                    // the next edit, tab switch or theme change tries again.
+                    if (!(err instanceof RendererLoadError)) storeRenderError(themeId, documentKey, trimmedSource, message, startedAt)
                     showError(message)
                 }
             )

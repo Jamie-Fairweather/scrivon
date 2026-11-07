@@ -2,13 +2,14 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { renderMermaidDiagram } from '@/lib/mermaid/render'
+import { RendererLoadError } from '@/lib/mermaid/render-client'
 import { clearSvgCache } from '@/lib/mermaid/svg-cache'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
 const theme = vi.hoisted(() => ({ id: 'scrivon-light' }))
 
 /** When `on`, renders wait in `jobs` until a test finishes them, like a slow diagram in the worker. */
-const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; signal?: AbortSignal; finish: () => void }[] }))
+const slow = vi.hoisted(() => ({ on: false, jobs: [] as { source: string; signal?: AbortSignal; finish: () => void; fail: (err: Error) => void }[] }))
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
     useAppTheme: () => ({ themeId: theme.id }),
@@ -37,6 +38,7 @@ vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
                             reject(err)
                         }
                     },
+                    fail: reject,
                 })
             })
         },
@@ -169,6 +171,24 @@ describe('useMermaidSvg', () => {
         expect(again.result.current.currentError).toMatch(/\S/)
         await waitForRender()
         expect(renderMermaidDiagram).toHaveBeenCalledTimes(renders)
+    })
+
+    it('shows that the renderer failed to load without keeping it as the text’s error, so coming back tries again (review)', async () => {
+        slow.on = true
+        const first = renderEditor(V1)
+        await waitForRender(0)
+        await act(async () => {
+            slow.jobs.shift()!.fail(new RendererLoadError(new Error('Failed to fetch dynamically imported module')))
+        })
+        expect(first.result.current.error).toBe("Couldn't load the diagram renderer. Edit the diagram or switch tabs to try again.")
+        first.unmount()
+
+        const again = renderEditor(V1)
+        expect(again.result.current).toMatchObject({ error: null, isPending: true })
+        await waitForRender(0)
+        expect(slow.jobs).toHaveLength(1)
+        await finishSlowRender()
+        expect(again.result.current).toMatchObject({ svgForDisplay: expectedSvg(V1), error: null })
     })
 
     it('does not bring a deleted diagram back when typing starts again (U02)', async () => {

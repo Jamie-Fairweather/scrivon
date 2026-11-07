@@ -110,6 +110,24 @@ describe('renderMermaidDiagramAsync', () => {
         expect(renderer.loads).toBe(1)
     })
 
+    it('says plainly when the renderer fails to load, and loads it again for the next render (review)', async () => {
+        const renderer = { loads: 0 }
+        vi.doMock('@/lib/mermaid/render', () => {
+            renderer.loads++
+            if (renderer.loads === 1) throw new Error('Failed to fetch dynamically imported module: /_next/static/chunks/x.js')
+            return { renderMermaidDiagram }
+        })
+        vi.stubGlobal('Worker', undefined)
+        const { renderMermaidDiagramAsync, RendererLoadError } = await loadClient()
+
+        const failed = renderMermaidDiagramAsync('graph TD', 'scrivon-light', 'a.mmd')
+        await expect(failed).rejects.toBeInstanceOf(RendererLoadError)
+        await expect(failed).rejects.toThrow("Couldn't load the diagram renderer. Edit the diagram or switch tabs to try again.")
+
+        await expect(renderMermaidDiagramAsync('graph TD', 'scrivon-light', 'a.mmd')).resolves.toBe('<svg>graph TD</svg>')
+        expect(renderer.loads).toBe(2)
+    })
+
     it('lays the diagram out in the worker, off the main thread (P01)', async () => {
         const { renderMermaidDiagramAsync } = await loadClient()
 

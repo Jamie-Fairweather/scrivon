@@ -23,6 +23,17 @@ export class SupersededRenderError extends Error {
     }
 }
 
+/**
+ * The renderer couldn't be loaded on the main thread. Nothing is wrong with the diagram, so this isn't
+ * remembered like a parse error: the next render tries the load again.
+ */
+export class RendererLoadError extends Error {
+    constructor(cause: unknown) {
+        super("Couldn't load the diagram renderer. Edit the diagram or switch tabs to try again.", { cause })
+        this.name = 'RendererLoadError'
+    }
+}
+
 /** One view waiting for a render. */
 type Caller = { documentKey: string }
 
@@ -64,7 +75,8 @@ let renderModule: Promise<RenderModule> | null = null
 
 /**
  * The renderer (beautiful-mermaid and ELK, about 1.5 MB) is loaded on the main thread only once it is needed
- * there, so it isn't part of every launch: the worker has its own copy. A failed load is tried again next time.
+ * there, so it isn't part of every launch: the worker has its own copy. A failed load rejects its jobs with
+ * RendererLoadError and is tried again by the next render.
  */
 function loadRenderer(): Promise<RenderModule> {
     renderModule ??= import('@/lib/mermaid/render').catch((err: unknown) => {
@@ -84,7 +96,7 @@ function renderOnMainThread(job: Job): void {
                 settle(job, { error: asError(err) })
             }
         },
-        (err: unknown) => settle(job, { error: asError(err) })
+        (err: unknown) => settle(job, { error: new RendererLoadError(err) })
     )
 }
 
@@ -218,7 +230,8 @@ function createJob(source: string, themeId: AppThemeId, requestKey: string): Job
 
 /**
  * Renders a diagram for the live preview. Rejects with the parser's error for invalid text, with
- * RENDER_TIMEOUT_MESSAGE when it takes too long, and with SupersededRenderError when it was dropped
+ * RENDER_TIMEOUT_MESSAGE when it takes too long, with RendererLoadError when the main-thread fallback
+ * couldn't load the renderer, and with SupersededRenderError when it was dropped
  * before it started: a newer text for the same document replaced it, or `signal` was aborted, and no
  * other view still wanted it. Abort `signal` when the view goes away.
  */
