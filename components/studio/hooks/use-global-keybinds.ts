@@ -46,11 +46,12 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.defaultPrevented) return
-            const modal = openModal()
-            if (modal === 'other') return
 
             const actionId = matchKeybind(event, bindings, { hasWorkspace, inPalette: isInOpenPalette(event.target) })
             if (!actionId) return
+            // Only now look for open dialogs: that walks the whole page, too much for every key typed in the editor.
+            const modal = openModal()
+            if (modal === 'other') return
             if (modal === 'palette' && !getKeybindActionMeta(actionId)?.allowInPalette) return
 
             const handler = handlersRef.current[actionId]

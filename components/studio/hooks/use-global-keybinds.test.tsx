@@ -139,6 +139,20 @@ describe('useGlobalKeybinds', () => {
         expect(save).toHaveBeenCalledTimes(1)
     })
 
+    it("doesn't search the page for open dialogs on keys that aren't shortcuts", () => {
+        renderHook(() => useGlobalKeybinds(bindings, { 'document.save': vi.fn() }, { hasWorkspace: true }))
+        const editor = document.createElement('div')
+        editor.className = 'monaco-editor'
+        document.body.appendChild(editor)
+        const querySelectorAll = vi.spyOn(document, 'querySelectorAll')
+
+        press('a', {}, editor)
+        press('A', { shiftKey: true }, editor)
+
+        expect(querySelectorAll).not.toHaveBeenCalled()
+        querySelectorAll.mockRestore()
+    })
+
     it('ignores keys something else already handled', () => {
         const save = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'document.save': save }))
