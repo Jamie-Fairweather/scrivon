@@ -58,12 +58,38 @@ describe('MarkdownPreview', () => {
             expect(container.querySelector('ol')).toHaveAttribute('start', '3')
         })
 
+        /**
+         * The bullet a list would get from its classes and those of the lists around it, read the way Tailwind
+         * writes them (`[sel_&]:list-[circle]` is `sel .that-class { list-style-type: circle }`) and matched
+         * against the rendered page, since the test page has no stylesheet. The rule with more steps wins.
+         */
+        function bulletOf(list: HTMLElement, container: HTMLElement): string {
+            let best = { type: 'disc', steps: -1 }
+            for (const owner of container.querySelectorAll<HTMLElement>('ul, ol')) {
+                for (const name of owner.classList) {
+                    const rule = /^\[(.+)\]:list-\[(\w+)\]$/.exec(name)
+                    if (!rule) continue
+                    const selector = rule[1]!.replaceAll('_', ' ').replace('&', `.${CSS.escape(name)}`)
+                    const steps = selector.split(' ').length
+                    if (list.matches(selector) && steps > best.steps) best = { type: rule[2]!, steps }
+                }
+            }
+            return best.type
+        }
+
         it('shows disc, circle and square bullets for lists inside lists, as the PDF and Word do (B91)', () => {
             const { container } = preview('- one\n  - two\n    - three\n      - four')
             const lists = Array.from(container.querySelectorAll('ul'))
             expect(lists).toHaveLength(4)
-            // Every list carries the rules; which one applies depends on how deep it sits.
-            for (const list of lists) expect(list).toHaveClass('list-disc', '[&_ul]:list-[circle]', '[&_ul_ul]:list-[square]')
+            expect(lists.map((list) => bulletOf(list, container))).toEqual(['disc', 'circle', 'square', 'square'])
+        })
+
+        it('counts numbered lists as levels too, as the PDF and Word do (review)', () => {
+            const { container } = preview('1. step\n   - detail\n     1. sub-step\n        - note')
+            const lists = Array.from(container.querySelectorAll('ul'))
+            expect(lists).toHaveLength(2)
+            // A bullet list inside a numbered one is the second level, and one inside three lists is the third.
+            expect(lists.map((list) => bulletOf(list, container))).toEqual(['circle', 'square'])
         })
 
         it('shows a task item’s checkbox in place of its bullet', () => {
