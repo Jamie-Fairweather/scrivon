@@ -65,6 +65,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             fontSize: 13,
             tabSize: 2,
             wordWrap: 'on',
+            wordWrapColumn: 80,
             lineNumbers: 'on',
             minimap: false,
             tabMovesFocus: false,

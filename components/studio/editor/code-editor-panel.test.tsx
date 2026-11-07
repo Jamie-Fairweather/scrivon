@@ -240,7 +240,15 @@ const defineMonacoDiagramTheme = vi.fn()
 
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => theme }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme }))
-const DEFAULT_EDITOR_SETTINGS = { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false, tabMovesFocus: false }
+const DEFAULT_EDITOR_SETTINGS = {
+    fontSize: 13,
+    tabSize: 2,
+    wordWrap: 'on',
+    wordWrapColumn: 80,
+    lineNumbers: 'on',
+    minimap: false,
+    tabMovesFocus: false,
+}
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings } }),
@@ -527,6 +535,17 @@ describe('CodeEditorPanel scrolling', () => {
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
         const { editor } = await mountEditor()
         expect(editor.options.scrollbar).toMatchObject({ horizontal: 'auto' })
+    })
+
+    it('wraps at the Wrap column setting, also when it changes', async () => {
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, wordWrap: 'wordWrapColumn', wordWrapColumn: 60 }
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        expect(editor.options).toMatchObject({ wordWrap: 'wordWrapColumn', wordWrapColumn: 60 })
+
+        editorSettings = { ...editorSettings, wordWrapColumn: 100 }
+        view.rerender(<Panel />)
+        expect(editor.options.wordWrapColumn).toBe(100)
     })
 })
 

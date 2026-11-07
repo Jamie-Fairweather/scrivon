@@ -100,6 +100,17 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
     })
 
+    it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
+        expect(createDefaultSettings(false).editor.wordWrapColumn).toBe(80)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { wordWrap: 'wordWrapColumn' } }, false).editor.wordWrapColumn).toBe(80)
+        expect(mergeStoredSettings({ editor: { wordWrapColumn: 100 } }, false).editor.wordWrapColumn).toBe(100)
+        expect(mergeStoredSettings({ editor: { wordWrapColumn: 5 } }, false).editor.wordWrapColumn).toBe(20)
+        expect(mergeStoredSettings({ editor: { wordWrapColumn: 999 } }, false).editor.wordWrapColumn).toBe(200)
+        expect(mergeStoredSettings({ editor: { wordWrapColumn: 72.6 } }, false).editor.wordWrapColumn).toBe(73)
+        expect(mergeStoredSettings({ editor: { wordWrapColumn: '100' } }, false).editor.wordWrapColumn).toBe(80)
+    })
+
     it('drops stored shortcuts that would break typing or Tab', () => {
         const merged = mergeStoredSettings(
             {

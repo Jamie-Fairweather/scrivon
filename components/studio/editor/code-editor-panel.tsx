@@ -316,6 +316,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             fontSize: settings.editor.fontSize,
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
+            wordWrapColumn: settings.editor.wordWrapColumn,
             lineNumbers: settings.editor.lineNumbers,
             minimap: { enabled: settings.editor.minimap },
             readOnly: isReadOnly,
@@ -334,6 +335,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             fontSize: settings.editor.fontSize,
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
+            wordWrapColumn: settings.editor.wordWrapColumn,
             lineNumbers: settings.editor.lineNumbers,
             minimap: { enabled: settings.editor.minimap },
         })

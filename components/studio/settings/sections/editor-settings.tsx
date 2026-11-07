@@ -58,6 +58,19 @@ export function EditorSettings() {
                 />
             </Field>
 
+            {settings.editor.wordWrap === 'wordWrapColumn' ? (
+                <NumberSetting
+                    id="editor-wrap-column"
+                    label="Wrap column"
+                    description="Lines wrap after this many characters, even when the pane is narrower."
+                    value={settings.editor.wordWrapColumn}
+                    min={20}
+                    max={200}
+                    step={1}
+                    onChange={(wordWrapColumn) => setEditor({ wordWrapColumn })}
+                />
+            ) : null}
+
             <Field>
                 <FieldLabel htmlFor="editor-line-numbers">Line numbers</FieldLabel>
                 <OptionSelect

@@ -87,4 +87,20 @@ describe('SettingsDialog sections', () => {
         const saved = JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as { editor?: { fontSize?: number } }
         expect(saved.editor?.fontSize).toBe(16)
     })
+
+    it('asks for a wrap column only when Word wrap is At column', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
+        await screen.findByRole('textbox', { name: 'Font size' })
+        expect(screen.queryByRole('textbox', { name: 'Wrap column' })).not.toBeInTheDocument()
+    })
+
+    it('shows the saved wrap column when Word wrap is At column', async () => {
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ editor: { wordWrap: 'wordWrapColumn', wordWrapColumn: 100 } }))
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
+
+        const column = (await screen.findByRole('textbox', { name: 'Wrap column' })) as HTMLInputElement
+        expect(column.value).toBe('100')
+    })
 })
