@@ -2,6 +2,7 @@ import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
 import { notifyError, notifyWarning } from '@/lib/notify'
 import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
+import { savePathBesideDocument } from '@/lib/tauri/save-path'
 import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
 import { renderMermaidDiagramForExport, type ExportRenderOptions } from '@/lib/mermaid/render'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
@@ -80,13 +81,6 @@ export function diagramFileStem(source: string, target: DiagramExportTarget): st
     const stem = `${exportBaseName(target.tabName, 'document')}-diagram`
     const { index, count } = markdownDiagramPosition(target.markdown, source)
     return index && count > 1 ? `${stem}-${index}` : stem
-}
-
-/** Suggests saving next to the document. Example and unsaved tabs have no folder, so they get the bare name. */
-export function savePathBesideDocument(fileName: string, documentPath: string | undefined): string {
-    if (!documentPath || !/^(?:[a-z]:[\\/]|\\\\|\/)/i.test(documentPath)) return fileName
-    const slash = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'))
-    return `${documentPath.slice(0, slash + 1)}${fileName}`
 }
 
 export function buildExportSvg(source: string, themeId: AppThemeId, options?: ExportRenderOptions): string {

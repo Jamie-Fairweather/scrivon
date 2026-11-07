@@ -6,15 +6,10 @@ import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdo
 import { markdownToExportHtml } from '@/lib/markdown/markdown-to-export-html'
 import { errorMessage, notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type {
-    PdfExportDocument,
-    PdfExportMetadataOverrides,
-    PdfExportProfile,
-    PdfExportResolvedAssets,
-    PdfPrintOptions,
-} from '@/lib/settings/pdf-export-types'
+import type { PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
+import { savePathBesideDocument } from '@/lib/tauri/save-path'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -32,8 +27,6 @@ export type ExportMarkdownOptions = {
     documentPath?: string
 }
 
-export type ExportMarkdownToPdfOptions = ExportMarkdownOptions
-
 /**
  * How an export ended: saved (or handed to the print dialog / a download), cancelled at the
  * save picker, or failed. A saved export lists any profile images it had to leave out.
@@ -47,20 +40,6 @@ export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
     const base = tabName.replace(/\.md$/i, '')
     return base || 'document'
-}
-
-/** A full path to a file on disk: `D:\…`, `\\server\…` or `/…`. Example tabs use ids like `example:intro`. */
-const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
-
-/**
- * Where the save dialog starts: next to the document when it is a file on disk, so the export
- * lands beside it. Otherwise just the file name, and the dialog picks the folder.
- */
-export function exportSavePath(documentPath: string | undefined, fileName: string): string {
-    if (!documentPath || !ABSOLUTE_PATH.test(documentPath)) return fileName
-    const slash = Math.max(documentPath.lastIndexOf('/'), documentPath.lastIndexOf('\\'))
-    const separator = documentPath.includes('\\') ? '\\' : '/'
-    return `${documentPath.slice(0, slash)}${separator}${fileName}`
 }
 
 function waitForPaint(): Promise<void> {
@@ -144,7 +123,11 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
 
 async function saveDocx(bytes: Uint8Array, filename: string, documentPath: string | undefined): Promise<ExportResult> {
     if (isTauri()) {
-        const path = await pickSavePath({ title: 'Save Word document', defaultPath: exportSavePath(documentPath, filename), filters: DOCX_FILTERS })
+        const path = await pickSavePath({
+            title: 'Save Word document',
+            defaultPath: savePathBesideDocument(filename, documentPath),
+            filters: DOCX_FILTERS,
+        })
         if (!path) return { status: 'cancelled' }
         await writeBinaryFile(path, bytes)
         return { status: 'saved', path }
@@ -154,17 +137,6 @@ async function saveDocx(bytes: Uint8Array, filename: string, documentPath: strin
     copy.set(bytes)
     triggerBrowserDownload(new Blob([copy], { type: DOCX_MIME }), filename)
     return { status: 'saved' }
-}
-
-/** Resolves the profile's images, then builds the document the export and preview paths share. */
-export async function buildMarkdownExportHtml(
-    source: string,
-    tabName: string | undefined,
-    options: ExportMarkdownOptions = {}
-): Promise<PdfExportDocument> {
-    const profile = options.profile ?? createDefaultPdfExportProfile()
-    const { assets } = await resolvePdfExportAssets(profile)
-    return markdownToExportHtml(source, { profile, tabName, overrides: options.overrides, assets })
 }
 
 async function renderAndSave(
@@ -187,7 +159,7 @@ async function renderAndSave(
     const filename = `${markdownExportBaseName(tabName)}.pdf`
 
     if (stamped) {
-        const path = await pickSavePath({ title: 'Save PDF', defaultPath: exportSavePath(documentPath, filename), filters: PDF_FILTERS })
+        const path = await pickSavePath({ title: 'Save PDF', defaultPath: savePathBesideDocument(filename, documentPath), filters: PDF_FILTERS })
         if (!path) return { status: 'cancelled' }
         await savePdfWithWebView2(html, path, print)
         return { status: 'saved', path }
@@ -241,11 +213,4 @@ export function notifyExportSaved(path: string | undefined, missingImages: PdfEx
         return
     }
     notifySuccess(`Saved ${fileName(path)}`, { description: path, timeout: SAVED_NOTICE_MS, action })
-}
-
-/** {@link exportMarkdown} that tells the user when the export fails. */
-export async function exportMarkdownToPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<ExportResult> {
-    const result = await exportMarkdown(source, tabName, options)
-    if (result.status === 'failed') notifyError('Export failed', undefined, { description: result.message })
-    return result
 }

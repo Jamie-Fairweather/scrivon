@@ -72,17 +72,6 @@ describe('export-pdf helpers', () => {
         document.body.innerHTML = ''
     })
 
-    it('starts the save dialog next to the document when it is a file on disk', async () => {
-        const { exportSavePath } = await import('@/lib/markdown/export-pdf')
-        expect(exportSavePath('D:\\Projects\\spec\\spec.md', 'spec.pdf')).toBe('D:\\Projects\\spec\\spec.pdf')
-        expect(exportSavePath('\\\\server\\share\\notes.md', 'notes.docx')).toBe('\\\\server\\share\\notes.docx')
-        expect(exportSavePath('/home/ada/notes.md', 'notes.pdf')).toBe('/home/ada/notes.pdf')
-        expect(exportSavePath('C:/docs/a.md', 'a.pdf')).toBe('C:/docs/a.pdf')
-        // An example tab or a missing path has no folder, so the dialog picks one.
-        expect(exportSavePath('example:markdown-intro', 'intro.pdf')).toBe('intro.pdf')
-        expect(exportSavePath(undefined, 'intro.pdf')).toBe('intro.pdf')
-    })
-
     it('opens the pdf and word save dialogs in the document folder', async () => {
         isWindowsTauri.mockReturnValue(true)
         isTauri.mockReturnValue(true)
@@ -103,23 +92,8 @@ describe('export-pdf helpers', () => {
         expect(markdownExportBaseName('.md')).toBe('document')
     })
 
-    it('builds the document through the assets + markdown pipeline', async () => {
-        const { buildMarkdownExportHtml } = await import('@/lib/markdown/export-pdf')
-        const { createDefaultPdfExportProfile } = await import('@/lib/settings/pdf-export-defaults')
-        const profile = createDefaultPdfExportProfile()
-        const result = await buildMarkdownExportHtml('# Hi', 'hi.md', { profile, overrides: { title: 'Spec' } })
-        expect(resolvePdfExportAssets).toHaveBeenCalledWith(profile)
-        expect(markdownToExportHtml).toHaveBeenCalledWith('# Hi', {
-            profile,
-            tabName: 'hi.md',
-            overrides: { title: 'Spec' },
-            assets: EMPTY_ASSETS,
-        })
-        expect(result).toBe(EXPORT_DOCUMENT)
-    })
-
     it('prints via iframe when not on windows tauri', async () => {
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
 
         const print = vi.fn()
         const originalCreate = document.createElement.bind(document)
@@ -147,7 +121,7 @@ describe('export-pdf helpers', () => {
             return el
         })
 
-        await expect(exportMarkdownToPdf('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved' })
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved' })
         expect(print).toHaveBeenCalled()
         expect(invoke).not.toHaveBeenCalled()
         // No stamper behind the print dialog: the html must not carry its marks.
@@ -155,7 +129,7 @@ describe('export-pdf helpers', () => {
     })
 
     it('awaits document fonts when available before printing', async () => {
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
         const print = vi.fn()
         const fontsReady = vi.fn(async () => undefined)
         const originalCreate = document.createElement.bind(document)
@@ -184,13 +158,13 @@ describe('export-pdf helpers', () => {
             return el
         })
 
-        await exportMarkdownToPdf('# Hi', 'hi.md')
+        await exportMarkdown('# Hi', 'hi.md')
         expect(fontsReady).toHaveBeenCalled()
         expect(print).toHaveBeenCalled()
     })
 
     it('finishes and removes the print frame when afterprint never comes', async () => {
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
         const print = vi.fn()
         let frame: HTMLElement | undefined
         const originalCreate = document.createElement.bind(document)
@@ -212,7 +186,7 @@ describe('export-pdf helpers', () => {
 
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
         try {
-            const result = exportMarkdownToPdf('# Hi', 'hi.md')
+            const result = exportMarkdown('# Hi', 'hi.md')
             await vi.waitFor(() => expect(print).toHaveBeenCalled())
             expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin allow-modals')
             expect(frame?.isConnected).toBe(true)
@@ -225,7 +199,7 @@ describe('export-pdf helpers', () => {
     })
 
     it('reports empty print documents', async () => {
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
         const originalCreate = document.createElement.bind(document)
         vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
             const el = originalCreate(tag)
@@ -251,16 +225,16 @@ describe('export-pdf helpers', () => {
             return el
         })
 
-        await expect(exportMarkdownToPdf('# Hi', 'hi.md')).resolves.toEqual({ status: 'failed', message: 'Export document is empty.' })
-        expect(notifyError).toHaveBeenCalledWith('Export failed', undefined, { description: 'Export document is empty.' })
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'failed', message: 'Export document is empty.' })
+        expect(notifyError).not.toHaveBeenCalled()
     })
 
     it('hands the html and its print options to webview2 on windows tauri', async () => {
         isWindowsTauri.mockReturnValue(true)
         pickSavePath.mockResolvedValue('C:/out.pdf')
         invoke.mockResolvedValue(undefined)
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
-        await expect(exportMarkdownToPdf('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf' })
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf' })
         expect(invoke).toHaveBeenCalledWith('export_html_to_pdf', {
             html: EXPORT_DOCUMENT.html,
             outputPath: 'C:/out.pdf',
@@ -273,8 +247,8 @@ describe('export-pdf helpers', () => {
     it('cancels windows save when dialog is dismissed', async () => {
         isWindowsTauri.mockReturnValue(true)
         pickSavePath.mockResolvedValue(null)
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
-        await expect(exportMarkdownToPdf('# Hi', 'hi.md')).resolves.toEqual({ status: 'cancelled' })
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'cancelled' })
         expect(invoke).not.toHaveBeenCalled()
         expect(notifyError).not.toHaveBeenCalled()
     })
@@ -297,11 +271,11 @@ describe('export-pdf helpers', () => {
         })
     })
 
-    it('tells the user about stringified non-error failures', async () => {
+    it('returns stringified non-error failures', async () => {
         markdownToExportHtml.mockRejectedValueOnce('nope')
-        const { exportMarkdownToPdf } = await import('@/lib/markdown/export-pdf')
-        await expect(exportMarkdownToPdf('# Hi', 'hi.md')).resolves.toEqual({ status: 'failed', message: 'nope' })
-        expect(notifyError).toHaveBeenCalledWith('Export failed', undefined, { description: 'nope' })
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+        await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'failed', message: 'nope' })
+        expect(notifyError).not.toHaveBeenCalled()
     })
 
     it('writes a word document when the save dialog returns a path', async () => {
