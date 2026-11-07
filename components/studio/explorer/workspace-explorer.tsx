@@ -8,6 +8,7 @@ import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root
 import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
+import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
@@ -47,26 +48,28 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
         <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             <div className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-2 py-2">
                 <div className="flex items-center justify-center gap-0.5 px-0.5">
-                    <Button
-                        variant={panel === 'files' ? 'secondary' : 'ghost'}
-                        size="icon-sm"
-                        aria-label="Files"
-                        aria-pressed={panel === 'files'}
-                        title="Files"
-                        onClick={() => setExplorerPanel('files')}
-                    >
-                        <Files className="size-4" />
-                    </Button>
-                    <Button
-                        variant={panel === 'examples' ? 'secondary' : 'ghost'}
-                        size="icon-sm"
-                        aria-label="Examples"
-                        aria-pressed={panel === 'examples'}
-                        title="Examples"
-                        onClick={() => setExplorerPanel('examples')}
-                    >
-                        <BookOpen className="size-4" />
-                    </Button>
+                    <IconTooltip label="Files">
+                        <Button
+                            variant={panel === 'files' ? 'secondary' : 'ghost'}
+                            size="icon-sm"
+                            aria-label="Files"
+                            aria-pressed={panel === 'files'}
+                            onClick={() => setExplorerPanel('files')}
+                        >
+                            <Files className="size-4" />
+                        </Button>
+                    </IconTooltip>
+                    <IconTooltip label="Examples">
+                        <Button
+                            variant={panel === 'examples' ? 'secondary' : 'ghost'}
+                            size="icon-sm"
+                            aria-label="Examples"
+                            aria-pressed={panel === 'examples'}
+                            onClick={() => setExplorerPanel('examples')}
+                        >
+                            <BookOpen className="size-4" />
+                        </Button>
+                    </IconTooltip>
                     <CommandPaletteTriggerButton />
                 </div>
 
