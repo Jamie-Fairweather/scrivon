@@ -171,6 +171,8 @@ const fakeMonaco = {
         setModelLanguage: () => {},
         onDidChangeMarkers: () => ({ dispose: () => {} }),
         remeasureFonts: vi.fn(),
+        /** Monaco's shared command registry; each call returns its own disposable, to check the panel lets go. */
+        registerCommand: vi.fn<(id: string, handler: (accessor: unknown) => void) => { dispose: () => void }>(() => ({ dispose: vi.fn() })),
     },
 }
 
@@ -253,6 +255,8 @@ let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings } }),
 }))
+const palette = { open: vi.fn() }
+vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({ useCommandPalette: () => ({ open: palette.open }) }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
@@ -288,6 +292,8 @@ beforeEach(() => {
     tabsState = { tabs: [], activeTabId: null }
     tabFocus.mode = false
     tabFocus.setTabFocusMode.mockClear()
+    fakeMonaco.editor.registerCommand.mockClear()
+    palette.open = vi.fn()
 })
 
 describe('CodeEditorPanel models', () => {
@@ -399,6 +405,42 @@ describe('CodeEditorPanel accessibility', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.ariaLabel).toMatch(/^b\.mmd, Mermaid editor\./)
+    })
+})
+
+describe('CodeEditorPanel right-click Command Palette', () => {
+    /** What the editor's right-click 'Command Palette' runs: the newest command registered under Monaco's id. */
+    function quickCommand() {
+        const { calls, results } = fakeMonaco.editor.registerCommand.mock
+        expect(calls.at(-1)?.[0]).toBe('editor.action.quickCommand')
+        return { run: calls.at(-1)![1], registration: results.at(-1)!.value as { dispose: () => void } }
+    }
+
+    it("opens the app's palette instead of Monaco's own command list", async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view } = await mountEditor()
+        const first = palette.open
+
+        quickCommand().run(undefined)
+        expect(first).toHaveBeenCalledTimes(1)
+
+        // A newer open function from the provider is the one used, without setting the editor up again.
+        palette.open = vi.fn()
+        view.rerender(<Panel />)
+        quickCommand().run(undefined)
+        expect(palette.open).toHaveBeenCalledTimes(1)
+        expect(first).toHaveBeenCalledTimes(1)
+        expect(fakeMonaco.editor.registerCommand).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives the command back to Monaco when the editor is thrown away', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        const { registration } = quickCommand()
+        expect(registration.dispose).not.toHaveBeenCalled()
+
+        act(() => editor.dispose())
+        expect(registration.dispose).toHaveBeenCalled()
     })
 })
 

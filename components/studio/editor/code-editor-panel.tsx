@@ -8,10 +8,11 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
-import { unbindEditorF1Command } from '@/lib/monaco/editor-keybindings'
+import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
@@ -130,6 +131,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
+    const { open: openPalette } = useCommandPalette()
+    // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
+    const openPaletteRef = useRef(openPalette)
+    useEffect(() => {
+        openPaletteRef.current = openPalette
+    }, [openPalette])
     const resizeDragRef = useRef<{ pointerId: number; startX: number; startWidth: number; available: number; width: number } | null>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const [rowWidth, setRowWidth] = useState(0)
@@ -474,7 +481,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 ?.load(`16px ${fontFamily}`)
                 .then(() => monaco.editor.remeasureFonts())
                 .catch(() => {})
-            unbindEditorF1Command(editor, monaco)
+            const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current())
+            editor.onDidDispose(() => paletteBinding.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)

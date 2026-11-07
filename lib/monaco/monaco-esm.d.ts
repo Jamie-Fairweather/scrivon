@@ -52,6 +52,16 @@ declare module 'monaco-editor/esm/vs/editor/browser/config/tabFocus.js' {
     }
 }
 
+// Monaco's shared command registry, used by lib/monaco/editor-keybindings.test.ts to check that
+// Scrivon's 'Command Palette' replaces Monaco's own for the editor's right-click menu.
+declare module 'monaco-editor/esm/vs/platform/commands/common/commands.js' {
+    import type { IDisposable } from 'monaco-editor'
+    export const CommandsRegistry: {
+        registerCommand(id: string, handler: (accessor: unknown, ...args: unknown[]) => unknown): IDisposable
+        getCommand(id: string): { id: string; handler: (accessor: unknown, ...args: unknown[]) => unknown } | undefined
+    }
+}
+
 declare module 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js' {
     export namespace StandaloneServices {
         function get<T>(serviceId: { readonly type: T }): T
