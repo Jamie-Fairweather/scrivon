@@ -509,6 +509,8 @@ pub async fn export_html_to_pdf(
 }
 
 const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+/// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
+const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
 /// The image type for an export image path, or `None` for anything else.
 fn mime_from_path(path: &str) -> Option<&'static str> {
@@ -608,11 +610,11 @@ fn read_image_as_data_url(path: &str) -> Result<String, String> {
         .map_err(|e| format!("Could not read image: {e}"))?
         .len();
     if size > MAX_EXPORT_IMAGE_BYTES as u64 {
-        return Err("Image is too large to embed in the PDF.".into());
+        return Err(IMAGE_TOO_LARGE.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read image: {e}"))?;
     if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
-        return Err("Image is too large to embed in the PDF.".into());
+        return Err(IMAGE_TOO_LARGE.into());
     }
     if !content_matches(mime, &bytes) {
         return Err("This file isn't a valid image.".into());
@@ -632,7 +634,7 @@ mod tests {
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
         mime_from_path, place_printed_pdf, read_image_as_data_url, save_printed_pdf, temp_sibling,
-        wait_until_ready, PageReadiness, PdfPrintOptions, MAX_REWRITES,
+        wait_until_ready, PageReadiness, PdfPrintOptions, MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
     };
 
     #[test]
@@ -696,6 +698,19 @@ mod tests {
         assert!(read(&path)
             .unwrap()
             .starts_with("data:image/svg+xml;base64,"));
+    }
+
+    #[test]
+    fn says_an_image_over_the_limit_is_too_large_for_the_export() {
+        let path = std::env::temp_dir().join(format!("scrivon-{}-huge.png", uuid::Uuid::new_v4()));
+        // Sized without writing: the size is checked before the file is read.
+        std::fs::File::create(&path)
+            .and_then(|file| file.set_len(MAX_EXPORT_IMAGE_BYTES as u64 + 1))
+            .unwrap();
+        assert_eq!(
+            read(&path).unwrap_err(),
+            "Image is too large to embed in the export (limit 12 MB)."
+        );
     }
 
     #[test]
