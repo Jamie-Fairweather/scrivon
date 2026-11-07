@@ -38,6 +38,7 @@ import {
     removeRecentWorkspace,
     setFolderToggles,
 } from '@/lib/tauri/store'
+import type { FileNode } from '@/lib/workspace/types'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
@@ -684,6 +685,85 @@ describe('renaming', () => {
 
         expect(await disk.read('C:\\ws\\logo-dark.png')).toBe('PNG BYTES')
         expect(notifyError).not.toHaveBeenCalled()
+    })
+})
+
+describe('reading only the folder an action changed', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\sub\\a.mmd': 'graph TD', 'C:\\ws\\other\\deep\\b.md': '# B', 'C:\\ws\\top.md': '# Top' })
+        mountDisk(disk)
+    })
+
+    /** The folders listed while `action` ran. */
+    async function foldersReadDuring(result: { current: ReturnType<typeof useHarness> }, action: () => Promise<void>) {
+        vi.mocked(readDir).mockClear()
+        await act(action)
+        return vi.mocked(readDir).mock.calls.map(([path]) => String(path))
+    }
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    const namesIn = (result: { current: ReturnType<typeof useHarness> }, folder: string) =>
+        (result.current.session.tree.find((n) => n.name === folder) as Extract<FileNode, { kind: 'directory' }>).children.map((n) => n.name)
+
+    it('creates, duplicates, renames and deletes in a folder without reading the rest again', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        const other = result.current.session.tree.find((n) => n.name === 'other')
+
+        expect(await foldersReadDuring(result, () => result.current.session.createFile('C:\\ws\\sub', 'new.md', '# New'))).toEqual(['C:\\ws\\sub'])
+        expect(namesIn(result, 'sub')).toEqual(['a.mmd', 'new.md'])
+
+        expect(await foldersReadDuring(result, () => result.current.session.createFolder('C:\\ws\\sub', 'drafts'))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+        expect(await foldersReadDuring(result, () => result.current.session.duplicateFile('C:\\ws\\sub\\a.mmd'))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+        expect(await foldersReadDuring(result, () => result.current.session.renameEntry('C:\\ws\\sub\\new.md', 'renamed.md', false))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+        expect(await foldersReadDuring(result, () => result.current.session.deleteEntry('C:\\ws\\sub\\a copy.mmd', false))).toEqual([
+            'C:\\ws\\sub',
+            'C:\\ws\\sub\\drafts',
+        ])
+
+        expect(namesIn(result, 'sub')).toEqual(['drafts', 'a.mmd', 'renamed.md'])
+        // The folders around it are the same objects, so their rows don't draw again.
+        expect(result.current.session.tree.find((n) => n.name === 'other')).toBe(other)
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('reads the whole tree for a change at the top of the folder, or in a folder it never read', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        expect(await foldersReadDuring(result, () => result.current.session.deleteEntry('C:\\ws\\top.md', false))).toContain('C:\\ws\\other\\deep')
+        expect(result.current.session.tree.map((n) => n.name)).toEqual(['other', 'sub'])
+    })
+
+    it('reads the whole tree when reading just the folder fails', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        vi.mocked(readDir).mockRejectedValueOnce('The network path was not found. (os error 53)')
+
+        const read = await foldersReadDuring(result, () => result.current.session.createFile('C:\\ws\\sub', 'new.md', '# New'))
+
+        expect(read).toContain('C:\\ws')
+        expect(namesIn(result, 'sub')).toEqual(['a.mmd', 'new.md'])
     })
 })
 

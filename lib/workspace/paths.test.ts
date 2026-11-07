@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    canReplaceChildren,
     changeAltersTree,
     childrenOf,
     collectFileNames,
@@ -12,6 +13,7 @@ import {
     isTreeTruncated,
     keepUnchangedNodes,
     nameTakenMessage,
+    replaceChildren,
     shortenPath,
     uniqueFileName,
     uniqueNewName,
@@ -238,6 +240,53 @@ describe('changeAltersTree', () => {
         expect(changeAltersTree(tree, 'C:\\ws', { added: ['c:\\WS\\notes.md'], removed: none })).toBe(false)
         expect(changeAltersTree(tree, 'C:\\ws', { added: ['C:\\ws\\locked\\a.md'], removed: none })).toBe(false)
         expect(changeAltersTree(tree, 'C:\\ws', { added: none, removed: ['c:\\ws\\NOTES.md'] })).toBe(true)
+    })
+})
+
+describe('replaceChildren', () => {
+    const tree: FileNode[] = [
+        {
+            kind: 'directory',
+            name: 'docs',
+            path: '/ws/docs',
+            children: [
+                { kind: 'directory', name: 'deep', path: '/ws/docs/deep', children: [{ kind: 'file', name: 'x.md', path: '/ws/docs/deep/x.md' }] },
+                { kind: 'file', name: 'readme.md', path: '/ws/docs/readme.md' },
+            ],
+        },
+        { kind: 'directory', name: 'other', path: '/ws/other', children: [] },
+        { kind: 'directory', name: 'locked', path: '/ws/locked', children: [], unreadable: true },
+        { kind: 'directory', name: 'cut', path: '/ws/cut', children: [], truncated: true },
+    ]
+    const docs = tree[0] as Extract<FileNode, { kind: 'directory' }>
+
+    it('puts a nested folder read again into the tree, and keeps everything else as it was', () => {
+        const children: FileNode[] = [
+            { kind: 'file', name: 'new.md', path: '/ws/docs/deep/new.md' },
+            { kind: 'file', name: 'x.md', path: '/ws/docs/deep/x.md' },
+        ]
+
+        const next = replaceChildren(tree, '/ws', '/ws/docs/deep', children)!
+
+        const nextDocs = next[0] as Extract<FileNode, { kind: 'directory' }>
+        expect((nextDocs.children[0] as Extract<FileNode, { kind: 'directory' }>).children.map((n) => n.name)).toEqual(['new.md', 'x.md'])
+        expect(nextDocs.children[1]).toBe(docs.children[1])
+        expect(next[1]).toBe(tree[1])
+        expect(next.slice(2)).toEqual(tree.slice(2))
+    })
+
+    it('gives back the same tree when the folder read again is unchanged', () => {
+        expect(replaceChildren(tree, '/ws', '/ws/docs', structuredClone(docs.children))).toBe(tree)
+    })
+
+    it('replaces the whole list for the root, and refuses a folder it has no read entries for', () => {
+        const root: FileNode[] = [{ kind: 'file', name: 'only.md', path: '/ws/only.md' }]
+        expect(replaceChildren(tree, '/ws/', '/ws', root)).toEqual(root)
+        for (const folder of ['/ws/missing', '/ws/locked', '/ws/cut', '/ws/docs/readme.md']) {
+            expect(canReplaceChildren(tree, '/ws', folder)).toBe(false)
+            expect(replaceChildren(tree, '/ws', folder, [])).toBeNull()
+        }
+        expect(canReplaceChildren(tree, '/ws', '/ws/other')).toBe(true)
     })
 })
 

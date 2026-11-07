@@ -1,4 +1,4 @@
-import { getBaseName, getParentPath, isWindowsPath, normalizePath, samePath } from '@/lib/tauri/fs'
+import { getBaseName, getParentPath, isPathInside, isWindowsPath, normalizePath, samePath } from '@/lib/tauri/fs'
 import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -191,6 +191,42 @@ export function changeAltersTree(
         change.removed.some((path) => listed.has(key(path))) ||
         change.added.some((path) => !listed.has(key(path)) && listedFolders.has(key(getParentPath(path))))
     )
+}
+
+/**
+ * True when `folderPath` is the root or a folder in the tree whose entries were read, so reading just that
+ * folder again can update the tree (see replaceChildren). False for a folder that is missing, couldn't be
+ * read, or was left unread in a folder too big to list: the whole tree has to be read then.
+ */
+export function canReplaceChildren(tree: FileNode[], rootPath: string, folderPath: string): boolean {
+    if (samePath(folderPath, rootPath)) return true
+    const folder = findNodeByPath(tree, folderPath)
+    return folder?.kind === 'directory' && !folder.unreadable && !folder.truncated
+}
+
+/**
+ * The tree with the entries of `folderPath` (the root, or a folder in it) replaced by `children`, that
+ * folder read again. Nodes that didn't change stay the same objects (as keepUnchangedNodes), and so do the
+ * folders around it, so only that folder's rows draw again. Null when canReplaceChildren says no.
+ */
+export function replaceChildren(tree: FileNode[], rootPath: string, folderPath: string, children: FileNode[]): FileNode[] | null {
+    if (samePath(folderPath, rootPath)) return keepUnchangedNodes(tree, children)
+    if (!canReplaceChildren(tree, rootPath, folderPath)) return null
+    const walk = (nodes: FileNode[]): FileNode[] => {
+        let changed = false
+        const next = nodes.map((node) => {
+            if (node.kind !== 'directory') return node
+            let kept: FileNode[]
+            if (samePath(node.path, folderPath)) kept = keepUnchangedNodes(node.children, children)
+            else if (isPathInside(folderPath, node.path)) kept = walk(node.children)
+            else return node
+            if (kept === node.children) return node
+            changed = true
+            return { ...node, children: kept }
+        })
+        return changed ? next : nodes
+    }
+    return walk(tree)
 }
 
 export function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {

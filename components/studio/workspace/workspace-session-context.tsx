@@ -43,12 +43,14 @@ import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import {
+    canReplaceChildren,
     changeAltersTree,
     childrenOf,
     collectUnreadableFolders,
     entryNameError,
     isTreeTruncated,
     keepUnchangedNodes,
+    replaceChildren,
     uniqueFileName,
     uniqueNewName,
 } from '@/lib/workspace/paths'
@@ -282,6 +284,36 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     useEffect(() => {
         treeRef.current = tree
     }, [tree])
+
+    /**
+     * Re-reads only `folderPath` (and the folders in it) after an action that changed just what is in it, such
+     * as creating, renaming or deleting an entry there. In a big folder reading everything again would take a
+     * while. The whole tree is read instead when that folder isn't in it as one that was read, or can't be read.
+     */
+    const refreshFolder = useCallback(
+        async (folderPath: string) => {
+            if (!workspaceRoot) return
+            const root = workspaceRoot
+            const folder = normalizePath(folderPath)
+            // The root's entries are the whole tree anyway.
+            if (samePath(folder, root) || !canReplaceChildren(treeRef.current, root, folder)) {
+                await refreshTree()
+                return
+            }
+            // A full read started earlier (a window focus) may have listed the folder before the change, so it
+            // stops: it can't put the old entries back over these.
+            const { read, signal } = startTreeRead()
+            let children: FileNode[]
+            try {
+                children = await listWorkspaceTree(folder, { signal })
+            } catch {
+                if (!signal.aborted) await refreshTree()
+                return
+            }
+            if (read === treeRead.current) setTree((prev) => replaceChildren(prev, root, folder, children) ?? prev)
+        },
+        [workspaceRoot, refreshTree, startTreeRead]
+    )
 
     // Files added, removed or renamed by other apps (File Explorer, git, sync tools) show up, and open files
     // without edits that they changed show the new text: as the watcher sees the change, and again when the
@@ -710,13 +742,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await createWorkspaceFile(path, resolvedContent)
             } catch (err) {
                 notifyError(failed, err)
-                await refreshTree()
+                await refreshFolder(parentPath)
                 return
             }
-            // The new file opens straight away; in a big folder, reading the file list again takes a while.
-            await Promise.all([refreshTree(), coordinator.openFile.current(path)])
+            // The new file opens straight away; reading even its folder again can take a while.
+            await Promise.all([refreshFolder(parentPath), coordinator.openFile.current(path)])
         },
-        [getNameError, refreshTree, coordinator]
+        [getNameError, refreshFolder, coordinator]
     )
 
     /** A folder the file list leaves out (a tool or build folder) seems to vanish once made, so the user is told why. */
@@ -742,13 +774,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await createWorkspaceDirectory(path)
             } catch (err) {
                 notifyError(failed, err)
-                await refreshTree()
+                await refreshFolder(parentPath)
                 return
             }
             explainIfHidden(parentPath, name)
-            await refreshTree()
+            await refreshFolder(parentPath)
         },
-        [getNameError, refreshTree, explainIfHidden]
+        [getNameError, refreshFolder, explainIfHidden]
     )
 
     const renameEntry = useCallback(
@@ -782,9 +814,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             } finally {
                 release(whereNow)
             }
-            await refreshTree()
+            // A rename keeps the entry in its folder, so only that folder changed.
+            await refreshFolder(parent)
         },
-        [getNameError, refreshTree, explainIfHidden, updateFolderToggles, coordinator]
+        [getNameError, refreshFolder, explainIfHidden, updateFolderToggles, coordinator]
     )
 
     const deleteEntry = useCallback(
@@ -811,9 +844,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             } finally {
                 release(whereNow)
             }
-            await refreshTree()
+            await refreshFolder(getParentPath(path))
         },
-        [refreshTree, updateFolderToggles, coordinator]
+        [refreshFolder, updateFolderToggles, coordinator]
     )
 
     const openFile = useCallback((path: string) => coordinator.openFile.current(path), [coordinator])
@@ -832,13 +865,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await duplicateWorkspaceFile(path, destPath, coordinator.getUnsavedContent.current(path))
             } catch (err) {
                 notifyError(`Couldn't duplicate ${baseName}`, err)
-                await refreshTree()
+                await refreshFolder(parent)
                 return
             }
             // A copy of a file Scrivon doesn't open (an image, say) just shows up in the list.
-            await Promise.all([refreshTree(), isSupportedDocument(destPath) ? coordinator.openFile.current(destPath) : null])
+            await Promise.all([refreshFolder(parent), isSupportedDocument(destPath) ? coordinator.openFile.current(destPath) : null])
         },
-        [refreshTree, coordinator]
+        [refreshFolder, coordinator]
     )
 
     const value = useMemo(
