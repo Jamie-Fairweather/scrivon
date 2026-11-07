@@ -9,14 +9,16 @@ import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocume
 import {
     buildPdfExportCss,
     PDF_PAGE_NUMBER_MARK,
+    PDF_STAMP_GLYPHS_CLASS,
     pdfChromeShown,
     pdfPageSizeMm,
+    pdfStampGlyphText,
     pdfTocMark,
     printDialogPageNumberCss,
     resolvePdfExportLayout,
     resolvePdfPrintOptions,
 } from '@/lib/markdown/export-html-css'
-import { pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
+import { pdfPageNumberFormat, pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
@@ -307,14 +309,27 @@ function renderTitlePage(metadata: PdfExportMetadata, assets: PdfExportResolvedA
     return `<section class="pdf-title-page">${logo}<div class="pdf-title-body"><h1>${escapeHtml(metadata.title)}</h1>${subtitle}${author}${date}</div></section>`
 }
 
+/**
+ * The glyph sample for a stamped marker: every character its label can use, drawn so the PDF embeds them in the
+ * marker's font and the stamper can write the label in that font. It goes first inside the marker, because digits
+ * after the marker's code would make the stamper reject the code. Empty when the format draws no label.
+ */
+function stampGlyphSample(format: string): string {
+    const text = pdfStampGlyphText(format)
+    return text ? `<span class="${PDF_STAMP_GLYPHS_CLASS}">${escapeHtml(text)}</span>` : ''
+}
+
 function renderToc(items: PdfExportOutlineItem[], stamped: boolean): string {
     if (items.length === 0) return ''
+    // Every TOC number is in the same font, so the first row's sample is enough for all of them.
+    const sample = stamped ? stampGlyphSample('number') : ''
     const list = items
         .map((item, index) => {
             const level = Math.min(item.level, 4)
             // Only the stamper can fill in a TOC page number; without it the row is just the linked title.
+            const mark = `${index === 0 ? sample : ''}${pdfTocMark(index, 'slot')}`
             const page = stamped
-                ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${pdfTocMark(index, 'slot')}</span></span>`
+                ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${mark}</span></span>`
                 : ''
             return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title">${escapeHtml(item.text)}</span>${page}</a></li>`
         })
@@ -337,7 +352,8 @@ function plainLabel(text: string): string {
 
 /**
  * The footer's right-hand text: a page counter slot for the stamper, or plain text.
- * Custom text the stamper's font can't draw sits either side of the slot as plain text.
+ * Custom text Helvetica can't draw sits either side of the slot as plain text, so it still
+ * prints when the stamper has to fall back to Helvetica for the counter.
  */
 function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata, stamped: boolean): string {
     const format = profile.footer.pageNumbers
@@ -346,7 +362,9 @@ function footerRightText(profile: PdfExportProfile, metadata: PdfExportMetadata,
     if (format === 'custom' && !parts) return chromeLabel(profile.footer.right.text, metadata)
     // With no stamper the number is a CSS page counter in the page margin instead.
     if (!stamped) return ''
-    const slot = `<span class="pdf-page-number"><span class="pdf-page-number-mark">${PDF_PAGE_NUMBER_MARK}</span></span>`
+    // Not profile.footer.pageNumbers: 'custom' alone gives no sample; the format names the counter's text.
+    const sample = stampGlyphSample(pdfPageNumberFormat(profile, metadata))
+    const slot = `<span class="pdf-page-number"><span class="pdf-page-number-mark">${sample}${PDF_PAGE_NUMBER_MARK}</span></span>`
     return `${plainLabel(parts?.before ?? '')}${slot}${plainLabel(parts?.after ?? '')}`
 }
 

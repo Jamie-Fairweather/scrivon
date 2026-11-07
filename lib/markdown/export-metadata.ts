@@ -45,8 +45,10 @@ export function pdfPageNumberTemplate(profile: PdfExportProfile, metadata: PdfEx
 const PAGE_PLACEHOLDERS = new RegExp(PAGE_PLACEHOLDER.source, 'g')
 
 /**
- * Text the stamper's font can draw: it writes in Helvetica with WinAnsi encoding, so anything
- * else (Cyrillic, CJK, emoji, `ę`) prints as `?`. Must match `win_ansi_bytes` in `page_numbers.rs`.
+ * Text the stamper's fallback font can draw. The stamper writes the label in the footer's own
+ * font when the export's glyph sample put every character it needs there; otherwise it writes
+ * in Helvetica with WinAnsi encoding, so anything else (Cyrillic, CJK, emoji, `ę`) prints as `?`.
+ * Must match `win_ansi_bytes` in `page_numbers.rs`.
  */
 const STAMPER_TEXT = /^[ -~\u00a0-\u00ff\u20ac\u2026\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u2122]*$/
 
@@ -54,8 +56,8 @@ const STAMPER_TEXT = /^[ -~\u00a0-\u00ff\u20ac\u2026\u2018\u2019\u201c\u201d\u20
 export type PdfPageNumberParts = { before: string; counter: string; after: string }
 
 /**
- * The custom footer text as the PDF draws it. The stamper draws the whole text when its font
- * can (`before`/`after` empty). Otherwise it only gets the counting part, from the first
+ * The custom footer text as the PDF draws it. The stamper draws the whole text when its Helvetica
+ * fallback can (`before`/`after` empty). Otherwise it only gets the counting part, from the first
  * `{{page}}`/`{{total}}` to the last, and the text either side is laid out as ordinary footer
  * text, so a Cyrillic or CJK title prints in the document's font. `null` when nothing counts.
  */

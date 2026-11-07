@@ -127,7 +127,7 @@ SHIKI_FAIL
             '<div class="pdf-chrome-bar pdf-header-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,hl" alt="" /><span>Spec / Today</span></span><span class="pdf-chrome-side pdf-chrome-right"><span>Acme</span><img src="data:image/png;base64,hr" alt="" /></span></div>'
         )
         expect(html).toContain(
-            '<div class="pdf-chrome-bar pdf-footer-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,fl" alt="" /><span>Footer</span></span><span class="pdf-chrome-side pdf-chrome-right"><span class="pdf-page-number"><span class="pdf-page-number-mark">SFPN</span></span><img src="data:image/png;base64,fr" alt="" /></span></div>'
+            '<div class="pdf-chrome-bar pdf-footer-bar"><span class="pdf-chrome-side pdf-chrome-left"><img src="data:image/png;base64,fl" alt="" /><span>Footer</span></span><span class="pdf-chrome-side pdf-chrome-right"><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789</span>SFPN</span></span><img src="data:image/png;base64,fr" alt="" /></span></div>'
         )
         expect(html).not.toContain('counter(page)')
         expect(html).toContain('data-theme="github-light"')
@@ -271,7 +271,7 @@ SHIKI_FAIL
             profile,
             assets: { ...EMPTY_ASSETS, footer: { left: 'data:image/png;base64,fl', right: 'data:image/png;base64,fr' } },
         })
-        expect(html).toContain('<span class="pdf-page-number-mark">SFPN</span>')
+        expect(html).toContain('<span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789Page</span>SFPN</span>')
         expect(html).not.toContain('Confidential')
         expect(html).not.toContain('base64,fl')
         expect(html).not.toContain('base64,fr')
@@ -352,7 +352,9 @@ SHIKI_FAIL
 
         profile.footer.right.text = 'Page {{page}} of {{total}}'
         const { html: counted } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
-        expect(counted).toContain('<span class="pdf-page-number"><span class="pdf-page-number-mark">SFPN</span></span>')
+        expect(counted).toContain(
+            '<span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789Pageof</span>SFPN</span></span>'
+        )
         expect(counted).not.toContain('{{page}}')
 
         profile.footer.right.text = '   '
@@ -386,7 +388,7 @@ SHIKI_FAIL
 
         const { html, print } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
         expect(html).toContain(
-            '<span class="pdf-chrome-side pdf-chrome-right"><span>Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark">SFPN</span></span><span>· &lt;b&gt;</span></span>'
+            '<span class="pdf-chrome-side pdf-chrome-right"><span>Отчёт о продажах ·</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">0123456789/</span>SFPN</span></span><span>· &lt;b&gt;</span></span>'
         )
         // Only the counting part goes to the stamper, which draws in a Latin-only font.
         expect(print.pageNumberFormat).toBe('custom:{{page}}/{{total}}')
@@ -394,6 +396,35 @@ SHIKI_FAIL
         // The print dialog's page counter is drawn by the browser, so it keeps the whole text.
         const { html: dialog } = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
         expect(dialog).toContain('content: "Отчёт о продажах · " counter(page) "/" counter(pages) " · \\3c b>";')
+    })
+
+    it('draws the letters of a Cyrillic counter first inside the footer marker, so the stamper can use the footer font', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.footer.pageNumbers = 'custom'
+        profile.footer.right.text = 'Страница {{page}} из {{total}}'
+        profile.footer.hideOnFirstPages = 'none'
+
+        const { html, print } = await markdownToExportHtml('# Only', { profile, assets: EMPTY_ASSETS })
+        expect(print.pageNumberFormat).toBe('custom:{{page}} из {{total}}')
+        // The digits and the counter's own letters, each once, before the marker code the stamper looks for.
+        expect(html).toContain(
+            '<span>Страница</span><span class="pdf-page-number"><span class="pdf-page-number-mark"><span class="pdf-stamp-glyphs">01234 56789из</span>SFPN</span></span>'
+        )
+    })
+
+    it('draws one digit sample, in the first TOC row, before its marker code', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+
+        const { html } = await markdownToExportHtml('# One\n\n## Two\n\n## Three', { profile, assets: EMPTY_ASSETS })
+        expect(html).toContain('<span class="pdf-toc-mark"><span class="pdf-stamp-glyphs">0123456789</span>SFT0001</span>')
+        expect(html).toContain('<span class="pdf-toc-mark">SFT0002</span>')
+        expect(html).toContain('<span class="pdf-toc-mark">SFT0003</span>')
+        // Numbering is off, so the footer has no marker and no sample.
+        expect(html.match(/class="pdf-stamp-glyphs"/g)).toHaveLength(1)
     })
 
     it('keeps an indented code block that opens the document, with or without front matter', async () => {
@@ -430,7 +461,15 @@ SHIKI_FAIL
         profile.footer.hideOnFirstPages = 'title+toc'
 
         const { html } = await markdownToExportHtml('# Report\n\n## Section\n\nBody', { profile, assets: EMPTY_ASSETS, stamped: false })
-        for (const mark of ['SFPN', 'SFT0', 'SFH0', 'class="pdf-toc-leader"', 'class="pdf-toc-num"', 'pdf-heading-mark"']) {
+        for (const mark of [
+            'SFPN',
+            'SFT0',
+            'SFH0',
+            'class="pdf-toc-leader"',
+            'class="pdf-toc-num"',
+            'pdf-heading-mark"',
+            'class="pdf-stamp-glyphs"',
+        ]) {
             expect(html).not.toContain(mark)
         }
         // The TOC still links each heading, it just has no page column.

@@ -758,14 +758,14 @@ function ChromeFields({
 const PLACEHOLDER_HINT = 'Use {{title}}, {{subtitle}}, {{author}} or {{date}} (today if no date is set).'
 
 /**
- * The stamper draws the text between the counters in the footer's own font only when that font
- * has every letter of every page's label; otherwise in Helvetica, where anything outside Latin
- * prints as `?`. The footer font only holds the letters the document already drew in it, so
- * until the export draws a sample of the label's letters inside the footer marker
- * (`pdfStampGlyphText`), Helvetica is what users should expect.
+ * The stamper draws the text between the counters in the footer's own font when that font has
+ * every letter of every page's label. The export draws a sample of the label's letters inside
+ * the footer marker (`pdfStampGlyphText`) so the font holds them, unless the font has no such
+ * letter at all. Otherwise it uses Helvetica, where anything outside Latin prints as `?`, and it
+ * always does for scripts that need shaping (Arabic, Hebrew, Indic).
  */
 const PAGE_NUMBER_TEXT_HINT =
-    'Use {{page}}, {{total}}, {{title}}, {{subtitle}}, {{author}} or {{date}}. Text between {{page}} and {{total}} must use Latin letters; other scripts print as ?.'
+    'Use {{page}}, {{total}}, {{title}}, {{subtitle}}, {{author}} or {{date}}. Between {{page}} and {{total}}, Arabic, Hebrew, Hindi and letters the footer font lacks print as ?.'
 
 function ChromeSideFields({
     side,
