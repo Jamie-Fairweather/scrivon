@@ -67,7 +67,8 @@ export function NumberSetting({ id, label, description, value, min, max, step, p
     }
 
     return (
-        <Field>
+        // Disabled on the Field too, so the label and help text dim with the control.
+        <Field disabled={disabled}>
             <FieldLabel htmlFor={id}>{label}</FieldLabel>
             {description ? <FieldDescription>{description}</FieldDescription> : null}
             <NumberField

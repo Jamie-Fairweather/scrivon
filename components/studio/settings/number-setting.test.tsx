@@ -168,4 +168,19 @@ describe('NumberSetting', () => {
         expect(onChange).not.toHaveBeenCalled()
         expect(input.value).toBe('13')
     })
+
+    it('dims the label and help text along with the control when disabled', () => {
+        const { input } = renderSetting({ initial: 13, min: 8, max: 32, step: 1, disabled: true })
+
+        expect(input).toBeDisabled()
+        expect(screen.getByText('Setting')).toHaveAttribute('data-disabled')
+        expect(screen.getByText('Help text')).toHaveAttribute('data-disabled')
+    })
+
+    it('leaves the label and help text alone when enabled', () => {
+        renderSetting({ initial: 13, min: 8, max: 32, step: 1 })
+
+        expect(screen.getByText('Setting')).not.toHaveAttribute('data-disabled')
+        expect(screen.getByText('Help text')).not.toHaveAttribute('data-disabled')
+    })
 })
