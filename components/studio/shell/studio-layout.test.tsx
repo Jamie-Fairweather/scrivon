@@ -95,6 +95,16 @@ describe('StudioLayout explorer', () => {
     })
 })
 
+describe('StudioLayout find box', () => {
+    // app/globals.css lets the find box's tooltips past every clip marked data-find-overflow-host.
+    it('marks the editor row and column, so the find box tooltips are not cut off', () => {
+        const { container } = render(<StudioLayout />)
+        const editor = container.querySelector('[data-slot="code-editor"]')
+        expect(editor?.parentElement).toHaveAttribute('data-find-overflow-host')
+        expect(editor?.parentElement?.parentElement).toHaveAttribute('data-find-overflow-host')
+    })
+})
+
 describe('StudioLayout keeps keyboard focus', () => {
     function focus(el: HTMLElement) {
         act(() => el.focus())

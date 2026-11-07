@@ -321,14 +321,10 @@
 }
 
 /* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.
-   Every element that clips the editor should carry data-find-overflow-host, and a new clipping
-   wrapper around the editor needs it too. The two class selectors match the editor host
-   (code-editor-panel.tsx) and its row and column (studio-layout.tsx) until those carry the
-   marker; remove them once they do.
+   Every element that clips the editor must carry data-find-overflow-host, including any new
+   clipping wrapper added around it.
    https://github.com/microsoft/monaco-editor/issues/5137 */
-[data-find-overflow-host]:has(.monaco-editor .find-widget.visible),
-.bg-code.overflow-hidden:has(.monaco-editor .find-widget.visible),
-.flex.min-h-0.min-w-0.flex-1.overflow-hidden:has(.monaco-editor .find-widget.visible) {
+[data-find-overflow-host]:has(.monaco-editor .find-widget.visible) {
     overflow: visible;
 }
 
