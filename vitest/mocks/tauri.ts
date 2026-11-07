@@ -30,16 +30,28 @@ vi.mock('@tauri-apps/api/core', () => ({
     isTauri: vi.fn(() => false),
 }))
 
-// An empty store, so the real lib/tauri/store.ts also works in a test that un-mocks it.
+// An empty store with every public LazyStore method (the `implements` makes tsc flag any that are missing),
+// so the real lib/tauri/store.ts also works in a test that un-mocks it, whichever methods it calls.
+type LazyStoreApi = Pick<import('@tauri-apps/plugin-store').LazyStore, keyof import('@tauri-apps/plugin-store').LazyStore>
 vi.mock('@tauri-apps/plugin-store', () => ({
     LazyStore: vi.fn(
-        class {
+        class implements LazyStoreApi {
             init = vi.fn(async () => undefined)
-            get = vi.fn(async () => undefined)
             set = vi.fn(async () => undefined)
+            get = vi.fn(async () => undefined)
             has = vi.fn(async () => false)
             delete = vi.fn(async () => false)
+            clear = vi.fn(async () => undefined)
+            reset = vi.fn(async () => undefined)
+            keys = vi.fn(async () => [])
+            values = vi.fn(async () => [])
+            entries = vi.fn(async () => [])
+            length = vi.fn(async () => 0)
+            reload = vi.fn(async () => undefined)
             save = vi.fn(async () => undefined)
+            onKeyChange = vi.fn(async () => () => undefined)
+            onChange = vi.fn(async () => () => undefined)
+            close = vi.fn(async () => undefined)
         }
     ),
 }))
