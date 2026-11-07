@@ -113,7 +113,7 @@ Stable releases only. The desktop app checks [latest stable `latest.json`](https
 
 ### Updating Tauri
 
-Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.github/dependabot.yml)). The Tauri CLI won't build when an `@tauri-apps/*` package and its Rust crate are on different minor versions, and CI never runs the Tauri CLI, so a minor or major bump is done by hand in one PR: the `@tauri-apps/*` packages in `package.json`, the `tauri*` crates in `src-tauri/Cargo.toml`, and `webview2-com` and `windows-core` to the versions the new `wry` uses. CI checks the npm and crate versions match (`node scripts/check-tauri-versions.mjs`), but check that `bun run tauri build` still works before merging: CI doesn't build the installer.
+Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.github/dependabot.yml)). The Tauri CLI won't build when an `@tauri-apps/*` package and its Rust crate are on different minor versions, and pull request checks never run the Tauri CLI, so a minor or major bump is done by hand in one PR: the `@tauri-apps/*` packages in `package.json`, the `tauri*` crates in `src-tauri/Cargo.toml`, and `webview2-com` and `windows-core` to the versions the new `wry` uses. CI checks the npm and crate versions match (`node scripts/check-tauri-versions.mjs`), but check that `bun run tauri build` still works before merging: CI only builds the installer (the **Build Windows installer** job) once a change is on `dev`, and again before each release, not for a pull request.
 
 ### Installer identity
 

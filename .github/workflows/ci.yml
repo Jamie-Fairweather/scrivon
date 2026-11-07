@@ -36,7 +36,8 @@ jobs:
             - name: Type check
               run: bun run typecheck
 
-            # The Tauri CLI refuses to build when these differ, and nothing else here runs it.
+            # The Tauri CLI refuses to build when these differ, and only bundle-windows runs it,
+            # which pull requests skip.
             - name: Check Tauri npm and crate versions match
               run: node scripts/check-tauri-versions.mjs
 
@@ -123,7 +124,10 @@ jobs:
               working-directory: src-tauri
 
     # Windows is the main platform. The WebView2 PDF exporter and the Windows shortcut
-    # blocking are #[cfg(windows)], so the Linux job above never compiles them.
+    # blocking are #[cfg(windows)], so the Linux job above never compiles them. Clippy and the
+    # tests build in debug, which leaves out the release-only Windows code (the crash message box,
+    # turning off WebView2's browser keys, setting the taskbar ID), so a second Clippy run checks
+    # that. The installer and its NSIS hooks are only built by the bundle-windows job below.
     rust-windows:
         name: Rust tests (Windows)
         runs-on: windows-latest
@@ -156,9 +160,47 @@ jobs:
               run: cargo clippy --all-targets --locked -- -D warnings
               working-directory: src-tauri
 
+            # The code under #[cfg(not(debug_assertions))], which only release builds have. This
+            # checks it without the slow optimised build, and needs no web build (out/).
+            - name: Clippy (release build)
+              run: cargo clippy --release --all-targets --locked -- -D warnings
+              working-directory: src-tauri
+
             - name: Test
               run: cargo test --locked
               working-directory: src-tauri
+
+    # Builds the installer the way release.yml does, without the updater files (they need the
+    # signing key). Nothing else builds windows/installer-hooks.nsh or a full release build, so
+    # without this a break there only shows up after semantic-release has tagged a version.
+    # It takes a while, so it runs on pushes (to dev, and release.yml's own run of this file
+    # before it tags anything), not on every pull request.
+    bundle-windows:
+        name: Build Windows installer
+        if: github.event_name == 'push'
+        runs-on: windows-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+              with:
+                  persist-credentials: false
+
+            - name: Setup Bun and dependencies
+              uses: ./.github/actions/setup-bun
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+              with:
+                  toolchain: stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+              with:
+                  workspaces: src-tauri -> target
+
+            - name: Build the installer
+              shell: bash
+              run: bun run tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
     # Catches Windows path handling (backslashes, drive letters) that POSIX-only runs miss.
     frontend-windows:
