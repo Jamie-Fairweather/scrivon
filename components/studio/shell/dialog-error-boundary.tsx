@@ -7,7 +7,9 @@ type DialogErrorBoundaryProps = {
     /** Whether the dialog is open. After a crash, the dialog is drawn again once this changes (closed, or opened again). */
     open: boolean
     /** Called once for each crash, to close the dialog and tell the user. */
-    onCrash: (error: Error) => void
+    onCrash?: (error: Error) => void
+    /** Drawn in place of what crashed, for a part of a dialog that stays open (one Settings section). Nothing by default. */
+    fallback?: ReactNode
 }
 
 type DialogErrorBoundaryState = {
@@ -24,7 +26,7 @@ function toError(value: unknown): Error {
 /**
  * Catches a render error in one dialog (Settings, the command palette), so the dialog closes with a notice
  * instead of the whole window going to a reload screen, which would lose edits not yet kept as a copy.
- * It draws nothing until the dialog is closed or opened again, which tries it afresh.
+ * It draws nothing (or `fallback`) until the dialog is closed or opened again, which tries it afresh.
  */
 export class DialogErrorBoundary extends Component<DialogErrorBoundaryProps, DialogErrorBoundaryState> {
     state: DialogErrorBoundaryState = { error: null, openAtCrash: null }
@@ -43,10 +45,10 @@ export class DialogErrorBoundary extends Component<DialogErrorBoundaryProps, Dia
 
     componentDidCatch(error: unknown, info: ErrorInfo) {
         console.error('A dialog hit an error while rendering:', error, info.componentStack)
-        this.props.onCrash(toError(error))
+        this.props.onCrash?.(toError(error))
     }
 
     render() {
-        return this.state.error ? null : this.props.children
+        return this.state.error ? (this.props.fallback ?? null) : this.props.children
     }
 }

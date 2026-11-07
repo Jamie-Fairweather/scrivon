@@ -42,18 +42,34 @@ function SettingsSectionPanel({ section }: { section: SettingsSection }) {
     }
 }
 
+/** Shown in place of a section that failed to draw (most likely because of a bad saved setting). */
+function SectionCrashNotice() {
+    return (
+        <div role="alert" className="text-sm">
+            <p className="font-medium">Couldn&apos;t show this section</p>
+            <p className="mt-1 text-muted-foreground">
+                Something went wrong while drawing it. The other sections still work, and Restore defaults can put its settings back.
+            </p>
+        </div>
+    )
+}
+
 /**
  * Settings, drawn from the root layout outside the studio's own error screens. A section that fails to draw
- * closes Settings with a notice rather than replacing the whole window (and the editor's unsaved text).
+ * shows a notice in its place, so the other sections and Restore defaults (which can fix a bad saved setting)
+ * still work. Anything else that fails closes Settings with a notice rather than replacing the whole window
+ * (and the editor's unsaved text).
  */
 export function SettingsDialog() {
-    const { settingsOpen, closeSettings } = useAppSettings()
+    const { settingsOpen, closeSettings, setActiveSection } = useAppSettings()
 
     return (
         <DialogErrorBoundary
             open={settingsOpen}
             onCrash={(error) => {
                 closeSettings()
+                // Settings reopens on the last section; start from General, in case that section is what broke.
+                setActiveSection('general')
                 notifyError("Couldn't show Settings", error, {
                     description: "Something went wrong while drawing it. Your open files weren't affected.",
                 })
@@ -92,7 +108,10 @@ function SettingsDialogContent() {
                         <h3 id={titleId} className="mb-4 text-base font-semibold">
                             {getSettingsSectionLabel(activeSection)}
                         </h3>
-                        <SettingsSectionPanel section={activeSection} />
+                        {/* Inside the keyed scroll area, so picking another section tries afresh. */}
+                        <DialogErrorBoundary open={settingsOpen} fallback={<SectionCrashNotice />}>
+                            <SettingsSectionPanel section={activeSection} />
+                        </DialogErrorBoundary>
                     </ScrollArea>
                 </div>
                 {/* sm: so it replaces the footer's own sm:justify-end; narrow windows keep the stacked full-width buttons. */}

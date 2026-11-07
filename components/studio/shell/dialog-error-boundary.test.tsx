@@ -66,6 +66,17 @@ describe('DialogErrorBoundary', () => {
         expect(onCrash).toHaveBeenCalledTimes(1)
     })
 
+    it('draws the fallback in place of what crashed, for a part of a dialog that stays open', () => {
+        render(
+            <DialogErrorBoundary open fallback={<p>Couldn&apos;t show this part</p>}>
+                <FlakyDialog open />
+            </DialogErrorBoundary>
+        )
+
+        expect(screen.getByText("Couldn't show this part")).toBeInTheDocument()
+        expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
     it('reports each new crash', () => {
         const onCrash = vi.fn()
         const view = render(<Harness open={false} onCrash={onCrash} />)
