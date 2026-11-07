@@ -7,7 +7,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use tauri::ipc::{InvokeBody, Request};
@@ -30,17 +30,59 @@ pub async fn save_workspace_file(
         return Err("The file to save was sent in the wrong form.".into());
     };
     let (path, bytes) = parse_body(body)?;
-    if !app.fs_scope().is_allowed(&path) {
-        return Err(format!(
+    let bytes = bytes.to_vec();
+    let scope = app.fs_scope();
+    // Finding where the file really goes reads the disk too (slow on a network drive).
+    tauri::async_runtime::spawn_blocking(move || {
+        save_allowed(&path, &bytes, |target| scope.is_allowed(target))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+/// Saves `bytes` to `path` when `is_allowed` (the file scope) lets the window
+/// write where that really is.
+fn save_allowed(
+    path: &Path,
+    bytes: &[u8],
+    is_allowed: impl Fn(&Path) -> bool,
+) -> Result<(), String> {
+    let target = allowed_target(path, is_allowed)?;
+    save(&target, bytes).map_err(|err| err.to_string())
+}
+
+/// Where `path` really is, if that is in a folder the user opened. The scope
+/// matches a file that isn't there yet by its path as written, so a `..` in it
+/// could point the file anywhere on disk (the file plugin's own commands refuse
+/// `..` for the same reason). Its folder is looked up on disk instead, which
+/// also follows any link among its folders, and the file is saved there.
+fn allowed_target(path: &Path, is_allowed: impl Fn(&Path) -> bool) -> Result<PathBuf, String> {
+    let refused = || {
+        format!(
             "Scrivon can only save files in a folder you opened: {}",
             path.display()
-        ));
+        )
+    };
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(refused());
     }
-    let bytes = bytes.to_vec();
-    tauri::async_runtime::spawn_blocking(move || save(&path, &bytes))
-        .await
-        .map_err(|err| err.to_string())?
-        .map_err(|err| err.to_string())
+    let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(refused());
+    };
+    let target = match fs::canonicalize(folder) {
+        Ok(folder) => folder.join(name),
+        // The folder is gone (deleted, or on a drive that was unplugged). Only
+        // said for a folder the window may use, so it can't probe the disk.
+        Err(err) if is_allowed(path) => return Err(err.to_string()),
+        Err(_) => return Err(refused()),
+    };
+    if !is_allowed(&target) {
+        return Err(refused());
+    }
+    Ok(target)
 }
 
 fn parse_body(body: &[u8]) -> Result<(PathBuf, &[u8]), String> {
@@ -413,6 +455,68 @@ mod tests {
 
         assert_eq!(read_path, path);
         assert_eq!(bytes, [0xff, 0xfe, 0x41, 0x00]);
+    }
+
+    /// Allows what is inside `folder`, matched as the file scope matches a file
+    /// that isn't there yet: by its path as written, part by part, and by the
+    /// folder's real location.
+    fn inside(folder: &Path) -> impl Fn(&Path) -> bool {
+        let written = folder.to_path_buf();
+        let real = fs::canonicalize(folder).unwrap();
+        move |path| path.starts_with(&written) || path.starts_with(&real)
+    }
+
+    #[test]
+    fn refuses_a_new_file_whose_path_climbs_out_of_the_opened_folder() {
+        let dir = TempDir::new();
+        let opened = dir.0.join("opened");
+        fs::create_dir(&opened).unwrap();
+        // Written this way it still starts with the opened folder.
+        let escaping = opened.join("..").join("outside.txt");
+        assert!(inside(&opened)(&escaping));
+
+        let refused = save_allowed(&escaping, b"x", inside(&opened)).unwrap_err();
+
+        assert!(refused.contains("folder you opened"), "{refused}");
+        assert!(!dir.0.join("outside.txt").exists());
+        assert_eq!(dir.names(), ["opened"]);
+    }
+
+    #[test]
+    fn checks_and_saves_where_the_file_really_is() {
+        let dir = TempDir::new();
+        let asked = std::cell::RefCell::new(Vec::new());
+
+        save_allowed(&dir.0.join("notes.md"), b"hello", |path| {
+            asked.borrow_mut().push(path.to_path_buf());
+            true
+        })
+        .unwrap();
+
+        let real = fs::canonicalize(&dir.0).unwrap().join("notes.md");
+        assert_eq!(*asked.borrow(), [real]);
+        assert_eq!(fs::read_to_string(dir.0.join("notes.md")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn refuses_a_file_outside_the_opened_folders() {
+        let dir = TempDir::new();
+
+        assert!(save_allowed(&dir.0.join("notes.md"), b"x", |_| false).is_err());
+
+        assert!(dir.names().is_empty());
+    }
+
+    #[test]
+    fn says_a_folder_is_gone_only_when_the_window_may_use_it() {
+        let dir = TempDir::new();
+        let path = dir.0.join("deleted").join("notes.md");
+
+        let gone = save_allowed(&path, b"x", |_| true).unwrap_err();
+        let refused = save_allowed(&path, b"x", |_| false).unwrap_err();
+
+        assert!(gone.contains("os error"), "{gone}");
+        assert!(refused.contains("folder you opened"), "{refused}");
     }
 
     #[test]
