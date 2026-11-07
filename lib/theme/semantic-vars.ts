@@ -46,8 +46,8 @@ type StatusName = 'warning' | 'destructive' | 'info' | 'success'
 type StatusColor = { fill: string; text: string }
 
 /**
- * Tailwind's status colours, as app/globals.css sets them before the theme loads: the 500 shade
- * for tints, and the 700 shade for text in light themes and the 400 shade in dark ones.
+ * The status colours app/globals.css sets before the theme loads, as hex: those in :root for light
+ * themes and those in .dark for dark ones. A test checks they still match the stylesheet.
  */
 export const STATUS_COLORS: Record<ThemeKind, Record<StatusName, StatusColor>> = {
     light: {
@@ -58,7 +58,6 @@ export const STATUS_COLORS: Record<ThemeKind, Record<StatusName, StatusColor>> =
     },
     dark: {
         warning: { fill: '#fe9a00', text: '#ffb900' },
-        // .dark mixes 10% white into red-500.
         destructive: { fill: '#fb414a', text: '#ff6467' },
         info: { fill: '#2b7fff', text: '#51a2ff' },
         success: { fill: '#00bc7d', text: '#00d492' },
@@ -85,9 +84,9 @@ function statusTextColor(tokens: ResolvedThemeTokens, kind: ThemeKind, status: S
 }
 
 export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticThemeVars {
+    const kind: ThemeKind = contrastRatio('#000000', tokens.bg) >= contrastRatio('#ffffff', tokens.bg) ? 'light' : 'dark'
     const accent = hexColorMix(tokens.accent, tokens.bg, 24)
     const textOnInteractive = ensureContrast(tokens.uiText, tokens.uiText, [tokens.interactive], MIN_TEXT_CONTRAST)
-    const kind: ThemeKind = contrastRatio('#000000', tokens.bg) >= contrastRatio('#ffffff', tokens.bg) ? 'light' : 'dark'
 
     return {
         '--background': tokens.bg,
