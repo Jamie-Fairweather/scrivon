@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type MouseEvent } from 'react'
 import type { Element } from 'hast'
 import { ImageOff } from 'lucide-react'
 import type { Root } from 'mdast'
@@ -74,16 +74,6 @@ function hasClass(className: string | undefined, name: string): boolean {
 
 /** Hides the bullet and moves the checkbox into its place (the list's start padding). */
 const TASK_LIST_ITEM_CLASS = 'list-none [&_input]:-ms-5 [&_input]:me-1 [&_input]:align-middle'
-
-type TableCellProps = {
-    children?: ReactNode
-    node?: { properties?: { align?: string | null } }
-}
-
-function cellAlignStyle(align: string | null | undefined): CSSProperties | undefined {
-    if (align === 'center' || align === 'right' || align === 'left') return { textAlign: align }
-    return undefined
-}
 
 /** Whether loading this image would contact another site. Without a page to read it against, assume so. */
 function isRemoteImage(src: unknown): src is string {
@@ -238,16 +228,15 @@ const staticMarkdownComponents: Components = {
     thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
     tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
     tr: ({ children }) => <tr className="border-border">{children}</tr>,
-    th: ({ children, node }: TableCellProps) => (
-        <th dir="auto" className="px-3 py-2 font-medium text-foreground" style={cellAlignStyle(node?.properties?.align)}>
-            {children}
-        </th>
-    ),
-    td: ({ children, node }: TableCellProps) => (
-        <td dir="auto" className="px-3 py-2 text-foreground/90" style={cellAlignStyle(node?.properties?.align)}>
-            {children}
-        </td>
-    ),
+    // A raw-HTML table's colspan, rowspan and dir reach the cell. A column's alignment arrives as its text-align style.
+    th: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <th dir="auto" {...rest} className={cn('px-3 py-2 font-medium text-foreground', className)} />
+    },
+    td: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        return <td dir="auto" {...rest} className={cn('px-3 py-2 text-foreground/90', className)} />
+    },
     pre: (props) => {
         const { className, ...rest } = withoutNode(props)
         const first = props.node?.children[0]

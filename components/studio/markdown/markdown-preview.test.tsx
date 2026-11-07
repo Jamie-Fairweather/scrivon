@@ -232,6 +232,29 @@ describe('MarkdownPreview', () => {
             expect(typeof document.createElement).toBe('function')
         })
 
+        it('keeps a raw table cell’s colspan, rowspan and dir, and a Markdown column’s alignment (review)', () => {
+            const { container } = preview(
+                [
+                    '<table><tr><th colspan="2" scope="colgroup">Both</th></tr>',
+                    '<tr><td rowspan="2" dir="rtl">שלום</td><td>a</td></tr><tr><td>b</td></tr></table>',
+                    '',
+                    '| Left | Middle | Right |',
+                    '| :--- | :-: | --: |',
+                    '| 1 | 2 | 3 |',
+                ].join('\n')
+            )
+            const [both] = Array.from(container.querySelectorAll('th'))
+            expect(both).toHaveAttribute('colspan', '2')
+            expect(both).toHaveAttribute('scope', 'colgroup')
+            const [merged] = Array.from(container.querySelectorAll('td'))
+            expect(merged).toHaveAttribute('rowspan', '2')
+            expect(merged).toHaveAttribute('dir', 'rtl')
+            expect(merged).toHaveClass('px-3', 'py-2')
+            const aligned = Array.from(container.querySelectorAll('td')).slice(-3)
+            expect(aligned.map((cell) => cell.style.textAlign)).toEqual(['left', 'center', 'right'])
+            expect(aligned[0]).toHaveAttribute('dir', 'auto')
+        })
+
         it('keeps a raw <pre> of plain text as a block, with its spaces and line breaks (review)', () => {
             const { container } = preview('<pre>+--+\n|  | <b>box</b>\n+--+</pre>\n\nAfter.')
             const pre = container.querySelector('pre')!
