@@ -68,6 +68,7 @@ import {
     listFolderNames,
     listWorkspaceTree,
     PathExistsError,
+    readStamp,
     readWorkspaceFile,
     readWorkspaceTextFile,
     removeWorkspacePath,
@@ -199,6 +200,13 @@ describe('workspace fs (Tauri)', () => {
         expect(invokeMock).not.toHaveBeenCalled()
     })
 
+    it('does not count a broken time on disk as a change when saving', async () => {
+        lstatMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 4, mtime: new Date(Number.NaN), nlink: null })
+
+        await writeWorkspaceFile('/ws/a.md', 'mine', { expected: { mtimeMs: 1000, size: 4 } })
+        expect(lastSave()?.path).toBe('/ws/a.md')
+    })
+
     it('refuses to bring back a file deleted outside the app, unless saved without a check', async () => {
         lstatMock.mockRejectedValue('The system cannot find the file specified. (os error 2)')
         existsMock.mockResolvedValue(false)
@@ -214,6 +222,29 @@ describe('workspace fs (Tauri)', () => {
         expect(stampChanged({ mtimeMs: null, size: 4 }, { mtimeMs: 2000, size: 4 })).toBe(false)
         expect(stampChanged({ mtimeMs: 1000, size: 4 }, { mtimeMs: 1000, size: 4 })).toBe(false)
         expect(stampChanged({ mtimeMs: null, size: 4 }, { mtimeMs: null, size: 5 })).toBe(true)
+    })
+
+    it('reads the size of a file and the time it was last changed', async () => {
+        statMock.mockResolvedValue({ size: 14, mtime: new Date(1_700_000_000_000) })
+
+        await expect(readStamp('C:\\work\\a.md')).resolves.toEqual({ size: 14, mtimeMs: 1_700_000_000_000 })
+        expect(statMock).toHaveBeenCalledWith('C:\\work\\a.md')
+    })
+
+    it('leaves the time out of a stamp when the system gives none, or a broken one', async () => {
+        statMock.mockResolvedValueOnce({ size: 3, mtime: null })
+        await expect(readStamp('/ws/a.md')).resolves.toEqual({ size: 3, mtimeMs: null })
+
+        statMock.mockResolvedValueOnce({ size: 3, mtime: new Date(Number.NaN) })
+        await expect(readStamp('/ws/a.md')).resolves.toEqual({ size: 3, mtimeMs: null })
+    })
+
+    it('gives no stamp when the file cannot be looked at or has no size', async () => {
+        statMock.mockRejectedValueOnce(new Error('gone'))
+        await expect(readStamp('/ws/a.md')).resolves.toBeNull()
+
+        statMock.mockResolvedValueOnce({ size: undefined, mtime: null })
+        await expect(readStamp('/ws/a.md')).resolves.toBeNull()
     })
 
     it('keeps the byte-order mark of a UTF-8 file and flags an ANSI file', async () => {
@@ -661,6 +692,7 @@ describe('workspace fs (Tauri)', () => {
         await expect(listWorkspaceTree('/ws')).resolves.toEqual([])
         await expect(readWorkspaceFile('/ws/a.mmd')).resolves.toBe('')
         await expect(getWorkspaceFileSize('/ws/a.mmd')).resolves.toBeNull()
+        await expect(readStamp('/ws/a.mmd')).resolves.toBeNull()
         await writeWorkspaceFile('/ws/a.mmd', 'x')
         await createWorkspaceDirectory('/ws/docs')
         await createWorkspaceFile('/ws/docs/readme.md', '# Hello')

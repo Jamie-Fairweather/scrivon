@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { notifyError } from '@/lib/notify'
-import { getWorkspaceFileStamp } from '@/lib/tauri/file-stamp'
-import { getBaseName, readWorkspaceFile } from '@/lib/tauri/fs'
+import { getBaseName, readStamp, readWorkspaceFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
@@ -321,7 +320,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                         paths: filePaths,
                         openBuffers,
                         readFile: isTauri() ? readWorkspaceFile : async () => '',
-                        getFileStamp: isTauri() ? getWorkspaceFileStamp : undefined,
+                        getFileStamp: isTauri() ? readStamp : undefined,
                         cache: contentCache,
                         signal: controller.signal,
                     })

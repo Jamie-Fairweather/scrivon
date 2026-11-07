@@ -272,7 +272,9 @@ export async function listWorkspaceTree(
 }
 
 function stampOf(info: { size: number; mtime: Date | null }): FileStamp {
-    return { mtimeMs: info.mtime ? info.mtime.getTime() : null, size: info.size }
+    const mtimeMs = info.mtime ? info.mtime.getTime() : null
+    // A broken time (NaN) counts as unknown: it never equals itself, so the file would always look changed.
+    return { mtimeMs: mtimeMs !== null && Number.isFinite(mtimeMs) ? mtimeMs : null, size: info.size }
 }
 
 /** True when the file now on disk isn't the one `before` was taken from. Sizes always count; times only when both are known. */
@@ -281,11 +283,16 @@ export function stampChanged(before: FileStamp, now: FileStamp): boolean {
     return before.mtimeMs !== null && now.mtimeMs !== null && before.mtimeMs !== now.mtimeMs
 }
 
-/** When the file at `path` was last changed and how big it is now; null when it can't be read (or is gone). */
+/**
+ * When the file at `path` was last changed and how big it is now, to tell whether it changed since it was
+ * last read (see stampChanged). Null outside the desktop app, or when the file can't be looked at (or is
+ * gone); the time is null when the system doesn't give one.
+ */
 export async function readStamp(path: string): Promise<FileStamp | null> {
     if (!isTauri()) return null
     try {
-        return stampOf(await stat(path))
+        const info = await stat(path)
+        return typeof info.size === 'number' ? stampOf(info) : null
     } catch {
         return null
     }
