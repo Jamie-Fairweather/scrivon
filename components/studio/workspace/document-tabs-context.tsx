@@ -104,6 +104,10 @@ const ActiveTabIdContext = createContext<string | null | undefined>(undefined)
 /** How long closing waits for a save before asking the user (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
 
+/** Rounds of saving closing tabs again for text typed meanwhile, before asking the user. */
+const MAX_SAVE_ROUNDS_BEFORE_CLOSE = 3
+const EDITED_WHILE_SAVING = 'It was edited again while it was being saved.'
+
 /** Time spent waiting for the user to answer a question during the save doesn't count. */
 function saveWithin(save: Promise<boolean>, ms: number, isAskingUser: () => boolean): Promise<boolean | 'timeout'> {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -516,8 +520,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     )
 
     const resolveUnsavedTabs = useCallback(
-        async (closing: DocumentTab[]): Promise<boolean> => {
-            const editable = closing.filter((t) => !t.readOnly)
+        async (closingNow: () => DocumentTab[]): Promise<boolean> => {
+            const editable = closingNow().filter((t) => !t.readOnly)
             let toSave: DocumentTab[] = []
             if (coordinator.getAutosaveEnabled.current()) {
                 toSave = editable
@@ -530,7 +534,9 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 }
             }
 
+            let rounds = 0
             while (toSave.length > 0) {
+                rounds += 1
                 const results = await Promise.all(
                     toSave.map(async (tab) => ({
                         tab,
@@ -541,19 +547,30 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                         ),
                     }))
                 )
-                const failed = results.filter((r) => r.result !== true)
-                if (failed.length === 0) break
+                let failed: Array<{ tab: DocumentTab; result: boolean | 'timeout' | 'edited' }> = results.filter((r) => r.result !== true)
+                if (failed.length === 0) {
+                    // Text typed into a closing tab while the saves ran (or into one that had no edits then) isn't
+                    // on disk yet, and the tabs are about to go: save again until none is left. Someone still typing
+                    // after a few rounds is asked, as for a save that failed.
+                    toSave = closingNow().filter((t) => !t.readOnly && t.isDirty)
+                    if (toSave.length === 0) break
+                    if (rounds < MAX_SAVE_ROUNDS_BEFORE_CLOSE) continue
+                    failed = toSave.map((tab) => ({ tab, result: 'edited' }))
+                }
                 // A save that timed out is still running, and saves of one tab wait their turn, so another try
                 // can only wait for it: the question says so.
                 const choice = await confirmCloseAfterSaveFailure(
                     failed.map(({ tab, result }) =>
                         result === 'timeout'
                             ? { name: tab.name, stillSaving: true }
-                            : { name: tab.name, error: coordinator.getSaveError.current(tab.id) }
+                            : result === 'edited'
+                              ? { name: tab.name, error: EDITED_WHILE_SAVING }
+                              : { name: tab.name, error: coordinator.getSaveError.current(tab.id) }
                     )
                 )
                 if (choice === 'cancel') return false
                 if (choice === 'discard') break
+                rounds = 0
                 toSave = failed.map((r) => r.tab)
             }
             return true
@@ -578,7 +595,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 await new Promise((resolve) => setTimeout(resolve, 0))
             }
             const closing = closingNow()
-            const done = resolveUnsavedTabs(closing).catch((err: unknown) => {
+            const done = resolveUnsavedTabs(closingNow).catch((err: unknown) => {
                 notifyError("Couldn't close the files", err)
                 return false
             })

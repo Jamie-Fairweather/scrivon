@@ -6,7 +6,14 @@ import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/no
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
 import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
-import { DocumentTabsProvider, useActiveTabId, useDocumentTabActions, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
+import {
+    DocumentTabsProvider,
+    useActiveTabId,
+    useDocumentTabActions,
+    useDocumentTabs,
+    useDocumentTabsState,
+    type DocumentTabsState,
+} from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -31,12 +38,15 @@ type WrapperOptions = {
     initial?: { tabs: DocumentTab[]; activeTabId: string | null }
     coordinator?: WorkspaceCoordinatorRefs
     workspaceRoot?: string | null
+    /** Filled with the tabs' state, for a test standing in for the save provider. */
+    stateOut?: { current?: DocumentTabsState }
 }
 
 function createTabsWrapper(options: WrapperOptions = {}) {
     return function Wrapper({ children }: { children: ReactNode }) {
         const optionsRef = useRef(options)
         const tabsState = useDocumentTabsState()
+        if (optionsRef.current.stateOut) optionsRef.current.stateOut.current = tabsState
         const coordinator = useMemo(() => optionsRef.current.coordinator ?? createWorkspaceCoordinatorRefs(), [])
         const seeded = useRef(false)
 
@@ -1321,16 +1331,28 @@ describe('closing tabs with unsaved changes', () => {
             activeTabId: '/ws/a.mmd',
         }
         const coordinator = createWorkspaceCoordinatorRefs()
-        const flushSave = vi.fn(async () => (typeof flushResult === 'function' ? flushResult() : flushResult))
+        const stateOut: { current?: DocumentTabsState } = {}
+        /** What a save that worked does: the text it wrote is on disk, so the tab has no edits left unless typed since. */
+        const markSaved = (id: string, content?: string) => {
+            const saved = (t: DocumentTab) => (t.id === id && (content === undefined || t.content === content) ? { ...t, isDirty: false } : t)
+            const state = stateOut.current!
+            state.tabsRef.current = state.tabsRef.current.map(saved)
+            state.setTabs((prev) => prev.map(saved))
+        }
+        const flushSave = vi.fn(async (id: string) => {
+            const ok = typeof flushResult === 'function' ? flushResult() : flushResult
+            if (ok) markSaved(id)
+            return ok
+        })
         const cancelScheduledSave = vi.fn()
         coordinator.flushSave.current = flushSave
         coordinator.cancelScheduledSave.current = cancelScheduledSave
         coordinator.getAutosaveEnabled.current = () => autosave
         coordinator.getSaveError.current = () => 'Access is denied. (os error 5)'
         const rendered = renderHook(() => useDocumentTabs(), {
-            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws', stateOut }),
         })
-        return { ...rendered, coordinator, flushSave, cancelScheduledSave }
+        return { ...rendered, coordinator, flushSave, cancelScheduledSave, markSaved, stateOut }
     }
 
     it('keeps the tab open when the user cancels the unsaved-changes prompt', async () => {
@@ -1451,7 +1473,7 @@ describe('closing tabs with unsaved changes', () => {
     })
 
     it('does not count time the user spends answering a question during the save', async () => {
-        const { result, coordinator } = setup({ autosave: true })
+        const { result, coordinator, markSaved } = setup({ autosave: true })
         await waitFor(() => expect(result.current.tabs).toHaveLength(3))
         // The save is waiting on "File changed on disk: Overwrite?" for 25 seconds, then succeeds.
         let asking = true
@@ -1470,6 +1492,7 @@ describe('closing tabs with unsaved changes', () => {
             })
             expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
             asking = false
+            markSaved('/ws/a.mmd')
             finish(true)
             await act(async () => {
                 await closing
@@ -1528,6 +1551,65 @@ describe('closing tabs with unsaved changes', () => {
         await expect(all).resolves.toBe(false)
         // a.mmd is closed by then, so only b.mmd is left to ask about.
         expect(confirmUnsavedChanges).toHaveBeenLastCalledWith(['b.mmd'])
+        expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
+    })
+
+    it('saves text typed while the closing saves ran before the tabs go, also in a tab that had no edits', async () => {
+        const { result, coordinator, markSaved, stateOut } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        const written: Array<[id: string, content: string]> = []
+        let finishA: (() => void) | undefined
+        coordinator.flushSave.current = vi.fn(async (id: string) => {
+            const content = stateOut.current!.tabsRef.current.find((t) => t.id === id)!.content
+            // The first save of a.mmd is slow, like one on a network drive.
+            if (id === '/ws/a.mmd' && !written.some(([w]) => w === id)) await new Promise<void>((resolve) => (finishA = resolve))
+            written.push([id, content])
+            markSaved(id, content)
+            return true
+        })
+
+        let closing!: Promise<void>
+        act(() => {
+            closing = result.current.closeAllTabs()
+        })
+        await waitFor(() => expect(finishA).toBeDefined())
+        act(() => {
+            result.current.updateTabContent('/ws/a.mmd', 'typed in a while it saved')
+            result.current.updateTabContent('/ws/c.mmd', 'typed in c, which had no edits')
+        })
+        await act(async () => {
+            finishA!()
+            await closing
+        })
+
+        expect(written).toContainEqual(['/ws/a.mmd', 'typed in a while it saved'])
+        expect(written).toContainEqual(['/ws/c.mmd', 'typed in c, which had no edits'])
+        expect(confirmCloseAfterSaveFailure).not.toHaveBeenCalled()
+        expect(result.current.tabs).toEqual([])
+    })
+
+    it('asks, rather than saving for ever, when the text keeps changing while it is saved', async () => {
+        vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('cancel').mockResolvedValueOnce('discard')
+        const { result, coordinator, markSaved } = setup({ autosave: true })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        let typed = 0
+        const flushSave = vi.fn(async (id: string) => {
+            markSaved(id)
+            result.current.updateTabContent(id, `still typing ${++typed}`)
+            return true
+        })
+        coordinator.flushSave.current = flushSave
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
+        expect(flushSave).toHaveBeenCalledTimes(3)
+        expect(confirmCloseAfterSaveFailure).toHaveBeenCalledWith([{ name: 'a.mmd', error: 'It was edited again while it was being saved.' }])
+        expect(result.current.tabs).toHaveLength(3)
+
+        await act(async () => {
+            await result.current.closeTab('/ws/a.mmd')
+        })
         expect(result.current.tabs.map((t) => t.id)).toEqual(['/ws/b.mmd', '/ws/c.mmd'])
     })
 
