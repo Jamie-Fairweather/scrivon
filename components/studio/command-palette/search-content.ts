@@ -1,4 +1,5 @@
-import { documentKind, getBaseName } from '@/lib/tauri/fs'
+import { documentKind, getBaseName, stampChanged } from '@/lib/tauri/fs'
+import type { FileStamp } from '@/lib/workspace/types'
 import { foldLine, foldText, originalSpan } from '@/components/studio/command-palette/fold-text'
 import { relativePath } from '@/components/studio/command-palette/search-files'
 import type { PaletteMode, TextSearchHit } from '@/components/studio/command-palette/types'
@@ -31,24 +32,25 @@ export const MAX_CACHED_CHARS = 16_000_000
 
 /**
  * Disk file text kept between searches while the palette is open, so each pause in typing
- * doesn't read every file again. A file's text is reused only while its size on disk is unchanged.
+ * doesn't read every file again. A file's text is reused only while its size and modified time on
+ * disk are unchanged, so an edit made in another app that keeps the size is still picked up.
  */
 export type ContentCache = {
-    get: (path: string, size: number) => string | undefined
-    set: (path: string, size: number, text: string) => void
+    get: (path: string, stamp: FileStamp) => string | undefined
+    set: (path: string, stamp: FileStamp, text: string) => void
     clear: () => void
 }
 
 export function createContentCache(maxChars = MAX_CACHED_CHARS): ContentCache {
-    const files = new Map<string, { size: number; text: string }>()
+    const files = new Map<string, { stamp: FileStamp; text: string }>()
     let chars = 0
 
     return {
-        get(path, size) {
+        get(path, stamp) {
             const cached = files.get(path)
-            return cached && cached.size === size ? cached.text : undefined
+            return cached && !stampChanged(cached.stamp, stamp) ? cached.text : undefined
         },
-        set(path, size, text) {
+        set(path, stamp, text) {
             const previous = files.get(path)
             if (previous) {
                 chars -= previous.text.length
@@ -56,7 +58,7 @@ export function createContentCache(maxChars = MAX_CACHED_CHARS): ContentCache {
             }
             // Once full, further files are simply read from disk each time.
             if (chars + text.length > maxChars) return
-            files.set(path, { size, text })
+            files.set(path, { stamp, text })
             chars += text.length
         },
         clear() {
@@ -159,8 +161,9 @@ export type SearchWorkspaceContentOptions = {
     paths: string[]
     openBuffers: Map<string, string>
     readFile: (path: string) => Promise<string>
-    getFileSize?: (path: string) => Promise<number | null>
-    /** Reuses file text from earlier searches; only used when the file size is known. */
+    /** The file's size and modified time, or null when they can't be read. */
+    getFileStamp?: (path: string) => Promise<FileStamp | null>
+    /** Reuses file text from earlier searches; only used when the file's stamp is known. */
     cache?: ContentCache
     signal: AbortSignal
     maxHits?: number
@@ -185,7 +188,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         paths,
         openBuffers,
         readFile,
-        getFileSize,
+        getFileStamp,
         cache,
         signal,
         maxHits = MAX_HITS,
@@ -220,14 +223,14 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
 
     const scanDiskPath = async (path: string): Promise<TextSearchHit[]> => {
         try {
-            const size = getFileSize ? await getFileSize(path) : null
-            if (size !== null && size > maxFileBytes) return []
+            const stamp = getFileStamp ? await getFileStamp(path) : null
+            if (stamp !== null && stamp.size > maxFileBytes) return []
 
-            let content = size !== null ? cache?.get(path, size) : undefined
+            let content = stamp !== null ? cache?.get(path, stamp) : undefined
             if (content === undefined) {
                 content = await readFile(path)
                 // Kept even if this search was cancelled meanwhile, so the next one can use it.
-                if (size !== null) cache?.set(path, size, content)
+                if (stamp !== null) cache?.set(path, stamp, content)
             }
             if (signal.aborted) return []
             if (content.length > maxFileBytes) return []

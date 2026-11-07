@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
-import { getWorkspaceFileSize } from '@/lib/tauri/fs'
+import { getWorkspaceFileStamp } from '@/lib/tauri/file-stamp'
 import type { AppThemeId } from '@/lib/theme/catalog'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
@@ -68,10 +68,7 @@ vi.mock('@/lib/notify', () => ({
     notifyError: vi.fn(),
 }))
 
-vi.mock('@/lib/tauri/fs', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@/lib/tauri/fs')>()
-    return { ...actual, getWorkspaceFileSize: vi.fn(async () => null) }
-})
+vi.mock('@/lib/tauri/file-stamp', () => ({ getWorkspaceFileStamp: vi.fn(async () => null) }))
 
 vi.mock('@/components/studio/command-palette/search-content', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/components/studio/command-palette/search-content')>()
@@ -189,7 +186,7 @@ describe('usePaletteSearch file cache', () => {
         state.tabs.tabs = []
         vi.mocked(isTauri).mockReturnValue(true)
         vi.mocked(readFile).mockImplementation(async () => utf8('the oauth flow'))
-        vi.mocked(getWorkspaceFileSize).mockImplementation(async () => 14)
+        vi.mocked(getWorkspaceFileStamp).mockImplementation(async () => ({ size: 14, mtimeMs: 1_700_000_000_000 }))
     })
 
     it('does not read unchanged files again while the user keeps typing', async () => {
@@ -215,6 +212,25 @@ describe('usePaletteSearch file cache', () => {
         act(() => result.current.setQuery('oauth'))
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(readFile).toHaveBeenCalledTimes(4)
+    })
+
+    it('reads a file again when another app changed it without changing its size', async () => {
+        const { result } = renderHook(() => usePaletteSearch('text', true))
+
+        act(() => result.current.setQuery('oauth'))
+        await waitFor(() => expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/a.md', '/ws/b.md']))
+
+        // a.md now says 'the login flow': the same 14 bytes, saved later.
+        vi.mocked(getWorkspaceFileStamp).mockImplementation(async (path) => ({
+            size: 14,
+            mtimeMs: path === '/ws/a.md' ? 1_700_000_005_000 : 1_700_000_000_000,
+        }))
+        vi.mocked(readFile).mockImplementation(async (path) => utf8(String(path) === '/ws/a.md' ? 'the login flow' : 'the oauth flow'))
+
+        act(() => result.current.setQuery('oauth flow'))
+        await waitFor(() => expect(result.current.isSearchingText).toBe(false))
+        expect(groupPaths(result.current.groups, 'text')).toEqual(['/ws/b.md'])
+        expect(readFile).toHaveBeenCalledTimes(3)
     })
 })
 
