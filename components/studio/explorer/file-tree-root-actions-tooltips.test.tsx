@@ -5,6 +5,7 @@ import { FileTreeRootActions } from './file-tree-root-actions'
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ workspaceRoot: 'C:\\work', refreshTree: async () => {} }),
+    useWorkspaceCoordinator: () => ({ reloadChangedTabs: { current: async () => {} } }),
 }))
 vi.mock('@/components/studio/explorer/use-file-tree-actions', () => ({
     useFileTreeActions: () => ({ createMermaidFileInParent: vi.fn(), createMarkdownFileInParent: vi.fn(), createFolderInParent: vi.fn() }),

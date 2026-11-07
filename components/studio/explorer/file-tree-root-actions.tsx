@@ -3,7 +3,7 @@
 import { Plus, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useFileTreeActions } from '@/components/studio/explorer/use-file-tree-actions'
-import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
@@ -11,13 +11,19 @@ import { cn } from '@/lib/utils'
 
 export function FileTreeRootActions() {
     const { workspaceRoot, refreshTree } = useWorkspaceSession()
+    const coordinator = useWorkspaceCoordinator()
     const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(workspaceRoot)
     // The icon spins while the folder is read, so a click that finds nothing new still shows it did something.
     const [refreshing, setRefreshing] = useState(false)
 
     const refresh = () => {
         setRefreshing(true)
-        void refreshTree().finally(() => setRefreshing(false))
+        // The open files with no edits are read again too: where the file watcher misses changes (a network
+        // share, say), the new file list would otherwise sit beside old text.
+        const reloadTabs = coordinator.reloadChangedTabs
+            .current()
+            .catch((err: unknown) => console.warn("Couldn't check the open files for changes", err))
+        void Promise.all([refreshTree(), reloadTabs]).finally(() => setRefreshing(false))
     }
 
     return (

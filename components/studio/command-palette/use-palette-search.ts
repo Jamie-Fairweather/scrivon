@@ -30,6 +30,7 @@ import {
     useDocumentSave,
     useDocumentTabs,
     useStudioLayout,
+    useWorkspaceCoordinator,
     useWorkspaceSession,
 } from '@/components/studio/workspace/workspace-provider'
 
@@ -91,6 +92,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const { canFitToView } = useCanvasControls()
     const { themeId, isLight, setThemeId } = useAppTheme()
     const { settings, openSettings } = useAppSettings()
+    const coordinator = useWorkspaceCoordinator()
 
     const [query, setQuery] = useState('')
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
@@ -151,6 +153,15 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         setThemeId(target)
     }, [themeId, lastThemeToggle, setThemeId])
 
+    // As the explorer's Refresh button: the open files with no edits are read again too, for where the file
+    // watcher misses changes.
+    const refreshExplorer = useCallback(async () => {
+        const reloadTabs = coordinator.reloadChangedTabs
+            .current()
+            .catch((err: unknown) => console.warn("Couldn't check the open files for changes", err))
+        await Promise.all([refreshTree(), reloadTabs])
+    }, [refreshTree, coordinator])
+
     const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
 
     const allActions = useMemo(
@@ -170,7 +181,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 pickAndOpenWorkspace,
                 openWorkspace,
                 closeWorkspace,
-                refreshTree,
+                refreshTree: refreshExplorer,
                 flushSave,
                 flushAllSaves,
                 setAutosaveEnabled,
@@ -201,7 +212,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             pickAndOpenWorkspace,
             openWorkspace,
             closeWorkspace,
-            refreshTree,
+            refreshExplorer,
             flushSave,
             flushAllSaves,
             setAutosaveEnabled,

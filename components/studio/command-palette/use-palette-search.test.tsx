@@ -42,6 +42,7 @@ const state = vi.hoisted(() => ({
     canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
     settings: { settings: null as unknown, openSettings: () => {} },
+    coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) } },
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
@@ -50,6 +51,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
     useCanvasFit: () => state.canvas,
+    useWorkspaceCoordinator: () => state.coordinator,
 }))
 
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
@@ -581,7 +583,7 @@ describe('usePaletteSearch Refresh Explorer', () => {
         vi.mocked(isTauri).mockReturnValue(false)
     })
 
-    it('reads the folder again', () => {
+    it('reads the folder and the open files with no edits again, as the Refresh button does', () => {
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
         act(() => result.current.setQuery('>refresh'))
@@ -591,6 +593,7 @@ describe('usePaletteSearch Refresh Explorer', () => {
         act(() => void refresh.run())
 
         expect(state.session.refreshTree).toHaveBeenCalledTimes(1)
+        expect(state.coordinator.reloadChangedTabs.current).toHaveBeenCalledTimes(1)
     })
 })
 
