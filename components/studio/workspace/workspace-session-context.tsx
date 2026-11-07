@@ -196,6 +196,15 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         workspaceRootRef.current = workspaceRoot
     }, [workspaceRoot])
 
+    /**
+     * True while `root` is still the open folder (or, for null, while none is). An action that started before
+     * another folder was opened still holds the old one, whose files must never show up under the new one.
+     */
+    const isOpenFolder = useCallback((root: string | null) => {
+        const open = workspaceRootRef.current
+        return open === null || root === null ? open === root : samePath(open, root)
+    }, [])
+
     const openWorkspaceRef = useRef<(path: string) => Promise<void>>(async () => {})
 
     const [folderToggles, setFolderTogglesState] = useState<ReadonlyMap<string, boolean>>(() => new Map())
@@ -302,12 +311,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
      */
     const readWholeTree = useCallback(
         async (announce: boolean) => {
-            if (!workspaceRoot) return
             const root = workspaceRoot
+            if (!root || !isOpenFolder(root)) return
             const { read, signal } = startTreeRead('all')
             try {
                 const next = await listWorkspaceTree(root, { signal })
-                if (read !== treeRead.current) return
+                if (read !== treeRead.current || !isOpenFolder(root)) return
                 noteTruncation(root, next, announce)
                 // Parts of the tree that didn't change stay the same objects, so their rows don't draw again.
                 setTree((prev) => keepUnchangedNodes(prev, next))
@@ -318,7 +327,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 endTreeRead(read)
             }
         },
-        [workspaceRoot, startTreeRead, endTreeRead, noteTruncation]
+        [workspaceRoot, isOpenFolder, startTreeRead, endTreeRead, noteTruncation]
     )
 
     const refreshTree = useCallback(() => readWholeTree(false), [readWholeTree])
@@ -336,8 +345,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
      */
     const refreshFolder = useCallback(
         async (folderPath: string) => {
-            if (!workspaceRoot) return
             const root = workspaceRoot
+            // A folder that is no longer open: its tree isn't the one shown (and the new one's watcher sees its own changes).
+            if (!root || !isOpenFolder(root)) return
             const folder = normalizePath(folderPath)
             // A read still running (a window focus, say) may have listed the folder before the change, so it
             // stops: it can't put the old entries back over these. What it was reading is read here instead: the
@@ -359,11 +369,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 return
             }
             endTreeRead(read)
-            if (read !== treeRead.current) return
+            if (read !== treeRead.current || !isOpenFolder(root)) return
             // A folder no longer in the tree (deleted meanwhile) is left out.
             setTree((prev) => folders.reduce((tree, path, i) => replaceChildren(tree, root, path, lists[i]!) ?? tree, prev))
         },
-        [workspaceRoot, refreshTree, startTreeRead, endTreeRead]
+        [workspaceRoot, isOpenFolder, refreshTree, startTreeRead, endTreeRead]
     )
     // For work that started before the folder it is in was opened, such as restoring its tabs.
     const refreshFolderRef = useRef(refreshFolder)
@@ -864,6 +874,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }
             const resolvedContent = content ?? (isMarkdownFile(name) ? defaultMarkdownFor(name) : DEFAULT_DIAGRAM)
             const path = joinPath(parentPath, name)
+            const root = workspaceRootRef.current
             try {
                 await createWorkspaceFile(path, resolvedContent)
             } catch (err) {
@@ -871,10 +882,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshFolder(parentPath)
                 return
             }
-            // The new file opens straight away; reading even its folder again can take a while.
-            await Promise.all([refreshFolder(parentPath), coordinator.openFile.current(path)])
+            // The new file opens straight away; reading even its folder again can take a while. Not once another
+            // folder is open, as its tabs are that folder's.
+            await Promise.all([refreshFolder(parentPath), isOpenFolder(root) ? coordinator.openFile.current(path) : null])
         },
-        [getNameError, refreshFolder, coordinator]
+        [getNameError, refreshFolder, isOpenFolder, coordinator]
     )
 
     /** A folder the file list leaves out (a tool or build folder) seems to vanish once made, so the user is told why. */
@@ -921,6 +933,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 return
             }
             const newPath = joinPath(parent, newName)
+            // The folder it is in, even if another one is opened while it is renamed.
+            const root = workspaceRootRef.current
             // Saves of the files being renamed wait until their tabs have moved too, so none writes to the old
             // path (bringing the old file back next to the new one) and none is dropped.
             const release = await coordinator.holdSaves.current(oldPath, isDirectory)
@@ -931,7 +945,6 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
                 whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
                 // Recent files follow too (best-effort: a store failure never fails the rename).
-                const root = workspaceRootRef.current
                 if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
                 if (isDirectory) {
                     // The folder and the ones inside it stay open or closed as they were.
@@ -951,6 +964,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const deleteEntry = useCallback(
         async (path: string, isDirectory: boolean) => {
+            // The folder it is in, even if another one is opened while it is deleted.
+            const root = workspaceRootRef.current
             if (isDirectory) {
                 // Deleting a folder takes everything in it, including folders the file list leaves out (a git
                 // repository, say), which the user agreed to without seeing them; so those are named first.
@@ -965,7 +980,6 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await removeWorkspacePath(path, { recursive: isDirectory })
                 coordinator.closeTabsForDelete.current(path, isDirectory)
                 whereNow = () => null
-                const root = workspaceRootRef.current
                 if (root) void removeRecentFiles(root, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
                 // A new folder made later with the same name starts as any other.
                 if (isDirectory) updateFolderToggles(workspaceRootRef.current, (prev) => dropPathKeysAfterDelete(prev, path))
@@ -986,6 +1000,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         async (path: string) => {
             const parent = getParentPath(path)
             const baseName = getBaseName(path)
+            const root = workspaceRootRef.current
             let destPath: string
             try {
                 // Names in use come from the folder on disk, not the cached tree, so a file added elsewhere
@@ -999,10 +1014,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 await refreshFolder(parent)
                 return
             }
-            // A copy of a file Scrivon doesn't open (an image, say) just shows up in the list.
-            await Promise.all([refreshFolder(parent), isSupportedDocument(destPath) ? coordinator.openFile.current(destPath) : null])
+            // A copy of a file Scrivon doesn't open (an image, say) just shows up in the list. Nor is one opened
+            // once another folder is open (a big copy takes a while).
+            const opens = isSupportedDocument(destPath) && isOpenFolder(root)
+            await Promise.all([refreshFolder(parent), opens ? coordinator.openFile.current(destPath) : null])
         },
-        [refreshFolder, coordinator]
+        [refreshFolder, isOpenFolder, coordinator]
     )
 
     const value = useMemo(

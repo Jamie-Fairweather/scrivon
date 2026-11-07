@@ -2164,6 +2164,98 @@ describe('opening folders one after another', () => {
         expect(result.current.session.openingWorkspace).toBeNull()
     })
 
+    /** Makes `mock` (a disk write or delete) wait until the test lets it finish. */
+    function slowly<T extends (...args: never[]) => Promise<void>>(mock: T, run: T) {
+        let finish!: () => void
+        const done = new Promise<void>((resolve) => (finish = resolve))
+        vi.mocked(mock).mockImplementation((async (...args: Parameters<T>) => {
+            await done
+            await run(...args)
+        }) as unknown as T)
+        return finish
+    }
+
+    /**
+     * Opens C:\ws, starts `action` there, and once `started` passes (its disk change is under way) opens C:\small,
+     * and then lets `finish` end the disk change.
+     */
+    async function switchFoldersDuring(
+        started: () => void,
+        finish: () => void,
+        action: (session: ReturnType<typeof useWorkspaceSession>) => Promise<void>
+    ) {
+        const rendered = renderHook(useHarness, { wrapper: createWrapper() })
+        const { result } = rendered
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        let acting!: Promise<void>
+        act(() => {
+            acting = action(result.current.session)
+        })
+        await waitFor(started)
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\small')
+        })
+        vi.mocked(readDir).mockClear()
+        await act(async () => {
+            finish()
+            await acting
+        })
+        return rendered
+    }
+
+    const readsOfOldFolder = () => vi.mocked(readDir).mock.calls.filter(([dir]) => String(dir).toLowerCase().startsWith('c:\\ws'))
+
+    it("keeps the new folder's file list when a delete in the folder open before ends after the switch", async () => {
+        await disk.write('C:\\ws\\docs\\x.md', 'X')
+        const finish = slowly(remove, disk.remove)
+
+        const { result } = await switchFoldersDuring(
+            () => expect(remove).toHaveBeenCalled(),
+            finish,
+            (session) => session.deleteEntry('C:\\ws\\docs', true)
+        )
+
+        expect(await disk.exists('C:\\ws\\docs')).toBe(false)
+        expect(result.current.session.workspaceRoot).toBe('C:\\small')
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(readsOfOldFolder()).toEqual([])
+        // Its recent files are those of the folder it was deleted from.
+        expect(removeRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\docs')
+        expect(removeRecentFiles).not.toHaveBeenCalledWith('C:\\small', expect.anything())
+    })
+
+    it('neither opens nor lists a copy made in the folder open before when it ends after the switch', async () => {
+        const finish = slowly(writeFile, disk.writeBytes)
+
+        const { result } = await switchFoldersDuring(
+            () => expect(writeFile).toHaveBeenCalled(),
+            finish,
+            (session) => session.duplicateFile('C:\\ws\\notes.md')
+        )
+
+        expect(await disk.read('C:\\ws\\notes copy.md')).toBe('mine')
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(readsOfOldFolder()).toEqual([])
+    })
+
+    it('neither opens nor lists a file created in the folder open before when it ends after the switch', async () => {
+        const finish = slowly(writeTextFile, disk.write)
+
+        const { result } = await switchFoldersDuring(
+            () => expect(writeTextFile).toHaveBeenCalled(),
+            finish,
+            (session) => session.createFile('C:\\ws', 'new.md')
+        )
+
+        expect(await disk.exists('C:\\ws\\new.md')).toBe(true)
+        expect(result.current.tabs.tabs).toEqual([])
+        expect(result.current.session.tree.map((node) => node.name)).toEqual(['b.md'])
+        expect(readsOfOldFolder()).toEqual([])
+    })
+
     it('asks before reading a very large file again when reopening the tabs, and leaves it closed on Cancel', async () => {
         await disk.write('C:\\ws\\huge.log.md', 'big')
         vi.mocked(getWorkspaceTabSession).mockResolvedValue({
