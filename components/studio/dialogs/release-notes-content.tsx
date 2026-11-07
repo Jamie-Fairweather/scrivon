@@ -3,6 +3,7 @@
 import type { Components } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
 const remarkPlugins = [remarkGfm]
@@ -32,7 +33,7 @@ const markdownComponents: Components = {
     th: ({ children }) => <th className="border-b px-2 py-1 text-start font-medium text-foreground">{children}</th>,
     td: ({ children }) => <td className="border-t px-2 py-1">{children}</td>,
     a: ({ href, children }) => (
-        <a href={href} target="_blank" rel="noopener noreferrer" className="text-foreground underline-offset-4 hover:underline">
+        <a href={href} target="_blank" rel="noopener noreferrer" className={inlineLinkClassName}>
             {children}
         </a>
     ),

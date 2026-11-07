@@ -6,6 +6,7 @@ import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, Dial
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { ThirdPartyPackage } from '@/lib/legal/third-party-licenses'
+import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
 type OpenSourceLicensesDialogProps = {
@@ -126,12 +127,7 @@ export function OpenSourceLicensesDialog({ open, onOpenChange }: OpenSourceLicen
                                     <AccordionPanel className="px-4 pb-4">
                                         {pkg.repository && (
                                             <p className="mb-3 text-xs text-muted-foreground">
-                                                <a
-                                                    href={pkg.repository}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-foreground underline-offset-4 hover:underline"
-                                                >
+                                                <a href={pkg.repository} target="_blank" rel="noopener noreferrer" className={inlineLinkClassName}>
                                                     {pkg.repository}
                                                 </a>
                                             </p>

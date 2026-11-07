@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_REPO_URL } from '@/lib/app-branding'
 import { APP_VERSION } from '@/lib/legal/app-version'
 import { notifyError, notifySuccess } from '@/lib/notify'
+import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { AboutDialog } from './about-dialog'
 
 vi.mock('@/lib/notify', () => ({ notifySuccess: vi.fn(), notifyError: vi.fn() }))
@@ -28,6 +29,12 @@ describe('AboutDialog', () => {
         expect(screen.getByText(/Mermaid diagrams and Markdown documents/)).toBeInTheDocument()
         expect(screen.getByRole('link', { name: 'Source code on GitHub' })).toHaveAttribute('href', APP_REPO_URL)
         expect(screen.getByText(/MIT License/)).toBeInTheDocument()
+    })
+
+    it('underlines its links all the time, not only on hover', () => {
+        renderAbout()
+
+        for (const link of screen.getAllByRole('link')) expect(link).toHaveAttribute('class', inlineLinkClassName)
     })
 
     it('copies the version info for bug reports', async () => {
