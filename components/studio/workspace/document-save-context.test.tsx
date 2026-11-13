@@ -291,6 +291,27 @@ describe('save error notices', () => {
         expect(writeFile).toHaveBeenCalledTimes(2)
     })
 
+    it('does the same from retrySave (the status bar), so a failed retry gets a new notice with the new reason', async () => {
+        const { result, save } = await failingTab()
+        await save()
+        vi.mocked(writeFile).mockRejectedValue('Access is denied. (os error 5)')
+
+        let ok: boolean | undefined
+        await act(async () => {
+            ok = await result.current.save.retrySave('/ws/a.mmd')
+        })
+
+        expect(ok).toBe(false)
+        expect(dismissNotification).toHaveBeenCalledWith('save-error:/ws/a.mmd')
+        expect(notifyError).toHaveBeenCalledTimes(2)
+        expect(notifyError).toHaveBeenLastCalledWith(
+            "Couldn't save a.mmd",
+            'Access is denied. (os error 5)',
+            expect.objectContaining({ description: 'Access is denied. (os error 5)' })
+        )
+        expect(result.current.tabs.tabs[0]?.saveError).toBe('Access is denied. (os error 5)')
+    })
+
     it('clears the notice when the tab is closed without saving', async () => {
         vi.mocked(confirmCloseAfterSaveFailure).mockResolvedValueOnce('discard')
         const { result, save } = await failingTab()

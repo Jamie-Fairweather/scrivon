@@ -1,7 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { invoke } from '@tauri-apps/api/core'
 import { StrictMode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MARKDOWN_SHOWCASE } from '@/lib/examples/markdown-showcase'
+import { isTauri } from '@/lib/tauri/platform'
+import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { lastMermaidBlockSources } from './markdown-block-ordinals'
 import { MarkdownPreview } from './markdown-preview'
 import { extractMermaidBlockSources } from './mermaid-block-sources'
@@ -37,6 +40,9 @@ vi.mock('react-markdown', async (importOriginal) => {
 
 const noop = () => {}
 const callbacks = { onExpandBlock: noop, onLinkClick: noop, loadRemoteImages: false, onRemoteImageBlocked: () => noop }
+
+/** A tiny inline picture, which shows without the app reading a file. */
+const GIF = 'data:image/gif;base64,R0lGOD'
 
 function preview(source: string) {
     return render(<MarkdownPreview source={source} tabId="doc.md" {...callbacks} />)
@@ -275,7 +281,7 @@ describe('MarkdownPreview', () => {
                     '',
                     '<iframe src="https://example.com"></iframe>',
                     '',
-                    'Text <img src="pic.png" onerror="alert(2)" alt="pic"> <a href="javascript:alert(3)" onclick="alert(4)">link</a>',
+                    `Text <img src="${GIF}" onerror="alert(2)" alt="pic"> <a href="javascript:alert(3)" onclick="alert(4)">link</a>`,
                 ].join('\n')
             )
             expect(container.querySelector('script, style, iframe')).toBeNull()
@@ -292,7 +298,7 @@ describe('MarkdownPreview', () => {
         it('drops a <picture>’s <source>, so its srcset can’t load a web image beside a local <img> (review)', () => {
             const { container } = preview(
                 [
-                    '<picture><source srcset="https://tracker.example/p.png"><img src="a.png" alt="Local"></picture>',
+                    '<picture><source srcset="https://tracker.example/p.png"><img src="data:image/png;base64,AAAA" alt="Local"></picture>',
                     '',
                     '<picture><source srcset="https://tracker.example/q.gif"><img src="data:image/gif;base64,R0lGOD" alt="Inline"></picture>',
                 ].join('\n')
@@ -300,7 +306,7 @@ describe('MarkdownPreview', () => {
             expect(container.querySelector('source')).toBeNull()
             expect(container.innerHTML).not.toContain('tracker.example')
             const images = Array.from(container.querySelectorAll('picture > img'))
-            expect(images.map((img) => img.getAttribute('src'))).toEqual(['a.png', 'data:image/gif;base64,R0lGOD'])
+            expect(images.map((img) => img.getAttribute('src'))).toEqual(['data:image/png;base64,AAAA', 'data:image/gif;base64,R0lGOD'])
         })
 
         it('shows inline data: images, as the PDF does, and still blanks other data: URLs (N21)', () => {
@@ -321,12 +327,12 @@ describe('MarkdownPreview', () => {
         it('sizes an image by its height attribute when it has no width, as GitHub does (N25)', () => {
             preview(
                 [
-                    '<p align="center"><img src="logo.png" height="80" alt="logo"></p>',
+                    `<p align="center"><img src="${GIF}" height="80" alt="logo"></p>`,
                     '',
-                    '<img src="a.png" height="64px" alt="px"> <img src="b.png" height="50%" alt="percent">',
-                    '<img src="c.png" width="100" height="80" alt="both"> <img src="d.png" height="tall" alt="odd"> <img src="e.png" alt="plain">',
+                    `<img src="${GIF}" height="64px" alt="px"> <img src="${GIF}" height="50%" alt="percent">`,
+                    `<img src="${GIF}" width="100" height="80" alt="both"> <img src="${GIF}" height="tall" alt="odd"> <img src="${GIF}" alt="plain">`,
                     '',
-                    '![markdown](f.png)',
+                    `![markdown](${GIF})`,
                 ].join('\n')
             )
             const logo = screen.getByRole('img', { name: 'logo' })
@@ -349,7 +355,7 @@ describe('MarkdownPreview', () => {
         })
 
         it('keeps the document from taking over the app’s ids, document methods, shortcuts and Tab order', () => {
-            const { container } = preview('<img name="createElement" id="export-title" src="pic.png" alt="x" accesskey="s" tabindex="1">')
+            const { container } = preview(`<img name="createElement" id="export-title" src="${GIF}" alt="x" accesskey="s" tabindex="1">`)
             const img = container.querySelector('img')!
             expect(img).toHaveAttribute('name', 'user-content-createElement')
             expect(img).toHaveAttribute('id', 'user-content-export-title')
@@ -460,6 +466,117 @@ describe('MarkdownPreview', () => {
         const ids = onExpandBlock.mock.calls.map(([blockId]) => blockId as string)
         expect(new Set(ids).size).toBe(3)
         expect(ids.every((id) => id.startsWith('doc.md:'))).toBe(true)
+    })
+
+    describe('images from the open folder (F02)', () => {
+        const ROOT = 'C:\\notes'
+        const DOC = 'C:\\notes\\guides\\setup.md'
+
+        function inFolder(source: string) {
+            return render(<MarkdownPreview source={source} tabId={DOC} documentPath={DOC} workspaceRoot={ROOT} {...callbacks} />)
+        }
+
+        /** Waits for the image to show this picture (it is an empty `<img>` while the file is read). */
+        async function shows(name: string, src: string) {
+            await waitFor(() => expect(screen.getByRole('img', { name })).toHaveAttribute('src', src))
+        }
+
+        beforeEach(() => {
+            vi.mocked(isTauri).mockReturnValue(true)
+            vi.mocked(invoke).mockImplementation(async (command: string, args?: unknown) => {
+                if (command !== 'read_workspace_image') return undefined
+                const { path } = args as { path: string }
+                if (path.includes('missing')) throw 'Image not found.'
+                return `data:image/png;base64,${path.split('\\').pop()}`
+            })
+        })
+
+        afterEach(() => {
+            vi.mocked(isTauri).mockReturnValue(false)
+            vi.mocked(invoke).mockReset()
+        })
+
+        it('shows images next to the document, above it and by full path, fitted to the page width', async () => {
+            inFolder(['![Here](diagram.png)', '', '![Above](../img/up.png)', '', '<img src="C:\\notes\\full.png" alt="Full" width="900">'].join('\n'))
+
+            await shows('Here', 'data:image/png;base64,diagram.png')
+            await shows('Above', 'data:image/png;base64,up.png')
+            await shows('Full', 'data:image/png;base64,full.png')
+            const full = screen.getByRole('img', { name: 'Full' })
+            expect(full).toHaveAttribute('width', '900')
+            expect(full).toHaveClass('max-w-full', 'h-auto')
+            expect(invoke).toHaveBeenCalledWith('read_workspace_image', { root: ROOT, path: 'C:\\notes\\img\\up.png' })
+        })
+
+        it('names the path of an image that can’t be shown, and why', async () => {
+            inFolder('![Gone](img/missing%20one.png) and ![Out](../../secret.png)')
+
+            const missing = await screen.findByRole('img', { name: 'Image not shown: Gone (img/missing one.png). Image not found.' })
+            expect(missing).toHaveTextContent('img/missing one.png')
+            expect(missing).toHaveAttribute('title', 'C:\\notes\\guides\\img\\missing one.png\nImage not found.')
+            const outside = screen.getByRole('img', {
+                name: 'Image not shown: Out (../../secret.png). Only images inside the open folder are shown.',
+            })
+            expect(outside).toHaveAttribute('title', 'Only images inside the open folder are shown.')
+            // Never asked for.
+            expect(invoke).toHaveBeenCalledTimes(1)
+        })
+
+        it('says the writer’s alt text in the document’s language, and only Scrivon’s words in English', async () => {
+            render(
+                <MarkdownPreview
+                    source={'---\nlang: ja\n---\n![猫の写真](missing-cat.png) <img src="missing-dog.png">'}
+                    tabId={DOC}
+                    documentPath={DOC}
+                    workspaceRoot={ROOT}
+                    {...callbacks}
+                />
+            )
+
+            const withAlt = await screen.findByRole('img', { name: 'Image not shown: 猫の写真 (missing-cat.png). Image not found.' })
+            expect(withAlt).not.toHaveAttribute('lang')
+            expect(within(withAlt).getByText('Image not found.')).toHaveAttribute('lang', 'en')
+            expect(await screen.findByRole('img', { name: 'Image not shown: missing-dog.png. Image not found.' })).toHaveAttribute('lang', 'en')
+        })
+
+        it('shows a new picture when the file changes on disk', async () => {
+            inFolder('![Live](live.png)')
+            await shows('Live', 'data:image/png;base64,live.png')
+
+            let finishRead: (url: string) => void = () => {}
+            vi.mocked(invoke).mockImplementationOnce(() => new Promise((resolve) => (finishRead = resolve)))
+            act(() => forgetWorkspaceImages(['C:\\notes\\guides\\live.png']))
+            // The old picture stays while the new one is read, so it doesn't flicker.
+            expect(screen.getByRole('img', { name: 'Live' })).toHaveAttribute('src', 'data:image/png;base64,live.png')
+            await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+            act(() => finishRead('data:image/png;base64,EDITED'))
+
+            await shows('Live', 'data:image/png;base64,EDITED')
+        })
+
+        it('shows an image it has read before straight away', async () => {
+            const { unmount } = inFolder('![Again](again.png)')
+            await shows('Again', 'data:image/png;base64,again.png')
+            unmount()
+
+            inFolder('![Again](again.png)')
+            expect(screen.getByRole('img', { name: 'Again' })).toHaveAttribute('src', 'data:image/png;base64,again.png')
+        })
+
+        it('asks to save a document that isn’t on disk before it shows its images', () => {
+            preview('![Draft](draft.png)')
+            expect(
+                screen.getByRole('img', { name: 'Image not shown: Draft (draft.png). Save the document in the open folder to show its images.' })
+            ).toBeInTheDocument()
+        })
+
+        it('names an image with no address by its alt text, and keeps an address it can’t decode as written', async () => {
+            inFolder('![Logo](javascript:alert(1)) ![]() <img src="missing-100%.png">')
+
+            expect(screen.getByRole('img', { name: 'Image not shown: Logo. The image has no address.' })).toBeInTheDocument()
+            expect(screen.getByRole('img', { name: 'Image not shown: Image. The image has no address.' })).toBeInTheDocument()
+            expect(await screen.findByRole('img', { name: 'Image not shown: missing-100%.png. Image not found.' })).toBeInTheDocument()
+        })
     })
 
     it('leaves YAML front matter out, as export does', () => {
