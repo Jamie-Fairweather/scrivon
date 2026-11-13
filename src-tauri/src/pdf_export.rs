@@ -529,7 +529,7 @@ pub async fn export_html_to_pdf(
 
 pub(crate) const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 /// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
-const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
+pub(crate) const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
 /// The image type for an export image path, or `None` for anything else.
 fn mime_from_path(path: &str) -> Option<&'static str> {
@@ -551,7 +551,7 @@ fn mime_from_path(path: &str) -> Option<&'static str> {
 
 /// True when the file's first bytes match its image type, so a renamed text
 /// file (a key, a config file) is never handed back.
-fn content_matches(mime: &str, bytes: &[u8]) -> bool {
+pub(crate) fn content_matches(mime: &str, bytes: &[u8]) -> bool {
     match mime {
         "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
         "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),

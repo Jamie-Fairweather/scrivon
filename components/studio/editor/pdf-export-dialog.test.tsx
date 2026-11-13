@@ -46,6 +46,7 @@ function Owner({
             source={'# Report\n\nBody'}
             tabName="report.md"
             tabPath={'D:\\docs\\report.md'}
+            workspaceRoot={'D:\\docs'}
             format={format}
             allowRemoteImages={allowRemoteImages}
             exporting={exporting}
@@ -88,8 +89,9 @@ describe('PdfExportDialog', () => {
             expect.objectContaining({
                 format: 'pdf',
                 overrides: expect.objectContaining({ title: 'Quarterly report' }),
-                // The save dialog starts in the document's folder.
+                // The save dialog starts in the document's folder, and its images are found from there.
                 documentPath: 'D:\\docs\\report.md',
+                workspaceRoot: 'D:\\docs',
             })
         )
         expect(onOpenChange).not.toHaveBeenCalled()

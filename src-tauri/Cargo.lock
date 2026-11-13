@@ -3692,6 +3692,8 @@ dependencies = [
  "base64 0.23.1",
  "font-kit",
  "lopdf",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",

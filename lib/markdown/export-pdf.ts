@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { buildExportDocument, type ExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
+import { embedDocumentImages } from '@/lib/markdown/export-images'
 import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
 import { errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
@@ -22,9 +23,11 @@ export type ExportMarkdownOptions = {
     format?: ExportFormat
     profile?: PdfExportProfile
     overrides?: PdfExportMetadataOverrides
-    /** The document's file path, so the save dialog starts in its folder. */
+    /** The document's file path, so the save dialog starts in its folder and its images are found from it. */
     documentPath?: string
-    /** The user chose to load this document's web images in the preview, so the PDF prints them too. Word ignores it. */
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
+    /** The user chose to load this document's web images in the preview, so the export embeds them too. */
     allowRemoteImages?: boolean
 }
 
@@ -153,10 +156,16 @@ async function renderAndSave(
 ): Promise<ExportResult> {
     const { profile, overrides } = options
     const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
+    const missingImages = await embedDocumentImages(exportDocument.tree, {
+        documentPath: options.documentPath ?? null,
+        workspaceRoot: options.workspaceRoot ?? null,
+        allowRemoteImages: options.allowRemoteImages === true,
+    })
     const result = await renderAndSaveDocument(exportDocument, tabName, options)
+    if (result.status !== 'saved') return result
     // Both renderers leave the contents page out when no heading matches the TOC settings.
     const tocSkipped = profile.frontMatter.toc && exportDocument.toc.length === 0
-    return result.status === 'saved' && tocSkipped ? { ...result, tocSkipped } : result
+    return { ...result, ...(missingImages.length > 0 && { missingImages }), ...(tocSkipped && { tocSkipped }) }
 }
 
 async function renderAndSaveDocument(
@@ -196,7 +205,10 @@ export async function exportMarkdown(source: string, tabName: string | undefined
         const profile = options.profile ?? createDefaultPdfExportProfile()
         const { assets, missing } = await resolvePdfExportAssets(profile)
         const result = await renderAndSave(source, tabName, { ...options, profile }, assets)
-        return result.status === 'saved' && missing.length > 0 ? { ...result, missingImages: missing } : result
+        if (result.status !== 'saved') return result
+        // The profile's images first, then the document's own.
+        const missingImages = [...missing, ...(result.missingImages ?? [])]
+        return missingImages.length > 0 ? { ...result, missingImages } : result
     } catch (err) {
         return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
     }
@@ -206,8 +218,13 @@ function fileName(path: string): string {
     return path.split(/[\\/]/).pop() || path
 }
 
+/** Left-out images named in the saved notice; the rest are only counted, so a long list doesn't fill the screen. */
+const MAX_NAMED_IMAGES = 5
+
 function describeMissingImages(missing: PdfExportMissingImage[]): string {
-    return missing.map(({ slot, path, reason }) => `${slot} (${fileName(path)}): ${reason}`).join('; ')
+    const named = missing.slice(0, MAX_NAMED_IMAGES).map(({ slot, path, reason }) => `${path ? `${slot} (${fileName(path)})` : slot}: ${reason}`)
+    const more = missing.length - named.length
+    return [...named, ...(more > 0 ? [`and ${more} more.`] : [])].join('; ')
 }
 
 const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'

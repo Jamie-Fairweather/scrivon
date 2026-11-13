@@ -362,6 +362,38 @@ describe('export-pdf helpers', () => {
         await expect(exportMarkdown('# Hi', 'hi.md')).resolves.toEqual({ status: 'cancelled' })
     })
 
+    it('embeds the document’s own images in both formats, and adds the ones it couldn’t to the left-out list', async () => {
+        resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [MISSING_LOGO] })
+        isWindowsTauri.mockReturnValue(true)
+        isTauri.mockReturnValue(true)
+        const png = 'data:image/png;base64,iVBORw0KGgo='
+        invoke.mockImplementation(async (command: string, args: { root?: string; path?: string }) => {
+            if (command !== 'read_workspace_image') return undefined
+            expect(args.root).toBe('C:\\reports')
+            if (args.path === 'C:\\reports\\q3\\chart.png') return png
+            throw 'Image not found.'
+        })
+        const options = { documentPath: 'C:\\reports\\q3\\q3.md', workspaceRoot: 'C:\\reports' }
+        const oldChart = { slot: 'Image', path: 'old chart.png', reason: 'Image not found.' }
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+
+        pickSavePath.mockResolvedValue('C:/out.pdf')
+        await expect(exportMarkdown('![Chart](chart.png) ![Old](<old chart.png>)', 'q3.md', options)).resolves.toEqual({
+            status: 'saved',
+            path: 'C:/out.pdf',
+            missingImages: [MISSING_LOGO, oldChart],
+        })
+        const [pdfDocument] = renderExportPdf.mock.calls[0] as unknown as [{ tree: unknown }]
+        expect(JSON.stringify(pdfDocument.tree)).toContain(`"url":"${png}"`)
+
+        pickSavePath.mockResolvedValue('C:/out.docx')
+        await expect(exportMarkdown('![Chart](chart.png) ![Old](<old chart.png>)', 'q3.md', { ...options, format: 'docx' })).resolves.toMatchObject({
+            missingImages: [MISSING_LOGO, oldChart],
+        })
+        const [wordDocument] = renderExportDocx.mock.calls[0] as unknown as [{ tree: unknown }]
+        expect(JSON.stringify(wordDocument.tree)).toContain(`"url":"${png}"`)
+    })
+
     it('names the left-out images when the export is saved', async () => {
         const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
         notifyExportSaved({ status: 'saved', path: 'C:/out/q3.pdf', missingImages: [MISSING_LOGO] })
@@ -381,6 +413,22 @@ describe('export-pdf helpers', () => {
         notifyExportSaved({ status: 'saved' })
         expect(notifyWarning).not.toHaveBeenCalled()
         expect(notifySuccess).not.toHaveBeenCalled()
+    })
+
+    it('names the first five left-out images and counts the rest, so a long list doesn’t fill the screen', async () => {
+        const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
+        const missing = Array.from({ length: 7 }, (_, index) => ({ slot: 'Image', path: `img/${index + 1}.png`, reason: 'Image not found.' }))
+        notifyExportSaved({ status: 'saved', path: 'C:/out/q3.pdf', missingImages: missing })
+        expect(notifyWarning).toHaveBeenCalledWith('Saved q3.pdf without some images', {
+            description:
+                'Image (1.png): Image not found.; Image (2.png): Image not found.; Image (3.png): Image not found.; ' +
+                'Image (4.png): Image not found.; Image (5.png): Image not found.; and 2 more.',
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        // `![]()` has no address to name.
+        notifyExportSaved({ status: 'saved', missingImages: [{ slot: 'Image', path: '', reason: 'The image has no address.' }] })
+        expect(notifyWarning).toHaveBeenLastCalledWith('Some images were left out', { description: 'Image: The image has no address.' })
     })
 
     it('says when the table of contents had no headings to list', async () => {

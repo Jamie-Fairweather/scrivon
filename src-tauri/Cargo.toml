@@ -41,6 +41,10 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-prevent-default = { version = "6.0.1", features = ["platform-windows"] }
 font-kit = "0.14.3"
+# Downloads web images for PDF and Word exports (F03). The updater already builds reqwest and
+# rustls with these features, so nothing new is compiled.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # Page stamping parses every PDF content stream. lopdf's parser is the slow
 # part of export in debug builds; optimize just that crate.

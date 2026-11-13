@@ -9,6 +9,7 @@ mod store_recovery;
 mod system_fonts;
 mod system_menu;
 mod updater;
+mod web_image;
 mod window_state;
 mod workspace_access;
 mod workspace_image;
@@ -308,6 +309,7 @@ pub fn run() {
             updater::check_for_app_update,
             updater::install_app_update,
             updater::take_update_attempt,
+            web_image::fetch_export_image,
             workspace_image::read_workspace_image,
         ])
         .run(context);
