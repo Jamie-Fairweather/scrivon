@@ -334,6 +334,14 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings } }),
 }))
 const palette = { open: vi.fn(), provided: true }
+/** The spell check, hooked up to each editor made (use-editor-spellcheck.test.tsx tests it). */
+const spellcheck = { attached: [] as unknown[], dispose: vi.fn() }
+vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
+    useEditorSpellcheck: () => (editor: unknown) => {
+        spellcheck.attached.push(editor)
+        return { dispose: spellcheck.dispose }
+    },
+}))
 vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
     useOptionalCommandPalette: () => (palette.provided ? { open: palette.open } : null),
 }))
@@ -378,6 +386,8 @@ beforeEach(() => {
     fakeMonaco.editor.registerCommand.mockClear()
     palette.open = vi.fn()
     palette.provided = true
+    spellcheck.attached.length = 0
+    spellcheck.dispose.mockClear()
 })
 
 describe('CodeEditorPanel cursor line', () => {
@@ -685,6 +695,18 @@ describe('CodeEditorPanel right-click Command Palette', () => {
 
         act(() => editor.dispose())
         expect(registration.dispose).toHaveBeenCalled()
+    })
+})
+
+describe('CodeEditorPanel spell check', () => {
+    it('checks the spelling in the editor, and stops when the editor is thrown away', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(spellcheck.attached).toEqual([editor])
+        expect(spellcheck.dispose).not.toHaveBeenCalled()
+
+        act(() => editor.dispose())
+        expect(spellcheck.dispose).toHaveBeenCalled()
     })
 })
 

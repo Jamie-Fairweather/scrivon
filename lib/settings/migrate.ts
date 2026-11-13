@@ -2,6 +2,7 @@ import { isAppThemeId, isLightTheme, type AppThemeId } from '@/lib/theme/catalog
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
+import { normalizeSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
 import {
     FOLLOW_SYSTEM,
     type AppSettings,
@@ -210,6 +211,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             visible: typeof source.statusBar?.visible === 'boolean' ? source.statusBar.visible : defaults.statusBar.visible,
         },
         pdfExport: normalizePdfExportSettings(source.pdfExport),
+        spellcheck: normalizeSpellcheckSettings(source.spellcheck, defaults.spellcheck),
         keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds),
     }
 }

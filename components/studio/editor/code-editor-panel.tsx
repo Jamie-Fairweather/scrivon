@@ -18,6 +18,7 @@ import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -386,6 +387,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
+    const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
@@ -584,6 +586,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            const spelling = attachEditorSpellcheck(editor, monaco)
+            editor.onDidDispose(() => spelling.dispose())
             // Scrolls the Markdown preview with the editor, and the other way round.
             const scrollSync = bindEditorScrollSync(editor, {
                 tabId: () => activeTabIdRef.current,
@@ -607,7 +611,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
     )
 
     useEffect(() => {

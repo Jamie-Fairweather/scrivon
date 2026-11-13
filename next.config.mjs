@@ -11,6 +11,13 @@ const nextConfig = {
     images: {
         unoptimized: true,
     },
+    // The spell check's Hunspell dictionaries (lib/spellcheck/spellcheck.worker.ts) are read as text.
+    turbopack: {
+        rules: {
+            '*.aff': { type: 'raw' },
+            '*.dic': { type: 'raw' },
+        },
+    },
     // Port 3000 must match `next dev -p 3000` in package.json and build.devUrl in src-tauri/tauri.conf.json.
     // The explicit -p makes next dev stop when 3000 is taken instead of moving to another port.
     assetPrefix: isProd ? undefined : `http://${internalHost}:3000`,

@@ -1,6 +1,7 @@
 import { SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME } from '@/lib/theme/catalog'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
 import { FOLLOW_SYSTEM, type AppSettings, type KeybindBindings, type KeybindChord } from '@/lib/settings/types'
+import { createDefaultSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
 
 export const DEFAULT_EDITOR_WIDTH = 400
 export const DEFAULT_AUTOSAVE_DELAY_MS = 400
@@ -74,6 +75,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             visible: true,
         },
         pdfExport: createDefaultPdfExportSettings(),
+        spellcheck: createDefaultSpellcheckSettings(),
         keybinds: createDefaultKeybinds(isMac),
     }
 }

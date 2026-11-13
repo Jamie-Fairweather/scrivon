@@ -495,7 +495,7 @@ function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
 function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
     const phrasing: PhrasingContent[] = []
     const key = ({ bold, italics, strike, href }: HtmlMarks) => JSON.stringify([bold, italics, strike, href])
-    for (let start = 0; start < leaves.length;) {
+    for (let start = 0; start < leaves.length; ) {
         const marks = leaves[start]!.marks
         let end = start
         const nodes: PhrasingContent[] = []
