@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useFlushPendingSettings } from '@/components/studio/settings/settings-provider'
 import { cn } from '@/lib/utils'
+import { useSnapLayouts } from './use-snap-layouts'
 
 /**
  * Keeps the custom title bar above modal dialogs (their backdrop and viewport cover the whole
@@ -23,21 +24,28 @@ function TitlebarControlButton({
     label,
     onClick,
     className,
+    ref,
+    hovered,
     children,
 }: {
     label: string
     onClick: () => void
     className?: string
+    ref?: Ref<HTMLButtonElement>
+    /** Hovered as far as Windows knows, when a native window over the button gets the pointer instead. */
+    hovered?: boolean
     children: ReactNode
 }) {
     return (
         <button
+            ref={ref}
             type="button"
             aria-label={label}
             title={label}
+            data-hovered={hovered || undefined}
             className={cn(
                 `flex h-[var(--titlebar-height)] w-[46px] shrink-0 items-center justify-center text-foreground/80 transition-colors hover:bg-accent/80
-                hover:text-foreground`,
+                hover:text-foreground data-hovered:bg-accent/80 data-hovered:text-foreground`,
                 className
             )}
             onClick={onClick}
@@ -50,6 +58,8 @@ function TitlebarControlButton({
 export function WindowTitlebarControls() {
     const [maximized, setMaximized] = useState(false)
     const flushPendingSettings = useFlushPendingSettings()
+    const maximizeButton = useRef<HTMLButtonElement>(null)
+    const maximizeHovered = useSnapLayouts(maximizeButton)
 
     useEffect(() => {
         const appWindow = getCurrentWindow()
@@ -89,7 +99,7 @@ export function WindowTitlebarControls() {
             <TitlebarControlButton label="Minimize" onClick={minimize}>
                 <Minus className="size-3.5" strokeWidth={1.5} aria-hidden />
             </TitlebarControlButton>
-            <TitlebarControlButton label={maximized ? 'Restore' : 'Maximize'} onClick={toggleMaximize}>
+            <TitlebarControlButton ref={maximizeButton} hovered={maximizeHovered} label={maximized ? 'Restore' : 'Maximize'} onClick={toggleMaximize}>
                 {maximized ? <Copy className="size-3" strokeWidth={1.5} aria-hidden /> : <Square className="size-3" strokeWidth={1.5} aria-hidden />}
             </TitlebarControlButton>
             <TitlebarControlButton label="Close" onClick={close} className="hover:bg-[#e81123] hover:text-white">
