@@ -26,6 +26,10 @@ export type KeybindActionId =
     | 'view.previewOnly'
     | 'view.fitDiagram'
     | 'workspace.saveAll'
+    | 'tabs.close'
+    | 'tabs.next'
+    | 'tabs.previous'
+    | 'tabs.reopenClosed'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 

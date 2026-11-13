@@ -78,6 +78,11 @@ export function isReservedKey(key: string): boolean {
     return RESERVED_KEYS.has(key.toLowerCase())
 }
 
+/** Ctrl+Tab and Ctrl+Shift+Tab, which tabbed apps use to switch tabs. Windows and macOS take Alt+Tab and Cmd+Tab. */
+function isCtrlTab(chord: KeybindChord): boolean {
+    return chord.key.toLowerCase() === 'tab' && Boolean(chord.ctrl) && !chord.alt && !chord.meta
+}
+
 /**
  * What KeyboardEvent.key says when it can't name the key: an input method (IME) is composing,
  * a dead key (´ ^ ` on many layouts) is waiting for the next letter, or the key is unknown.
@@ -118,10 +123,11 @@ export function typesAltGraphCharacter(event: {
 
 /**
  * Whether a chord can be an app shortcut: it needs Ctrl, Alt or Cmd unless it is a function key,
- * and it can never use Tab, Enter, Space, Escape, Backspace, Delete, the arrow keys, or a key
- * the browser can't name (IME, dead keys).
+ * and it can never use Enter, Space, Escape, Backspace, Delete, the arrow keys, Tab (except
+ * Ctrl+Tab), or a key the browser can't name (IME, dead keys).
  */
 export function isAllowedChord(chord: KeybindChord): boolean {
+    if (isCtrlTab(chord)) return true
     if (isReservedKey(chord.key) || isUnnamedKey(chord.key)) return false
     return hasCommandModifier(chord) || isFunctionKey(chord.key)
 }

@@ -89,7 +89,11 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
 
     useEffect(() => {
         if (!activeTabId) return
-        tabRefs.current.get(activeTabId)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+        const shown = tabRefs.current.get(activeTabId)
+        shown?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+        // A shortcut (Ctrl+Tab) switched tabs while the keyboard was on another tab: it follows, as with the arrow keys.
+        const focused = document.activeElement
+        if (shown && focused !== shown && focused?.getAttribute('role') === 'tab' && stripRef.current?.contains(focused)) shown.focus()
     }, [activeTabId])
 
     // The strip has no visible scrollbar (it would squash the tabs), so the mouse wheel scrolls it sideways.
@@ -151,6 +155,16 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                             <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
                                 <div
                                     role="presentation"
+                                    // A middle-click closes the tab, as in browsers. Stopping its mousedown keeps the
+                                    // web view from starting to scroll.
+                                    onMouseDown={(e) => {
+                                        if (e.button === 1) e.preventDefault()
+                                    }}
+                                    onAuxClick={(e) => {
+                                        if (e.button !== 1) return
+                                        e.preventDefault()
+                                        void closeTab(tab.id)
+                                    }}
                                     className={cn(
                                         // Tabs keep a readable width; when they don't all fit, the strip scrolls.
                                         'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',

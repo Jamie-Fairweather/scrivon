@@ -208,6 +208,23 @@ export async function confirmDeleteHiddenFolders(folderName: string, hidden: str
     return (await askThreeWay(title, body, { yes: 'Keep Folder', no: confirm, cancel: 'Cancel' })) === 'no'
 }
 
+/**
+ * Asks before Revert File drops a tab's unsaved changes. Resolves true only for Revert, which sits in the
+ * middle so Enter or Esc keep the changes.
+ */
+export async function confirmRevert(fileName: string): Promise<boolean> {
+    const title = 'Revert file'
+    const body = `Put back the saved version of ${fileName}?\n\nYour unsaved changes will be lost.`
+    const confirm = 'Revert'
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}.`)
+    }
+
+    return (await askThreeWay(title, body, { yes: 'Keep Changes', no: confirm, cancel: 'Cancel' })) === 'no'
+}
+
 export type KeptChangesChoice = 'save' | 'discard' | 'keep'
 
 /**

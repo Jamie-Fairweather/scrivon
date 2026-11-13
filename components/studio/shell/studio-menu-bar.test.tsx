@@ -82,6 +82,9 @@ function mockContexts({
         closeTab: vi.fn(async () => {}),
         closeOtherTabs: vi.fn(async () => {}),
         closeAllTabs: vi.fn(async () => {}),
+        canReopenClosedTab: true,
+        reopenClosedTab: vi.fn(async () => {}),
+        revertTab: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
         layout: { explorerOpen: true, editorOpen: true, outlineOpen },
@@ -296,15 +299,47 @@ describe('StudioMenuBar', () => {
 })
 
 describe('StudioMenuBar File menu', () => {
-    it('has Save, Save All, Close Tab and Exit, with their shortcuts', async () => {
+    it('has Save, Save All, Revert, the tab commands and Exit, with their shortcuts', async () => {
         mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md', dirty: true })
         render(<Studio />)
 
         const file = await openMenu('File')
-        expect(menuLabels(file)).toEqual(['Open Folder…', 'Close Folder', 'SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Close Tab', 'ExitAlt+F4'])
-        for (const name of ['Save Ctrl+S', 'Save All Ctrl+Shift+S', 'Close Tab', 'Exit Alt+F4']) {
+        expect(menuLabels(file)).toEqual([
+            'Open Folder…',
+            'Close Folder',
+            'SaveCtrl+S',
+            'Save AllCtrl+Shift+S',
+            'Revert File',
+            'Close TabCtrl+W',
+            'Reopen Closed TabCtrl+Shift+T',
+            'Next TabCtrl+Tab or Ctrl+PageDown',
+            'Previous TabCtrl+Shift+Tab or Ctrl+PageUp',
+            'ExitAlt+F4',
+        ])
+        for (const name of [
+            'Save Ctrl+S',
+            'Save All Ctrl+Shift+S',
+            'Revert File',
+            'Close Tab Ctrl+W',
+            'Reopen Closed Tab Ctrl+Shift+T',
+            'Exit Alt+F4',
+        ]) {
             expect(within(file).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true')
         }
+        // Only one tab is open.
+        expect(within(file).getByRole('menuitem', { name: /^Next Tab/ })).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('reverts the open file and reopens the last closed tab', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
+        render(<Studio />)
+        const user = userEvent.setup()
+
+        await user.click(within(await openMenu('File')).getByRole('menuitem', { name: 'Revert File' }))
+        await user.click(within(await openMenu('File')).getByRole('menuitem', { name: /^Reopen Closed Tab/ }))
+
+        expect(vi.mocked(useDocumentTabs)().revertTab).toHaveBeenCalledWith('C:/work/a.md')
+        expect(vi.mocked(useDocumentTabs)().reopenClosedTab).toHaveBeenCalledTimes(1)
     })
 
     it('saves the open file', async () => {
@@ -321,7 +356,7 @@ describe('StudioMenuBar File menu', () => {
         render(<Studio />)
 
         const file = await openMenu('File')
-        for (const name of [/^Save Ctrl/, /^Save All/, 'Close Tab']) {
+        for (const name of [/^Save Ctrl/, /^Save All/, 'Revert File', /^Close Tab/]) {
             expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
     })
@@ -394,7 +429,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(26)
+        expect(compared).toBe(30)
     })
 })
 

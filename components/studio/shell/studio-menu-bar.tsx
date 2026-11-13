@@ -186,9 +186,18 @@ export function StudioMenuBar() {
                         <MenuGroup>
                             {item('save')}
                             {item('save-all')}
+                            {item('revert-file')}
                         </MenuGroup>
                         <MenuSeparator />
-                        {item('close-tab')}
+                        <MenuGroup>
+                            {item('close-tab')}
+                            {item('reopen-closed-tab')}
+                        </MenuGroup>
+                        <MenuSeparator />
+                        <MenuGroup>
+                            {item('next-tab')}
+                            {item('previous-tab')}
+                        </MenuGroup>
                         <MenuSeparator />
                         {item('exit')}
                     </MenuBarEntry>

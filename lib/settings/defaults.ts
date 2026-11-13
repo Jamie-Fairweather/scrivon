@@ -29,6 +29,11 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
+        'tabs.close': [chord('w', mod)],
+        // Ctrl+Tab on macOS too, as browsers there use it: Cmd+Tab switches apps.
+        'tabs.next': [chord('Tab', { ctrl: true }), chord('PageDown', mod)],
+        'tabs.previous': [chord('Tab', { ctrl: true, shift: true }), chord('PageUp', mod)],
+        'tabs.reopenClosed': [chord('t', { ...mod, shift: true })],
     }
 
     return bindings

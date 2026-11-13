@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -103,6 +104,67 @@ describe('EditorTabBar', () => {
         expect(closeTab).toHaveBeenCalledWith('/w/b.md')
         fireEvent.click(close[0]!)
         expect(closeTab).toHaveBeenLastCalledWith('/w/a.md')
+    })
+
+    it('closes a tab on a middle-click, without switching to it', async () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md', { isDirty: true })]
+        activeTabId = '/w/a.md'
+        render(<EditorTabBar />)
+        const user = userEvent.setup()
+
+        await user.pointer({ keys: '[MouseMiddle]', target: screen.getByRole('tab', { name: 'b.md , unsaved changes' }) })
+
+        // Closing asks about unsaved changes as the X button does.
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(setActiveTab).not.toHaveBeenCalled()
+    })
+
+    it('stops a middle-click from starting to scroll the page', () => {
+        tabs = [tab('/w/a.md')]
+        activeTabId = '/w/a.md'
+        render(<EditorTabBar />)
+
+        const middle = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 1 })
+        screen.getByRole('tab').dispatchEvent(middle)
+        expect(middle.defaultPrevented).toBe(true)
+        const left = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })
+        screen.getByRole('tab').dispatchEvent(left)
+        expect(left.defaultPrevented).toBe(false)
+    })
+
+    it('keeps the keyboard on the open tab when a shortcut switches tabs while a tab has focus', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const { rerender } = render(<EditorTabBar />)
+        const [a, b] = screen.getAllByRole('tab')
+        a!.focus()
+
+        activeTabId = '/w/b.md'
+        rerender(<EditorTabBar />)
+
+        expect(b).toHaveFocus()
+    })
+
+    it('leaves the keyboard where it is when a tab is switched to from elsewhere', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const { rerender } = render(
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+        screen.getByRole('textbox', { name: 'editor' }).focus()
+
+        activeTabId = '/w/b.md'
+        rerender(
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+
+        expect(screen.getByRole('textbox', { name: 'editor' })).toHaveFocus()
     })
 
     it('moves between tabs with the arrow, Home and End keys', () => {
