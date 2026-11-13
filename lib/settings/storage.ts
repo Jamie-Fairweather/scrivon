@@ -59,7 +59,8 @@ type StoredSettings = {
 /** The settings last read or written, so a save keeps what this version doesn't know about. */
 let lastStored: StoredSettings | null = null
 
-function isRecord(value: unknown): value is StoredRecord {
+/** A JSON object: not null, and not an array. */
+export function isRecord(value: unknown): value is StoredRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 

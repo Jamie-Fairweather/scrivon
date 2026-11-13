@@ -1,28 +1,14 @@
 import { errorMessage } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
+import { PDF_EXPORT_IMAGE_SLOTS } from '@/lib/settings/pdf-export-images'
 import { normalizePdfExportProfile } from '@/lib/settings/pdf-export-normalize'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
-import { parseJson, PROFILE_FILE_KIND, SETTINGS_FILE_KIND, TRANSFER_FILE_VERSION } from '@/lib/settings/settings-transfer'
+import { checkFileVersion, parseJson, PROFILE_FILE_KIND, SETTINGS_FILE_KIND, TRANSFER_FILE_VERSION } from '@/lib/settings/settings-transfer'
+import { isRecord } from '@/lib/settings/storage'
 import { readExportImage, saveProfileImage } from '@/lib/tauri/export-image-access'
-import { isTauri } from '@/lib/tauri/platform'
 
 /** An image left out of an exported or imported profile, and why. */
 export type LeftOutImage = { slot: string; reason: string }
-
-type ImageSlot = {
-    slot: string
-    get: (profile: PdfExportProfile) => string
-    set: (profile: PdfExportProfile, value: string) => void
-}
-
-/** The images a profile can name, by the names the export uses for them (lib/markdown/export-assets.ts). */
-const IMAGE_SLOTS: ImageSlot[] = [
-    { slot: 'Cover image', get: (p) => p.brand.logoPath, set: (p, value) => void (p.brand.logoPath = value) },
-    { slot: 'Header left image', get: (p) => p.header.left.imagePath, set: (p, value) => void (p.header.left.imagePath = value) },
-    { slot: 'Header right image', get: (p) => p.header.right.imagePath, set: (p, value) => void (p.header.right.imagePath = value) },
-    { slot: 'Footer left image', get: (p) => p.footer.left.imagePath, set: (p, value) => void (p.footer.left.imagePath = value) },
-    { slot: 'Footer right image', get: (p) => p.footer.right.imagePath, set: (p, value) => void (p.footer.right.imagePath = value) },
-]
 
 const isEmbedded = (image: string) => image.startsWith('data:')
 
@@ -33,7 +19,7 @@ async function changeImages(
 ): Promise<{ profile: PdfExportProfile; leftOut: LeftOutImage[] }> {
     const copy = structuredClone(profile)
     const leftOut: LeftOutImage[] = []
-    for (const { slot, get, set } of IMAGE_SLOTS) {
+    for (const { slot, get, set } of PDF_EXPORT_IMAGE_SLOTS) {
         const image = get(copy).trim()
         if (!image) continue
         try {
@@ -75,16 +61,17 @@ export function profileFileName(name: string): string {
  * used is left out and listed. Throws an Error saying why for any other file.
  */
 export async function readProfileExport(text: string): Promise<{ profile: PdfExportProfile; leftOut: LeftOutImage[] }> {
-    const file = parseJson(text) as { scrivon?: unknown; profile?: unknown } | null | undefined
-    if (file?.scrivon === SETTINGS_FILE_KIND) throw new Error('This is a settings file. Import it in Settings, Advanced.')
-    const raw = file?.scrivon === PROFILE_FILE_KIND ? file.profile : null
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error("This file isn't a Scrivon export profile.")
+    const file = parseJson(text)
+    if (isRecord(file) && file.scrivon === SETTINGS_FILE_KIND) throw new Error('This is a settings file. Import it in Settings, Advanced.')
+    if (!isRecord(file) || file.scrivon !== PROFILE_FILE_KIND || !isRecord(file.profile)) {
+        throw new Error("This file isn't a Scrivon export profile.")
+    }
+    checkFileVersion(file)
 
-    const profile = normalizePdfExportProfile(raw, createDefaultPdfExportProfile({ id: 'imported', name: 'Imported profile' }))
+    const profile = normalizePdfExportProfile(file.profile, createDefaultPdfExportProfile({ id: 'imported', name: 'Imported profile' }))
     return changeImages(profile, async (image) => {
         // A path names a file on the computer the profile came from.
         if (!isEmbedded(image)) throw new Error("It isn't embedded in the file.")
-        // Kept in the profile only outside the desktop app: web storage holds just a few MB.
-        return isTauri() ? saveProfileImage(image) : image
+        return saveProfileImage(image)
     })
 }

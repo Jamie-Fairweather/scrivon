@@ -65,5 +65,16 @@ describe('settings export file', () => {
         expect(() => readSettingsExport(JSON.stringify({ scrivon: 'export-profile', version: 1, profile: {} }))).toThrow(
             'This is an export profile. Import it in Settings, Document export.'
         )
+        expect(() => readSettingsExport(JSON.stringify({ scrivon: 'settings', version: 2, settings: { schemaVersion: 1 } }))).toThrow(
+            'This file is from a newer Scrivon. Update Scrivon, then import it again.'
+        )
+    })
+
+    it("puts back the default for a profile colour that isn't hex", () => {
+        const settings = changedSettings()
+        const text = settingsExportText(settings).replace('"accentColor": "#262626"', '"accentColor": "red} body{color:red"')
+        expect(text).toContain('red} body{color:red')
+
+        expect(readSettingsExport(text)).toEqual(settings)
     })
 })

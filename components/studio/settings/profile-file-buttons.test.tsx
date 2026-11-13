@@ -81,7 +81,7 @@ describe('export profile Export and Import', () => {
             }))
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Export…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Export profile…' }))
 
         await waitFor(() => expect(writeTextFile).toHaveBeenCalled())
         const [path, text] = vi.mocked(writeTextFile).mock.calls[0]!
@@ -109,7 +109,7 @@ describe('export profile Export and Import', () => {
             }))
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Export…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Export profile…' }))
 
         await waitFor(() =>
             expect(notifyWarning).toHaveBeenCalledWith('Profile exported without some images', {
@@ -124,7 +124,7 @@ describe('export profile Export and Import', () => {
         vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode(profileFile('Default')))
         renderSection()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Import…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Import profile…' }))
 
         await waitFor(() => expect(current.settings.pdfExport.profiles).toHaveLength(2))
         expect(activeProfile().name).toBe('Default 2')
@@ -140,7 +140,7 @@ describe('export profile Export and Import', () => {
         vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode(profileFile('Report', 'D:/Logos/cover.png')))
         renderSection()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Import…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Import profile…' }))
 
         await waitFor(() =>
             expect(notifyWarning).toHaveBeenCalledWith('Profile imported without some images', {
@@ -155,7 +155,7 @@ describe('export profile Export and Import', () => {
         vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode('{"scrivon": "settings", "settings": {}}'))
         renderSection()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Import…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Import profile…' }))
 
         await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't import the profile", expect.any(Error)))
         expect(vi.mocked(notifyError).mock.calls[0]![1]).toHaveProperty('message', 'This is a settings file. Import it in Settings, Advanced.')
@@ -167,7 +167,7 @@ describe('export profile Export and Import', () => {
         vi.mocked(writeTextFile).mockRejectedValue('The device is not ready. (os error 21)')
         renderSection()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Export…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Export profile…' }))
 
         await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't export the profile", 'The device is not ready. (os error 21)'))
     })
@@ -175,8 +175,8 @@ describe('export profile Export and Import', () => {
     it('does nothing when no file is chosen', async () => {
         renderSection()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Export…' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Import…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Export profile…' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Import profile…' }))
 
         await waitFor(() => expect(open).toHaveBeenCalled())
         expect(writeTextFile).not.toHaveBeenCalled()
@@ -189,7 +189,7 @@ describe('export profile Export and Import', () => {
         vi.mocked(isTauri).mockReturnValue(false)
         renderSection()
 
-        expect(screen.queryByRole('button', { name: 'Export…' })).not.toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Import…' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Export profile…' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Import profile…' })).not.toBeInTheDocument()
     })
 })

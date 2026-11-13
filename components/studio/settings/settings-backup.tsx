@@ -2,8 +2,9 @@
 
 import { notifyError, notifySuccess } from '@/lib/notify'
 import { readSettingsExport, settingsExportText } from '@/lib/settings/settings-transfer'
-import { fileNameOf, pickJsonSavePath, readChosenJsonFile } from '@/lib/settings/transfer-files'
+import { pickJsonSavePath, readChosenJsonFile } from '@/lib/settings/transfer-files'
 import { writeTextFileAtPath } from '@/lib/tauri/dialog'
+import { getBaseName } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import {
@@ -29,7 +30,7 @@ export function SettingsBackup() {
             const path = await pickJsonSavePath('Export settings', 'Scrivon settings.json')
             if (!path) return
             await writeTextFileAtPath(path, settingsExportText(settings))
-            notifySuccess('Settings exported', { description: `Saved as ${fileNameOf(path)}.` })
+            notifySuccess('Settings exported', { description: `Saved as ${getBaseName(path)}.` })
         } catch (err) {
             notifyError("Couldn't export settings", err)
         }

@@ -17,8 +17,3 @@ export async function readChosenJsonFile(title: string): Promise<string | null> 
     const path = await pickOpenFile({ title, filters: JSON_FILES })
     return path ? readWorkspaceFile(path) : null
 }
-
-/** The last part of a path, for messages. */
-export function fileNameOf(path: string): string {
-    return path.split(/[\\/]/).pop() || path
-}

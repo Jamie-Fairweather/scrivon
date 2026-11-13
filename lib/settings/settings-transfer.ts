@@ -1,16 +1,22 @@
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { mergeStoredSettings } from '@/lib/settings/migrate'
-import { settingsToStore } from '@/lib/settings/storage'
+import { isRecord, settingsToStore } from '@/lib/settings/storage'
 import type { AppSettings } from '@/lib/settings/types'
 
 /** What `scrivon` says in a file of all settings, and in a file of one export profile. */
 export const SETTINGS_FILE_KIND = 'settings'
 export const PROFILE_FILE_KIND = 'export-profile'
-/** The layout of exported files. A higher number means a newer Scrivon wrote it. */
+/**
+ * The layout of exported files. Raise it only when an older Scrivon couldn't read the new layout:
+ * older ones then ask to be updated instead of misreading the file.
+ */
 export const TRANSFER_FILE_VERSION = 1
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
+/** Throws an Error saying to update Scrivon when a newer one wrote the file. */
+export function checkFileVersion(file: Record<string, unknown>): void {
+    if (typeof file.version === 'number' && file.version > TRANSFER_FILE_VERSION) {
+        throw new Error('This file is from a newer Scrivon. Update Scrivon, then import it again.')
+    }
 }
 
 /** The parsed file, or undefined when it isn't JSON. */
@@ -31,7 +37,10 @@ export function settingsExportText(settings: AppSettings): string {
 /** The settings saved in a file, or null when it holds something else. */
 function savedSettingsIn(file: unknown): unknown {
     if (!isRecord(file)) return null
-    if (file.scrivon === SETTINGS_FILE_KIND) return file.settings
+    if (file.scrivon === SETTINGS_FILE_KIND) {
+        checkFileVersion(file)
+        return file.settings
+    }
     if (file.scrivon === PROFILE_FILE_KIND) throw new Error('This is an export profile. Import it in Settings, Document export.')
     // The copy in settings.json is the settings on their own, as saved.
     return typeof file.schemaVersion === 'number' ? file : null

@@ -113,14 +113,14 @@ describe('export profile files', () => {
         expect(profile.page).toEqual(createDefaultPdfExportProfile().page)
     })
 
-    it('keeps embedded images as they are outside the desktop app', async () => {
-        isTauri.mockReturnValue(false)
-        const file = { scrivon: 'export-profile', version: 1, profile: { name: 'Web', brand: { logoPath: PNG } } }
+    it('puts back the default for a colour that is not hex', async () => {
+        const beacon = 'red} body{background:url(https://example.invalid/beacon)} h1{display:none'
+        const file = { scrivon: 'export-profile', version: 1, profile: { name: 'Shared', brand: { accentColor: beacon, linkColor: '#0000FF' } } }
 
         const { profile } = await readProfileExport(JSON.stringify(file))
 
-        expect(profile.brand.logoPath).toBe(PNG)
-        expect(invoke).not.toHaveBeenCalled()
+        expect(profile.brand.accentColor).toBe(createDefaultPdfExportProfile().brand.accentColor)
+        expect(profile.brand.linkColor).toBe('#0000FF')
     })
 
     it("names the file after the profile, without characters Windows can't use", () => {
@@ -138,6 +138,9 @@ describe('export profile files', () => {
         await expect(readProfileExport(JSON.stringify({ scrivon: 'export-profile', profile: [] }))).rejects.toThrow(notProfile)
         await expect(readProfileExport(JSON.stringify({ scrivon: 'settings', version: 1, settings: {} }))).rejects.toThrow(
             'This is a settings file. Import it in Settings, Advanced.'
+        )
+        await expect(readProfileExport(JSON.stringify({ scrivon: 'export-profile', version: 2, profile: { name: 'Next' } }))).rejects.toThrow(
+            'This file is from a newer Scrivon. Update Scrivon, then import it again.'
         )
     })
 })

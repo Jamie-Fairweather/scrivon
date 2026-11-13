@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { errorMessage } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
+import { PDF_EXPORT_IMAGE_SLOTS } from '@/lib/settings/pdf-export-images'
 import type { PdfExportSettings } from '@/lib/settings/pdf-export-types'
 
 /**
@@ -41,13 +42,7 @@ export async function saveProfileImage(dataUrl: string): Promise<string> {
 
 /** Every image path the profiles name (logo, header and footer images), each once. */
 export function profileImagePaths(settings: PdfExportSettings): string[] {
-    const paths = settings.profiles.flatMap((profile) => [
-        profile.brand.logoPath,
-        profile.header.left.imagePath,
-        profile.header.right.imagePath,
-        profile.footer.left.imagePath,
-        profile.footer.right.imagePath,
-    ])
+    const paths = settings.profiles.flatMap((profile) => PDF_EXPORT_IMAGE_SLOTS.map(({ get }) => get(profile)))
     return [...new Set(paths.map((path) => path.trim()).filter((path) => path !== '' && !path.startsWith('data:')))]
 }
 

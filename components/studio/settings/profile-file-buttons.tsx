@@ -4,8 +4,9 @@ import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { importedProfileName } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { profileExportText, profileFileName, readProfileExport, type LeftOutImage } from '@/lib/settings/profile-transfer'
-import { fileNameOf, pickJsonSavePath, readChosenJsonFile } from '@/lib/settings/transfer-files'
+import { pickJsonSavePath, readChosenJsonFile } from '@/lib/settings/transfer-files'
 import { writeTextFileAtPath } from '@/lib/tauri/dialog'
+import { getBaseName } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { Button } from '@/components/ui/button'
 
@@ -33,7 +34,7 @@ export function ProfileFileButtons({ profile, profiles, onImport }: ProfileFileB
             const { text, leftOut } = await profileExportText(profile)
             await writeTextFileAtPath(path, text)
             if (leftOut.length > 0) notifyWarning('Profile exported without some images', { description: describeLeftOut(leftOut) })
-            else notifySuccess('Profile exported', { description: `Saved as ${fileNameOf(path)}.` })
+            else notifySuccess('Profile exported', { description: `Saved as ${getBaseName(path)}.` })
         } catch (err) {
             notifyError("Couldn't export the profile", err)
         }
@@ -56,10 +57,10 @@ export function ProfileFileButtons({ profile, profiles, onImport }: ProfileFileB
     return (
         <>
             <Button type="button" variant="outline" size="sm" title="Save this profile to a file, to share it" onClick={() => void exportProfile()}>
-                Export…
+                Export profile…
             </Button>
             <Button type="button" variant="outline" size="sm" title="Add a profile from a file" onClick={() => void importProfile()}>
-                Import…
+                Import profile…
             </Button>
         </>
     )
