@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { matchKeybind } from '@/lib/settings/match-keybind'
+import { matchKeybind, matchKeybinds } from '@/lib/settings/match-keybind'
 
 type KeyOptions = {
     ctrl?: boolean
@@ -49,8 +49,8 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('workspace.saveAll')
     })
 
-    it('matches Ctrl+B for view.toggleExplorer when workspace is open', () => {
-        expect(matchKeybind(keyEvent('b', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
+    it('matches Ctrl+Shift+B for view.toggleExplorer when workspace is open', () => {
+        expect(matchKeybind(keyEvent('b', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
     })
 
     it('matches Cmd+S on mac defaults', () => {
@@ -185,7 +185,9 @@ describe('matchKeybind', () => {
         it('lets real shortcuts through on every platform', () => {
             expect(matchKeybind(keyEvent('s', { ctrl: true }, editorTarget('TEXTAREA')), bindings)).toBe('document.save')
             expect(matchKeybind(keyEvent('s', { meta: true }, editorTarget('TEXTAREA')), createDefaultKeybinds(true))).toBe('document.save')
-            expect(matchKeybind(keyEvent('b', { ctrl: true }, editorTarget('DIV')), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
+            expect(matchKeybind(keyEvent('b', { ctrl: true, shift: true }, editorTarget('DIV')), bindings, { hasWorkspace: true })).toBe(
+                'view.toggleExplorer'
+            )
             expect(matchKeybind(keyEvent('F1', {}, editorTarget('TEXTAREA')), bindings)).toBe('palette.open')
         })
 
@@ -198,6 +200,29 @@ describe('matchKeybind', () => {
         it('still skips shortcuts in plain inputs outside the editor', () => {
             const input = { tagName: 'INPUT', closest: () => null } as unknown as EventTarget
             expect(matchKeybind(keyEvent('b', { ctrl: true }, input), bindings, { hasWorkspace: true })).toBeNull()
+        })
+    })
+
+    describe('Markdown actions', () => {
+        // Monaco's own typing surface, where closest() finds both the editor and the element it types into.
+        const editorText = { tagName: 'DIV', closest: () => ({}) } as unknown as EventTarget
+        // Its find box: inside the editor, but not where the text is typed.
+        const findBox = { tagName: 'TEXTAREA', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
+
+        it('run while typing in the editor, before an app shortcut on the same keys', () => {
+            expect(matchKeybind(keyEvent('b', { ctrl: true }, editorText), bindings, { hasWorkspace: true })).toBe('format.bold')
+            expect(matchKeybinds(keyEvent('e', { ctrl: true }, editorText), bindings, { hasWorkspace: true })).toEqual([
+                'format.code',
+                'view.toggleEditor',
+            ])
+            expect(matchKeybind(keyEvent('k', { meta: true }, editorText), createDefaultKeybinds(true))).toBe('format.link')
+        })
+
+        it('never run in the find box or outside the editor, where the app shortcut runs', () => {
+            for (const target of [findBox, { tagName: 'BODY' } as unknown as EventTarget]) {
+                expect(matchKeybind(keyEvent('b', { ctrl: true }, target), bindings, { hasWorkspace: true })).toBeNull()
+                expect(matchKeybinds(keyEvent('e', { ctrl: true }, target), bindings, { hasWorkspace: true })).toEqual(['view.toggleEditor'])
+            }
         })
     })
 

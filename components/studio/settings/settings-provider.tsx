@@ -7,7 +7,7 @@ import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/def
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { chordsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
-import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { canShareKeys, getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
@@ -87,10 +87,10 @@ const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {
     reset: 'Most settings were reset to their defaults. Your theme and layout were kept.',
 }
 
-/** Why one of these chords can't be an app shortcut at all, whatever else uses it. */
-function describeUnusableChords(chords: KeybindChord[]): string | null {
+/** Why one of these chords can't be this action's shortcut at all, whatever else uses it. */
+function describeUnusableChords(actionId: KeybindActionId, chords: KeybindChord[]): string | null {
     for (const chord of chords) {
-        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord)
+        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord, isMacPlatform(), actionId)
         if (problem) return problem
     }
     return null
@@ -293,7 +293,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
     const setKeybindChords = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
-            const unusable = describeUnusableChords(chords)
+            const unusable = describeUnusableChords(actionId, chords)
             if (unusable) return { message: unusable }
 
             for (const chord of chords) {
@@ -328,13 +328,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
     const reassignKeybind = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
-            const unusable = describeUnusableChords(chords)
+            const unusable = describeUnusableChords(actionId, chords)
             if (unusable) return { message: unusable }
 
             // Actions on their default lose the chord while it's taken; changed ones lose it for good.
+            // An action that may share keys with this one keeps them.
             changeKeybinds((overrides) => {
                 const next = { ...overrides }
                 for (const id of Object.keys(next) as KeybindActionId[]) {
+                    if (canShareKeys(id, actionId)) continue
                     next[id] = next[id]?.filter((existing) => !chords.some((chord) => chordsEqual(existing, chord)))
                 }
                 next[actionId] = chords

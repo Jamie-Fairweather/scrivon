@@ -9,6 +9,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
+import { bindMarkdownListEnter } from '@/lib/monaco/markdown-editing'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
@@ -98,6 +99,9 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     // Monaco 0.56 made a double-click next to a bracket or quote select what's inside it. In Markdown
     // that catches links, (asides) and "quotes", so double-click keeps selecting the word, as it always did.
     doubleClickSelectsBlock: false,
+    // These languages don't put spaces between words, so without this double-click and Ctrl+Left/Right
+    // take a whole sentence at a time.
+    wordSegmenterLocales: ['ja', 'zh-CN', 'zh-TW', 'ko', 'th'],
     scrollbar: {
         vertical: 'auto',
         // Only appears when a line is wider than the pane (word wrap off or at a column).
@@ -145,6 +149,10 @@ function applyIndentation(model: editor.ITextModel, tabSize: number) {
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
 function isTab(tabId: string | null, path: string): boolean {
     return tabId !== null && samePath(tabId, path)
+}
+
+function isMarkdownTab(tab: DocumentTab | null): boolean {
+    return tab !== null && documentKind(tab.name) === 'markdown'
 }
 
 function languageForTab(tab: DocumentTab) {
@@ -393,7 +401,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
-    useEditorCommands(editorPath ? mountedEditor : null, open, isReadOnly)
+    useEditorCommands(editorPath ? mountedEditor : null, open, isReadOnly, isMarkdownTab(activeTab))
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
@@ -595,6 +603,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             editor.onDidDispose(() => paletteBinding.dispose())
             const spelling = attachEditorSpellcheck(editor, monaco)
             editor.onDidDispose(() => spelling.dispose())
+            // Enter continues (or ends) a list in Markdown files.
+            bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
             // Scrolls the Markdown preview with the editor, and the other way round.
             const scrollSync = bindEditorScrollSync(editor, {
                 tabId: () => activeTabIdRef.current,

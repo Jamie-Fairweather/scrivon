@@ -27,7 +27,7 @@ describe('useGlobalKeybinds', () => {
         const toggleExplorer = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'view.toggleExplorer': toggleExplorer }, { hasWorkspace: true }))
 
-        const event = press('b', { ctrlKey: true })
+        const event = press('b', { ctrlKey: true, shiftKey: true })
 
         expect(toggleExplorer).toHaveBeenCalledTimes(1)
         expect(event.defaultPrevented).toBe(true)
@@ -41,7 +41,7 @@ describe('useGlobalKeybinds', () => {
         const button = document.createElement('button')
         dialog.appendChild(button)
 
-        const event = press('b', { ctrlKey: true }, button)
+        const event = press('b', { ctrlKey: true, shiftKey: true }, button)
         press('F1', {}, button)
 
         expect(toggleExplorer).not.toHaveBeenCalled()
@@ -69,7 +69,7 @@ describe('useGlobalKeybinds', () => {
         const f1 = press('F1', {}, input)
         const ctrlShiftN = press('n', { ctrlKey: true, shiftKey: true }, input)
         const ctrlShiftF = press('f', { ctrlKey: true, shiftKey: true }, input)
-        const ctrlB = press('b', { ctrlKey: true }, input)
+        const ctrlB = press('b', { ctrlKey: true, shiftKey: true }, input)
 
         expect(openPalette).toHaveBeenCalledTimes(1)
         expect(f1.defaultPrevented).toBe(true)
@@ -151,6 +151,54 @@ describe('useGlobalKeybinds', () => {
 
         expect(querySelectorAll).not.toHaveBeenCalled()
         querySelectorAll.mockRestore()
+    })
+
+    describe('in the editor', () => {
+        /** Monaco's editor with the element it types into (a div on Windows) and its find box. */
+        function addEditor() {
+            const editor = addElement({ class: 'monaco-editor' })
+            const text = document.createElement('div')
+            text.className = 'native-edit-context'
+            const findBox = document.createElement('textarea')
+            editor.append(text, findBox)
+            return { text, findBox }
+        }
+
+        it('gives the keys to a Markdown action while typing, and to the app action everywhere else', () => {
+            const code = vi.fn()
+            const toggleEditor = vi.fn()
+            renderHook(() => useGlobalKeybinds(bindings, { 'format.code': code, 'view.toggleEditor': toggleEditor }, { hasWorkspace: true }))
+            const { text, findBox } = addEditor()
+
+            const typing = press('e', { ctrlKey: true }, text)
+            expect(code).toHaveBeenCalledTimes(1)
+            expect(toggleEditor).not.toHaveBeenCalled()
+            expect(typing.defaultPrevented).toBe(true)
+
+            press('e', { ctrlKey: true }, findBox)
+            press('e', { ctrlKey: true })
+            expect(code).toHaveBeenCalledTimes(1)
+            expect(toggleEditor).toHaveBeenCalledTimes(2)
+        })
+
+        it('passes the keys on when the Markdown action turns them down, as outside a Markdown file', () => {
+            const toggleEditor = vi.fn()
+            renderHook(() =>
+                useGlobalKeybinds(
+                    bindings,
+                    { 'format.code': () => false, 'format.bold': () => false, 'view.toggleEditor': toggleEditor },
+                    { hasWorkspace: true }
+                )
+            )
+            const { text } = addEditor()
+
+            press('e', { ctrlKey: true }, text)
+            const ctrlB = press('b', { ctrlKey: true }, text)
+
+            expect(toggleEditor).toHaveBeenCalledTimes(1)
+            // Nothing else has Ctrl+B, so the editor gets it.
+            expect(ctrlB.defaultPrevented).toBe(false)
+        })
     })
 
     it('ignores keys something else already handled', () => {

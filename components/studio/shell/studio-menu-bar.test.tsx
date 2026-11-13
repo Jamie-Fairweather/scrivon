@@ -18,6 +18,7 @@ import {
     useWorkspaceCoordinator,
     useWorkspaceSession,
 } from '@/components/studio/workspace/workspace-provider'
+import { formatMarkdown } from '@/lib/monaco/markdown-editing'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
 import { StudioMenuBar } from './studio-menu-bar'
@@ -37,6 +38,7 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSetting
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: vi.fn() }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
+vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn() }))
 vi.mock('@/components/studio/dialogs/open-source-licenses-dialog', () => ({ OpenSourceLicensesDialog: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
 vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOriginal) => ({
@@ -46,7 +48,7 @@ vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOrigi
 
 type EditorState = 'none' | 'hidden' | 'ready'
 
-const fakeEditor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
+const fakeEditor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}), hasTextFocus: () => false }
 
 function mockContexts({
     isDesktop = false,
@@ -109,7 +111,7 @@ function mockContexts({
 
 /** Stands in for the editor panel, which registers the Edit menu's commands. */
 function EditorCommands({ state }: { state: EditorState }) {
-    useEditorCommands(state === 'none' ? null : (fakeEditor as never), state === 'ready', false)
+    useEditorCommands(state === 'none' ? null : (fakeEditor as never), state === 'ready', false, true)
     return null
 }
 
@@ -232,7 +234,7 @@ describe('StudioMenuBar', () => {
         const user = userEvent.setup()
 
         const view = await openMenu('View')
-        expect(within(view).getByRole('menuitemcheckbox', { name: 'Explorer Ctrl+B' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitemcheckbox', { name: 'Explorer Ctrl+Shift+B' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitemcheckbox', { name: 'Editor Ctrl+E' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Preview Only Ctrl+Shift+O' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Fit Diagram to Screen Ctrl+R' })).toBeInTheDocument()
@@ -354,6 +356,10 @@ describe('StudioMenuBar Edit menu', () => {
             'FindCtrl+F',
             'ReplaceCtrl+H',
             'Go to Line…Ctrl+G',
+            'BoldCtrl+B',
+            'ItalicCtrl+I',
+            'Inline CodeCtrl+E',
+            'LinkCtrl+K',
         ])
     })
 
@@ -366,11 +372,20 @@ describe('StudioMenuBar Edit menu', () => {
         expect(fakeEditor.trigger).toHaveBeenCalledWith('scrivon', 'editor.action.startFindReplaceAction', null)
     })
 
+    it('makes the selection bold in the editor', async () => {
+        render(<Studio editor="ready" />)
+
+        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Bold Ctrl+B' }))
+
+        expect(fakeEditor.focus).toHaveBeenCalled()
+        expect(formatMarkdown).toHaveBeenCalledWith(fakeEditor, 'bold')
+    })
+
     it.each<EditorState>(['none', 'hidden'])('turns every item off when the editor is %s', async (state) => {
         render(<Studio editor={state} />)
 
         const items = within(await openMenu('Edit')).getAllByRole('menuitem')
-        expect(items).toHaveLength(9)
+        expect(items).toHaveLength(13)
         expect(items.every((item) => item.getAttribute('aria-disabled') === 'true')).toBe(true)
     })
 })
@@ -394,7 +409,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(26)
+        expect(compared).toBe(30)
     })
 })
 

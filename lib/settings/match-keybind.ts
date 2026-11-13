@@ -26,6 +26,15 @@ export function isInsideCodeEditor(target: EventTarget | null): boolean {
     return (target as Element).closest('.monaco-editor') !== null
 }
 
+/** Where Monaco types: a div on WebView2 (Windows), a hidden textarea on WebKit. Not its find box. */
+const CODE_EDITOR_TEXT = '.monaco-editor .native-edit-context, .monaco-editor textarea.inputarea'
+
+/** True while typing in the editor's text, where its own actions (Bold, Link…) get the keys first. */
+export function isInCodeEditorText(target: EventTarget | null): boolean {
+    if (!target || typeof (target as Element).closest !== 'function') return false
+    return (target as Element).closest(CODE_EDITOR_TEXT) !== null
+}
+
 /**
  * The chords a key press can stand for: as typed, plus the physical key when the layout gets in
  * the way. A dead key or an unknown key only stands for its physical key, when it has one.
@@ -58,15 +67,21 @@ export type MatchKeybindOptions = {
     inPalette?: boolean
 }
 
-export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
+/**
+ * Every action the key press runs, in the order to try them: an editor action first (it only
+ * matches while typing in the editor), then the app's. The caller runs the first that takes it.
+ */
+export function matchKeybinds(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId[] {
     // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
-    if (event.repeat || isModifierKey(event.key)) return null
+    if (event.repeat || isModifierKey(event.key)) return []
     // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
-    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return null
+    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return []
 
     const pressed = eventToChords(event)
-    if (pressed.length === 0) return null
+    if (pressed.length === 0) return []
 
+    const editorMatches: KeybindActionId[] = []
+    const appMatches: KeybindActionId[] = []
     for (const [actionId, chords] of Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]) {
         if (chords.length === 0) continue
 
@@ -74,14 +89,19 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
         const meta = getKeybindActionMeta(actionId)
         if (!meta) continue
         if (meta.when === 'workspace' && !options.hasWorkspace) continue
+        if (meta.when === 'editor' && !isInCodeEditorText(event.target)) continue
         if (shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)) continue
 
-        for (const chord of chords) {
-            if (pressed.some((candidate) => chordsEqual(candidate, chord))) {
-                return actionId
-            }
+        if (chords.some((chord) => pressed.some((candidate) => chordsEqual(candidate, chord)))) {
+            if (meta.when === 'editor') editorMatches.push(actionId)
+            else appMatches.push(actionId)
         }
     }
 
-    return null
+    return [...editorMatches, ...appMatches]
+}
+
+/** The action the key press runs first, or null. */
+export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
+    return matchKeybinds(event, bindings, options)[0] ?? null
 }

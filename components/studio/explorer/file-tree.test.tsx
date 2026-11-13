@@ -224,7 +224,7 @@ describe('FileTree', () => {
         const first = render(<FileTree tree={tree} />)
         press('docs', 'ArrowLeft')
         expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
-        // Ctrl+B, or switching to Examples, takes the tree away.
+        // Ctrl+Shift+B, or switching to Examples, takes the tree away.
         first.unmount()
 
         render(<FileTree tree={tree} />)

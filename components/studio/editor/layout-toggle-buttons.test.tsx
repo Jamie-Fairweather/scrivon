@@ -43,7 +43,7 @@ describe('LayoutToggleButtons', () => {
         render(<LayoutToggleButtons />)
 
         act(() => screen.getByRole('button', { name: 'Toggle explorer' }).focus())
-        expect(await screen.findByText('Toggle explorer (Ctrl+B)')).toBeInTheDocument()
+        expect(await screen.findByText('Toggle explorer (Ctrl+Shift+B)')).toBeInTheDocument()
 
         act(() => screen.getByRole('button', { name: 'Toggle editor' }).focus())
         expect(await screen.findByText('Toggle editor (Ctrl+Shift+J)')).toBeInTheDocument()

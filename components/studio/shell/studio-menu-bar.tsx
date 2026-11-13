@@ -213,6 +213,13 @@ export function StudioMenuBar() {
                                 {item('edit.replace')}
                                 {item('edit.go-to-line')}
                             </MenuGroup>
+                            <MenuSeparator />
+                            <MenuGroup>
+                                {item('edit.bold')}
+                                {item('edit.italic')}
+                                {item('edit.inline-code')}
+                                {item('edit.link')}
+                            </MenuGroup>
                         </MenuBarEntry>
                     )}
 
