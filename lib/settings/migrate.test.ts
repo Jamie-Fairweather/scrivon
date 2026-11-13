@@ -100,6 +100,15 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
     })
 
+    it('reopens the last folder by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.reopenLastFolder).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { maxRecentFolders: 5 } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: false } }, false).workspace.reopenLastFolder).toBe(false)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: 'no' } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(migrateLegacySettings(() => null, false).workspace.reopenLastFolder).toBe(true)
+    })
+
     it('shows the status bar unless the user hid it', () => {
         expect(createDefaultSettings(false).statusBar.visible).toBe(true)
         // Settings saved before the option existed.

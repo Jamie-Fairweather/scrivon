@@ -72,6 +72,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
+            reopenLastFolder: true,
         },
         updates: {
             checkOnLaunch: true,
