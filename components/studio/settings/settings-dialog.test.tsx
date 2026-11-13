@@ -1,9 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from '@/components/studio/settings/settings-dialog'
-import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
+import { SettingsProvider, useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
+import { settingsSearchEntries } from '@/components/studio/settings/settings-search'
+import { findSetting } from '@/components/studio/settings/settings-search-results'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/storage'
 import { notifyError } from '@/lib/notify'
+import { isTauri } from '@/lib/tauri/platform'
 
 const advanced = vi.hoisted(() => ({ broken: false }))
 const pdfExport = vi.hoisted(() => ({ broken: false }))
@@ -145,7 +148,182 @@ describe('SettingsDialog sections', () => {
         const column = (await screen.findByRole('textbox', { name: 'Wrap column' })) as HTMLInputElement
         expect(column.value).toBe('100')
     })
+
+    it('says that changes save automatically', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+
+        expect(await screen.findByRole('dialog')).toHaveAccessibleDescription('Changes save automatically.')
+    })
+
+    it('says how wide the editor is and what the default is, and resets it', async () => {
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ layout: { editorWidth: 640 } }))
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
+
+        expect(await screen.findByText(/^Set to 640 px \(default 400 px\)\./)).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+
+        expect(screen.getByText(/^Set to 400 px \(default 400 px\)\./)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
+    })
 })
+
+describe('SettingsDialog search', () => {
+    beforeEach(() => {
+        const store = new Map<string, string>()
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: unknown) => {
+                store.set(key, String(value))
+            },
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    async function search(text: string) {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+        const box = await screen.findByRole('searchbox', { name: 'Search settings' })
+        fireEvent.change(box, { target: { value: text } })
+        return box
+    }
+
+    function results() {
+        return screen.getByRole('region', { name: 'Search results' })
+    }
+
+    it('shows matching settings from every section, with the section they are in', async () => {
+        await search('font')
+
+        expect(within(results()).getByRole('button', { name: /Font size/ })).toHaveTextContent('Editor')
+        expect(within(results()).getByRole('button', { name: /Heading font/ })).toHaveTextContent('Document export › Text')
+        expect(within(results()).getByRole('status')).toHaveTextContent(/^\d+ settings found$/)
+        // No section is showing, so none is marked as the current one.
+        expect(screen.getByRole('button', { name: 'General' })).not.toHaveAttribute('aria-current')
+    })
+
+    it('says so when nothing matches', async () => {
+        await search('xyzzy')
+
+        expect(within(results()).getByRole('status')).toHaveTextContent('No settings match "xyzzy".')
+    })
+
+    it('opens the section of a result and puts focus on that setting', async () => {
+        const box = await search('minimap')
+        expect(within(results()).getByRole('status')).toHaveTextContent('1 setting found')
+
+        fireEvent.click(within(results()).getByRole('button', { name: /Minimap/ }))
+
+        expect(screen.getByRole('region', { name: 'Editor' })).toBeInTheDocument()
+        expect(screen.getByRole('switch', { name: 'Minimap' })).toHaveFocus()
+        expect(box).toHaveValue('')
+    })
+
+    it('goes to the switch that turns on a setting that is off, in the right group when a label is used twice', async () => {
+        await search('footer background')
+
+        fireEvent.click(within(results()).getByRole('button', { name: /Background colour/ }))
+
+        // Header and Footer both have a Background colour, and both are off until switched on.
+        const footer = screen.getByRole('group', { name: 'Footer' })
+        expect(within(footer).getByLabelText('Background colour')).toBeDisabled()
+        expect(within(footer).getByRole('switch', { name: 'Show footer' })).toHaveFocus()
+    })
+
+    it('puts focus on a theme, though only the chosen theme is a tab stop', async () => {
+        await search('nord light')
+
+        fireEvent.click(within(results()).getByRole('button', { name: /Nord Light/ }))
+
+        expect(screen.getByRole('radio', { name: 'Nord Light' })).toHaveFocus()
+    })
+
+    it('goes to the switch that turns on a setting that is off', async () => {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ autosave: { enabled: false } }))
+        await search('autosave delay')
+
+        fireEvent.click(within(results()).getByRole('button', { name: /Autosave delay/ }))
+
+        expect(screen.getByRole('textbox', { name: 'Autosave delay (ms)' })).toBeDisabled()
+        expect(screen.getByRole('switch', { name: 'Autosave' })).toHaveFocus()
+    })
+
+    it('goes to the first result on Enter', async () => {
+        const box = await search('tab size')
+
+        fireEvent.keyDown(box, { key: 'Enter' })
+
+        expect(screen.getByRole('textbox', { name: 'Tab size' })).toHaveFocus()
+    })
+
+    it('clears the search on Esc before a second Esc closes Settings', async () => {
+        const box = await search('minimap')
+
+        fireEvent.keyDown(box, { key: 'Escape' })
+        expect(box).toHaveValue('')
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument()
+
+        fireEvent.keyDown(box, { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+
+    it('reopens on the last section, not the last search', async () => {
+        await search('minimap')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+
+        expect(await screen.findByRole('searchbox', { name: 'Search settings' })).toHaveValue('')
+        expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument()
+    })
+
+    it('clears the search when a section is picked', async () => {
+        const box = await search('minimap')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+
+        expect(box).toHaveValue('')
+        expect(screen.getByRole('region', { name: 'Advanced' })).toBeInTheDocument()
+    })
+
+    it('can find every setting it lists in that setting’s section', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        const entries = settingsSearchEntries({ desktop: true })
+        const sections = [...new Set(entries.map((entry) => entry.section))]
+        expect(sections).toEqual(['general', 'appearance', 'editor', 'pdf-export', 'keyboard', 'advanced'] satisfies SettingsSection[])
+
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+        await screen.findByRole('dialog')
+        for (const section of sections) {
+            fireEvent.click(screen.getByRole('button', { name: SECTION_NAMES[section] }))
+            const panel = screen.getByRole('region', { name: SECTION_NAMES[section] })
+            const missing = entries.filter((entry) => entry.section === section && !findSetting(panel, entry)).map((entry) => entry.label)
+            expect(missing, section).toEqual([])
+        }
+
+        // And it does notice a setting that isn't there.
+        const panel = screen.getByRole('region', { name: 'Advanced' })
+        expect(findSetting(panel, { section: 'advanced', label: 'Not a setting' })).toBeNull()
+        expect(findSetting(panel, { section: 'advanced', group: 'Not a group', label: 'Recent folders limit' })).toBeNull()
+    })
+})
+
+const SECTION_NAMES: Record<SettingsSection, string> = {
+    general: 'General',
+    appearance: 'Appearance',
+    editor: 'Editor',
+    'pdf-export': 'Document export',
+    keyboard: 'Keyboard',
+    advanced: 'Advanced',
+}
 
 describe('SettingsDialog when a section fails to draw', () => {
     beforeEach(() => {
@@ -204,6 +382,20 @@ describe('SettingsDialog when a section fails to draw', () => {
         await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
         expect(within(screen.getByRole('region', { name: 'Advanced' })).queryByRole('alert')).toBeNull()
         expect(screen.getByText('Recent folders limit')).toBeInTheDocument()
+    })
+
+    it('puts focus on the section when search leads to a setting in a section that failed to draw', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open keyboard settings' }))
+        await screen.findByRole('region', { name: 'Keyboard' })
+
+        advanced.broken = true
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'recent folders' } })
+        fireEvent.click(within(screen.getByRole('region', { name: 'Search results' })).getByRole('button', { name: /Recent folders limit/ }))
+
+        const region = screen.getByRole('region', { name: 'Advanced' })
+        expect(within(region).getByRole('alert')).toHaveTextContent("Couldn't show this section")
+        expect(region).toHaveFocus()
     })
 
     it("doesn't offer Restore defaults as the fix for the Document export section, which it doesn't reset", async () => {

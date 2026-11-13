@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -18,12 +18,16 @@ import { GeneralSettings } from '@/components/studio/settings/sections/general-s
 import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard-settings'
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { getSettingsSectionLabel, SettingsNav } from '@/components/studio/settings/settings-nav'
+import { searchSettings, type SettingsSearchEntry } from '@/components/studio/settings/settings-search'
+import { revealSetting, SettingsSearchResults } from '@/components/studio/settings/settings-search-results'
 import { DialogErrorBoundary } from '@/components/studio/shell/dialog-error-boundary'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { notifyError } from '@/lib/notify'
+import { isTauri } from '@/lib/tauri/platform'
 
 function SettingsSectionPanel({ section }: { section: SettingsSection }) {
     switch (section) {
@@ -88,6 +92,47 @@ function SettingsDialogContent() {
     const titleId = useId()
     // Bumped by Restore defaults, so a section that failed to draw tries again with the restored settings.
     const [resetCount, setResetCount] = useState(0)
+    const [query, setQuery] = useState('')
+    // Opening Settings again starts on the last section, not the last search.
+    const [wasOpen, setWasOpen] = useState(settingsOpen)
+    if (wasOpen !== settingsOpen) {
+        setWasOpen(settingsOpen)
+        if (settingsOpen) setQuery('')
+    }
+    const results = useMemo(() => searchSettings(query, { desktop: isTauri() }), [query])
+    const searching = query.trim() !== ''
+    // The setting a search result was picked for, shown once its section has drawn.
+    const revealRef = useRef<SettingsSearchEntry | null>(null)
+
+    const showSection = (section: SettingsSection) => {
+        setQuery('')
+        setActiveSection(section)
+    }
+
+    const showSetting = (entry: SettingsSearchEntry) => {
+        revealRef.current = entry
+        showSection(entry.section)
+    }
+
+    useEffect(() => {
+        const entry = revealRef.current
+        const panel = document.getElementById(panelId)
+        if (!entry || searching || !panel) return
+        revealRef.current = null
+        revealSetting(panel, entry)
+    }, [searching, activeSection, panelId])
+
+    const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter' && results[0]) {
+            event.preventDefault()
+            showSetting(results[0])
+        }
+        // Clear the search first; Esc in an empty box closes Settings as usual.
+        if (event.key === 'Escape' && query) {
+            event.stopPropagation()
+            setQuery('')
+        }
+    }
 
     return (
         <Dialog open={settingsOpen} onOpenChange={(open) => !open && closeSettings()}>
@@ -96,26 +141,43 @@ function SettingsDialogContent() {
             <DialogPopup className="h-[min(48rem,calc(100dvh-var(--titlebar-height)-2rem))] max-w-3xl" bottomStickOnMobile={false}>
                 <DialogHeader>
                     <DialogTitle>Settings</DialogTitle>
+                    <DialogDescription>Changes save automatically.</DialogDescription>
                 </DialogHeader>
                 {/* data-slot keeps the header and footer spacing a DialogPanel gets. */}
                 <div data-slot="dialog-panel" className="flex min-h-0 flex-1 gap-4 px-6 py-1">
-                    <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} panelId={panelId} />
+                    <div className="flex w-40 shrink-0 flex-col gap-2 border-r border-border pr-3">
+                        <Input
+                            type="search"
+                            size="sm"
+                            placeholder="Search settings"
+                            aria-label="Search settings"
+                            aria-controls={panelId}
+                            value={query}
+                            onChange={(event) => setQuery(event.target.value)}
+                            onKeyDown={onSearchKeyDown}
+                        />
+                        <SettingsNav activeSection={searching ? null : activeSection} onSectionChange={showSection} panelId={panelId} />
+                    </div>
                     {/* Keyed by section, so each one opens at the top. The scrolling element is a named region,
                         so its tab stop says which section it holds. */}
                     <ScrollArea
-                        key={activeSection}
+                        key={searching ? 'search' : activeSection}
                         className="min-h-0 min-w-0 flex-1"
                         scrollFade
                         scrollbarGutter
                         viewportProps={{ id: panelId, role: 'region', 'aria-labelledby': titleId }}
                     >
                         <h3 id={titleId} className="mb-4 text-base font-semibold">
-                            {getSettingsSectionLabel(activeSection)}
+                            {searching ? 'Search results' : getSettingsSectionLabel(activeSection)}
                         </h3>
-                        {/* Inside the keyed scroll area, so picking another section tries afresh. */}
-                        <DialogErrorBoundary key={resetCount} open={settingsOpen} fallback={<SectionCrashNotice section={activeSection} />}>
-                            <SettingsSectionPanel section={activeSection} />
-                        </DialogErrorBoundary>
+                        {searching ? (
+                            <SettingsSearchResults query={query} results={results} onPick={showSetting} />
+                        ) : (
+                            // Inside the keyed scroll area, so picking another section tries afresh.
+                            <DialogErrorBoundary key={resetCount} open={settingsOpen} fallback={<SectionCrashNotice section={activeSection} />}>
+                                <SettingsSectionPanel section={activeSection} />
+                            </DialogErrorBoundary>
+                        )}
                     </ScrollArea>
                 </div>
                 {/* sm: so it replaces the footer's own sm:justify-end; narrow windows keep the stacked full-width buttons. */}

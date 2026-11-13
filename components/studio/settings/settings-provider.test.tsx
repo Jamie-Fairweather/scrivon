@@ -1,7 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SettingsProvider, useAppSettings, useFlushPendingSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
+import {
+    SETTINGS_SECTION_STORAGE_KEY,
+    SettingsProvider,
+    useAppSettings,
+    useFlushPendingSettings,
+    type KeybindRefusal,
+} from '@/components/studio/settings/settings-provider'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -118,6 +124,29 @@ describe('SettingsProvider persistence', () => {
 
         expect(result.current.settingsOpen).toBe(true)
         expect(result.current.activeSection).toBe('keyboard')
+    })
+
+    it('reopens settings on the last used section after a restart', () => {
+        const first = renderSettings()
+        act(() => {
+            first.result.current.openSettings('pdf-export')
+        })
+        first.unmount()
+
+        const { result } = renderSettings()
+        act(() => {
+            result.current.openSettings()
+        })
+
+        expect(result.current.activeSection).toBe('pdf-export')
+    })
+
+    it('opens on General when the remembered section is unknown', () => {
+        localStorage.setItem(SETTINGS_SECTION_STORAGE_KEY, 'sync')
+
+        const { result } = renderSettings()
+
+        expect(result.current.activeSection).toBe('general')
     })
 
     it('refuses shortcuts that would break typing, and in-use shortcuts', () => {

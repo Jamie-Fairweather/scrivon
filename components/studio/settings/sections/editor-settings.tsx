@@ -8,6 +8,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 import { tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { DEFAULT_EDITOR_WIDTH } from '@/lib/settings/defaults'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap } from '@/lib/settings/types'
 
 const WORD_WRAP_OPTIONS: SelectOption<EditorWordWrap>[] = [
@@ -97,10 +98,18 @@ export function EditorSettings() {
             />
 
             <Field>
-                <FieldLabel>Editor pane width</FieldLabel>
-                <FieldDescription>Reset the editor panel to the default width ({settings.layout.editorWidth}px currently).</FieldDescription>
-                <Button type="button" variant="outline" size="sm" onClick={resetEditorWidth}>
-                    Reset pane width
+                <FieldLabel>Editor width</FieldLabel>
+                <FieldDescription>
+                    {`Set to ${settings.layout.editorWidth} px (default ${DEFAULT_EDITOR_WIDTH} px). Drag the edge between the editor and the preview to change it.`}
+                </FieldDescription>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={settings.layout.editorWidth === DEFAULT_EDITOR_WIDTH}
+                    onClick={resetEditorWidth}
+                >
+                    Reset to default
                 </Button>
             </Field>
         </div>

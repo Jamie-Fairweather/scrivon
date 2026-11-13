@@ -19,7 +19,8 @@ export function getSettingsSectionLabel(section: SettingsSection): string {
 }
 
 type SettingsNavProps = {
-    activeSection: SettingsSection
+    /** Null while search results show instead of a section. */
+    activeSection: SettingsSection | null
     onSectionChange: (section: SettingsSection) => void
     /** Id of the element that shows the chosen section. */
     panelId?: string
@@ -27,7 +28,7 @@ type SettingsNavProps = {
 
 export function SettingsNav({ activeSection, onSectionChange, panelId }: SettingsNavProps) {
     return (
-        <nav aria-label="Settings sections" className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border pr-3">
+        <nav aria-label="Settings sections" className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
             {SECTIONS.map((section) => (
                 <button
                     key={section}
