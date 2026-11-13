@@ -12,14 +12,78 @@
 ; files, and removes the folder only if it is then empty.
 ;
 ; It also puts the app's taskbar ID on the shortcuts that open it (see
-; SCRIVON_TAG_SHORTCUT).
+; SCRIVON_TAG_SHORTCUT), stops on a PC this copy can't run on, and lets
+; "Delete the application data" remove the data folders from before 1.4.1.
 ;
 ; This file is included before the template defines PRODUCTNAME and friends,
 ; so only the macro bodies (expanded where they are inserted) may use them.
 
+!include WinVer.nsh
+
 !define SCRIVON_OLD_MANUKEY "Software\diagram"
 !define SCRIVON_OLD_PRODUCTKEY "Software\diagram\Scrivon"
 !define SCRIVON_OLD_BINARY "diagram-app.exe"
+; The data folders were named after this identifier up to 1.4.0
+; (src-tauri/src/legacy_profile.rs).
+!define SCRIVON_OLD_IDENTIFIER "com.diagram.app"
+
+; The oldest Windows Scrivon runs on: Windows 10 version 1809. README.md says
+; the same; change both together.
+!define SCRIVON_MIN_BUILD 17763
+
+; The template defines ARCH ("x64" or "arm64") only after it includes this
+; file, too late for the functions below. So read it from the generated script
+; (makensis runs in its folder). NSIS_HOOK_PREINSTALL checks the two match.
+!searchparse /file "installer.nsi" `!define ARCH "` SCRIVON_ARCH `"`
+
+Var ScrivonCantRun
+
+; Sets $ScrivonCantRun to why this copy of Scrivon can't run on this PC, or to
+; "" if it can.
+Function ScrivonCheckPC
+  StrCpy $ScrivonCantRun ""
+  ${IfNot} ${AtLeastBuild} ${SCRIVON_MIN_BUILD}
+    StrCpy $ScrivonCantRun "Scrivon needs Windows 10 version 1809 or later, or Windows 11."
+  !if "${SCRIVON_ARCH}" == "arm64"
+  ${ElseIfNot} ${IsNativeARM64}
+    StrCpy $ScrivonCantRun "This installer is for Windows on ARM PCs. Download the x64 installer for this PC."
+  !else if "${SCRIVON_ARCH}" == "x64"
+  ; Windows 10 on ARM can't run x64 apps; Windows 11 on ARM can.
+  ${ElseIf} ${IsNativeARM64}
+  ${AndIfNot} ${AtLeastWin11}
+    StrCpy $ScrivonCantRun "Windows 10 on ARM can't run this installer's copy of Scrivon. Download the ARM64 installer instead."
+  !endif
+  ${EndIf}
+FunctionEnd
+
+; Checks before the first page, so on a PC this copy can't run on nothing is
+; installed (not even the WebView2 Runtime) and an installed copy isn't
+; uninstalled (the page that offers that runs it as soon as you click Next).
+; Silent installs skip this; NSIS_HOOK_PREINSTALL checks again for them.
+!define MUI_CUSTOMFUNCTION_GUIINIT ScrivonCheckWindows
+Function ScrivonCheckWindows
+  Call ScrivonCheckPC
+  ${If} $ScrivonCantRun != ""
+    MessageBox MB_ICONSTOP $ScrivonCantRun
+    Quit
+  ${EndIf}
+FunctionEnd
+
+; Runs before any of the app's files are copied, in every install mode.
+!macro NSIS_HOOK_PREINSTALL
+  !if "${SCRIVON_ARCH}" != "${ARCH}"
+    !error "installer-hooks.nsh read ARCH as ${SCRIVON_ARCH}, but the template says ${ARCH}."
+  !endif
+  Call ScrivonCheckPC
+  ${If} $ScrivonCantRun != ""
+    MessageBox MB_ICONSTOP $ScrivonCantRun /SD IDOK
+    ; The template has made the install folder. Remove it if it's still empty
+    ; (it is the working folder until SetOutPath moves away from it).
+    SetOutPath "$TEMP"
+    RMDir "$INSTDIR"
+    Abort
+  ${EndIf}
+!macroend
 
 ; Points `lnk` at the installed program if it currently opens `oldTarget`.
 !macro SCRIVON_REPOINT_SHORTCUT lnk oldTarget
@@ -81,4 +145,16 @@
   !insertmacro SCRIVON_TAG_SHORTCUT "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   !insertmacro SCRIVON_TAG_SHORTCUT "$DESKTOP\${PRODUCTNAME}.lnk"
   !insertmacro SCRIVON_TAG_SHORTCUT "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\${PRODUCTNAME}.lnk"
+!macroend
+
+; The template's "Delete the application data" removes the data folders named
+; after the current identifier. This also removes the ones from before 1.4.1,
+; which the app only copied from and left in place. Never during an update.
+!macro NSIS_HOOK_POSTUNINSTALL
+  ${If} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    SetShellVarContext current
+    RmDir /r "$APPDATA\${SCRIVON_OLD_IDENTIFIER}"
+    RmDir /r "$LOCALAPPDATA\${SCRIVON_OLD_IDENTIFIER}"
+  ${EndIf}
 !macroend

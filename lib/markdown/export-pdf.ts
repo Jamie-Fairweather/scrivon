@@ -6,7 +6,7 @@ import { embedDocumentImages } from '@/lib/markdown/export-images'
 import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
 import { errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import type { PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
+import type { PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
@@ -150,49 +150,90 @@ async function saveDocx(bytes: Uint8Array, filename: string, documentPath: strin
     return { status: 'saved' }
 }
 
-async function renderAndSave(
+/** What an export had to leave out. */
+type LeftOut = {
+    missingImages: PdfExportMissingImage[]
+    /** Web images left out because the user hasn't chosen Load images in the preview. */
+    webImagesLeftOut: number
+    tocSkipped: boolean
+}
+
+type DocumentOptions = {
+    profile: PdfExportProfile
+    overrides?: PdfExportMetadataOverrides
+    /** The document's file path, so its images are found from it. */
+    documentPath?: string
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
+    /** The user chose to load this document's web images in the preview, so the export embeds them too. */
+    allowRemoteImages?: boolean
+}
+
+/** The steps both formats share: the profile's images, the document, then the document's own images. */
+async function prepareExport(
     source: string,
     tabName: string | undefined,
-    options: ExportMarkdownOptions & { profile: PdfExportProfile },
-    assets: PdfExportResolvedAssets
-): Promise<ExportResult> {
-    const { profile, overrides } = options
+    { profile, overrides, documentPath, workspaceRoot, allowRemoteImages }: DocumentOptions
+): Promise<LeftOut & { exportDocument: ExportDocument }> {
+    const { assets, missing } = await resolvePdfExportAssets(profile)
     const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
-    const { missing: missingImages, webImagesLeftOut } = await embedDocumentImages(exportDocument.tree, {
-        documentPath: options.documentPath ?? null,
-        workspaceRoot: options.workspaceRoot ?? null,
-        allowRemoteImages: options.allowRemoteImages === true,
+    const documentImages = await embedDocumentImages(exportDocument.tree, {
+        documentPath: documentPath ?? null,
+        workspaceRoot: workspaceRoot ?? null,
+        allowRemoteImages: allowRemoteImages === true,
     })
-    const result = await renderAndSaveDocument(exportDocument, tabName, options)
-    if (result.status !== 'saved') return result
     // Both renderers leave the contents page out when no heading matches the TOC settings.
     const tocSkipped = profile.frontMatter.toc && exportDocument.toc.length === 0
     return {
-        ...result,
-        ...(missingImages.length > 0 && { missingImages }),
-        ...(webImagesLeftOut > 0 && { webImagesLeftOut }),
-        ...(tocSkipped && { tocSkipped }),
+        exportDocument,
+        // The profile's images first, then the document's own.
+        missingImages: [...missing, ...documentImages.missing],
+        webImagesLeftOut: documentImages.webImagesLeftOut,
+        tocSkipped,
     }
 }
 
-async function renderAndSaveDocument(
-    exportDocument: ExportDocument,
-    tabName: string | undefined,
-    options: ExportMarkdownOptions
-): Promise<ExportResult> {
-    const { documentPath } = options
-    if (options.format === 'docx') {
-        const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-        const bytes = await renderExportDocx(exportDocument)
-        return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, documentPath)
-    }
+export type ExportPdfPageOptions = DocumentOptions & {
+    /** Leave marks for the Windows exporter to stamp page numbers on, instead of CSS page counters. */
+    stamped: boolean
+}
 
+/** The page a PDF is printed from, its print settings, and what it had to leave out. */
+export type ExportPdfPage = LeftOut & { html: string; print: PdfPrintOptions }
+
+/**
+ * Builds the page a PDF export prints. The export dialog's preview uses it too,
+ * so the preview always shows what the export would save.
+ */
+export async function buildExportPdfPage(source: string, tabName: string | undefined, options: ExportPdfPageOptions): Promise<ExportPdfPage> {
+    const { exportDocument, ...leftOut } = await prepareExport(source, tabName, options)
+    const { html, print } = await renderExportPdf(exportDocument, { stamped: options.stamped, allowRemoteImages: options.allowRemoteImages === true })
+    return { html, print, ...leftOut }
+}
+
+async function exportDocx(source: string, tabName: string | undefined, options: ExportMarkdownOptions & DocumentOptions) {
+    const { exportDocument, ...leftOut } = await prepareExport(source, tabName, options)
+    const { renderExportDocx } = await import('@/lib/markdown/export-docx')
+    const bytes = await renderExportDocx(exportDocument)
+    return { ...leftOut, result: await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, options.documentPath) }
+}
+
+async function exportPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions & DocumentOptions) {
     // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
     const stamped = isWindowsTauri()
-    const { html, print } = await renderExportPdf(exportDocument, { stamped, allowRemoteImages: options.allowRemoteImages === true })
-    const filename = `${markdownExportBaseName(tabName)}.pdf`
+    const { html, print, ...leftOut } = await buildExportPdfPage(source, tabName, { ...options, stamped })
+    return { ...leftOut, result: await savePdf(html, print, tabName, options.documentPath, stamped) }
+}
 
+async function savePdf(
+    html: string,
+    print: PdfPrintOptions,
+    tabName: string | undefined,
+    documentPath: string | undefined,
+    stamped: boolean
+): Promise<ExportResult> {
     if (stamped) {
+        const filename = `${markdownExportBaseName(tabName)}.pdf`
         const path = await pickSavePath({ title: 'Save PDF', defaultPath: savePathBesideDocument(filename, documentPath), filters: PDF_FILTERS })
         if (!path) return { status: 'cancelled' }
         const pageNumberWarning = await savePdfWithWebView2(html, path, print)
@@ -210,12 +251,16 @@ async function renderAndSaveDocument(
 export async function exportMarkdown(source: string, tabName: string | undefined, options: ExportMarkdownOptions = {}): Promise<ExportResult> {
     try {
         const profile = options.profile ?? createDefaultPdfExportProfile()
-        const { assets, missing } = await resolvePdfExportAssets(profile)
-        const result = await renderAndSave(source, tabName, { ...options, profile }, assets)
+        const save = options.format === 'docx' ? exportDocx : exportPdf
+        const { result, missingImages, webImagesLeftOut, tocSkipped } = await save(source, tabName, { ...options, profile })
+        // Nothing was saved, so there is nothing to report.
         if (result.status !== 'saved') return result
-        // The profile's images first, then the document's own.
-        const missingImages = [...missing, ...(result.missingImages ?? [])]
-        return missingImages.length > 0 ? { ...result, missingImages } : result
+        return {
+            ...result,
+            ...(missingImages.length > 0 && { missingImages }),
+            ...(webImagesLeftOut > 0 && { webImagesLeftOut }),
+            ...(tocSkipped && { tocSkipped }),
+        }
     } catch (err) {
         return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
     }
@@ -250,6 +295,18 @@ const TOC_SKIPPED = 'No headings matched the table of contents settings, so no c
 function joinSentences(parts: (string | undefined)[]): string {
     const kept = parts.filter((part): part is string => Boolean(part))
     return kept.map((part, index) => (index < kept.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(' ')
+}
+
+/** What a PDF had to leave out (page numbers, images, the contents page), as one note; empty when nothing. */
+export function describeLeftOut({
+    pageNumberWarning,
+    missingImages = [],
+    webImagesLeftOut = 0,
+    tocSkipped,
+}: Omit<SavedExport, 'status' | 'path'>): string {
+    const images = missingImages.length > 0 ? ['Some images were left out', describeMissingImages(missingImages)] : []
+    const webImages = webImagesLeftOut > 0 ? describeWebImagesLeftOut(webImagesLeftOut) : ''
+    return joinSentences([pageNumberWarning, ...images, webImages, tocSkipped ? TOC_SKIPPED : ''])
 }
 
 /**

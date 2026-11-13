@@ -510,6 +510,53 @@ describe('export-pdf helpers', () => {
         expect(notifyInfo).toHaveBeenCalledWith('No contents page was added', { description: toc })
     })
 
+    it('builds the page a PDF prints from, with what it left out, for the export and its preview alike', async () => {
+        resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [MISSING_LOGO] })
+        const { buildExportPdfPage } = await import('@/lib/markdown/export-pdf')
+        const { createDefaultPdfExportProfile } = await import('@/lib/settings/pdf-export-defaults')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+
+        await expect(
+            buildExportPdfPage('# One', 'notes.md', { profile, overrides: { title: 'Q3' }, stamped: true, allowRemoteImages: true })
+        ).resolves.toEqual({
+            html: EXPORT_DOCUMENT.html,
+            print: EXPORT_DOCUMENT.print,
+            missingImages: [MISSING_LOGO],
+            webImagesLeftOut: 0,
+            tocSkipped: true,
+        })
+        expect(resolvePdfExportAssets).toHaveBeenCalledWith(profile)
+        expect(renderExportPdf).toHaveBeenCalledWith(
+            expect.objectContaining({ metadata: expect.objectContaining({ title: 'Q3' }), assets: EMPTY_ASSETS }),
+            {
+                stamped: true,
+                allowRemoteImages: true,
+            }
+        )
+
+        resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [] })
+        await expect(buildExportPdfPage('# One\n\n## Part', 'notes.md', { profile, stamped: false })).resolves.toMatchObject({
+            missingImages: [],
+            tocSkipped: false,
+        })
+        expect(renderExportPdf).toHaveBeenLastCalledWith(expect.anything(), { stamped: false, allowRemoteImages: false })
+    })
+
+    it('describes what a PDF left out in one note', async () => {
+        const { describeLeftOut } = await import('@/lib/markdown/export-pdf')
+        expect(describeLeftOut({})).toBe('')
+        expect(describeLeftOut({ missingImages: [] })).toBe('')
+        expect(describeLeftOut({ pageNumberWarning: 'There is no footer to put the page numbers in.' })).toBe(
+            'There is no footer to put the page numbers in.'
+        )
+        expect(describeLeftOut({ pageNumberWarning: 'No footer', missingImages: [MISSING_LOGO], tocSkipped: true })).toBe(
+            'No footer. Some images were left out. Cover image (logo.png): Could not read image: not found. ' +
+                'No headings matched the table of contents settings, so no contents page was added.'
+        )
+        expect(describeLeftOut({ webImagesLeftOut: 2 })).toBe('2 web images were left out. Choose Load images in the preview to include them.')
+    })
+
     it('says in one notice that the PDF was saved without page numbers, and why', async () => {
         const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
         notifyExportSaved({ status: 'saved', path: 'C:/out/Report.pdf', pageNumberWarning: "Scrivon couldn't add page numbers to this PDF." })

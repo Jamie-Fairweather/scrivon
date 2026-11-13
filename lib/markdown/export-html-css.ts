@@ -93,6 +93,7 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
         // Word files get these as creator and description; the PDF stamper writes them into the file's properties.
         ...(author ? { author } : {}),
         ...(subject ? { subject } : {}),
+        ...(profile.footer.numberFromBody ? { numberFromBody: true } : {}),
     }
 }
 
@@ -112,11 +113,17 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
  */
 export const PDF_PAGE_NUMBER_MARK = 'SFPN'
 
-/** Paired marks linking a TOC row to the heading it points at. Must match `page_numbers.rs`. */
+/**
+ * Paired marks for the heading at `index` in the document's outline: one inside the heading, which tells the
+ * stamper its page (for its bookmark and its Contents row), and one in that Contents row. Must match `page_numbers.rs`.
+ */
 export function pdfTocMark(index: number, kind: 'slot' | 'heading'): string {
     const id = String(index + 1).padStart(4, '0')
     return kind === 'slot' ? `SFT${id}` : `SFH${id}`
 }
+
+/** Marks the top of the body's first page, so the stamper can number pages from there. Must match `BODY_MARK` in `page_numbers.rs`. */
+export const PDF_BODY_START_MARK = 'SFH0000'
 
 /** Class of the glyph sample that goes first inside a page-number or TOC marker. */
 export const PDF_STAMP_GLYPHS_CLASS = 'pdf-stamp-glyphs'
@@ -770,12 +777,24 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     white-space: nowrap;
   }
   .pdf-toc-mark,
-  .pdf-heading-mark {
+  .pdf-heading-mark,
+  .pdf-body-mark {
     color: rgba(64, 64, 64, 0.01);
   }
   .pdf-heading-mark {
     font-size: 1px;
     line-height: 0;
+  }
+  /*
+   * Last in the body, lifted to its top: it lands on the body's first page and takes no room.
+   * It needs a line of its own: with line-height 0, Chromium draws it on the page before.
+   */
+  .pdf-body-mark {
+    position: absolute;
+    top: 0;
+    left: 0;
+    font-size: 1px;
+    line-height: 1px;
   }
   /* Drawn, so its glyphs are embedded for the stamped numbers, but tiny, see-through and taking no room. Not clipped: a clipped sample may not be drawn at all. */
   .${PDF_STAMP_GLYPHS_CLASS} {
