@@ -62,7 +62,6 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
     useActiveTabId: () => state.tabs.activeTabId,
     useDocumentTabs: () => state.tabs,
-    useActiveTabId: () => state.tabs.activeTabId,
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
     useCanvasFit: () => state.canvas,
