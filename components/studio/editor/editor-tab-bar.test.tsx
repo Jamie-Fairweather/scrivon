@@ -21,6 +21,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         closeOtherTabs: vi.fn(),
         closeAllTabs: vi.fn(),
     }),
+    useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
 }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => ({ canFitToView, fitToView }),
