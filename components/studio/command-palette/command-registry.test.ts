@@ -19,6 +19,7 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         autosaveEnabled: true,
         explorerOpen: true,
         editorOpen: true,
+        outlineOpen: false,
         canFitDiagram: true,
         keybinds: createDefaultSettings(false).keybinds,
         pickAndOpenWorkspace: vi.fn(async () => {}),
@@ -30,12 +31,14 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         setAutosaveEnabled: vi.fn(),
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
         requestCanvasFit: vi.fn(),
         closeTab: vi.fn(async () => {}),
         closeOtherTabs: vi.fn(async () => {}),
         closeAllTabs: vi.fn(async () => {}),
         openExample: vi.fn(),
+        saveExampleCopy: vi.fn(async () => {}),
         openSettings: vi.fn(),
         isLight: true,
         toggleLightDark: vi.fn(),
@@ -111,6 +114,29 @@ describe('buildCommandRegistry Refresh Explorer', () => {
     })
 })
 
+describe('buildCommandRegistry Outline', () => {
+    it('shows and hides the Outline panel', () => {
+        const closed = context({ outlineOpen: false })
+        const [show] = byValue(closed, 'action:toggle-outline')
+        expect(show).toMatchObject({ label: 'Show Outline', disabled: false })
+        void show!.run()
+        expect(closed.setOutlineOpen).toHaveBeenCalledWith(true)
+
+        const open = context({ outlineOpen: true })
+        const [hide] = byValue(open, 'action:toggle-outline')
+        expect(hide).toMatchObject({ label: 'Hide Outline' })
+        void hide!.run()
+        expect(open.setOutlineOpen).toHaveBeenCalledWith(false)
+    })
+
+    it('is off with no folder open, as the panel only shows with one', () => {
+        expect(byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:toggle-outline')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No folder open',
+        })
+    })
+})
+
 describe('buildCommandRegistry commands that would do nothing', () => {
     it('turns off Close Other Tabs with only one tab open, and says why', () => {
         expect(byValue(context({ tabCount: 1 }), 'action:close-other-tabs')[0]).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
@@ -144,6 +170,22 @@ describe('buildCommandRegistry examples', () => {
     it('enables Open Example when a folder is open', () => {
         const examples = byValue(context(), 'action:example:')
         expect(examples.every((action) => !action.disabled)).toBe(true)
+    })
+
+    it('saves a copy of the example in the active tab', () => {
+        const ctx = context({ activeTabId: 'example:sample-1' })
+        const [saveCopy] = byValue(ctx, 'action:save-example-copy')
+        expect(saveCopy).toMatchObject({ label: 'Save Copy to Workspace', disabled: false })
+        void saveCopy!.run()
+        expect(ctx.saveExampleCopy).toHaveBeenCalledWith('sample-1')
+    })
+
+    it('turns off Save Copy to Workspace unless an example is open, and says why', () => {
+        expect(byValue(context(), 'action:save-example-copy')[0]).toMatchObject({ disabled: true, disabledReason: 'No example open' })
+        expect(byValue(context({ workspaceRoot: null, activeTabId: 'example:sample-1' }), 'action:save-example-copy')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'Open a folder first',
+        })
     })
 
     it('disables the tab commands when a hidden tab is left over with no folder open', () => {

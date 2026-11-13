@@ -1,5 +1,5 @@
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
-import { isExampleTabId } from '@/lib/examples/example-tab'
+import { exampleIdFromTabId, isExampleTabId } from '@/lib/examples/example-tab'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
 import { isLightTheme, SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME, type AppThemeId } from '@/lib/theme/catalog'
 import { getBaseName, samePath } from '@/lib/tauri/fs'
@@ -18,6 +18,7 @@ export type CommandRegistryContext = {
     autosaveEnabled: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    outlineOpen: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
     keybinds: KeybindBindings
@@ -30,12 +31,14 @@ export type CommandRegistryContext = {
     setAutosaveEnabled: (enabled: boolean) => void
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setOutlineOpen: (open: boolean) => void
     setPreviewOnly: () => void
     requestCanvasFit: () => void
     closeTab: (id: string) => Promise<void>
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
     openExample: (exampleId: string) => void
+    saveExampleCopy: (exampleId: string) => Promise<void>
     openSettings: () => void
     isLight: boolean
     toggleLightDark: () => void
@@ -50,6 +53,7 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
     // Tabs are only on screen while a folder is open, so tab commands need both.
     const hasActiveTab = Boolean(ctx.activeTabId) && hasWorkspace
     const hasWorkspaceTab = hasActiveTab && ctx.activeTabId !== null && !isExampleTabId(ctx.activeTabId)
+    const activeExampleId = hasActiveTab && ctx.activeTabId !== null ? exampleIdFromTabId(ctx.activeTabId) : null
 
     const actions: ActionPaletteItem[] = [
         {
@@ -111,6 +115,17 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
         },
         {
             kind: 'action',
+            value: 'action:save-example-copy',
+            searchText: 'save copy example workspace folder',
+            label: 'Save Copy to Workspace',
+            disabled: activeExampleId === null,
+            disabledReason: hasWorkspace ? 'No example open' : 'Open a folder first',
+            run: () => {
+                if (activeExampleId) void ctx.saveExampleCopy(activeExampleId)
+            },
+        },
+        {
+            kind: 'action',
             value: 'action:toggle-autosave',
             searchText: 'autosave toggle',
             label: ctx.autosaveEnabled ? 'Disable Autosave' : 'Enable Autosave',
@@ -135,6 +150,15 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => ctx.setEditorOpen(!ctx.editorOpen),
+        },
+        {
+            kind: 'action',
+            value: 'action:toggle-outline',
+            searchText: 'outline headings contents toggle',
+            label: ctx.outlineOpen ? 'Hide Outline' : 'Show Outline',
+            disabled: !hasWorkspace,
+            disabledReason: 'No folder open',
+            run: () => ctx.setOutlineOpen(!ctx.outlineOpen),
         },
         {
             kind: 'action',

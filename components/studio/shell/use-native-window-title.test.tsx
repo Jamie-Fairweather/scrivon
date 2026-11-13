@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { isTauri } from '@/lib/tauri/platform'
-import { useNativeWindowTitle, windowTitleFor } from './use-native-window-title'
+import { documentTitleFor, useNativeWindowTitle, windowTitleFor } from './use-native-window-title'
 
 const setTitle = vi.fn<(title: string) => Promise<void>>()
 
@@ -31,6 +31,14 @@ describe('windowTitleFor', () => {
         expect(windowTitleFor({ name: 'flow.mmd', isDirty: true }, '/home/me/work/')).toBe('● flow.mmd — work — Scrivon')
         expect(windowTitleFor(null, 'C:\\Users\\me\\docs')).toBe('docs — Scrivon')
         expect(windowTitleFor(null, null)).toBe('Scrivon')
+    })
+})
+
+describe('documentTitleFor', () => {
+    it('names the file and folder, marks unsaved changes, and leaves out the app name', () => {
+        expect(documentTitleFor({ name: 'notes.md', isDirty: true }, 'C:\\Users\\me\\docs')).toBe('● notes.md — docs')
+        expect(documentTitleFor(null, 'C:\\Users\\me\\docs')).toBe('docs')
+        expect(documentTitleFor(null, null)).toBe('')
     })
 })
 

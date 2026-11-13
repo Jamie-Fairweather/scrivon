@@ -44,7 +44,8 @@ const URL_SCHEME = /^[a-zA-Z][a-zA-Z\d+.-]*:/
 const DATA_IMAGE = /^\s*data:image\//i
 const TEL_LINK = /^\s*tel:/i
 
-function decode(text: string): string {
+/** Undoes the percent-encoding the Markdown parser adds (`%20`); text that isn't valid encoding stays as it is. */
+export function decode(text: string): string {
     try {
         return decodeURIComponent(text)
     } catch {

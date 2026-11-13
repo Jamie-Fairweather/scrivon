@@ -1,8 +1,16 @@
 'use client'
 
-import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type MouseEvent } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 import type { Element } from 'hast'
-import { ImageOff } from 'lucide-react'
+import {
+    ImageOff,
+    Info,
+    Lightbulb,
+    MessageSquareExclamationPoint,
+    OctagonExclamationPoint,
+    TriangleExclamationPoint,
+    type LucideIcon,
+} from 'lucide-react'
 import type { Root } from 'mdast'
 import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
@@ -18,13 +26,18 @@ import {
     rehypeFencedBlockOrdinals,
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
-import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
-import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import { decode, markdownUrlTransform, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
+import { markdownBodyFirstLine, markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import { rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
+import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
+import { htmlAlertKind, type GithubAlertKind } from '@/lib/markdown/github-alerts'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { mathRehypePlugins } from '@/lib/markdown/rehype-math'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { blockDirection } from '@/lib/markdown/text-direction'
 import { isWebImageUrl } from '@/lib/markdown/web-images'
+import { resolveDocumentImage } from '@/lib/workspace/workspace-images'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +51,10 @@ type MarkdownPreviewProps = {
     loadRemoteImages: boolean
     /** Called when a blocked web image appears; the function it returns is called when that image goes away. */
     onRemoteImageBlocked: () => () => void
+    /** The document's file, which its images are found from; null when it isn't on disk. */
+    documentPath?: string | null
+    /** The open folder. Only images inside it are read. */
+    workspaceRoot?: string | null
     className?: string
 }
 
@@ -127,15 +144,10 @@ function imageHeightLength(height: unknown): string | undefined {
     return /^\d+(\.\d+)?%$/.test(value) ? value : undefined
 }
 
-/**
- * A document's image. It reads the web-image choice from context rather than props, so the preview's components
- * stay the same when the choice changes, and diagrams and code blocks aren't rebuilt.
- */
-function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
-    const { load, onBlocked } = useContext(RemoteImagesContext)
-    const { src, alt, ...rest } = withoutNode(props)
-    const remote = isRemoteImage(src)
-    if (remote && !load) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onBlocked} />
+type ImageElementProps = ComponentProps<'img'> & { remote?: boolean }
+
+/** The `<img>` itself, with the document's own size and attributes. */
+function ImageElement({ src, alt, remote = false, ...rest }: ImageElementProps) {
     // Tailwind's base styles give every image `height: auto`, which beats an HTML height attribute, so a logo sized
     // only by its height would show at full size. Only an inline style outranks it; the width then follows the
     // picture's shape. (The sanitizer drops a document's own style attributes.)
@@ -153,6 +165,96 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
             className={cn('inline-block h-auto max-w-full align-middle', height && 'object-contain', rest.className)}
         />
     )
+}
+
+/** Each GitHub alert kind's bar, title colour and icon, as on GitHub. */
+const ALERT_STYLES: Record<GithubAlertKind, { border: string; title: string; Icon: LucideIcon }> = {
+    note: { border: 'border-blue-500', title: 'text-blue-600 dark:text-blue-400', Icon: Info },
+    tip: { border: 'border-green-600', title: 'text-green-700 dark:text-green-400', Icon: Lightbulb },
+    important: { border: 'border-violet-500', title: 'text-violet-600 dark:text-violet-400', Icon: MessageSquareExclamationPoint },
+    warning: { border: 'border-amber-500', title: 'text-amber-700 dark:text-amber-400', Icon: TriangleExclamationPoint },
+    caution: { border: 'border-red-500', title: 'text-red-600 dark:text-red-400', Icon: OctagonExclamationPoint },
+}
+
+/** The kind of alert being drawn, for its title's colour and icon. */
+const AlertKindContext = createContext<GithubAlertKind | null>(null)
+
+/** An alert's title: Scrivon's English word for its kind, with its icon. It follows the alert's direction. */
+function AlertTitle({ children }: { children?: ReactNode }) {
+    const kind = useContext(AlertKindContext)
+    const style = kind ? ALERT_STYLES[kind] : null
+    return (
+        <p lang="en" className={cn('mb-2 flex items-center gap-2 text-sm font-semibold', style?.title)}>
+            {style && <style.Icon className="size-4 shrink-0" aria-hidden />}
+            {children}
+        </p>
+    )
+}
+
+type MissingImageProps = {
+    src: string
+    alt?: string
+    reason: string
+    /** The file it was looked for at, when there is one. */
+    path?: string
+}
+
+/** Stands in for an image that can't be shown, naming its path and saying why. */
+function MissingImage({ src, alt, reason, path }: MissingImageProps) {
+    // As the document wrote it: the Markdown parser percent-encodes spaces, `\` and accents.
+    const address = decode(src).trim()
+    const ownAlt = alt?.trim()
+    const label = address || ownAlt || 'Image'
+    // The writer's alt text is said too, so a screen reader hears what the picture was meant to show.
+    const spoken = ownAlt && address ? `${ownAlt} (${address})` : label
+    return (
+        <span
+            role="img"
+            // As for a blocked web image: English when only Scrivon's words and the path are said, otherwise the
+            // document's language for its alt text.
+            lang={ownAlt ? undefined : 'en'}
+            aria-label={`Image not shown: ${spoken}. ${reason}`}
+            title={path ? `${path}\n${reason}` : reason}
+            className="inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-md border border-dashed border-border px-1.5 py-0.5 align-middle
+                text-xs text-muted-foreground"
+        >
+            <ImageOff className="size-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 truncate font-medium">{label}</span>
+            <span lang="en">{reason}</span>
+        </span>
+    )
+}
+
+type FolderImageProps = Omit<ImageElementProps, 'src'> & { src: string; path: string; workspaceRoot: string }
+
+/** An image file inside the open folder, read through the app. */
+function FolderImage({ src, path, workspaceRoot, ...rest }: FolderImageProps) {
+    const image = useWorkspaceImage(path, workspaceRoot)
+    if (image.status === 'failed') return <MissingImage src={src} alt={rest.alt} reason={image.reason} path={path} />
+    return <ImageElement {...rest} src={image.status === 'loaded' ? image.url : undefined} />
+}
+
+/** Where the document is, so its images can be found from it. */
+const DocumentFolderContext = createContext<MarkdownLinkContext>({ documentPath: null, workspaceRoot: null })
+
+/**
+ * A document's image. It reads the web-image choice and the document's folder from context rather than props, so
+ * the preview's components stay the same when they change, and diagrams and code blocks aren't rebuilt.
+ */
+function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
+    const { load, onBlocked } = useContext(RemoteImagesContext)
+    const folder = useContext(DocumentFolderContext)
+    const { src, alt, ...rest } = withoutNode(props)
+    const remote = isRemoteImage(src)
+    if (remote && !load) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onBlocked} />
+    if (remote) return <ImageElement {...rest} src={src} alt={alt} remote />
+
+    // The sanitizer drops an unsafe address (`javascript:`), so the image has none.
+    const address = typeof src === 'string' ? src : ''
+    const source = resolveDocumentImage(address, folder)
+    if (source.kind === 'blocked') return <MissingImage src={address} alt={alt} reason={source.reason} />
+    if (source.kind === 'url') return <ImageElement {...rest} src={address} alt={alt} />
+    return <FolderImage {...rest} src={address} alt={alt} path={source.path} workspaceRoot={folder.workspaceRoot!} />
 }
 
 /** A diagram's block id: its tab, and the lasting id rehypeMermaidBlockIds gave it, which moves with the block. */
@@ -195,6 +297,7 @@ const staticMarkdownComponents: Components = {
     },
     p: (props) => {
         const { className, ...rest } = withoutNode(props)
+        if (hasClass(className, 'markdown-alert-title')) return <AlertTitle>{rest.children}</AlertTitle>
         return <p dir="auto" {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
     },
     ul: (props) => {
@@ -229,17 +332,34 @@ const staticMarkdownComponents: Components = {
             />
         )
     },
+    // A paragraph or list sets its own colour, which would win over the quote's grey, so in a quote they take the quote's.
     blockquote: (props) => {
         const { className, ...rest } = withoutNode(props)
         return (
             <blockquote
                 dir={props.node ? blockDirection(props.node) : 'auto'}
                 {...rest}
-                className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic', className)}
+                className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic [&_:is(p,ul,ol,td)]:text-inherit', className)}
             />
         )
     },
-    hr: () => <hr className="my-6 border-border" />,
+    // A GitHub alert (remarkGithubAlerts) is a note in its kind's colour. Any other <div> is as the HTML wrote it.
+    div: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        const kind = props.node ? htmlAlertKind(props.node) : undefined
+        if (!kind) return <div {...rest} className={className} />
+        return (
+            <AlertKindContext.Provider value={kind}>
+                <div
+                    role="note"
+                    dir={blockDirection(props.node!)}
+                    {...rest}
+                    className={cn('mb-3 border-s-4 py-1 ps-4 text-sm [&>:last-child]:mb-0', ALERT_STYLES[kind].border, className)}
+                />
+            </AlertKindContext.Provider>
+        )
+    },
+    hr: (props) => <hr {...sourceLineProps(props)} className="my-6 border-border" />,
     // Raw HTML the sanitizer lets through (see previewSanitizeSchema).
     kbd: (props) => {
         const { className, ...rest } = withoutNode(props)
@@ -255,14 +375,18 @@ const staticMarkdownComponents: Components = {
         const { className, ...rest } = withoutNode(props)
         return <summary {...rest} className={cn('cursor-pointer font-medium text-foreground', className)} />
     },
-    table: ({ children }) => (
-        <div className="mb-4 overflow-x-auto rounded-lg border border-border">
-            <table className="w-full border-collapse text-sm">{children}</table>
+    table: (props) => (
+        <div {...sourceLineProps(props)} className="mb-4 overflow-x-auto rounded-lg border border-border">
+            <table className="w-full border-collapse text-sm">{props.children}</table>
         </div>
     ),
     thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
     tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
-    tr: ({ children }) => <tr className="border-border">{children}</tr>,
+    tr: (props) => (
+        <tr {...sourceLineProps(props)} className="border-border">
+            {props.children}
+        </tr>
+    ),
     // A raw-HTML table's colspan, rowspan and dir reach the cell. A column's alignment arrives as its text-align style.
     th: (props) => {
         const { className, ...rest } = withoutNode(props)
@@ -275,8 +399,11 @@ const staticMarkdownComponents: Components = {
     pre: (props) => {
         const { className, ...rest } = withoutNode(props)
         const first = props.node?.children[0]
-        // A fenced block draws its own frame (the code override), so its <pre> adds nothing.
-        if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) return <>{rest.children}</>
+        // A fenced block draws its own frame (the code override), so its <pre> adds only its source line, on a box
+        // with no size or spacing of its own.
+        if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) {
+            return <div {...sourceLineProps(rest)}>{rest.children}</div>
+        }
         // A raw-HTML <pre> of plain text, such as ASCII art, keeps its spaces and line breaks, and reads left to
         // right unless the document says otherwise.
         return (
@@ -302,6 +429,8 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     onLinkClick,
     loadRemoteImages,
     onRemoteImageBlocked,
+    documentPath = null,
+    workspaceRoot = null,
     className,
 }: MarkdownPreviewProps) {
     const components = useMemo((): Components => {
@@ -357,13 +486,21 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
+    const firstLine = useMemo(() => markdownBodyFirstLine(source, body), [source, body])
     // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
     const lang = useMemo(() => markdownPreviewLang(source), [source])
-    // Safe raw HTML first, then the numbering, so the sanitizer can't strip the blocks' data properties. Per
-    // document, so each block's id is matched against the blocks this document showed last time.
+    // Safe raw HTML first, then math (which the sanitizer would strip), then the numbering and source lines, so the
+    // sanitizer can't strip the blocks' data properties. Per document, so each block's id is matched against the
+    // blocks this document showed last time.
     const rehypePlugins = useMemo(
-        (): PluggableList => [...previewHtmlPlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')],
-        [tabId]
+        (): PluggableList => [
+            ...previewHtmlPlugins,
+            ...mathRehypePlugins,
+            rehypeFencedBlockOrdinals,
+            rehypeMermaidBlockIds(tabId ?? ''),
+            rehypeSourceLines(firstLine),
+        ],
+        [tabId, firstLine]
     )
 
     // Kept as one element so that loading web images (a context change) redraws only the images, without parsing
@@ -384,12 +521,16 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     )
 
     const remoteImages = useMemo(() => ({ load: loadRemoteImages, onBlocked: onRemoteImageBlocked }), [loadRemoteImages, onRemoteImageBlocked])
+    const folder = useMemo(() => ({ documentPath, workspaceRoot }), [documentPath, workspaceRoot])
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
-            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
-            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words">
-                <RemoteImagesContext.Provider value={remoteImages}>{markdown}</RemoteImagesContext.Provider>
+            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. Block math
+                isn't in a paragraph, so it gets the paragraphs' text size and space below here. */}
+            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm">
+                <RemoteImagesContext.Provider value={remoteImages}>
+                    <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
+                </RemoteImagesContext.Provider>
             </article>
         </div>
     )

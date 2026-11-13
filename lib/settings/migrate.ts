@@ -1,9 +1,18 @@
-import { isAppThemeId } from '@/lib/theme/catalog'
+import { isAppThemeId, isLightTheme, type AppThemeId } from '@/lib/theme/catalog'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
 import { normalizeSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
-import type { AppSettings, EditorLineNumbers, EditorWordWrap, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import {
+    FOLLOW_SYSTEM,
+    type AppSettings,
+    type EditorLineNumbers,
+    type EditorWordWrap,
+    type KeybindActionId,
+    type KeybindBindings,
+    type KeybindChord,
+    type ThemeSetting,
+} from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
 type LegacyStorageReader = (key: string) => string | null
@@ -110,6 +119,24 @@ function normalizeWordWrap(value: unknown): EditorWordWrap {
     return 'on'
 }
 
+/** A saved theme for System mode's light or dark slot, or the default when it's unknown or the wrong kind. */
+function readSystemTheme(value: unknown, light: boolean, fallback: AppThemeId): AppThemeId {
+    return isAppThemeId(value) && isLightTheme(value) === light ? value : fallback
+}
+
+/**
+ * The theme setting. A theme saved before System mode existed stays as a fixed choice; an unknown
+ * one (saved by a newer version) follows Windows, as the boot script does.
+ */
+function normalizeTheme(raw: unknown, defaults: ThemeSetting): ThemeSetting {
+    const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    return {
+        id: source.id === FOLLOW_SYSTEM || isAppThemeId(source.id) ? source.id : defaults.id,
+        light: readSystemTheme(source.light, true, defaults.light),
+        dark: readSystemTheme(source.dark, false, defaults.dark),
+    }
+}
+
 function normalizeLineNumbers(value: unknown): EditorLineNumbers {
     if (value === 'on' || value === 'off' || value === 'relative') return value
     return 'on'
@@ -117,9 +144,8 @@ function normalizeLineNumbers(value: unknown): EditorLineNumbers {
 
 export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPlatform()): AppSettings {
     const defaults = createDefaultSettings(isMac)
+    // A theme saved by an older version stays as a fixed choice. With none (a new install), follow Windows.
     const themeRaw = read(STORAGE_MERMAID_THEME)
-    // No theme saved yet: the default follows the OS light or dark setting, like the boot script.
-    const themeId = themeRaw && isAppThemeId(themeRaw) ? themeRaw : defaults.theme.id
 
     return {
         ...defaults,
@@ -127,12 +153,13 @@ export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPl
             enabled: readBoolean(read(STORAGE_AUTOSAVE), defaults.autosave.enabled),
             delayMs: defaults.autosave.delayMs,
         },
-        theme: { id: themeId },
+        theme: normalizeTheme({ id: themeRaw }, defaults.theme),
         layout: {
             explorerOpen: readBoolean(read(STORAGE_LAYOUT_EXPLORER), defaults.layout.explorerOpen),
             editorOpen: readBoolean(read(STORAGE_LAYOUT_EDITOR), defaults.layout.editorOpen),
             editorWidth: readNumber(read(STORAGE_KEY_WIDTH), defaults.layout.editorWidth, 280, 2000),
             restorePanelsOnOpen: defaults.layout.restorePanelsOnOpen,
+            outlineOpen: defaults.layout.outlineOpen,
         },
         keybinds: defaults.keybinds,
     }
@@ -143,15 +170,13 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Partial<AppSettings>
-    // A theme this version doesn't know (saved by a newer one) also follows the OS, like the boot script.
-    const themeId = source.theme?.id && isAppThemeId(source.theme.id) ? source.theme.id : defaults.theme.id
 
     return {
         autosave: {
             enabled: typeof source.autosave?.enabled === 'boolean' ? source.autosave.enabled : defaults.autosave.enabled,
             delayMs: readWholeNumber(source.autosave?.delayMs, defaults.autosave.delayMs, 200, 5000),
         },
-        theme: { id: themeId },
+        theme: normalizeTheme(source.theme, defaults.theme),
         layout: {
             explorerOpen: typeof source.layout?.explorerOpen === 'boolean' ? source.layout.explorerOpen : defaults.layout.explorerOpen,
             editorOpen: typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen,
@@ -161,6 +186,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
                     : defaults.layout.editorWidth,
             restorePanelsOnOpen:
                 typeof source.layout?.restorePanelsOnOpen === 'boolean' ? source.layout.restorePanelsOnOpen : defaults.layout.restorePanelsOnOpen,
+            outlineOpen: typeof source.layout?.outlineOpen === 'boolean' ? source.layout.outlineOpen : defaults.layout.outlineOpen,
         },
         editor: {
             fontSize: readWholeNumber(source.editor?.fontSize, defaults.editor.fontSize, 8, 32),
@@ -170,12 +196,19 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             lineNumbers: normalizeLineNumbers(source.editor?.lineNumbers),
             minimap: typeof source.editor?.minimap === 'boolean' ? source.editor.minimap : defaults.editor.minimap,
             tabMovesFocus: typeof source.editor?.tabMovesFocus === 'boolean' ? source.editor.tabMovesFocus : defaults.editor.tabMovesFocus,
+            scrollSync: typeof source.editor?.scrollSync === 'boolean' ? source.editor.scrollSync : defaults.editor.scrollSync,
+            jumpFromPreview: typeof source.editor?.jumpFromPreview === 'boolean' ? source.editor.jumpFromPreview : defaults.editor.jumpFromPreview,
         },
         workspace: {
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
+            reopenLastFolder:
+                typeof source.workspace?.reopenLastFolder === 'boolean' ? source.workspace.reopenLastFolder : defaults.workspace.reopenLastFolder,
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,
+        },
+        statusBar: {
+            visible: typeof source.statusBar?.visible === 'boolean' ? source.statusBar.visible : defaults.statusBar.visible,
         },
         pdfExport: normalizePdfExportSettings(source.pdfExport),
         spellcheck: normalizeSpellcheckSettings(source.spellcheck, defaults.spellcheck),
@@ -183,6 +216,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     }
 }
 
+/** Older versions read 'system' here as "follow the OS" too. */
 export function dualWriteLegacyTheme(themeId: AppSettings['theme']['id']): void {
     try {
         localStorage.setItem(STORAGE_MERMAID_THEME, themeId)
