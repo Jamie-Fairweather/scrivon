@@ -33,6 +33,7 @@ function mockContexts({
     recentWorkspaces = [] as string[],
     keybinds = createDefaultKeybinds(false) as KeybindBindings,
     canFitToView = true,
+    outlineOpen = false,
 } = {}) {
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
@@ -45,9 +46,10 @@ function mockContexts({
         closeWorkspace: vi.fn(),
     } as unknown as ReturnType<typeof useWorkspaceSession>)
     vi.mocked(useStudioLayout).mockReturnValue({
-        layout: { explorerOpen: true, editorOpen: true },
+        layout: { explorerOpen: true, editorOpen: true, outlineOpen },
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
     } as unknown as ReturnType<typeof useStudioLayout>)
     vi.mocked(useDocumentSave).mockReturnValue({ autosaveEnabled: true, setAutosaveEnabled: vi.fn() } as unknown as ReturnType<
@@ -191,6 +193,19 @@ describe('StudioMenuBar View menu', () => {
 
         const fit = within(await screen.findByRole('menu')).getByRole('menuitem', { name: /^Fit Diagram to Screen/ })
         expect(fit).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('shows and hides the Outline panel', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', outlineOpen: false })
+        render(<StudioMenuBar />)
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('menuitem', { name: 'View' }))
+        const outline = within(await screen.findByRole('menu')).getByRole('menuitemcheckbox', { name: 'Outline' })
+        expect(outline).toHaveAttribute('aria-checked', 'false')
+        await user.click(outline)
+
+        expect(vi.mocked(useStudioLayout)().setOutlineOpen).toHaveBeenCalledWith(true)
     })
 })
 

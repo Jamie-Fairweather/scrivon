@@ -60,6 +60,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             editorOpen: true,
             editorWidth: DEFAULT_EDITOR_WIDTH,
             restorePanelsOnOpen: true,
+            outlineOpen: false,
         },
         editor: {
             fontSize: 13,

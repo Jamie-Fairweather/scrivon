@@ -92,6 +92,13 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['settings.open']).toEqual(createDefaultSettings(false).keybinds['settings.open'])
     })
 
+    it('keeps the Outline panel closed by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: 'yes' } }, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: true } }, false).layout.outlineOpen).toBe(true)
+        expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
@@ -287,6 +294,7 @@ describe('dualWriteLegacy helpers', () => {
                 editorOpen: false,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
+                outlineOpen: false,
             })
         ).not.toThrow()
         expect(() => dualWriteLegacyAutosave(true)).not.toThrow()

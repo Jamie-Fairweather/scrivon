@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import type { DocumentTab } from '@/lib/workspace/types'
 
-type Layout = { explorerOpen: boolean; editorOpen: boolean }
+type Layout = { explorerOpen: boolean; editorOpen: boolean; outlineOpen?: boolean }
 
 let tabs: DocumentTab[] = []
 let activeTabId: string | null = null
@@ -57,6 +57,13 @@ vi.mock('@/components/studio/explorer/workspace-explorer', () => ({
     WorkspaceExplorer: () => (
         <nav aria-label="Explorer">
             <button type="button">notes.md</button>
+        </nav>
+    ),
+}))
+vi.mock('@/components/studio/outline/outline-panel', () => ({
+    OutlinePanel: () => (
+        <nav aria-label="Outline">
+            <button type="button">Install</button>
         </nav>
     ),
 }))
@@ -116,6 +123,24 @@ describe('StudioLayout explorer', () => {
         layout = { explorerOpen: false, editorOpen: true }
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Explorer' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout Outline panel', () => {
+    it('shows the Outline panel between the explorer and the editor when it is switched on', () => {
+        layout = { explorerOpen: true, editorOpen: true, outlineOpen: true }
+        render(<StudioLayout />)
+
+        const explorer = screen.getByRole('navigation', { name: 'Explorer' })
+        const outline = screen.getByRole('navigation', { name: 'Outline' })
+        const editor = screen.getByRole('textbox', { name: 'Editor' })
+        expect(explorer.compareDocumentPosition(outline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(outline.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('hides the Outline panel when it is switched off', () => {
+        render(<StudioLayout />)
+        expect(screen.queryByRole('navigation', { name: 'Outline' })).not.toBeInTheDocument()
     })
 })
 
@@ -255,6 +280,17 @@ describe('StudioLayout keeps keyboard focus', () => {
         focus(screen.getByRole('button', { name: 'notes.md' }))
 
         layout = { explorerOpen: false, editorOpen: true }
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())
+    })
+
+    it('moves focus to the active tab when the Outline panel is hidden while it has focus', async () => {
+        layout = { explorerOpen: true, editorOpen: true, outlineOpen: true }
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('button', { name: 'Install' }))
+
+        layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
         view.rerender(<StudioLayout />)
 
         await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())

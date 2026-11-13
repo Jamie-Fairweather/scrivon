@@ -132,6 +132,7 @@ export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPl
             editorOpen: readBoolean(read(STORAGE_LAYOUT_EDITOR), defaults.layout.editorOpen),
             editorWidth: readNumber(read(STORAGE_KEY_WIDTH), defaults.layout.editorWidth, 280, 2000),
             restorePanelsOnOpen: defaults.layout.restorePanelsOnOpen,
+            outlineOpen: defaults.layout.outlineOpen,
         },
         keybinds: defaults.keybinds,
     }
@@ -160,6 +161,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
                     : defaults.layout.editorWidth,
             restorePanelsOnOpen:
                 typeof source.layout?.restorePanelsOnOpen === 'boolean' ? source.layout.restorePanelsOnOpen : defaults.layout.restorePanelsOnOpen,
+            outlineOpen: typeof source.layout?.outlineOpen === 'boolean' ? source.layout.outlineOpen : defaults.layout.outlineOpen,
         },
         editor: {
             fontSize: readWholeNumber(source.editor?.fontSize, defaults.editor.fontSize, 8, 32),

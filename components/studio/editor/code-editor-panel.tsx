@@ -14,6 +14,7 @@ import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModel
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { setEditorCursorLine } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
@@ -587,6 +588,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // Each file opened in the editor (a tab switch swaps its buffer).
             editor.onDidChangeModel(applyToAttachedModel)
             applyToAttachedModel()
+            // The Outline panel marks the heading the cursor is in.
+            const shareCursorLine = () => setEditorCursorLine(editor.getPosition()?.lineNumber ?? null)
+            editor.onDidChangeCursorPosition(shareCursorLine)
+            editor.onDidChangeModel(shareCursorLine)
+            editor.onDidDispose(() => setEditorCursorLine(null))
+            shareCursorLine()
             syncEditorWithActiveTab()
             const pending = pendingRevealRef.current
             if (pending && openRef.current && isTab(activeTabIdRef.current, pending.path)) {

@@ -97,6 +97,7 @@ class FakeEditor {
     private readonly disposeListeners = new Set<Listener>()
     private readonly focusTextListeners = new Set<Listener>()
     private readonly blurTextListeners = new Set<Listener>()
+    private readonly cursorListeners = new Set<Listener>()
     constructor(
         public model: FakeModel | null,
         options: Record<string, unknown>
@@ -116,7 +117,22 @@ class FakeEditor {
         this.model?.listeners.delete(this.fire)
         this.model = model
         model?.listeners.add(this.fire)
+        // Like Monaco, a new buffer starts with the cursor at the top.
+        this.cursorLine = 1
         this.modelListeners.forEach((l) => l())
+    }
+    cursorLine = 1
+    getPosition() {
+        return this.model ? { lineNumber: this.cursorLine, column: 1 } : null
+    }
+    onDidChangeCursorPosition(listener: Listener) {
+        this.cursorListeners.add(listener)
+        return { dispose: () => this.cursorListeners.delete(listener) }
+    }
+    /** What clicking in the text or pressing an arrow key does. */
+    moveCursor(lineNumber: number) {
+        this.cursorLine = lineNumber
+        this.cursorListeners.forEach((l) => l())
     }
     onDidChangeModel(listener: Listener) {
         this.modelListeners.add(listener)
@@ -310,6 +326,7 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
+const { useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
 function tab(path: string, content: string): DocumentTab {
@@ -346,6 +363,31 @@ beforeEach(() => {
     fakeMonaco.editor.registerCommand.mockClear()
     palette.open = vi.fn()
     palette.provided = true
+})
+
+describe('CodeEditorPanel cursor line', () => {
+    function CursorLine() {
+        return <output aria-label="Cursor line">{useEditorCursorLine() ?? 'none'}</output>
+    }
+
+    it('shares the line the cursor is on, for the Outline panel', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, '# A\n\ntext\n\n## Next'), tab(b, '# B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const line = render(<CursorLine />)
+        const shown = () => line.getByRole('status', { name: 'Cursor line' }).textContent
+
+        expect(shown()).toBe('1')
+        act(() => editor.moveCursor(5))
+        expect(shown()).toBe('5')
+
+        setTabs(view, { tabs: [tab(a, '# A'), tab(b, '# B')], activeTabId: b })
+        expect(shown()).toBe('1')
+
+        act(() => editor.dispose())
+        expect(shown()).toBe('none')
+    })
 })
 
 describe('CodeEditorPanel models', () => {
