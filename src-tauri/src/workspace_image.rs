@@ -16,7 +16,14 @@ use crate::pdf_export;
 
 const OUTSIDE_FOLDER: &str = "Only images inside the open folder are shown.";
 const NOT_FOUND: &str = "Image not found.";
-const TOO_LARGE: &str = "Image is too large to show (limit 12 MB).";
+
+/// Said for an image over the size limit, which export images share.
+fn too_large() -> String {
+    format!(
+        "Image is too large to show (limit {} MB).",
+        pdf_export::MAX_EXPORT_IMAGE_BYTES / (1024 * 1024)
+    )
+}
 
 /// Reads an image inside the open folder `root` as a data URL. Runs on a
 /// background thread: a cloud file that is online only can take seconds to
@@ -56,7 +63,7 @@ fn read_folder_image(
     if !image.starts_with(&folder) || !in_scope(&image) {
         return Err(OUTSIDE_FOLDER.into());
     }
-    pdf_export::read_image_data_url(&image.to_string_lossy(), TOO_LARGE)
+    pdf_export::read_image_data_url(&image.to_string_lossy(), &too_large())
 }
 
 /// Whether `path`, as written, names something inside `folder`: absolute, no
@@ -206,12 +213,12 @@ mod tests {
         std::fs::OpenOptions::new()
             .write(true)
             .open(&huge)
-            .and_then(|file| file.set_len(12 * 1024 * 1024 + 1))
+            .and_then(|file| file.set_len(pdf_export::MAX_EXPORT_IMAGE_BYTES as u64 + 1))
             .unwrap();
 
         assert_eq!(
             read_folder_image(&root, &huge, opened(&root)),
-            Err(TOO_LARGE.into())
+            Err("Image is too large to show (limit 12 MB).".into())
         );
     }
 
@@ -243,6 +250,33 @@ mod tests {
 
         assert_eq!(
             read_folder_image(&root, &link, |_| true),
+            Err(OUTSIDE_FOLDER.into())
+        );
+    }
+
+    /// The Windows way out: a junction inside the folder to a folder outside it.
+    #[cfg(windows)]
+    #[test]
+    fn never_follows_a_junction_out_of_the_open_folder() {
+        let temp = TempDir::new("junction");
+        let root = temp.path("notes");
+        std::fs::create_dir_all(&root).unwrap();
+        temp.file("outside/secret.png", PNG);
+        // `\` only: cmd takes a `/` as the start of a switch.
+        let junction = temp.0.join("notes").join("pics");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(temp.0.join("outside"))
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let through_junction = junction.join("secret.png");
+        // The file is really there, so only the junction is refused.
+        assert!(through_junction.is_file());
+
+        assert_eq!(
+            read_folder_image(&root, &through_junction.to_string_lossy(), |_| true),
             Err(OUTSIDE_FOLDER.into())
         );
     }

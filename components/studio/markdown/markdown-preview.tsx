@@ -18,7 +18,7 @@ import {
     rehypeFencedBlockOrdinals,
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
-import { markdownUrlTransform, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
+import { decode, markdownUrlTransform, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
 import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
@@ -156,15 +156,6 @@ function ImageElement({ src, alt, remote = false, ...rest }: ImageElementProps) 
     )
 }
 
-/** An image's address as the document wrote it: the Markdown parser percent-encodes spaces, `\` and accents. */
-function writtenAddress(src: string): string {
-    try {
-        return decodeURIComponent(src)
-    } catch {
-        return src
-    }
-}
-
 type MissingImageProps = {
     src: string
     alt?: string
@@ -175,19 +166,26 @@ type MissingImageProps = {
 
 /** Stands in for an image that can't be shown, naming its path and saying why. */
 function MissingImage({ src, alt, reason, path }: MissingImageProps) {
-    const label = writtenAddress(src).trim() || alt?.trim() || 'Image'
+    // As the document wrote it: the Markdown parser percent-encodes spaces, `\` and accents.
+    const address = decode(src).trim()
+    const ownAlt = alt?.trim()
+    const label = address || ownAlt || 'Image'
+    // The writer's alt text is said too, so a screen reader hears what the picture was meant to show.
+    const spoken = ownAlt && address ? `${ownAlt} (${address})` : label
     return (
         <span
             role="img"
-            lang="en"
-            aria-label={`Image not shown: ${label}. ${reason}`}
+            // As for a blocked web image: English when only Scrivon's words and the path are said, otherwise the
+            // document's language for its alt text.
+            lang={ownAlt ? undefined : 'en'}
+            aria-label={`Image not shown: ${spoken}. ${reason}`}
             title={path ? `${path}\n${reason}` : reason}
             className="inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-md border border-dashed border-border px-1.5 py-0.5 align-middle
                 text-xs text-muted-foreground"
         >
             <ImageOff className="size-3.5 shrink-0" aria-hidden />
             <span className="min-w-0 truncate font-medium">{label}</span>
-            <span>{reason}</span>
+            <span lang="en">{reason}</span>
         </span>
     )
 }

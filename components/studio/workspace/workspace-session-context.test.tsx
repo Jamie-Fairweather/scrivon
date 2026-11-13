@@ -1556,19 +1556,40 @@ describe('changes made outside Scrivon', () => {
             expect(forgetWorkspaceImages).not.toHaveBeenCalled()
         })
 
-        it('shows images again on focus where the folder cannot be watched (F02)', async () => {
+        it('reads a folder’s images again when it is opened again, as nothing watched them while it was closed (F02)', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.session.closeWorkspace()
+            })
+            expect(unwatch).toHaveBeenCalled()
+            vi.mocked(forgetWorkspaceImages).mockClear()
+
+            await openWatched(result)
+
+            expect(forgetWorkspaceImages).toHaveBeenCalledWith(['C:\\ws'])
+        })
+
+        it('shows images again on focus where the folder cannot be watched, at most every few seconds (F02)', async () => {
             vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
             const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
             await act(async () => {
                 await result.current.session.openWorkspace('C:\\ws')
             })
             await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            vi.mocked(forgetWorkspaceImages).mockClear()
 
             await act(async () => {
                 windowFocus.handler!({ payload: true })
             })
+            expect(forgetWorkspaceImages).toHaveBeenCalledExactlyOnceWith(['C:\\ws'])
 
-            expect(forgetWorkspaceImages).toHaveBeenCalledWith(['C:\\ws'])
+            // Back again straight away (alt-tab, or a dialog closing): a network drive isn't asked for every image again.
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            })
+            expect(forgetWorkspaceImages).toHaveBeenCalledOnce()
         })
 
         it('still reads the folder on focus where it cannot be watched', async () => {

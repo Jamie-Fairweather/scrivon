@@ -132,6 +132,27 @@ describe('readWorkspaceImage', () => {
         expect(cachedWorkspaceImage(shown)).toBeUndefined()
     })
 
+    it('reads at most four images at once; the rest wait their turn', async () => {
+        const reads: Array<() => void> = []
+        invoke.mockImplementation(
+            () =>
+                new Promise<string>((resolve) => {
+                    reads.push(() => resolve('data:image/png;base64,AAAA'))
+                })
+        )
+        const paths = Array.from({ length: 6 }, (_, i) => `C:\\notes\\many\\${i}.png`)
+
+        const all = Promise.all(paths.map((path) => readWorkspaceImage(path, ROOT)))
+        await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(4))
+
+        reads[0]()
+        await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(5))
+        reads[1]()
+        await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(6))
+        for (const read of reads.slice(2)) read()
+        await expect(all).resolves.toHaveLength(6)
+    })
+
     it('keeps the images used most recently when they take too much memory', async () => {
         const big = (letter: string) => `data:image/png;base64,${letter.repeat(24_000_000)}`
         invoke.mockImplementation(async (_command: string, { path }: { path: string }) => big(path.at(-5)!))

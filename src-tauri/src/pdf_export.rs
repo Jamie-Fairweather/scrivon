@@ -527,7 +527,7 @@ pub async fn export_html_to_pdf(
     export_html_to_pdf_impl(app, html, output_path, options).await
 }
 
-const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+pub(crate) const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 /// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
 const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 

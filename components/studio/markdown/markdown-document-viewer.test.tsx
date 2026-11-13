@@ -363,7 +363,7 @@ describe('MarkdownDocumentViewer', () => {
             workspace.tabs = [{ ...fileTab(example), path: example }]
             render(viewer(example, '![Chart](chart.png)'))
 
-            expect(screen.getByRole('img', { name: /^Image not shown: chart\.png\. Save the document/ })).toBeInTheDocument()
+            expect(screen.getByRole('img', { name: /^Image not shown: Chart \(chart\.png\)\. Save the document/ })).toBeInTheDocument()
             expect(invoke).not.toHaveBeenCalled()
         })
     })

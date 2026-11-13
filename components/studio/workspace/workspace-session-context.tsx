@@ -389,9 +389,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     useEffect(() => {
         if (!isDesktop || !workspaceRoot) return
         const root = workspaceRoot
+        // Images kept from an earlier visit to this folder may have changed while nothing watched it.
+        forgetWorkspaceImages([root])
         let disposed = false
         let unlisten: (() => void) | undefined
         let unwatch: (() => void) | undefined
+        // Unwatched, any image in the folder may have changed while the window was in the background.
+        let imagesStale = false
         let reloading = false
         let again = false
         let lastReloadEnd = 0
@@ -448,6 +452,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             })()
         }
         const reload = async () => {
+            // With the tree, so a run of focus changes reads the images again at most once every few seconds too.
+            if (imagesStale) {
+                imagesStale = false
+                forgetWorkspaceImages([root])
+            }
             const withTree = treeWanted || changeAltersTree(treeRef.current, root, seen)
             treeWanted = false
             seen = { added: [], removed: [] }
@@ -486,10 +495,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
         const onFocus = () => {
             treeWanted = true
+            if (!unwatch) imagesStale = true
             request()
             requestTabs()
-            // Unwatched, any image in the folder may have changed while the window was in the background.
-            if (!unwatch) forgetWorkspaceImages([root])
         }
         const onDiskChange = (change: WorkspaceChange) => {
             forgetWorkspaceImages([...change.added, ...change.removed, ...change.changed])

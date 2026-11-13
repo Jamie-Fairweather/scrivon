@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -509,13 +509,32 @@ describe('MarkdownPreview', () => {
         it('names the path of an image that can’t be shown, and why', async () => {
             inFolder('![Gone](img/missing%20one.png) and ![Out](../../secret.png)')
 
-            const missing = await screen.findByRole('img', { name: 'Image not shown: img/missing one.png. Image not found.' })
+            const missing = await screen.findByRole('img', { name: 'Image not shown: Gone (img/missing one.png). Image not found.' })
             expect(missing).toHaveTextContent('img/missing one.png')
             expect(missing).toHaveAttribute('title', 'C:\\notes\\guides\\img\\missing one.png\nImage not found.')
-            const outside = screen.getByRole('img', { name: 'Image not shown: ../../secret.png. Only images inside the open folder are shown.' })
+            const outside = screen.getByRole('img', {
+                name: 'Image not shown: Out (../../secret.png). Only images inside the open folder are shown.',
+            })
             expect(outside).toHaveAttribute('title', 'Only images inside the open folder are shown.')
             // Never asked for.
             expect(invoke).toHaveBeenCalledTimes(1)
+        })
+
+        it('says the writer’s alt text in the document’s language, and only Scrivon’s words in English', async () => {
+            render(
+                <MarkdownPreview
+                    source={'---\nlang: ja\n---\n![猫の写真](missing-cat.png) <img src="missing-dog.png">'}
+                    tabId={DOC}
+                    documentPath={DOC}
+                    workspaceRoot={ROOT}
+                    {...callbacks}
+                />
+            )
+
+            const withAlt = await screen.findByRole('img', { name: 'Image not shown: 猫の写真 (missing-cat.png). Image not found.' })
+            expect(withAlt).not.toHaveAttribute('lang')
+            expect(within(withAlt).getByText('Image not found.')).toHaveAttribute('lang', 'en')
+            expect(await screen.findByRole('img', { name: 'Image not shown: missing-dog.png. Image not found.' })).toHaveAttribute('lang', 'en')
         })
 
         it('shows a new picture when the file changes on disk', async () => {
@@ -545,7 +564,7 @@ describe('MarkdownPreview', () => {
         it('asks to save a document that isn’t on disk before it shows its images', () => {
             preview('![Draft](draft.png)')
             expect(
-                screen.getByRole('img', { name: 'Image not shown: draft.png. Save the document in the open folder to show its images.' })
+                screen.getByRole('img', { name: 'Image not shown: Draft (draft.png). Save the document in the open folder to show its images.' })
             ).toBeInTheDocument()
         })
 

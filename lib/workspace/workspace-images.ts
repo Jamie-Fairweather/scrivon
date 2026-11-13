@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { resolveMarkdownLink, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
 import { errorMessage } from '@/lib/notify'
-import { isPathInside, isWindowsPath, normalizePath } from '@/lib/tauri/fs'
+import { comparablePath, createLimit, isPathInside, normalizePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 
 /**
@@ -56,10 +56,11 @@ const versions = new Map<string, number>()
 const listeners = new Set<() => void>()
 
 /** One spelling per file: `\` on Windows, in lower case there, as file names ignore case. */
-function imageKey(path: string): string {
-    const normalized = normalizePath(path)
-    return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized
-}
+const imageKey = comparablePath
+
+/** Images read at once. Each can be 12 MB, so a document full of big pictures doesn't ask for them all together. */
+const MAX_PARALLEL_READS = 4
+const readLimit = createLimit(MAX_PARALLEL_READS)
 
 function dropCached(key: string): void {
     const cached = cache.get(key)
@@ -93,7 +94,7 @@ export function readWorkspaceImage(path: string, workspaceRoot: string): Promise
     if (!isTauri()) return Promise.reject(new Error('Images from the folder only show in the desktop app.'))
 
     const entry: CachedImage = {
-        promise: invoke<string>('read_workspace_image', { root: workspaceRoot, path }).then(
+        promise: readLimit(() => invoke<string>('read_workspace_image', { root: workspaceRoot, path })).then(
             (url) => {
                 if (cache.get(key) === entry) {
                     entry.url = url
