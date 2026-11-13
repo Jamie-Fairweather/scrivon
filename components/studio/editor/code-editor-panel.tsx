@@ -113,6 +113,8 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 type CodeEditorPanelProps = {
     /** When false the panel is hidden but stays mounted, so undo history and scroll survive. */
     open?: boolean
+    /** True while the preview is hidden: the editor takes the whole row and can't be resized. */
+    fill?: boolean
     width: number
     onWidthChange: (width: number) => void
     /** Puts the editor back to its default width (double-click or Enter on the resize handle). */
@@ -155,7 +157,7 @@ function languageForTab(tab: DocumentTab) {
     return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ open = true, fill = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
@@ -646,13 +648,14 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             ref={rootRef}
             data-slot="code-editor"
             className={cn(
-                'flex h-full shrink-0 flex-col border-r border-border bg-code',
+                'flex h-full flex-col bg-code',
+                fill ? 'min-w-0 flex-1' : 'shrink-0 border-r border-border',
                 // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
                 // would lay out and wrap the whole file one character per line on every hide,
                 // show and tab switch.
                 open ? 'relative' : 'invisible absolute inset-y-0 left-0'
             )}
-            style={{ width: shownWidth }}
+            style={fill ? undefined : { width: shownWidth }}
             inert={!open}
         >
             <ReadOnlyReasonBar />
@@ -692,25 +695,27 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
 
             {/* Straddles the border and sits above Monaco's scrollbar (z-index 11), so it can be
                 grabbed from the text side too. */}
-            <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize editor"
-                aria-valuenow={shownWidth}
-                aria-valuemin={minEditorWidth(availableWidth)}
-                aria-valuemax={maxEditorWidth(availableWidth)}
-                aria-valuetext={`${shownWidth} pixels wide`}
-                tabIndex={0}
-                className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30 focus-visible:bg-ring/60
-                    active:bg-ring/50"
-                onKeyDown={onResizeKeyDown}
-                onDoubleClick={onResetWidth}
-                onPointerDown={onResizePointerDown}
-                onPointerMove={onResizePointerMove}
-                onPointerUp={endResize}
-                onPointerCancel={endResize}
-                onLostPointerCapture={endResize}
-            />
+            {!fill && (
+                <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize editor"
+                    aria-valuenow={shownWidth}
+                    aria-valuemin={minEditorWidth(availableWidth)}
+                    aria-valuemax={maxEditorWidth(availableWidth)}
+                    aria-valuetext={`${shownWidth} pixels wide`}
+                    tabIndex={0}
+                    className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30
+                        focus-visible:bg-ring/60 active:bg-ring/50"
+                    onKeyDown={onResizeKeyDown}
+                    onDoubleClick={onResetWidth}
+                    onPointerDown={onResizePointerDown}
+                    onPointerMove={onResizePointerMove}
+                    onPointerUp={endResize}
+                    onPointerCancel={endResize}
+                    onLostPointerCapture={endResize}
+                />
+            )}
         </div>
     )
 }
