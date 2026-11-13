@@ -5,6 +5,7 @@ mod legacy_profile;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
+mod settings_file;
 mod snap_layouts;
 mod store_recovery;
 mod system_fonts;
@@ -71,7 +72,13 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .find(|window| window.label == "main")
         .ok_or(tauri::Error::WindowNotFound)?
         .clone();
-    tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &config)?;
+    // Settings lost with the WebView2 profile come back from settings.json.
+    let data_dir = app.path().app_data_dir().ok();
+    if let Some(script) = settings_file::restore_script(data_dir.as_deref()) {
+        builder = builder.initialization_script(script);
+    }
+    builder.build()?;
     Ok(())
 }
 
@@ -304,6 +311,8 @@ pub fn run() {
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
             pdf_export::adopt_export_images,
+            pdf_export::save_profile_image,
+            settings_file::save_settings_file,
             snap_layouts::set_maximize_button_area,
             store_recovery::take_store_recovery,
             system_fonts::list_system_fonts,

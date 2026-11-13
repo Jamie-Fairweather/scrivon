@@ -371,7 +371,8 @@ describe('SettingsProvider persistence', () => {
             vi.mocked(isTauri).mockReturnValue(false)
         }
 
-        expect(invoke).toHaveBeenCalledTimes(1)
+        // Once, beside the copy of the settings in settings.json.
+        expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['save_settings_file', 'adopt_export_images'])
         expect(invoke).toHaveBeenCalledWith('adopt_export_images', { paths: ['C:/brand/cover.png', 'C:/brand/logo.png'] })
     })
 
