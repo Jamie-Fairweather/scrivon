@@ -11,11 +11,12 @@ import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-ari
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
-import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
+import { attachEditorImages, imageDocumentFor } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { documentKind, samePath } from '@/lib/tauri/fs'
@@ -155,6 +156,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
+    const { workspaceRoot } = useWorkspaceSession()
     // The panel also works on its own (without a palette above it, the right-click entry does nothing).
     const openPalette = useOptionalCommandPalette()?.open
     // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
@@ -222,6 +224,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         activeTabIdRef.current = activeTab?.id ?? null
         activeTabRef.current = activeTab
     }, [activeTab])
+
+    // Read when an image is pasted or dropped, so the editor's handlers never hold an old one.
+    const workspaceRootRef = useRef(workspaceRoot)
+    useEffect(() => {
+        workspaceRootRef.current = workspaceRoot
+    }, [workspaceRoot])
 
     // A hidden editor keeps its buffer, but can't take focus and has no visible selection.
     const openRef = useRef(open)
@@ -577,6 +585,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            // A picture pasted or dropped into a Markdown file is saved next to it, with a link at the cursor.
+            const images = attachEditorImages(editor, () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current))
+            editor.onDidDispose(() => images.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)

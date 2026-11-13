@@ -11,6 +11,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs: [tab], activeTabId: tab.id, activeTab: tab, updateTabContent: () => {} }),
     useDocumentTabActions: () => ({ makeTabEditable: vi.fn() }),
     useWorkspaceCoordinator: () => ({}),
+    useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ isLight: true, tokens: {} }) }))

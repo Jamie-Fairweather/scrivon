@@ -9,6 +9,7 @@ import { StudioMenuBar } from '@/components/studio/shell/studio-menu-bar'
 import { StudioRecoveryScreen } from '@/components/studio/shell/studio-recovery-screen'
 import { NativeWindowTitle } from '@/components/studio/shell/use-native-window-title'
 import { WelcomeScreen } from '@/components/studio/shell/welcome-screen'
+import { WindowFileDrop } from '@/components/studio/shell/window-file-drop'
 import { WorkspaceProvider, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -49,6 +50,7 @@ export function StudioShell() {
                         <DeleteConfirmProvider>
                             <AppUpdateProvider>
                                 <NativeWindowTitle />
+                                <WindowFileDrop />
                                 {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
                                 <TooltipProvider delay={400}>
                                     <StudioRouter />
