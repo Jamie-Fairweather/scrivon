@@ -2,13 +2,14 @@ import { invoke } from '@tauri-apps/api/core'
 import { buildExportDocument, type ExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
 import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
-import { errorMessage, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
+import { errorMessage, notifyInfo, notifyWarning } from '@/lib/notify'
 import { downloadBlob } from '@/lib/download'
 import { saveExportHtml } from '@/lib/markdown/export-html'
-import { SAVED_NOTICE_MS, showInFolderAction } from '@/lib/saved-file-notice'
+import { notifyFileSaved, showInFolderAction } from '@/lib/saved-file-notice'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
+import { getBaseName } from '@/lib/tauri/fs'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
 
@@ -196,12 +197,8 @@ export async function exportMarkdown(source: string, tabName: string | undefined
     }
 }
 
-function fileName(path: string): string {
-    return path.split(/[\\/]/).pop() || path
-}
-
 function describeMissingImages(missing: PdfExportMissingImage[]): string {
-    return missing.map(({ slot, path, reason }) => `${slot} (${fileName(path)}): ${reason}`).join('; ')
+    return missing.map(({ slot, path, reason }) => `${slot} (${getBaseName(path)}): ${reason}`).join('; ')
 }
 
 const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'
@@ -226,13 +223,12 @@ export function notifyExportSaved({ path, missingImages = [], pageNumberWarning,
         else if (toc) notifyInfo('No contents page was added', { description: toc })
         return
     }
-    const action = showInFolderAction(path)
     const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : ''].filter(Boolean)
     if (leftOut.length > 0) {
         const description = joinSentences([pageNumberWarning, images, toc])
-        notifyWarning(`Saved ${fileName(path)} without ${leftOut.join(' or ')}`, { description, action })
+        notifyWarning(`Saved ${getBaseName(path)} without ${leftOut.join(' or ')}`, { description, action: showInFolderAction(path) })
         return
     }
     // The title names the file and Show in folder finds it, so the TOC note can take the path's place.
-    notifySuccess(`Saved ${fileName(path)}`, { description: toc || path, timeout: SAVED_NOTICE_MS, action })
+    notifyFileSaved(path, toc || path)
 }

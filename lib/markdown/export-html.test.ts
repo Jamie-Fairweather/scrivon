@@ -74,6 +74,15 @@ describe('renderExportHtml', () => {
         expect(html).toContain('<meta name="description" content="The &quot;plan&quot;" />')
     })
 
+    it('keeps a $ in the page details as typed', async () => {
+        const source = "---\nauthor: $& Sons\nsubtitle: Save $$ and $' here\n---\n# Plan\n\nBody text"
+        const html = await renderExportHtml(buildExportDocument(source, { tabName: 'plan.md' }))
+        expect(html).toContain('<meta name="author" content="$&amp; Sons" />')
+        expect(html).toContain(`<meta name="description" content="Save $$ and $' here" />`)
+        expect(html.match(/Body text/g)).toHaveLength(1)
+        expect(html.match(/<\/head>/g)).toHaveLength(1)
+    })
+
     it('leaves the page details out when there is no author or subtitle', async () => {
         const html = await renderExportHtml(buildExportDocument('# Plan', { tabName: 'plan.md' }))
         expect(html).not.toContain('name="author"')

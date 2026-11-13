@@ -52,7 +52,8 @@ export async function renderExportHtml(document: ExportDocument, { allowRemoteIm
     const head = `  <meta name="viewport" content="width=device-width, initial-scale=1" />
 ${metaTag('author', metadata.author)}${metaTag('description', metadata.subtitle)}  <style>${SCREEN_CSS}</style>
 </head>`
-    return html.replace('</head>', head)
+    // A function, so a `$` in the author or subtitle is kept as typed (a string would read `$&` and `$'` as patterns).
+    return html.replace('</head>', () => head)
 }
 
 /**

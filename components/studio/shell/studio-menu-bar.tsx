@@ -104,18 +104,24 @@ function CommandMenuItem({ command, variant, label }: { command: ShownCommand | 
     )
 }
 
+/** True when none of these commands can run (or none is registered). */
+function allOff(commands: (ShownCommand | undefined)[]): boolean {
+    return commands.every((command) => !command || command.disabled)
+}
+
 /**
  * File → Export: each kind of export, greyed out when the active tab can't do it. The export
  * provider registers these commands only while a folder is open, so it's left out until then.
  */
 function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
     const png = PNG_SCALES.map((scale) => byId.get(`export-png-${scale}`))
+    const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg'].map((id) => byId.get(id))
     if (!byId.has('export')) return null
     return (
         <>
             <MenuSeparator />
             <MenuSub>
-                <MenuSubTrigger>Export</MenuSubTrigger>
+                <MenuSubTrigger disabled={allOff([...others, ...png])}>Export</MenuSubTrigger>
                 <MenuSubPopup className="min-w-48">
                     <MenuGroup>
                         <CommandMenuItem command={byId.get('export-pdf')} label="PDF…" />
@@ -126,7 +132,7 @@ function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
                     <MenuGroup>
                         <CommandMenuItem command={byId.get('export-svg')} label="Diagram as SVG…" />
                         <MenuSub>
-                            <MenuSubTrigger disabled={png.every((command) => !command || command.disabled)}>Diagram as PNG</MenuSubTrigger>
+                            <MenuSubTrigger disabled={allOff(png)}>Diagram as PNG</MenuSubTrigger>
                             <MenuSubPopup className="min-w-36">
                                 <MenuGroup>
                                     {png.map((command, index) => (

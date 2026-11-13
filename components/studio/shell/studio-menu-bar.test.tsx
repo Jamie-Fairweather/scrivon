@@ -415,6 +415,17 @@ describe('StudioMenuBar File → Export', () => {
         expect(exportActions.exportDiagram).toHaveBeenCalledWith(4)
     })
 
+    it('is greyed out when the tab can export nothing', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, tabKind: null, hasMarkdown: false }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: 'Export' })).toHaveAttribute('aria-disabled', 'true')
+    })
+
     it('is left out with no folder open, as nothing can be exported', async () => {
         mockContexts()
         render(<Studio />)

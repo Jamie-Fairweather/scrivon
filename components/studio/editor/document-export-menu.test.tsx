@@ -113,7 +113,7 @@ describe('DocumentExportMenu', () => {
 
         act(() => button.focus())
         // With the shortcut that opens the export dialog.
-        expect(await screen.findByText('Export document (Ctrl+Shift+E)', inTooltip)).toBeInTheDocument()
+        expect(await screen.findByText('Export document (Ctrl+Shift+X)', inTooltip)).toBeInTheDocument()
 
         fireEvent.click(button)
         // Both document exports are marked as beta.
@@ -265,7 +265,7 @@ describe('export commands', () => {
     it('opens the dialog with Export… at the format picked last', async () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         render(<WithCommands />)
-        await waitFor(() => expect(command('export')).toMatchObject({ disabled: false, shortcut: 'Ctrl+Shift+E' }))
+        await waitFor(() => expect(command('export')).toMatchObject({ disabled: false, shortcut: 'Ctrl+Shift+X' }))
 
         act(() => void command('export-docx').run())
         act(() => lastDialog()?.onOpenChange(false))
