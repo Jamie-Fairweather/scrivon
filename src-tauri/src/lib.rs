@@ -11,6 +11,7 @@ mod snap_layouts;
 mod store_recovery;
 mod system_fonts;
 mod system_menu;
+mod update_downloads;
 mod updater;
 mod window_state;
 mod workspace_access;
@@ -285,6 +286,7 @@ pub fn run() {
             app.manage(WindowStateFile::new(data_dir.as_deref()));
             open_main_window(app.handle())?;
             crash_report::mark_started();
+            update_downloads::remove_old_later(&app.package_info().name);
             Ok(())
         })
         .on_window_event(|window, event| {

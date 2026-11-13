@@ -3861,7 +3861,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     },
     {
         "name": "windows-sys",
-        "version": "0.60.2, 0.61.2",
+        "version": "0.52.0, 0.60.2, 0.61.2",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
@@ -3869,7 +3869,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     },
     {
         "name": "windows-targets",
-        "version": "0.53.5",
+        "version": "0.52.6, 0.53.5",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
@@ -3886,6 +3886,14 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
     {
         "name": "windows-version",
         "version": "0.1.7",
+        "license": "MIT OR Apache-2.0",
+        "repository": "https://github.com/microsoft/windows-rs",
+        "ecosystem": "rust",
+        "licenseText": T[280] + SEP + T[281]
+    },
+    {
+        "name": "windows_aarch64_msvc",
+        "version": "0.52.6, 0.53.1",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
