@@ -1,10 +1,10 @@
 'use client'
 
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useCallback, useMemo } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { closeAppWindow } from '@/components/studio/shell/close-app-window'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 
@@ -48,11 +48,7 @@ export function useExitCommand(): void {
     const { flushPendingSettings } = useAppSettings()
 
     // As the title bar's close button: the window asks about unsaved changes before it goes.
-    const exitApp = useCallback(() => {
-        // The window may go without a pagehide, so write a settings change that is still waiting first.
-        flushPendingSettings()
-        void getCurrentWindow().close()
-    }, [flushPendingSettings])
+    const exitApp = useCallback(() => closeAppWindow(flushPendingSettings), [flushPendingSettings])
 
     const commands = useMemo(() => [buildExitCommand({ isDesktop, isMac: isMacPlatform(), exitApp })], [isDesktop, exitApp])
     useRegisterCommands(commands)

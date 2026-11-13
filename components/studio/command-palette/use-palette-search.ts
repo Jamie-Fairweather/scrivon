@@ -10,7 +10,7 @@ import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
 import { foldText } from '@/components/studio/command-palette/fold-text'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
-import { matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
+import { isThemePick, matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import {
     createContentCache,
     DEBOUNCE_MS,
@@ -66,7 +66,7 @@ function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, has
                 !action.disabled &&
                 !action.value.startsWith('action:example:') &&
                 (hasWorkspace || !action.value.startsWith('action:recent-workspace:')) &&
-                (query ? matchesCommandName(action, query) : !action.value.startsWith('action:theme:'))
+                (query ? matchesCommandName(action, query) : !isThemePick(action))
         )
         .slice(0, MAX_MIXED_COMMANDS)
     if (items.length === 0) return null

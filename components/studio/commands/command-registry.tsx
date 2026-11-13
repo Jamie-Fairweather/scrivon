@@ -54,8 +54,3 @@ export function useCommands(): readonly ShownCommand[] {
     const keybinds = settings.keybinds
     return useMemo(() => commands.map((command) => ({ ...command, shortcut: commandShortcut(command, keybinds) })), [commands, keybinds])
 }
-
-/** The command with this id, or undefined while no feature has registered it. */
-export function useCommand(id: string): ShownCommand | undefined {
-    return useCommands().find((command) => command.id === id)
-}

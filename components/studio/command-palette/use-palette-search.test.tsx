@@ -420,6 +420,13 @@ describe('usePaletteSearch commands in the default results', () => {
         expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
     })
 
+    it.each(['theme', 'dark theme', 'th'])('puts the light/dark switch above the theme list for %s', (query) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')[0]).toBe('action:toggle-theme')
+    })
+
     it.each([
         ['dracula', 'action:theme:dracula'],
         ['about', 'action:about'],
@@ -466,6 +473,51 @@ describe('usePaletteSearch commands in the default results', () => {
     })
 })
 
+describe('usePaletteSearch on/off commands', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.session.recentWorkspaces = []
+        state.tabs.tabs = []
+        state.tabs.activeTabId = null
+        // The explorer shows, the editor is hidden, autosave is on.
+        state.layout.layout = { explorerOpen: true, editorOpen: false }
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    afterEach(() => {
+        state.layout.layout = { explorerOpen: true, editorOpen: true }
+    })
+
+    it.each([
+        ['hide explorer', 'action:toggle-explorer'],
+        ['toggle explorer', 'action:toggle-explorer'],
+        ['show editor', 'action:toggle-editor'],
+        ['disable autosave', 'action:toggle-autosave'],
+        ['turn off autosave', 'action:toggle-autosave'],
+    ])('finds %s by what picking it does now, with or without >', (query, value) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')).toContain(value)
+        act(() => result.current.setQuery(`>${query}`))
+        expect(groupPaths(result.current.groups, 'actions')[0]).toBe(value)
+    })
+
+    it.each([
+        ['show explorer', 'action:toggle-explorer'],
+        ['hide editor', 'action:toggle-editor'],
+        ['enable autosave', 'action:toggle-autosave'],
+    ])('does not offer %s when picking it would do the opposite', (query, value) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')).not.toContain(value)
+    })
+})
+
 describe('usePaletteSearch commands next to text hits', () => {
     beforeEach(() => {
         vi.clearAllMocks()
@@ -496,7 +548,7 @@ describe('usePaletteSearch commands next to text hits', () => {
         act(() => result.current.setQuery('theme'))
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(result.current.groups.map((group) => group.id)).toEqual(['files', 'text', 'actions'])
-        expect(groupPaths(result.current.groups, 'actions').every((value) => value.startsWith('action:theme:'))).toBe(true)
+        expect(groupPaths(result.current.groups, 'actions')[0]).toBe('action:toggle-theme')
     })
 })
 

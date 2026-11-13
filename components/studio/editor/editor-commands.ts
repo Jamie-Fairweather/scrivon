@@ -18,6 +18,7 @@ export type EditorCommandsContext = {
 }
 
 type EditorCommandSpec = {
+    /** Starts with 'edit.', so it can't clash with another feature's command. */
     id: string
     label: string
     keywords: string
@@ -34,33 +35,36 @@ const cmd = (key: string, extra: Omit<KeybindChord, 'key'> = {}): KeybindChord =
 
 /** The Edit menu, in order. The keys are the editor's own, which app shortcuts may not take (lib/settings/conflicts.ts). */
 const EDITOR_COMMANDS: EditorCommandSpec[] = [
-    { id: 'undo', label: 'Undo', keywords: 'undo edit', action: 'undo', keys: [ctrl('z'), cmd('z')], edits: true },
-    { id: 'redo', label: 'Redo', keywords: 'redo edit', action: 'redo', keys: [ctrl('y'), cmd('z', { shift: true })], edits: true },
-    { id: 'cut', label: 'Cut', keywords: 'cut clipboard', action: 'editor.action.clipboardCutAction', keys: [ctrl('x'), cmd('x')], edits: true },
-    { id: 'copy', label: 'Copy', keywords: 'copy clipboard', action: 'editor.action.clipboardCopyAction', keys: [ctrl('c'), cmd('c')] },
+    { id: 'edit.undo', label: 'Undo', keywords: 'undo edit', action: 'undo', keys: [ctrl('z'), cmd('z')], edits: true },
+    { id: 'edit.redo', label: 'Redo', keywords: 'redo edit', action: 'redo', keys: [ctrl('y'), cmd('z', { shift: true })], edits: true },
+    { id: 'edit.cut', label: 'Cut', keywords: 'cut clipboard', action: 'editor.action.clipboardCutAction', keys: [ctrl('x'), cmd('x')], edits: true },
+    { id: 'edit.copy', label: 'Copy', keywords: 'copy clipboard', action: 'editor.action.clipboardCopyAction', keys: [ctrl('c'), cmd('c')] },
     {
-        id: 'paste',
+        id: 'edit.paste',
         label: 'Paste',
         keywords: 'paste clipboard',
         action: 'editor.action.clipboardPasteAction',
         keys: [ctrl('v'), cmd('v')],
         edits: true,
     },
-    { id: 'select-all', label: 'Select All', keywords: 'select all text', action: 'editor.action.selectAll', keys: [ctrl('a'), cmd('a')] },
-    { id: 'find', label: 'Find', keywords: 'find search in file', action: 'actions.find', keys: [ctrl('f'), cmd('f')] },
+    { id: 'edit.select-all', label: 'Select All', keywords: 'select all text', action: 'editor.action.selectAll', keys: [ctrl('a'), cmd('a')] },
+    { id: 'edit.find', label: 'Find', keywords: 'find search in file', action: 'actions.find', keys: [ctrl('f'), cmd('f')] },
     {
-        id: 'replace',
+        id: 'edit.replace',
         label: 'Replace',
         keywords: 'replace find search in file',
         action: 'editor.action.startFindReplaceAction',
         keys: [ctrl('h'), cmd('f', { alt: true })],
         edits: true,
     },
-    { id: 'go-to-line', label: 'Go to Line…', keywords: 'go to line number jump', action: 'editor.action.gotoLine', keys: [ctrl('g'), ctrl('g')] },
+    {
+        id: 'edit.go-to-line',
+        label: 'Go to Line…',
+        keywords: 'go to line number jump',
+        action: 'editor.action.gotoLine',
+        keys: [ctrl('g'), ctrl('g')],
+    },
 ]
-
-/** The ids of the editor's commands, in Edit menu order. */
-export const EDITOR_COMMAND_IDS = EDITOR_COMMANDS.map((spec) => spec.id)
 
 /** Undo, the clipboard, Find and the rest of the editor's own actions, for the Edit menu and the palette. */
 export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {

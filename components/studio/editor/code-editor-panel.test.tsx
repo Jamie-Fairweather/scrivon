@@ -1289,7 +1289,7 @@ describe('CodeEditorPanel Edit commands', () => {
             </CommandRegistryProvider>
         )
     }
-    const command = (id: string) => shown.find((c) => c.id === id)
+    const command = (id: string) => shown.find((c) => c.id === `edit.${id}`)
 
     beforeEach(() => {
         shown = []

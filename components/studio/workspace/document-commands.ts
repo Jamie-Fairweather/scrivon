@@ -54,7 +54,7 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
         {
             id: 'toggle-autosave',
             label: 'Autosave',
-            keywords: 'autosave toggle save automatically',
+            keywords: 'save automatically',
             checked: ctx.autosaveEnabled,
             run: () => ctx.setAutosaveEnabled(!ctx.autosaveEnabled),
         },

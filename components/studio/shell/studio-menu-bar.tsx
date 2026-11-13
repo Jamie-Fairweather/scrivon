@@ -196,22 +196,22 @@ export function StudioMenuBar() {
                     {hasWorkspace && (
                         <MenuBarEntry label="Edit" focusAfterCommand={focusAfterCommand}>
                             <MenuGroup>
-                                {item('undo')}
-                                {item('redo')}
+                                {item('edit.undo')}
+                                {item('edit.redo')}
                             </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
-                                {item('cut')}
-                                {item('copy')}
-                                {item('paste')}
+                                {item('edit.cut')}
+                                {item('edit.copy')}
+                                {item('edit.paste')}
                             </MenuGroup>
                             <MenuSeparator />
-                            {item('select-all')}
+                            {item('edit.select-all')}
                             <MenuSeparator />
                             <MenuGroup>
-                                {item('find')}
-                                {item('replace')}
-                                {item('go-to-line')}
+                                {item('edit.find')}
+                                {item('edit.replace')}
+                                {item('edit.go-to-line')}
                             </MenuGroup>
                         </MenuBarEntry>
                     )}

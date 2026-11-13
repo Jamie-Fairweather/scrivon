@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { commandShortcut } from '@/components/studio/commands/app-command'
-import { buildEditorCommands, EDITOR_COMMAND_IDS, type EditorCommandsContext } from '@/components/studio/editor/editor-commands'
+import { buildEditorCommands, type EditorCommandsContext } from '@/components/studio/editor/editor-commands'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
 function context(overrides: Partial<EditorCommandsContext> = {}): EditorCommandsContext {
@@ -24,19 +24,20 @@ describe('buildEditorCommands', () => {
             ['Replace', 'Ctrl+H'],
             ['Go to Line…', 'Ctrl+G'],
         ])
-        expect(buildEditorCommands(ctx).map((c) => c.id)).toEqual(EDITOR_COMMAND_IDS)
+        // Prefixed, so another feature's 'copy' or 'go-to-line' can't push these out of the shared list.
+        expect(buildEditorCommands(ctx).every((c) => c.id.startsWith('edit.'))).toBe(true)
     })
 
     it('uses the Mac keys on a Mac', () => {
         const mac = context({ isMac: true })
-        expect(shortcut(mac, 'undo')).toBe('⌘Z')
-        expect(shortcut(mac, 'redo')).toBe('⇧⌘Z')
-        expect(shortcut(mac, 'replace')).toBe('⌥⌘F')
+        expect(shortcut(mac, 'edit.undo')).toBe('⌘Z')
+        expect(shortcut(mac, 'edit.redo')).toBe('⇧⌘Z')
+        expect(shortcut(mac, 'edit.replace')).toBe('⌥⌘F')
     })
 
     it("runs Monaco's own action for each", () => {
         const ctx = context()
-        for (const id of EDITOR_COMMAND_IDS) void find(ctx, id)!.run()
+        for (const command of buildEditorCommands(ctx)) void command.run()
         expect(vi.mocked(ctx.runAction).mock.calls.map(([action]) => action)).toEqual([
             'undo',
             'redo',
@@ -62,7 +63,7 @@ describe('buildEditorCommands', () => {
 
     it('turns off only the commands that change the text in a read-only file', () => {
         const commands = buildEditorCommands(context({ readOnly: true }))
-        expect(commands.filter((c) => c.disabled).map((c) => c.id)).toEqual(['undo', 'redo', 'cut', 'paste', 'replace'])
-        expect(find(context({ readOnly: true }), 'paste')?.disabledReason).toBe('This file is read-only')
+        expect(commands.filter((c) => c.disabled).map((c) => c.id)).toEqual(['edit.undo', 'edit.redo', 'edit.cut', 'edit.paste', 'edit.replace'])
+        expect(find(context({ readOnly: true }), 'edit.paste')?.disabledReason).toBe('This file is read-only')
     })
 })

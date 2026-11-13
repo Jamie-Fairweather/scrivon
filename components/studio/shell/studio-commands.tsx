@@ -10,8 +10,10 @@ import { useWorkspaceCommands } from '@/components/studio/workspace/workspace-co
  * Registers the commands of the features that have no component of their own to do it from. Other
  * features (the editor, Help) register theirs where they live, with useRegisterCommands.
  *
- * The order here is the palette's order: the commands people want most come first, the long list of
- * themes near the end, and Exit last, so it never shows among the palette's first suggestions.
+ * The order here is the palette's order: the commands people want most come first, then the long list
+ * of themes, then Exit, so it never shows among the palette's first suggestions. Commands registered
+ * further down the tree follow these: Help's, then the editor's (Undo to Go to Line). Those are
+ * found by typing their name, and the Edit menu lists them.
  */
 export function StudioCommands() {
     useSettingsCommand()

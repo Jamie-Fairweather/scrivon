@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { useMemo } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCommand } from '@/components/studio/commands/app-command'
-import { CommandRegistryProvider, useCommand, useCommands, useRegisterCommands } from '@/components/studio/commands/command-registry'
+import { CommandRegistryProvider, useCommands, useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
@@ -37,11 +37,6 @@ function CommandList() {
             ))}
         </ul>
     )
-}
-
-function OneCommand({ id }: { id: string }) {
-    const command = useCommand(id)
-    return <p>{command ? `found ${command.label}` : 'missing'}</p>
 }
 
 const listed = () => Array.from(screen.getByRole('list', { name: 'commands' }).querySelectorAll('li'), (li) => li.textContent)
@@ -95,19 +90,6 @@ describe('useRegisterCommands and useCommands', () => {
         )
 
         expect(listed()).toEqual([])
-    })
-
-    it('finds one command by id', () => {
-        render(
-            <CommandRegistryProvider>
-                <SaveFeature disabled={false} />
-                <OneCommand id="save" />
-                <OneCommand id="exit" />
-            </CommandRegistryProvider>
-        )
-
-        expect(screen.getByText('found Save')).toBeInTheDocument()
-        expect(screen.getByText('missing')).toBeInTheDocument()
     })
 
     it('does nothing without a registry above, so a feature also works on its own', () => {

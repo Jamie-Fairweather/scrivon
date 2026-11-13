@@ -39,7 +39,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
         {
             id: 'toggle-explorer',
             label: 'Explorer',
-            keywords: 'explorer sidebar files toggle show hide',
+            keywords: 'sidebar files',
             keybind: 'view.toggleExplorer',
             checked: ctx.explorerOpen,
             disabled: off,
@@ -49,7 +49,6 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
         {
             id: 'toggle-editor',
             label: 'Editor',
-            keywords: 'editor toggle show hide',
             keybind: 'view.toggleEditor',
             checked: ctx.editorOpen,
             disabled: off,
