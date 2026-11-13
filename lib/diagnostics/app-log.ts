@@ -18,9 +18,10 @@ const MAX_STACK_FRAMES = 10
 /**
  * One short line. Only the first line is kept and quoted text is left out: parse errors quote or show
  * the document text they couldn't read (beautiful-mermaid: Invalid mermaid header: "<first line>").
+ * Everything from the first quote to the last goes, as the quoted text can hold quotes too (A["label"]).
  */
 function safeLine(text: string): string {
-    const line = (text.trim().split(/\r?\n/, 1)[0] ?? '').replace(/"[^"]*"|“[^”]*”|`[^`]*`/g, '"…"')
+    const line = (text.trim().split(/\r?\n/, 1)[0] ?? '').replace(/".*"|“.*”|`.*`/g, '"…"')
     return line.length > MAX_LINE_LENGTH ? `${line.slice(0, MAX_LINE_LENGTH - 1)}…` : line
 }
 

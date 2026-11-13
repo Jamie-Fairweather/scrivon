@@ -94,6 +94,10 @@ describe('describeError', () => {
         expect(describeError(header)).not.toContain('secret')
         expect(describeError(header)).toMatch(/^Error: Invalid mermaid header: "…"/)
 
+        // The quoted line can hold quotes of its own, as Mermaid labels do: A["label"].
+        const label = new Error('Invalid mermaid header: "A["Project Phoenix budget"] --> B". Expected "graph TD", "flowchart LR", etc.')
+        expect(describeError(label).split('\n')[0]).toBe('Error: Invalid mermaid header: "…", etc.')
+
         // Mermaid-style messages show the lines they couldn't read below the first.
         const parse = new Error('Parse error on line 2:\ngraph TD\n  secret --> plan\n---^')
         parse.stack = `Error: ${parse.message}\n    at parse (app.js:1:1)`

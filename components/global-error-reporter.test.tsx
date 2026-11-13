@@ -80,6 +80,21 @@ describe('GlobalErrorReporter', () => {
         expect(notifyError).toHaveBeenCalledTimes(3)
     })
 
+    it('reports two errors that take turns once each', () => {
+        render(<GlobalErrorReporter />)
+
+        for (let i = 0; i < 20; i++) {
+            throwUncaught(new Error('boom on mouse move'))
+            throwUncaught(new Error('boom on scroll'))
+            vi.advanceTimersByTime(100)
+        }
+        expect(notifyError).toHaveBeenCalledTimes(2)
+
+        vi.advanceTimersByTime(10_000)
+        throwUncaught(new Error('boom on scroll'))
+        expect(notifyError).toHaveBeenCalledTimes(3)
+    })
+
     it('stops listening once removed', () => {
         const { unmount } = render(<GlobalErrorReporter />)
         unmount()

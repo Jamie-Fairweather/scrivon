@@ -3914,7 +3914,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[280] + SEP + T[281]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows_x86_64_msvc",

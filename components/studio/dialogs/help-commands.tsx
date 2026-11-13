@@ -91,7 +91,12 @@ export function HelpCommands() {
 
     return (
         <>
-            <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} onOpenLicenses={() => setLicensesOpen(true)} />
+            <AboutDialog
+                open={aboutOpen}
+                onOpenChange={setAboutOpen}
+                onOpenLicenses={() => setLicensesOpen(true)}
+                onCopyDiagnosticInfo={() => void copyDiagnosticInfo(settings)}
+            />
             <OpenSourceLicensesDialog open={licensesOpen} onOpenChange={setLicensesOpen} />
         </>
     )

@@ -404,8 +404,6 @@ where
 /// A plain message for a failed update download or install.
 fn install_error_message(err: &tauri_plugin_updater::Error) -> String {
     use tauri_plugin_updater::Error;
-    // The message below is for the user; the log keeps the technical reason.
-    log::error!("The update failed: {err}");
     match err {
         Error::Reqwest(_) => {
             "The update couldn't be downloaded. Check your internet connection and try again."
@@ -588,14 +586,23 @@ pub async fn install_app_update(
                 },
             )
             .await
-            .map_err(|e| install_error_message(&e))?;
+            .map_err(|e| {
+                // The message is for the user; the log keeps the technical reason.
+                log::error!("The update download failed: {e}");
+                install_error_message(&e)
+            })?;
         // Again, in case another window was opened during the download.
         ensure_no_other_instances().await?;
         install_with_record(
             data_dir.as_deref(),
             &update.current_version,
             &update.version,
-            || update.install(bytes).map_err(|e| install_error_message(&e)),
+            || {
+                update.install(bytes).map_err(|e| {
+                    log::error!("The update install failed: {e}");
+                    install_error_message(&e)
+                })
+            },
         )
     })
     .await

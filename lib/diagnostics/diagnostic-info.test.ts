@@ -100,4 +100,11 @@ describe('newIssueUrl', () => {
         expect(body).toContain('What happened?')
         expect(body).toContain('```\nScrivon 1.5.0\nWebView2 131\n```')
     })
+
+    it('asks for the log, with a warning that it can name files and folders', () => {
+        const body = new URL(newIssueUrl('Scrivon 1.5.0')).searchParams.get('body')!
+
+        expect(body).toContain('attach scrivon.log (Help > Open Logs Folder)')
+        expect(body).toContain('It can show file and folder names, so check it first.')
+    })
 })

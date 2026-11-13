@@ -23,14 +23,16 @@ function keyOf(error: unknown): string {
  */
 export function GlobalErrorReporter() {
     useEffect(() => {
-        let last = { key: '', at: -Infinity }
+        /** When each recent error was last seen, so two errors taking turns are each reported once too. */
+        const lastSeen = new Map<string, number>()
 
         const report = (error: unknown, message: string) => {
             if (isHarmless(error, message)) return
             const key = keyOf(error)
             const now = Date.now()
-            const repeat = key === last.key && now - last.at < REPEAT_QUIET_MS
-            last = { key, at: now }
+            for (const [seenKey, at] of lastSeen) if (now - at >= REPEAT_QUIET_MS) lastSeen.delete(seenKey)
+            const repeat = lastSeen.has(key)
+            lastSeen.set(key, now)
             if (repeat) return
             notifyError('Something went wrong', error, { id: TOAST_ID })
         }

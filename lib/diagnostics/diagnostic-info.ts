@@ -57,8 +57,24 @@ export function formatDiagnosticInfo({ system, settings }: { system: SystemInfo;
     return [`${APP_NAME} ${system.appVersion}`, ...where, '', 'Settings', ...settingsSummary(settings).map((line) => `- ${line}`)].join('\n')
 }
 
+/** Issues are public, and the log can name the user's files and folders (paths in error messages). */
+const LOG_HINT = 'If you can, attach scrivon.log (Help > Open Logs Folder). It can show file and folder names, so check it first.'
+
 /** A new GitHub issue, with the diagnostic info already in it. */
 export function newIssueUrl(diagnosticInfo: string): string {
-    const body = ['**What happened?**', '', '', '**Steps to reproduce**', '', '', '**Diagnostic info**', '```', diagnosticInfo, '```'].join('\n')
+    const body = [
+        '**What happened?**',
+        '',
+        '',
+        '**Steps to reproduce**',
+        '',
+        '',
+        '**Diagnostic info**',
+        '```',
+        diagnosticInfo,
+        '```',
+        '',
+        LOG_HINT,
+    ].join('\n')
     return `${APP_REPO_URL}/issues/new?body=${encodeURIComponent(body)}`
 }

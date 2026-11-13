@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEffect } from 'react'
@@ -125,6 +125,17 @@ describe('Copy Diagnostic Info', () => {
         await run('copy-diagnostic-info')
 
         expect(writeText.mock.calls[0]![0]).toContain(`Scrivon ${APP_VERSION}`)
+    })
+
+    it('copies the same info from the About dialog', async () => {
+        onDesktop()
+        renderHelp()
+        act(() => void shown.find((c) => c.id === 'about')!.run())
+
+        fireEvent.click(screen.getByRole('button', { name: 'Copy diagnostic info' }))
+
+        await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith('Diagnostic info copied', expect.anything()))
+        expect(writeText.mock.calls[0]![0]).toContain('WebView2 131.0.2903.70')
     })
 
     it('says so when the clipboard refuses', async () => {
