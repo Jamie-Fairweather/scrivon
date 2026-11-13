@@ -86,7 +86,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         useWorkspaceSession()
     const { tabs, activeTabId, openFile, openExample, setActiveTab, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     const { canFitToView } = useCanvasControls()
     const { themeId, isLight, setThemeId } = useAppTheme()
@@ -175,6 +175,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 autosaveEnabled,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                outlineOpen: layout.outlineOpen,
                 canFitDiagram: canFitToView,
                 keybinds: settings.keybinds,
                 pickAndOpenWorkspace,
@@ -186,6 +187,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 setAutosaveEnabled,
                 setExplorerOpen,
                 setEditorOpen,
+                setOutlineOpen,
                 setPreviewOnly,
                 requestCanvasFit,
                 closeTab,
@@ -206,6 +208,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             autosaveEnabled,
             layout.explorerOpen,
             layout.editorOpen,
+            layout.outlineOpen,
             canFitToView,
             settings.keybinds,
             pickAndOpenWorkspace,
@@ -217,6 +220,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             setAutosaveEnabled,
             setExplorerOpen,
             setEditorOpen,
+            setOutlineOpen,
             setPreviewOnly,
             requestCanvasFit,
             closeTab,

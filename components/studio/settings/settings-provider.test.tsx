@@ -468,10 +468,13 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
     })
 
-    it('starts with the explorer and editor shown while Restore panel layout is off', () => {
+    it('starts with the explorer and editor shown, and the outline hidden, while Restore panel layout is off', () => {
         const first = renderSettings()
         act(() => {
-            first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, restorePanelsOnOpen: false } }))
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, outlineOpen: true },
+            }))
             first.result.current.setLayoutExplorerOpen(false)
             first.result.current.setLayoutEditorOpen(false)
             first.result.current.setEditorWidth(600)
@@ -479,7 +482,13 @@ describe('SettingsProvider persistence', () => {
         first.unmount()
 
         const { result } = renderSettings()
-        expect(result.current.settings.layout).toEqual({ explorerOpen: true, editorOpen: true, editorWidth: 600, restorePanelsOnOpen: false })
+        expect(result.current.settings.layout).toEqual({
+            explorerOpen: true,
+            editorOpen: true,
+            editorWidth: 600,
+            restorePanelsOnOpen: false,
+            outlineOpen: false,
+        })
         // Hiding a panel still works, and is still saved.
         act(() => result.current.setLayoutEditorOpen(false))
         waitForSave()

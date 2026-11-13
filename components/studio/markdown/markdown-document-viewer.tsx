@@ -9,6 +9,7 @@ import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFile
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
+import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
@@ -349,6 +350,23 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     })
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
+
+    // The Outline panel moves the preview to a heading. Focus stays where it is (the panel moves it to the editor).
+    useEffect(
+        () =>
+            registerPreviewHeadingReveal((id) => {
+                const target = findAnchorTarget(scrollAreaRef.current, id)
+                if (!target) return
+                target.scrollIntoView({ block: 'start' })
+                if (!expandedKey || !tabId) return
+                // An expanded diagram covers the preview, so it closes. Closing it puts back the place the preview
+                // had, so that becomes the heading's place.
+                const viewport = scrollViewport(scrollAreaRef.current)
+                if (viewport) scrollTopByTab.set(tabId, viewport.scrollTop)
+                setExpanded(null)
+            }),
+        [expandedKey, tabId, scrollTopByTab, setExpanded]
+    )
 
     useEffect(() => {
         if (!expandedKey) return

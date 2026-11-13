@@ -41,6 +41,8 @@ export type AppSettings = {
         editorOpen: boolean
         editorWidth: number
         restorePanelsOnOpen: boolean
+        /** The Outline panel, which lists the headings of the Markdown file on screen. */
+        outlineOpen: boolean
     }
     editor: {
         fontSize: number

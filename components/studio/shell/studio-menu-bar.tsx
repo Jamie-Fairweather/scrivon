@@ -88,7 +88,7 @@ function CheckboxLabelWithHint({ label, shortcut }: { label: string; shortcut: s
 export function StudioMenuBar() {
     const { isDesktop, workspaceRoot, openingWorkspace, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace } =
         useWorkspaceSession()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { autosaveEnabled, setAutosaveEnabled } = useDocumentSave()
     const { settings, openSettings } = useAppSettings()
     const { requestCanvasFit } = useCanvasFit()
@@ -206,6 +206,9 @@ export function StudioMenuBar() {
                                 </MenuCheckboxItem>
                                 <MenuCheckboxItem checked={layout.editorOpen} onCheckedChange={(checked) => setEditorOpen(checked === true)}>
                                     <CheckboxLabelWithHint label="Editor" shortcut={shortcut('view.toggleEditor')} />
+                                </MenuCheckboxItem>
+                                <MenuCheckboxItem checked={layout.outlineOpen} onCheckedChange={(checked) => setOutlineOpen(checked === true)}>
+                                    Outline
                                 </MenuCheckboxItem>
                             </MenuGroup>
                             <MenuSeparator />

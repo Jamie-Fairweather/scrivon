@@ -566,7 +566,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 showHintAgain()
             })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
-            // For the status bar; it stops by itself when the editor is thrown away.
+            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away.
             trackEditorCursor(editor)
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
