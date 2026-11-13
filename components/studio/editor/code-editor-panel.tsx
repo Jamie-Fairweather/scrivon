@@ -424,11 +424,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
-    // Read through a ref, so the link to the preview always sees the current setting.
-    const scrollSyncRef = useRef(settings.editor.scrollSync)
+    // Read through a ref, so the link to the preview always sees the current settings.
+    const previewLinkRef = useRef({ scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview })
     useEffect(() => {
-        scrollSyncRef.current = settings.editor.scrollSync
-    }, [settings.editor.scrollSync])
+        previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
+    }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
 
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
@@ -590,7 +590,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // Scrolls the Markdown preview with the editor, and the other way round.
             const scrollSync = bindEditorScrollSync(editor, {
                 tabId: () => activeTabIdRef.current,
-                enabled: () => scrollSyncRef.current,
+                scrollEnabled: () => previewLinkRef.current.scroll,
+                jumpEnabled: () => previewLinkRef.current.jump,
                 canFocus: () => openRef.current,
             })
             editor.onDidDispose(() => scrollSync.dispose())

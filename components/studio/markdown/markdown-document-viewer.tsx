@@ -10,7 +10,7 @@ import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
-import { usePreviewScrollSync } from '@/components/studio/markdown/use-preview-scroll-sync'
+import { scrollViewport, usePreviewScrollSync } from '@/components/studio/markdown/use-preview-scroll-sync'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { Button } from '@/components/ui/button'
@@ -36,10 +36,6 @@ type MarkdownDocumentViewerProps = {
  */
 const LARGE_PREVIEW_CHARS = 10_000
 const LARGE_PREVIEW_DELAY_MS = 200
-
-function scrollViewport(root: HTMLElement | null): HTMLElement | null {
-    return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
-}
 
 /** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
 const DOCUMENT_ID_PREFIX = 'user-content-'
@@ -183,7 +179,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const overlayRef = useRef<HTMLDivElement>(null)
     /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
     const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
-    // Scrolls with the editor, and double-click jumps to the line in it (when the setting is on).
+    // Scrolls with the editor, and double-click jumps to the line in it (each when its setting is on).
     usePreviewScrollSync(scrollAreaRef, tabId, previewSource)
 
     useEffect(() => {

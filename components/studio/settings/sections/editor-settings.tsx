@@ -98,9 +98,16 @@ export function EditorSettings() {
 
             <SwitchSetting
                 label="Scroll with the preview"
-                description="The editor and the Markdown preview scroll together. Double-click the preview to jump to that line in the editor."
+                description="The editor and the Markdown preview scroll together."
                 checked={settings.editor.scrollSync}
                 onChange={(scrollSync) => setEditor({ scrollSync })}
+            />
+
+            <SwitchSetting
+                label="Double-click the preview to jump to the editor"
+                description="Double-clicking the Markdown preview puts the editor's cursor on that line. Turn off to select words in the preview by double-clicking."
+                checked={settings.editor.jumpFromPreview}
+                onChange={(jumpFromPreview) => setEditor({ jumpFromPreview })}
             />
 
             <Field>

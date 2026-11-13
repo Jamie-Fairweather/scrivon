@@ -303,6 +303,7 @@ const DEFAULT_EDITOR_SETTINGS = {
     minimap: false,
     tabMovesFocus: false,
     scrollSync: true,
+    jumpFromPreview: true,
 }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -823,19 +824,21 @@ describe('CodeEditorPanel scrolling', () => {
 })
 
 describe('CodeEditorPanel link to the preview', () => {
-    it('links the editor with its tab, the setting and whether it shows, until the editor is thrown away', async () => {
+    it('links the editor with its tab, the settings and whether it shows, until the editor is thrown away', async () => {
         editorSettings = { ...DEFAULT_EDITOR_SETTINGS, scrollSync: false }
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
         const { view, editor } = await mountEditor()
         const [linked, options] = vi.mocked(bindEditorScrollSync).mock.calls.at(-1)!
         expect(linked).toBe(editor)
         expect(options.tabId()).toBe('/w/a.md')
-        expect(options.enabled()).toBe(false)
+        expect(options.scrollEnabled()).toBe(false)
+        expect(options.jumpEnabled()).toBe(true)
         expect(options.canFocus()).toBe(true)
 
-        editorSettings = { ...editorSettings, scrollSync: true }
+        editorSettings = { ...editorSettings, scrollSync: true, jumpFromPreview: false }
         view.rerender(<Panel open={false} />)
-        expect(options.enabled()).toBe(true)
+        expect(options.scrollEnabled()).toBe(true)
+        expect(options.jumpEnabled()).toBe(false)
         expect(options.canFocus()).toBe(false)
 
         act(() => editor.dispose())

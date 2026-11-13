@@ -108,6 +108,14 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { scrollSync: 'no' } }, false).editor.scrollSync).toBe(true)
     })
 
+    it('jumps from the preview to the editor on double-click by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.jumpFromPreview).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.jumpFromPreview).toBe(true)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: false } }, false).editor.jumpFromPreview).toBe(false)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: 1 } }, false).editor.jumpFromPreview).toBe(true)
+    })
+
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
         expect(createDefaultSettings(false).editor.wordWrapColumn).toBe(80)
         // Settings saved before the option existed.

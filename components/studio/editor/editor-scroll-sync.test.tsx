@@ -57,14 +57,15 @@ function fakeSync() {
     return { sync, unregister, side: () => side! }
 }
 
-function bind(options: { tabId?: string | null; enabled?: boolean; canFocus?: boolean } = {}) {
+function bind(options: { tabId?: string | null; scrollEnabled?: boolean; jumpEnabled?: boolean; canFocus?: boolean } = {}) {
     const editor = fakeEditor()
     const fake = fakeSync()
     const binding = bindEditorScrollSync(
         editor as unknown as ScrollableEditor,
         {
             tabId: () => options.tabId ?? 'a.md',
-            enabled: () => options.enabled ?? true,
+            scrollEnabled: () => options.scrollEnabled ?? true,
+            jumpEnabled: () => options.jumpEnabled ?? true,
             canFocus: () => options.canFocus ?? true,
         },
         fake.sync
@@ -73,10 +74,12 @@ function bind(options: { tabId?: string | null; enabled?: boolean; canFocus?: bo
 }
 
 describe('bindEditorScrollSync', () => {
-    it('gives the sync the editor’s tab, the setting, and how far it is and can be scrolled', () => {
-        const { side, editor } = bind({ tabId: 'notes.md', enabled: false })
+    it('gives the sync the editor’s tab, the settings, and how far it is and can be scrolled', () => {
+        const { side, editor } = bind({ tabId: 'notes.md', scrollEnabled: false })
         expect(side().tabId()).toBe('notes.md')
-        expect(side().enabled()).toBe(false)
+        expect(side().scrollEnabled()).toBe(false)
+        expect(side().jumpEnabled()).toBe(true)
+        expect(bind({ jumpEnabled: false }).side().jumpEnabled()).toBe(false)
         expect(side().maxScrollTop()).toBe(50 * 19 - 300)
         side().setScrollTop(120)
         expect(editor.setScrollTop).toHaveBeenCalledWith(120)

@@ -52,8 +52,10 @@ export type AppSettings = {
         minimap: boolean
         /** Tab and Shift+Tab move focus out of the editor instead of indenting (Monaco's tab focus mode). */
         tabMovesFocus: boolean
-        /** The editor and the Markdown preview scroll together, and double-clicking the preview jumps to the line. */
+        /** The editor and the Markdown preview scroll together. */
         scrollSync: boolean
+        /** Double-clicking the Markdown preview moves the editor's cursor to that line. */
+        jumpFromPreview: boolean
     }
     workspace: {
         maxRecentFolders: number

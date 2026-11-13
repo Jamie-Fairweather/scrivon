@@ -1,14 +1,13 @@
 'use client'
 
 import { useEffect, type RefObject } from 'react'
-import { editorPreviewSync, type EditorPreviewSync, type SourceBlock } from '@/components/studio/markdown/editor-preview-sync'
+import { editorPreviewSync, USER_EVENTS, type EditorPreviewSync, type SourceBlock } from '@/components/studio/markdown/editor-preview-sync'
 
-/** What the user does to work in the preview, which makes the editor follow it. */
-const USER_EVENTS = ['wheel', 'pointerdown', 'keydown', 'touchstart'] as const
 /** Double-clicking these does something of their own, so it doesn't jump to the editor. */
 const OWN_CLICK = 'a, button, input, select, textarea, summary, [role="button"]'
 
-function viewportOf(root: HTMLElement | null): HTMLElement | null {
+/** The element that scrolls inside a scroll area. */
+export function scrollViewport(root: HTMLElement | null): HTMLElement | null {
     return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
 }
 
@@ -37,7 +36,7 @@ export function usePreviewScrollSync(
 ) {
     useEffect(() => {
         const root = rootRef.current
-        const viewport = viewportOf(root)
+        const viewport = scrollViewport(root)
         if (!root || !viewport) return
 
         const unregister = sync.registerPreview({
@@ -73,7 +72,7 @@ export function usePreviewScrollSync(
         sync.previewChanged()
         // Diagrams drawn and images loaded move the blocks below them. Watched afresh each time, as the content
         // element changes when the preview goes from empty to a document.
-        const contentElement = viewportOf(rootRef.current)?.firstElementChild
+        const contentElement = scrollViewport(rootRef.current)?.firstElementChild
         if (!contentElement || typeof ResizeObserver === 'undefined') return
         const observer = new ResizeObserver(() => sync.previewChanged())
         observer.observe(contentElement)
