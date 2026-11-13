@@ -108,6 +108,7 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'advanced', label: 'Reopen last folder on startup', keywords: 'workspace restore session files', desktopOnly: true },
     { section: 'advanced', label: 'Restore panel layout', keywords: 'explorer editor reopen' },
     { section: 'advanced', label: 'Check for updates on launch', keywords: 'startup', desktopOnly: true },
+    { section: 'advanced', label: 'Settings file', keywords: 'backup export import profiles', desktopOnly: true },
 ]
 
 /** Every setting search can find, leaving out the desktop app's own outside it. */

@@ -11,8 +11,8 @@ import {
     ColorPickerEyeDropper,
     ColorPickerHue,
     ColorPickerSelection,
-    normalizeColorHex,
 } from '@/components/ui/color-picker'
+import { normalizeColorHex } from '@/lib/color-hex'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
 

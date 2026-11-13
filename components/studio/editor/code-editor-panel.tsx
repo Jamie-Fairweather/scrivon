@@ -8,6 +8,7 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
@@ -148,9 +149,9 @@ function isTab(tabId: string | null, path: string): boolean {
 }
 
 function languageForTab(tab: DocumentTab) {
-    if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
-    return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
+    if (kind === 'mermaid') return MERMAID_LANGUAGE_ID
+    return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
 export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
@@ -419,6 +420,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             domReadOnly: isReadOnly,
             ariaLabel,
             unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
+            // Diagram files offer a starter for each diagram type on Ctrl+Space (lib/monaco/mermaid-snippets.ts).
+            // Nothing pops up while typing, so Enter can pick from the list the user asked for.
+            ...(isMermaid ? { snippetSuggestions: 'inline' as const, acceptSuggestionOnEnter: 'on' as const } : {}),
         }),
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )

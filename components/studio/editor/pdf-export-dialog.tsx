@@ -8,6 +8,7 @@ import { notifyError } from '@/lib/notify'
 import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
+import { PdfExportPreview } from '@/components/studio/editor/pdf-export-preview'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { BetaBadge } from '@/components/ui/beta-badge'
 import { Button } from '@/components/ui/button'
@@ -52,7 +53,12 @@ export function PdfExportDialog({
     }
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogPopup className="max-w-lg">
+            {/* With the PDF preview, a wide screen gets two columns: the settings, and the PDF beside them. */}
+            <DialogPopup
+                className="max-w-lg md:has-[[data-slot=pdf-preview]]:grid md:has-[[data-slot=pdf-preview]]:h-[min(85vh,56rem)]
+                    md:has-[[data-slot=pdf-preview]]:max-w-5xl md:has-[[data-slot=pdf-preview]]:grid-cols-[22rem_minmax(0,1fr)]
+                    md:has-[[data-slot=pdf-preview]]:grid-rows-[auto_minmax(0,1fr)_auto]"
+            >
                 {/* The popup unmounts when closed, so the form's state starts fresh on every open. */}
                 <PdfExportForm
                     key={format}
@@ -174,6 +180,8 @@ function PdfExportForm({
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
     const spaceNote = pageSpaceNote(format, profile)
     const fieldsNote = titleFieldsNote(format, profile)
+    // The preview prints through the Windows exporter, so it's only there for PDFs in the Windows app.
+    const showPreview = format === 'pdf' && isWindowsTauri()
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -214,7 +222,7 @@ function PdfExportForm({
 
     return (
         <>
-            <DialogHeader>
+            <DialogHeader className="col-span-full">
                 <DialogTitle className="flex items-center gap-2">
                     Export document
                     <BetaBadge />
@@ -262,7 +270,20 @@ function PdfExportForm({
                     </p>
                 ) : null}
             </DialogPanel>
-            <DialogFooter>
+            {showPreview ? (
+                <PdfExportPreview
+                    source={source}
+                    tabName={tabName}
+                    profile={profile}
+                    title={title}
+                    subtitle={subtitle}
+                    author={author}
+                    date={date}
+                    allowRemoteImages={allowRemoteImages}
+                    className="h-[40vh] shrink-0 px-6 pb-6 md:h-auto md:ps-0 md:pt-1"
+                />
+            ) : null}
+            <DialogFooter className="col-span-full">
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground sm:me-auto sm:self-center">
                     {busy ? 'Exporting…' : ''}
                 </p>
