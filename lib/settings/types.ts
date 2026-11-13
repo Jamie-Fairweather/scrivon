@@ -25,6 +25,9 @@ export type KeybindActionId =
     | 'view.toggleEditor'
     | 'view.previewOnly'
     | 'view.fitDiagram'
+    | 'view.zoomDiagramIn'
+    | 'view.zoomDiagramOut'
+    | 'view.resetDiagramZoom'
     | 'workspace.saveAll'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'

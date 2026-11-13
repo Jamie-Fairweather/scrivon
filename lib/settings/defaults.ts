@@ -28,6 +28,10 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.toggleEditor': [chord('e', mod)],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
+        // Ctrl+=, Ctrl+- and Ctrl+0 are left for zooming the whole app.
+        'view.zoomDiagramIn': [chord('=', { ...mod, alt: true })],
+        'view.zoomDiagramOut': [chord('-', { ...mod, alt: true })],
+        'view.resetDiagramZoom': [chord('0', { ...mod, alt: true })],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
     }
 

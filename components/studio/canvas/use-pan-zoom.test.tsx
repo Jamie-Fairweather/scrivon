@@ -1,4 +1,4 @@
-import { fireEvent, render, renderHook } from '@testing-library/react'
+import { act, fireEvent, render, renderHook } from '@testing-library/react'
 import { useRef } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
@@ -99,10 +99,14 @@ describe('zoom helpers', () => {
     })
 })
 
-function Canvas({ tabId = 'a.mmd', memory }: { tabId?: string; memory?: PanZoomMemory }) {
+type PanZoom = ReturnType<typeof usePanZoom>
+
+function Canvas({ tabId = 'a.mmd', memory, onPanZoom }: { tabId?: string; memory?: PanZoomMemory; onPanZoom?: (panZoom: PanZoom) => void }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
-    const { handlers } = usePanZoom(containerRef, transformRef, tabId, ['a.mmd', 'b.mmd'], memory)
+    const panZoom = usePanZoom(containerRef, transformRef, tabId, ['a.mmd', 'b.mmd'], memory)
+    onPanZoom?.(panZoom)
+    const { handlers } = panZoom
     return (
         <div ref={containerRef} data-testid="container" {...handlers}>
             <div ref={transformRef} data-testid="content" />
@@ -178,6 +182,63 @@ describe('usePanZoom', () => {
         fireEvent.pointerMove(container, { pointerId: 1, clientX: 90, clientY: 90 })
 
         expect(getByTestId('content').style.transform).toBe('translate(30px, -20px) scale(1)')
+    })
+
+    it('zooms in and out by one step around the middle, and back to 100% (F06)', () => {
+        let panZoom!: PanZoom
+        const { getByTestId } = render(<Canvas onPanZoom={(p) => (panZoom = p)} />)
+        const content = getByTestId('content')
+        dispatchWheel(getByTestId('container'), { deltaY: 40, wheelDeltaY: -40 })
+
+        act(() => panZoom.zoom('in'))
+        expect(content.style.transform).toBe('translate(0px, -50px) scale(1.25)')
+
+        act(() => panZoom.zoom('out'))
+        expect(content.style.transform).toBe('translate(0px, -40px) scale(1)')
+
+        act(() => panZoom.zoom('out'))
+        expect(content.style.transform).toBe('translate(0px, -32px) scale(0.8)')
+
+        act(() => panZoom.zoom('reset'))
+        expect(content.style.transform).toBe('translate(0px, 0px) scale(1)')
+    })
+
+    it('zooms with + - and 0, and moves the diagram with the arrow keys, while the canvas has focus (F06)', () => {
+        const { getByTestId } = render(<Canvas />)
+        const container = getByTestId('container')
+        const content = getByTestId('content')
+
+        expect(fireEvent.keyDown(container, { key: '+' })).toBe(false)
+        expect(content.style.transform).toBe('translate(0px, 0px) scale(1.25)')
+        fireEvent.keyDown(container, { key: '-' })
+        fireEvent.keyDown(container, { key: '=' })
+        fireEvent.keyDown(container, { key: '_' })
+        expect(content.style.transform).toBe('translate(0px, 0px) scale(1)')
+
+        // Like scrolling: Right shows more of the right side, Shift moves further.
+        fireEvent.keyDown(container, { key: 'ArrowRight' })
+        fireEvent.keyDown(container, { key: 'ArrowDown', shiftKey: true })
+        expect(content.style.transform).toBe('translate(-50px, -200px) scale(1)')
+        fireEvent.keyDown(container, { key: 'ArrowLeft' })
+        fireEvent.keyDown(container, { key: 'ArrowUp' })
+        expect(content.style.transform).toBe('translate(0px, -150px) scale(1)')
+
+        // Ctrl with + - 0 too, so the focused diagram's zoom wins over zooming the app.
+        fireEvent.keyDown(container, { key: '=', ctrlKey: true })
+        expect(content.style.transform).toBe('translate(0px, -187.5px) scale(1.25)')
+        fireEvent.keyDown(container, { key: '0' })
+        expect(content.style.transform).toBe('translate(0px, 0px) scale(1)')
+    })
+
+    it('leaves other keys, Alt shortcuts and keys pressed inside the canvas (a toolbar button) alone', () => {
+        const { getByTestId } = render(<Canvas />)
+        const container = getByTestId('container')
+
+        expect(fireEvent.keyDown(container, { key: 'a' })).toBe(true)
+        expect(fireEvent.keyDown(container, { key: '=', ctrlKey: true, altKey: true })).toBe(true)
+        expect(fireEvent.keyDown(container, { key: 'ArrowLeft', ctrlKey: true })).toBe(true)
+        expect(fireEvent.keyDown(getByTestId('banner'), { key: '+' })).toBe(true)
+        expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1)')
     })
 
     it('keeps each view in the given memory, so a canvas mounted again shows it as it was left (N05)', () => {

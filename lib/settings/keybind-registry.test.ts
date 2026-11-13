@@ -19,6 +19,21 @@ describe('keybind registry', () => {
         expect(ids).toEqual(Object.keys(createDefaultKeybinds(true)).sort())
     })
 
+    it('has diagram zoom shortcuts on Ctrl+Alt, leaving Ctrl+=, Ctrl+- and Ctrl+0 for the app', () => {
+        const defaults = createDefaultKeybinds(false)
+        expect(defaults['view.zoomDiagramIn']).toEqual([{ key: '=', ctrl: true, alt: true }])
+        expect(defaults['view.zoomDiagramOut']).toEqual([{ key: '-', ctrl: true, alt: true }])
+        expect(defaults['view.resetDiagramZoom']).toEqual([{ key: '0', ctrl: true, alt: true }])
+        expect(createDefaultKeybinds(true)['view.zoomDiagramIn']).toEqual([{ key: '=', meta: true, alt: true }])
+
+        expect(getKeybindActionMeta('view.zoomDiagramIn')).toMatchObject({ label: 'Zoom diagram in', category: 'View', when: 'workspace' })
+        expect(getKeybindActionMeta('view.zoomDiagramOut')).toMatchObject({ label: 'Zoom diagram out', category: 'View' })
+        expect(getKeybindActionMeta('view.resetDiagramZoom')).toMatchObject({ label: 'Reset diagram zoom to 100%', category: 'View' })
+
+        const ctrlAltEquals = { key: '=', code: 'Equal', ctrlKey: true, altKey: true, metaKey: false, shiftKey: false, repeat: false, target: null }
+        expect(matchKeybind(ctrlAltEquals as unknown as KeyboardEvent, defaults, { hasWorkspace: true })).toBe('view.zoomDiagramIn')
+    })
+
     it('a binding for an unknown action does not stop other shortcuts working', () => {
         const bindings = { 'tabs.close': [{ key: 'w', ctrl: true }], ...createDefaultKeybinds(false) } as unknown as KeybindBindings
         const ctrlS = {

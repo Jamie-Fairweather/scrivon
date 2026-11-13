@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 
 /** Low enough for Fit to show a very wide or tall diagram whole (a 7,000 px chain in a 600 px pane needs about 8%). */
 const MIN_SCALE = 0.02
@@ -14,6 +14,49 @@ const LINE_HEIGHT_PX = 16
 const NOTCH_ZOOM_RATE = 0.001
 /** Zoom per pixel for a touchpad pinch, which Chromium sends as ctrl+wheel with deltaY = -100 * ln(scale). */
 const PINCH_ZOOM_RATE = 0.01
+
+/** Zoom per click of a zoom button or press of a zoom key. */
+const ZOOM_STEP = 1.25
+/** How far an arrow key moves the diagram, in screen pixels; Shift moves it further. */
+const PAN_STEP = 50
+const PAN_STEP_LARGE = 200
+
+/** What the zoom buttons, keys and menu items do. */
+export type DiagramZoom = 'in' | 'out' | 'reset'
+
+const ZOOM_KEYS = new Map<string, DiagramZoom>([
+    ['+', 'in'],
+    ['=', 'in'],
+    ['-', 'out'],
+    ['_', 'out'],
+    ['0', 'reset'],
+])
+
+/** Like scrolling: Right shows more of the right side, so the diagram moves left. */
+const PAN_KEYS = new Map<string, Point>([
+    ['ArrowLeft', { x: 1, y: 0 }],
+    ['ArrowRight', { x: -1, y: 0 }],
+    ['ArrowUp', { x: 0, y: 1 }],
+    ['ArrowDown', { x: 0, y: -1 }],
+])
+
+type KeyInput = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>
+
+type KeyGesture = { kind: 'zoom'; how: DiagramZoom } | { kind: 'pan'; dx: number; dy: number }
+
+/**
+ * Keys on the focused canvas: + - 0 zoom (with or without Ctrl, so the diagram's zoom wins over
+ * the app's), and the arrow keys move the diagram. Alt is left for app shortcuts and the menu bar.
+ */
+function interpretKey(input: KeyInput): KeyGesture | null {
+    if (input.altKey) return null
+    const how = ZOOM_KEYS.get(input.key)
+    if (how) return { kind: 'zoom', how }
+    const direction = PAN_KEYS.get(input.key)
+    if (!direction || input.ctrlKey || input.metaKey) return null
+    const step = input.shiftKey ? PAN_STEP_LARGE : PAN_STEP
+    return { kind: 'pan', dx: direction.x * step, dy: direction.y * step }
+}
 
 /** Wheel events from inside an element with this attribute (e.g. a scrollable error banner) are left to the browser. */
 export const NO_CANVAS_GESTURES_ATTRIBUTE = 'data-canvas-no-gestures'
@@ -114,6 +157,12 @@ const DEFAULT_STATE: PanZoomState = { x: 0, y: 0, scale: 1 }
 
 type PointerGesture = { start: PanZoomState; origin: Point; distance: number }
 
+/** The view's zoom (1 is 100%), to show with useSyncExternalStore. Moving the diagram doesn't count as a change. */
+export type ZoomLevel = {
+    subscribe: (onChange: () => void) => () => void
+    getScale: () => number
+}
+
 /** Each view's pan and zoom, by tab id (or canvas key). */
 export type PanZoomMemory = Map<string, PanZoomState>
 
@@ -150,36 +199,78 @@ export function usePanZoom(
     const pointersRef = useRef(new Map<number, Point>())
     const gestureRef = useRef<PointerGesture | null>(null)
 
-    const applyTransform = useCallback(
+    const [scaleListeners] = useState(() => new Set<() => void>())
+
+    const zoomLevel = useMemo<ZoomLevel>(
+        () => ({
+            subscribe: (onChange) => {
+                scaleListeners.add(onChange)
+                return () => scaleListeners.delete(onChange)
+            },
+            getScale: () => stateRef.current.scale,
+        }),
+        [scaleListeners]
+    )
+
+    // Moves the diagram without drawing React again; only the zoom level's readers hear about a new scale.
+    const show = useCallback(
         (next: PanZoomState) => {
+            const scaleChanged = next.scale !== stateRef.current.scale
             stateRef.current = next
             const el = transformRef.current
             if (el) {
                 el.style.transformOrigin = 'center center'
                 el.style.transform = toTransform(next)
             }
+            if (scaleChanged) for (const onChange of scaleListeners) onChange()
+        },
+        [transformRef, scaleListeners]
+    )
+
+    const applyTransform = useCallback(
+        (next: PanZoomState) => {
+            show(next)
             const id = tabIdRef.current
             if (id) statesByTab.set(id, next)
         },
-        [transformRef, statesByTab]
+        [show, statesByTab]
     )
 
     useLayoutEffect(() => {
         tabIdRef.current = tabId
-        const next = tabId ? (statesByTab.get(tabId) ?? DEFAULT_STATE) : DEFAULT_STATE
-        stateRef.current = next
-        const el = transformRef.current
-        if (el) {
-            el.style.transformOrigin = 'center center'
-            el.style.transform = toTransform(next)
-        }
-    }, [tabId, transformRef, statesByTab])
+        show(tabId ? (statesByTab.get(tabId) ?? DEFAULT_STATE) : DEFAULT_STATE)
+    }, [tabId, show, statesByTab])
 
     useEffect(() => forgetClosedTabs(statesByTab, openTabIds), [statesByTab, openTabIds])
 
     const reset = useCallback(() => {
         applyTransform(computeCenterTransform())
     }, [applyTransform])
+
+    /** One step in or out, keeping the middle of the view in place, or back to 100%. */
+    const zoom = useCallback(
+        (how: DiagramZoom) => {
+            if (how === 'reset') return reset()
+            const prev = stateRef.current
+            const scale = how === 'in' ? prev.scale * ZOOM_STEP : prev.scale / ZOOM_STEP
+            applyTransform(zoomAround(prev, clampScale(scale, prev.scale), { x: 0, y: 0 }))
+        },
+        [applyTransform, reset]
+    )
+
+    /** Only keys pressed on the canvas itself, not on a button inside it. */
+    const onKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.target !== e.currentTarget) return
+            const gesture = interpretKey(e)
+            if (!gesture) return
+            e.preventDefault()
+            if (gesture.kind === 'zoom') return zoom(gesture.how)
+            const prev = stateRef.current
+            applyTransform({ ...prev, x: prev.x + gesture.dx, y: prev.y + gesture.dy })
+        },
+        [applyTransform, zoom]
+    )
 
     const fitToView = useCallback(
         (contentWidth: number, contentHeight: number): boolean => {
@@ -231,6 +322,8 @@ export function usePanZoom(
         (e: React.PointerEvent) => {
             if (e.button !== 0) return
             e.preventDefault()
+            // preventDefault can stop the browser focusing it, and the zoom keys need focus.
+            if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus({ preventScroll: true })
             pointersRef.current.set(e.pointerId, pointFromCenter(e.clientX, e.clientY))
             restartGesture()
             setGrabbingCursor(true)
@@ -303,6 +396,8 @@ export function usePanZoom(
 
     return {
         reset,
+        zoom,
+        zoomLevel,
         fitToView,
         hasViewStateForTab,
         handlers: {
@@ -311,6 +406,7 @@ export function usePanZoom(
             onPointerUp: endPan,
             onPointerCancel: endPan,
             onLostPointerCapture: endPan,
+            onKeyDown,
         },
     }
 }

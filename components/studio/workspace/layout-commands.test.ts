@@ -13,6 +13,7 @@ function context(overrides: Partial<LayoutCommandsContext> = {}): LayoutCommands
         setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
         requestCanvasFit: vi.fn(),
+        zoomDiagram: vi.fn(),
         ...overrides,
     }
 }
@@ -87,5 +88,31 @@ describe('buildLayoutCommands Fit Diagram to Screen', () => {
             disabled: true,
             disabledReason: 'No folder open',
         })
+    })
+})
+
+describe('buildLayoutCommands diagram zoom (F06)', () => {
+    const zoomCommands = [
+        ['zoom-diagram-in', 'Zoom Diagram In', 'view.zoomDiagramIn', 'in'],
+        ['zoom-diagram-out', 'Zoom Diagram Out', 'view.zoomDiagramOut', 'out'],
+        ['reset-diagram-zoom', 'Reset Diagram Zoom', 'view.resetDiagramZoom', 'reset'],
+    ] as const
+
+    it('zooms the diagram in, out and back to 100%, on their own shortcuts', () => {
+        const ctx = context()
+        for (const [id, label, keybind, how] of zoomCommands) {
+            const command = find(ctx, id)
+            expect(command).toMatchObject({ label, keybind, disabled: false })
+            expect(command?.keywords).toContain('zoom')
+            void command!.run()
+            expect(ctx.zoomDiagram).toHaveBeenLastCalledWith(how)
+        }
+    })
+
+    it('is off with a reason when no diagram is shown or no folder is open', () => {
+        for (const [id] of zoomCommands) {
+            expect(find(context({ canFitDiagram: false }), id)).toMatchObject({ disabled: true, disabledReason: 'No diagram shown' })
+            expect(find(context({ hasWorkspace: false }), id)).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
+        }
     })
 })
