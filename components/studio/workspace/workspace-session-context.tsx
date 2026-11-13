@@ -44,6 +44,7 @@ import {
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
+import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import {
     canReplaceChildren,
     changeAltersTree,
@@ -487,8 +488,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             treeWanted = true
             request()
             requestTabs()
+            // Unwatched, any image in the folder may have changed while the window was in the background.
+            if (!unwatch) forgetWorkspaceImages([root])
         }
         const onDiskChange = (change: WorkspaceChange) => {
+            forgetWorkspaceImages([...change.added, ...change.removed, ...change.changed])
             // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
             if (!treeWanted) {
                 seen.added.push(...change.added)
