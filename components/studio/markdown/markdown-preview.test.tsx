@@ -501,6 +501,20 @@ describe('MarkdownPreview: GitHub alerts, math and quotes', () => {
         expect(container).toHaveTextContent('It costs $5 and $10.')
     })
 
+    it('keeps bold and links between two prices', () => {
+        const { container } = preview('Plans: $5 for **Basic**, $10 for [Pro](https://example.com).')
+        expect(container.querySelector('strong')).toHaveTextContent('Basic')
+        expect(screen.getByRole('link', { name: 'Pro' })).toBeInTheDocument()
+        expect(container).toHaveTextContent('Plans: $5 for Basic, $10 for Pro.')
+    })
+
+    it('gives block math the text size and space below of a paragraph', () => {
+        const { container } = preview('$$\nx^2\n$$\n\nNext.')
+        // Block math isn't in a paragraph, so the article styles it. happy-dom can't compute Tailwind styles.
+        expect(container.querySelector('math[display="block"]')!.closest('p')).toBeNull()
+        expect(container.querySelector('article')).toHaveClass('[&_math[display=block]]:mb-3', '[&_math[display=block]]:text-sm')
+    })
+
     it('shows the bundled showcase’s math and alerts', () => {
         const { container } = preview(MARKDOWN_SHOWCASE.source)
         expect(container.querySelectorAll('math')).toHaveLength(2)

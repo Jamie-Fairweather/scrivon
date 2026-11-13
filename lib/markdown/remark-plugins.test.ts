@@ -71,6 +71,19 @@ describe('markdownRemarkPlugins: math', () => {
         expect(parse('It costs $5 and $10.').children[0]).toMatchObject({ children: [{ type: 'text', value: 'It costs $5 and $10.' }] })
     })
 
+    it('keeps bold and links between two prices', () => {
+        const tree = parse('Plans: $5 for **Basic**, $10 for [Pro](https://example.com).')
+        expect(maths('Plans: $5 for **Basic**, $10 for [Pro](https://example.com).')).toEqual([])
+        expect(marked(tree, 'strong').texts).toEqual(['Basic'])
+        expect(tree.children[0]).toMatchObject({ children: [{}, {}, {}, { type: 'link', url: 'https://example.com' }, {}] })
+    })
+
+    it('needs no space just inside the dollars, and no digit after the closing one', () => {
+        expect(maths('$ x$, $x $, $x$5, $x\ty$ and $\tx$')).toEqual(['$x\ty$'])
+        expect(maths('A $x$ then $y$, and $a\nb$')).toEqual(['$x$', '$y$', '$a\nb$'])
+        expect(maths('Line one $x\n$ end')).toEqual([])
+    })
+
     it('always reads $$…$$ in a line as math', () => {
         expect(maths('Sum $$ x + 1 $$ here')).toHaveLength(1)
     })

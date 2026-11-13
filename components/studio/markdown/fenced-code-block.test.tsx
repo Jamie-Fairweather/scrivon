@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { createHighlightCache, FencedCodeBlock } from './fenced-code-block'
 
 const theme = vi.hoisted(() => ({ themeId: 'scrivon-dark', isLight: false }))
@@ -341,5 +342,14 @@ describe('FencedCodeBlock: Copy button', () => {
     it('shows no label for a block without a language', () => {
         const { container } = render(<FencedCodeBlock code="plain" />)
         expect(container.querySelector('[data-code-language]')).toBeNull()
+    })
+
+    it('uses the same overlay button as diagrams, tagged as English', () => {
+        render(<FencedCodeBlock code="plain" />)
+        const button = screen.getByRole('button', { name: 'Copy code' })
+        expect(button).toHaveAttribute('data-slot', 'button')
+        expect(button).toHaveClass(...overlayButtonClassName.split(' '))
+        expect(button).toHaveTextContent('Copy')
+        expect(button.closest('[lang]')).toHaveAttribute('lang', 'en')
     })
 })

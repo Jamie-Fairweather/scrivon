@@ -440,8 +440,9 @@ export const MarkdownPreview = memo(function MarkdownPreview({
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
-            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
-            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words">
+            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. Block math
+                isn't in a paragraph, so it gets the paragraphs' text size and space below here. */}
+            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm">
                 <RemoteImagesContext.Provider value={remoteImages}>{markdown}</RemoteImagesContext.Provider>
             </article>
         </div>

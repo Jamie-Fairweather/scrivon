@@ -3,9 +3,11 @@
 import { Check, Copy } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { Button } from '@/components/ui/button'
 import type { BundledTheme } from 'shiki'
 import { highlightFencedCode, highlightFencedCodeNow, previewCodeTheme } from '@/lib/markdown/shiki-highlighter'
 import { notifyError } from '@/lib/notify'
+import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
 const HIGHLIGHT_IDLE_MS = 400
@@ -257,27 +259,29 @@ function CodeBlockToolbar({ code, language }: { code: string; language?: string 
         timerRef.current = window.setTimeout(() => setCopied(false), COPIED_MS)
     }
 
+    // English app text, even in a document in another language, so screen readers read it in the right voice.
     return (
         <div
-            className="absolute top-1.5 right-1.5 flex items-center gap-1.5 rounded-md border border-border bg-background/90 ps-2 opacity-0
-                transition-opacity group-focus-within/code:opacity-100 group-hover/code:opacity-100"
+            lang="en"
+            className="absolute top-1.5 right-1.5 flex items-center gap-1.5 opacity-0 transition-opacity group-focus-within/code:opacity-100
+                group-hover/code:opacity-100"
         >
             {language && (
-                <span data-code-language className="font-mono text-[11px] text-muted-foreground">
+                <span data-code-language className="rounded-sm bg-background/90 px-1 font-mono text-[11px] text-muted-foreground">
                     {language}
                 </span>
             )}
-            <button
-                type="button"
+            <Button
+                variant="outline"
+                size="xs"
+                className={overlayButtonClassName}
                 aria-label={copied ? 'Copied' : 'Copy code'}
                 title={copied ? 'Copied' : 'Copy code'}
                 onClick={() => void copy()}
-                className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground outline-none hover:bg-muted
-                    hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
                 {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-                {copied && 'Copied'}
-            </button>
+                {copied ? 'Copied' : 'Copy'}
+            </Button>
             {/* Read out by screen readers, which don't always say a button's new name. */}
             <span role="status" className="sr-only">
                 {copied ? 'Copied' : ''}
