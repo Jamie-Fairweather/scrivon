@@ -38,6 +38,7 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         closeOtherTabs: vi.fn(async () => {}),
         closeAllTabs: vi.fn(async () => {}),
         openExample: vi.fn(),
+        saveExampleCopy: vi.fn(async () => {}),
         openSettings: vi.fn(),
         isLight: true,
         toggleLightDark: vi.fn(),
@@ -169,6 +170,22 @@ describe('buildCommandRegistry examples', () => {
     it('enables Open Example when a folder is open', () => {
         const examples = byValue(context(), 'action:example:')
         expect(examples.every((action) => !action.disabled)).toBe(true)
+    })
+
+    it('saves a copy of the example in the active tab', () => {
+        const ctx = context({ activeTabId: 'example:sample-1' })
+        const [saveCopy] = byValue(ctx, 'action:save-example-copy')
+        expect(saveCopy).toMatchObject({ label: 'Save Copy to Workspace', disabled: false })
+        void saveCopy!.run()
+        expect(ctx.saveExampleCopy).toHaveBeenCalledWith('sample-1')
+    })
+
+    it('turns off Save Copy to Workspace unless an example is open, and says why', () => {
+        expect(byValue(context(), 'action:save-example-copy')[0]).toMatchObject({ disabled: true, disabledReason: 'No example open' })
+        expect(byValue(context({ workspaceRoot: null, activeTabId: 'example:sample-1' }), 'action:save-example-copy')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'Open a folder first',
+        })
     })
 
     it('disables the tab commands when a hidden tab is left over with no folder open', () => {

@@ -32,6 +32,7 @@ import {
     useWorkspaceCoordinator,
     useWorkspaceSession,
 } from '@/components/studio/workspace/workspace-provider'
+import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-example-copy'
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
     // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
@@ -92,6 +93,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const { themeId, isLight, setThemeId } = useAppTheme()
     const { settings, openSettings } = useAppSettings()
     const coordinator = useWorkspaceCoordinator()
+    const saveExampleCopy = useSaveExampleCopy()
 
     const [query, setQuery] = useState('')
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
@@ -194,6 +196,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 closeOtherTabs,
                 closeAllTabs,
                 openExample,
+                saveExampleCopy,
                 openSettings,
                 isLight,
                 toggleLightDark,
@@ -227,6 +230,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
             closeOtherTabs,
             closeAllTabs,
             openExample,
+            saveExampleCopy,
             openSettings,
             isLight,
             toggleLightDark,

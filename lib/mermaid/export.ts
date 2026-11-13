@@ -6,6 +6,7 @@ import { savePathBesideDocument } from '@/lib/tauri/save-path'
 import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
 import { renderMermaidDiagramForExport, type ExportRenderOptions } from '@/lib/mermaid/render'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
+import { safeFileStem } from '@/lib/workspace/paths'
 
 export type PngExportScale = 1 | 2 | 4
 
@@ -17,24 +18,6 @@ export type DiagramExportTarget = {
     tabPath?: string
     /** For a diagram expanded from Markdown: the document's text, used to number its diagrams. */
     markdown?: string
-}
-
-// Characters Windows does not allow in file names, including control characters.
-const INVALID_FILE_NAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]+/g
-const RESERVED_FILE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
-
-/**
- * Turns a tab name into a file name Windows accepts. Example titles such as 'CI/CD Pipeline' or
- * 'Inheritance (<|--)' would otherwise be split into folders or rejected by the save dialog.
- */
-export function safeFileStem(name: string, fallback: string): string {
-    const stem = name
-        .replace(INVALID_FILE_NAME_CHARS, '-')
-        .replace(/-{2,}/g, '-')
-        .replace(/\s+/g, ' ')
-        .replace(/^[\s.-]+|[\s.-]+$/g, '')
-    if (!stem) return fallback
-    return RESERVED_FILE_NAME.test(stem) ? `${stem}_` : stem
 }
 
 /** The tab name without its extension ('notes.md' -> 'notes'), made safe to use as a file name. */
