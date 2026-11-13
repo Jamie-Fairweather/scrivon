@@ -1,21 +1,26 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import nodeConsole from 'node:console'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import type { ExportResult } from '@/lib/markdown/export-pdf'
+import type { PdfPreview, PdfPreviewOptions } from '@/lib/markdown/export-pdf-preview'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { PdfExportDialog } from './pdf-export-dialog'
+import { PREVIEW_DELAY_MS } from './pdf-export-preview'
 
 const exportMarkdown = vi.hoisted(() => vi.fn<() => Promise<ExportResult>>())
 const notifyExportSaved = vi.hoisted(() => vi.fn())
+const previewMarkdownPdf = vi.hoisted(() => vi.fn<(source: string, tabName: string | undefined, options: PdfPreviewOptions) => Promise<PdfPreview>>())
 const notifyError = vi.hoisted(() => vi.fn())
 const platform = vi.hoisted(() => ({ windows: true }))
 /** Changes each export profile the dialog sees. */
 const profiles = vi.hoisted((): { edit: (profile: PdfExportProfile) => void } => ({ edit: () => undefined }))
 
 vi.mock('@/lib/markdown/export-pdf', () => ({ exportMarkdown, notifyExportSaved }))
-vi.mock('@/lib/notify', () => ({ notifyError }))
+vi.mock('@/lib/markdown/export-pdf-preview', () => ({ previewMarkdownPdf }))
+vi.mock('@/lib/notify', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/notify')>()), notifyError }))
 vi.mock('@/lib/tauri/platform', () => ({ isWindowsTauri: () => platform.windows }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => {
@@ -60,6 +65,22 @@ function renderDialog() {
     return { onOpenChange, view }
 }
 
+/** Lets the preview's wait after the last change run out. */
+async function waitOutPreviewDelay() {
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(PREVIEW_DELAY_MS)
+    })
+}
+
+function previewFrame(): HTMLIFrameElement {
+    return screen.getByTitle('PDF preview') as HTMLIFrameElement
+}
+
+/** The preview's status line, which screen readers hear. */
+function previewStatus(): HTMLElement {
+    return within(screen.getByRole('region', { name: 'PDF preview' })).getByRole('status')
+}
+
 async function exportWithTitle(title: string) {
     const input = await screen.findByLabelText('Title')
     fireEvent.change(input, { target: { value: title } })
@@ -75,6 +96,16 @@ describe('PdfExportDialog', () => {
         notifyError.mockReset()
         platform.windows = true
         profiles.edit = () => undefined
+        previewMarkdownPdf.mockReset()
+        previewMarkdownPdf.mockResolvedValue({ pdf: new Blob(['%PDF-1.7'], { type: 'application/pdf' }) })
+        let made = 0
+        vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:preview-${++made}`)
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
     })
 
     it('stays open with the edited fields when the save picker is cancelled', async () => {
@@ -345,5 +376,117 @@ describe('PdfExportDialog', () => {
         render(<Owner onOpenChange={vi.fn()} />)
         await screen.findByLabelText('Title')
         expect(screen.queryByText(/Outside the Windows app/)).toBeNull()
+    })
+    describe('PDF preview', () => {
+        beforeEach(() => {
+            vi.useFakeTimers({ shouldAdvanceTime: true })
+            // happy-dom never loads frames, and logs that for each blob: PDF on Node's own console
+            // (not the test's). Keep only that message out of the test output.
+            const logError = nodeConsole.error.bind(nodeConsole)
+            vi.spyOn(nodeConsole, 'error').mockImplementation((...args: unknown[]) => {
+                const message = (args[0] as { message?: unknown } | undefined)?.message
+                if (typeof message === 'string' && message.startsWith('Failed to load iframe page "blob:preview-')) return
+                logError(...args)
+            })
+        })
+
+        it('shows the PDF beside the settings and makes it again shortly after a change', async () => {
+            renderDialog()
+            expect(await screen.findByRole('region', { name: 'PDF preview' })).toBeInTheDocument()
+            await waitOutPreviewDelay()
+            await waitFor(() => expect(previewFrame()).toHaveAttribute('src', 'blob:preview-1#navpanes=0'))
+            const firstFrame = previewFrame()
+            expect(previewMarkdownPdf).toHaveBeenCalledTimes(1)
+            expect(previewMarkdownPdf).toHaveBeenCalledWith(
+                '# Report\n\nBody',
+                'report.md',
+                expect.objectContaining({
+                    profile: expect.objectContaining({ id: createDefaultPdfExportSettings().activeProfileId }),
+                    overrides: expect.objectContaining({ title: 'Report' }),
+                    allowRemoteImages: false,
+                })
+            )
+
+            fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Quarterly' } })
+            fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Quarterly report' } })
+            expect(screen.getByText('Updating…')).toBeInTheDocument()
+            await waitOutPreviewDelay()
+            await waitFor(() => expect(previewFrame()).toHaveAttribute('src', 'blob:preview-2#navpanes=0'))
+            // Typing that stops within the wait makes one preview, not one per change.
+            expect(previewMarkdownPdf).toHaveBeenCalledTimes(2)
+            expect(previewMarkdownPdf).toHaveBeenLastCalledWith(
+                expect.any(String),
+                'report.md',
+                expect.objectContaining({ overrides: expect.objectContaining({ title: 'Quarterly report' }) })
+            )
+            expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
+            expect(screen.queryByText('Updating…')).toBeNull()
+            // Each PDF gets a new frame, with no history for Back to return to the freed one.
+            expect(previewFrame()).not.toBe(firstFrame)
+        })
+
+        it('makes it again when the profile settings change, but not when nothing did', async () => {
+            const view = render(<Owner onOpenChange={vi.fn()} />)
+            await waitOutPreviewDelay()
+            await waitFor(() => expect(previewFrame()).toHaveAttribute('src', 'blob:preview-1#navpanes=0'))
+
+            // The settings are read afresh on every render; the same values don't count as a change.
+            view.rerender(<Owner onOpenChange={vi.fn()} />)
+            await waitOutPreviewDelay()
+            expect(previewMarkdownPdf).toHaveBeenCalledTimes(1)
+
+            profiles.edit = (profile) => {
+                profile.page.marginsMm.top = 40
+            }
+            view.rerender(<Owner onOpenChange={vi.fn()} />)
+            await waitOutPreviewDelay()
+            await waitFor(() => expect(previewMarkdownPdf).toHaveBeenCalledTimes(2))
+            expect(previewMarkdownPdf.mock.calls[1][2].profile.page.marginsMm.top).toBe(40)
+        })
+
+        it('frees the PDF when the dialog closes', async () => {
+            const { view } = renderDialog()
+            await waitOutPreviewDelay()
+            await waitFor(() => expect(previewFrame()).toBeInTheDocument())
+            view.unmount()
+            expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
+        })
+
+        it('says what the preview left out, on the page and to screen readers', async () => {
+            const note = 'There is no footer to put the page numbers in.'
+            previewMarkdownPdf.mockResolvedValue({ pdf: new Blob(['%PDF-1.7']), note })
+            renderDialog()
+            expect(previewStatus()).toHaveTextContent('Updating…')
+            await waitOutPreviewDelay()
+            await waitFor(() => expect(previewStatus()).toHaveTextContent(note))
+            const shown = screen.getAllByText(note).filter((element) => !element.closest('[role=status]'))
+            expect(shown).toHaveLength(1)
+        })
+
+        it('says why the preview could not be made', async () => {
+            previewMarkdownPdf.mockRejectedValue(new Error('Nothing to export.'))
+            renderDialog()
+            await waitOutPreviewDelay()
+            expect(await screen.findByText('Preview failed: Nothing to export.')).toBeInTheDocument()
+            expect(previewStatus()).toHaveTextContent('Preview failed.')
+            expect(screen.queryByTitle('PDF preview')).toBeNull()
+            // Only the export itself puts up an alert.
+            expect(screen.queryByRole('alert')).toBeNull()
+        })
+
+        it('has no preview for Word files, or outside the Windows app', async () => {
+            const word = render(<Owner format="docx" onOpenChange={vi.fn()} />)
+            await screen.findByLabelText('Title')
+            await waitOutPreviewDelay()
+            expect(screen.queryByRole('region', { name: 'PDF preview' })).toBeNull()
+            word.unmount()
+
+            platform.windows = false
+            render(<Owner onOpenChange={vi.fn()} />)
+            await screen.findByLabelText('Title')
+            await waitOutPreviewDelay()
+            expect(screen.queryByRole('region', { name: 'PDF preview' })).toBeNull()
+            expect(previewMarkdownPdf).not.toHaveBeenCalled()
+        })
     })
 })

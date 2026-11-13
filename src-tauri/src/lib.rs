@@ -2,6 +2,7 @@ mod atomic_write;
 mod close_watchdog;
 mod crash_report;
 mod legacy_profile;
+mod navigation_guard;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
@@ -63,6 +64,7 @@ fn open_stores(app: &tauri::AppHandle) {
 /// Builds the window from its entry in tauri.conf.json. That entry has
 /// `"create": false`, so Tauri doesn't build it before `setup` runs: the old
 /// profile has to be copied in before WebView2 opens it (see `legacy_profile`).
+/// The window only ever shows the app's own pages (see `navigation_guard`).
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let config = app
         .config()
@@ -72,7 +74,8 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .find(|window| window.label == "main")
         .ok_or(tauri::Error::WindowNotFound)?
         .clone();
-    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &config)?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .on_navigation(navigation_guard::guard(app, &config));
     // Settings lost with the WebView2 profile come back from settings.json.
     let data_dir = app.path().app_data_dir().ok();
     if let Some(script) = settings_file::restore_script(data_dir.as_deref()) {
@@ -308,6 +311,7 @@ pub fn run() {
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
             pdf_export::export_html_to_pdf,
+            pdf_export::preview::preview_html_pdf,
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
             pdf_export::adopt_export_images,
