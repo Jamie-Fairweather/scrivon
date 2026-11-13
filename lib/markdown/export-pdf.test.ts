@@ -394,6 +394,20 @@ describe('export-pdf helpers', () => {
         expect(JSON.stringify(wordDocument.tree)).toContain(`"url":"${png}"`)
     })
 
+    it('counts the web images it left out because the user hasn’t loaded them', async () => {
+        isWindowsTauri.mockReturnValue(true)
+        isTauri.mockReturnValue(true)
+        pickSavePath.mockResolvedValue('C:/out.pdf')
+        const source = '![Build](https://img.example.com/build.svg) ![Licence](https://img.example.com/licence.svg)'
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+
+        await expect(exportMarkdown(source, 'README.md')).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf', webImagesLeftOut: 2 })
+
+        // Once loaded they are downloaded, so none is left out.
+        invoke.mockImplementation(async (command: string) => (command === 'fetch_export_image' ? 'data:image/svg+xml;base64,PHN2Zy8+' : undefined))
+        await expect(exportMarkdown(source, 'README.md', { allowRemoteImages: true })).resolves.toEqual({ status: 'saved', path: 'C:/out.pdf' })
+    })
+
     it('names the left-out images when the export is saved', async () => {
         const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
         notifyExportSaved({ status: 'saved', path: 'C:/out/q3.pdf', missingImages: [MISSING_LOGO] })
@@ -421,14 +435,31 @@ describe('export-pdf helpers', () => {
         notifyExportSaved({ status: 'saved', path: 'C:/out/q3.pdf', missingImages: missing })
         expect(notifyWarning).toHaveBeenCalledWith('Saved q3.pdf without some images', {
             description:
-                'Image (1.png): Image not found.; Image (2.png): Image not found.; Image (3.png): Image not found.; ' +
-                'Image (4.png): Image not found.; Image (5.png): Image not found.; and 2 more.',
+                'Image (1.png): Image not found; Image (2.png): Image not found; Image (3.png): Image not found; ' +
+                'Image (4.png): Image not found; Image (5.png): Image not found; and 2 more.',
             action: expect.objectContaining({ label: 'Show in folder' }),
         })
 
         // `![]()` has no address to name.
         notifyExportSaved({ status: 'saved', missingImages: [{ slot: 'Image', path: '', reason: 'The image has no address.' }] })
         expect(notifyWarning).toHaveBeenLastCalledWith('Some images were left out', { description: 'Image: The image has no address.' })
+    })
+
+    it('says how many web images were left out, and how to include them', async () => {
+        const { notifyExportSaved } = await import('@/lib/markdown/export-pdf')
+        notifyExportSaved({ status: 'saved', path: 'C:/out/README.pdf', webImagesLeftOut: 3 })
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(notifyWarning).toHaveBeenCalledWith('Saved README.pdf without some images', {
+            description: '3 web images were left out. Choose Load images in the preview to include them.',
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        // After the images that failed, and printed with no path to show.
+        notifyExportSaved({ status: 'saved', missingImages: [MISSING_LOGO], webImagesLeftOut: 1 })
+        expect(notifyWarning).toHaveBeenLastCalledWith('Some images were left out', {
+            description:
+                'Cover image (logo.png): Could not read image: not found. 1 web image was left out. Choose Load images in the preview to include it.',
+        })
     })
 
     it('says when the table of contents had no headings to list', async () => {

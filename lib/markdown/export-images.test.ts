@@ -59,13 +59,13 @@ function folderHas(files: Files) {
 /** The body of the PDF page for `source` once its images are embedded, and what was left out. */
 async function exportBody(source: string, options: { allowRemoteImages?: boolean; documentPath?: string | null } = {}) {
     const document = buildExportDocument(source)
-    const missing = await embedDocumentImages(document.tree, {
+    const { missing, webImagesLeftOut } = await embedDocumentImages(document.tree, {
         documentPath: options.documentPath === undefined ? DOC : options.documentPath,
         workspaceRoot: ROOT,
         allowRemoteImages: options.allowRemoteImages ?? false,
     })
     const { html } = await renderExportPdf(document, { allowRemoteImages: options.allowRemoteImages ?? false })
-    return { body: html.slice(html.indexOf('<div class="pdf-body">')), missing }
+    return { body: html.slice(html.indexOf('<div class="pdf-body">')), missing, webImagesLeftOut }
 }
 
 describe('embedDocumentImages', () => {
@@ -113,29 +113,68 @@ describe('embedDocumentImages', () => {
         expect(missing).toEqual([{ slot: 'Image', path: 'gone.png', reason: 'Image not found.' }])
     })
 
-    it('embeds images in raw HTML, keeping their size, and leaves out the src of one it couldn’t read', async () => {
+    it('embeds images in raw HTML, keeping their size, and prints the alt text of one it couldn’t read', async () => {
         folderHas({ 'C:\\notes\\guides\\logo.png': PNG, 'C:\\notes\\guides\\a&b.png': PNG })
 
         const { body, missing } = await exportBody(
             [
                 '<p align="center"><img src="logo.png" width="120" alt="Logo > all"></p>',
                 'Inline <img src=\'gone.png\' alt="Gone"> and <IMG SRC=a&amp;b.png> here.<br><img alt="No address">',
+                '<div><img src="gone.png" width="300"> <img src="lost.png" alt="A < B"></div>',
                 '<!-- <img src="old.png"> -->',
             ].join('\n\n')
         )
 
         expect(body).toContain(`<p align="center" dir="auto"><img src="${PNG}" width="120" alt="Logo > all"></p>`)
-        expect(body).toContain(`Inline <img alt="Gone"> and <img src="${PNG}"> here.<br><img alt="No address">`)
-        expect(missing).toEqual([{ slot: 'Image', path: 'gone.png', reason: 'Image not found.' }])
-        expect(invoke).toHaveBeenCalledTimes(3)
+        // As for a Markdown picture: its alt text or [image], not an empty gap the picture's size.
+        expect(body).toContain(`Inline Gone and <img src="${PNG}"> here.<br><img alt="No address">`)
+        expect(body).toContain('[image] A &#x3C; B</div>')
+        expect(missing).toEqual([
+            { slot: 'Image', path: 'gone.png', reason: 'Image not found.' },
+            { slot: 'Image', path: 'lost.png', reason: 'Image not found.' },
+        ])
+        expect(invoke).toHaveBeenCalledTimes(4)
     })
 
-    it('leaves web images out, as the preview does, until the user loads them there', async () => {
-        const { body, missing } = await exportBody('![Badge](https://img.example.com/b.svg) <img src="http://img.example.com/c.png" alt="Chart">')
+    it('leaves web images out, as the preview does, until the user loads them there, and counts them', async () => {
+        const { body, missing, webImagesLeftOut } = await exportBody(
+            '![Badge](https://img.example.com/b.svg) <img src="http://img.example.com/c.png" alt="Chart"> ![Again](https://img.example.com/b.svg)'
+        )
 
-        expect(body).toContain('<p dir="auto">Badge Chart</p>')
+        expect(body).toContain('<p dir="auto">Badge Chart Again</p>')
         expect(missing).toEqual([])
+        // Once for each address, as the images it couldn't embed are listed.
+        expect(webImagesLeftOut).toBe(2)
         expect(invoke).not.toHaveBeenCalled()
+    })
+
+    it('reads no picture the export never shows, and leaves those as written', async () => {
+        folderHas({ 'C:\\notes\\guides\\logo.png': PNG })
+        const hidden = [
+            '<noscript><img src="https://tracker.example.com/p.gif"></noscript>',
+            'Text <noscript>![Pixel](https://tracker.example.com/q.gif)</noscript>',
+            '<template><img src="logo.png"></template>',
+            '<script>\nlet a = \'<img src="https://tracker.example.com/s.gif">\'\n</script>',
+            '<style>\n/* <img src="https://tracker.example.com/t.gif"> */\n</style>',
+            '<textarea>\n<img src="https://tracker.example.com/u.gif">\n</textarea>',
+            '<a title=\'<img src="https://tracker.example.com/w.gif">\'>Link</a>',
+            '[^unused]: ![Never](https://tracker.example.com/v.gif)',
+        ]
+        const document = buildExportDocument([...hidden, '![Shown](logo.png)'].join('\n\n'))
+        const asWritten = JSON.stringify(document.tree.children.slice(0, -1))
+
+        for (const allowRemoteImages of [true, false]) {
+            const result = await embedDocumentImages(document.tree, { documentPath: DOC, workspaceRoot: ROOT, allowRemoteImages })
+            expect(result, `allowRemoteImages: ${allowRemoteImages}`).toEqual({ missing: [], webImagesLeftOut: 0 })
+        }
+
+        expect(invoke).toHaveBeenCalledTimes(1)
+        expect(invoke).toHaveBeenCalledWith('read_workspace_image', { root: ROOT, path: 'C:\\notes\\guides\\logo.png' })
+        expect(JSON.stringify(document.tree.children.slice(0, -1))).toBe(asWritten)
+        const { html } = await renderExportPdf(document)
+        // The textarea's text prints as written.
+        expect(html).toContain('&#x3C;img src="https://tracker.example.com/u.gif">')
+        expect(html).toContain(`<img src="${PNG}" alt="Shown">`)
     })
 
     it('downloads web images through the app once they are loaded, and lists the ones it couldn’t', async () => {
@@ -145,12 +184,13 @@ describe('embedDocumentImages', () => {
             throw 'The site answered 404 Not Found.'
         })
 
-        const { body, missing } = await exportBody(
+        const { body, missing, webImagesLeftOut } = await exportBody(
             '![Badge](https://img.example.com/b.svg) ![Gone](//img.example.com/gone.png) ![Bad](http://[img.example.com/c.png)',
             { allowRemoteImages: true }
         )
 
         expect(body).toContain(`<p dir="auto"><img src="${SVG}" alt="Badge"> Gone Bad</p>`)
+        expect(webImagesLeftOut).toBe(0)
         expect(missing).toEqual([
             { slot: 'Image', path: '//img.example.com/gone.png', reason: 'The site answered 404 Not Found.' },
             { slot: 'Image', path: 'http://[img.example.com/c.png', reason: 'This web address isn’t valid.' },
@@ -177,10 +217,14 @@ describe('embedDocumentImages', () => {
     it('leaves inline pictures as they are, and outside the desktop app web images too', async () => {
         isTauri.mockReturnValue(false)
 
-        const { body, missing } = await exportBody(`![Dot](${PNG}) ![Badge](https://img.example.com/b.svg)`, { allowRemoteImages: true })
+        const source = `![Dot](${PNG}) ![Badge](https://img.example.com/b.svg)`
+        const { body, missing, webImagesLeftOut } = await exportBody(source, { allowRemoteImages: true })
 
         expect(body).toContain(`<img src="${PNG}" alt="Dot"> <img src="https://img.example.com/b.svg" alt="Badge" referrerpolicy="no-referrer">`)
         expect(missing).toEqual([])
+        // The print dialog's page fetches it, so it isn't left out, unless the user hasn't loaded it.
+        expect(webImagesLeftOut).toBe(0)
+        await expect(exportBody(source)).resolves.toMatchObject({ webImagesLeftOut: 1 })
         expect(invoke).not.toHaveBeenCalled()
     })
 })

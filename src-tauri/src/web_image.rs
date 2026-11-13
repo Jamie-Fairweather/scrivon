@@ -6,6 +6,7 @@
 //! and only a real image (checked by its first bytes) up to the export image
 //! size limit is handed back.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use base64::Engine;
@@ -33,10 +34,20 @@ const IMAGE_TYPES: [&str; 5] = [
 /// Downloads the web image at `url` as a data URL, for an export to embed.
 #[tauri::command]
 pub async fn fetch_export_image(url: String) -> Result<String, String> {
+    fetch_image(shared_client()?, &url, MAX_EXPORT_IMAGE_BYTES).await
+}
+
+/// One client for every download, so images from the same site share a connection.
+fn shared_client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
     let client = client_builder()
         .build()
         .map_err(|_| "Couldn't start the download.".to_string())?;
-    fetch_image(&client, &url, MAX_EXPORT_IMAGE_BYTES).await
+    // Two downloads may start at once; whichever client is kept first is used by both.
+    Ok(CLIENT.get_or_init(|| client))
 }
 
 /// A client that sends no referrer and keeps no cookies. The updater shares
@@ -243,6 +254,13 @@ mod tests {
                 Err("Image is too large to embed in the export (limit 12 MB).".into())
             );
         }
+    }
+
+    #[test]
+    fn every_download_shares_one_client() {
+        let first = shared_client().unwrap();
+
+        assert!(std::ptr::eq(first, shared_client().unwrap()));
     }
 
     #[test]

@@ -3,11 +3,13 @@ import { toHtml } from 'hast-util-to-html'
 import { invoke } from '@tauri-apps/api/core'
 import type { Definition, Html, Image, ImageReference, Parent, PhrasingContent, Root, Text } from 'mdast'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 import { decode, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
 import type { PdfExportMissingImage } from '@/lib/markdown/export-assets'
+import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { isExportWebImageUrl, webImageAddress } from '@/lib/markdown/web-images'
 import { errorMessage } from '@/lib/notify'
 import { createLimit } from '@/lib/tauri/fs'
@@ -19,11 +21,19 @@ export type DocumentImageOptions = MarkdownLinkContext & {
     allowRemoteImages: boolean
 }
 
+/** What became of the document's pictures. */
+export type DocumentImages = {
+    /** The pictures that couldn't be embedded, and why, once for each address. */
+    missing: PdfExportMissingImage[]
+    /** Web images left out because the user hasn't chosen Load images in the preview, counted once for each address. */
+    webImagesLeftOut: number
+}
+
 /** What became of an image's address: the picture to embed, or why it can't be. */
 type Embedded = { dataUrl: string } | { reason: string }
 
-/** A picture in the document: its address as written, and how to put the outcome in its place. */
-type ImageSite = { src: string; apply: (outcome: Embedded) => void }
+/** A picture in the document: its address as written, and how to put an outcome in its place (null puts it back as written). */
+type ImageSite = { src: string; apply: (outcome: Embedded | null) => void }
 
 /** Web images downloaded at once, so a document full of badges doesn't open dozens of connections together. */
 const MAX_PARALLEL_DOWNLOADS = 4
@@ -61,8 +71,8 @@ async function embed(src: string, options: DocumentImageOptions): Promise<Embedd
 }
 
 /** What prints in place of a picture that couldn't be embedded, as for a web image the user didn't load. */
-function altText(alt: string | null | undefined): Text {
-    return { type: 'text', value: alt?.trim() || '[image]' }
+function altText(alt: unknown): Text {
+    return { type: 'text', value: (typeof alt === 'string' && alt.trim()) || '[image]' }
 }
 
 /** Reads raw HTML the way the PDF and Word exports do, so an `<img>`'s address comes out as they see it. */
@@ -73,7 +83,7 @@ const IMG_TAG_OR_COMMENT = /<!--[\s\S]*?(?:-->|$)|<img\b(?:[^>"']|"[^"]*"|'[^']*
 
 /**
  * The pictures in a piece of raw HTML. Each `<img>` that is embedded is written again with the picture as its
- * `src`; one that can't be loses its `src`, so its alt text shows instead, as for a Markdown picture.
+ * `src`; one that can't be is swapped for its alt text, as a Markdown picture is.
  */
 function htmlImageSites(node: Html): ImageSite[] {
     const html = node.value
@@ -94,9 +104,9 @@ function htmlImageSites(node: Html): ImageSite[] {
         sites.push({
             src,
             apply: (outcome) => {
-                if ('dataUrl' in outcome) img.properties.src = outcome.dataUrl
-                else delete img.properties.src
-                parts[at] = toHtml(img)
+                if (outcome === null) parts[at] = match[0]
+                else if ('dataUrl' in outcome) parts[at] = toHtml({ ...img, properties: { ...img.properties, src: outcome.dataUrl } })
+                else parts[at] = toHtml(altText(img.properties.alt))
                 node.value = parts.join('')
             },
         })
@@ -121,33 +131,62 @@ function imageSites(tree: Root): ImageSite[] {
         }
         if (node.type === 'image') {
             const image = node as Image
-            sites.push({ src: image.url, apply: (outcome) => ('dataUrl' in outcome ? (image.url = outcome.dataUrl) : put(altText(image.alt))) })
+            sites.push({
+                src: image.url,
+                apply: (outcome) => put(outcome === null ? image : 'dataUrl' in outcome ? { ...image, url: outcome.dataUrl } : altText(image.alt)),
+            })
         } else if (node.type === 'imageReference') {
             const reference = node as ImageReference
             const definition = definitions.get(reference.identifier)
             // The parser only makes a reference whose label is defined. A link may use the definition too, so the picture gets its own address.
             if (!definition) return
+            const image = (url: string): Image => ({ type: 'image', url, alt: reference.alt, title: definition.title })
             sites.push({
                 src: definition.url,
-                apply: (outcome) =>
-                    put(
-                        'dataUrl' in outcome
-                            ? { type: 'image', url: outcome.dataUrl, alt: reference.alt, title: definition.title }
-                            : altText(reference.alt)
-                    ),
+                apply: (outcome) => put(outcome === null ? reference : 'dataUrl' in outcome ? image(outcome.dataUrl) : altText(reference.alt)),
             })
         }
     })
     return sites
 }
 
+/** The page the PDF and Word exports make of the document (see renderExportPdf), as far as which pictures it keeps. */
+const exportPage = unified()
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRawWhenNeeded)
+    .use(rehypeSanitize, exportSanitizeSchema)
+    .freeze()
+
+/** A stand-in address for the picture at `index`, which the export page keeps as it is. */
+const standIn = (index: number) => `scrivon-export-image-${index}`
+
 /**
- * Puts each picture in the document into it as a `data:` URL, so the PDF and Word files carry their images. Files
- * are found the way the preview finds them. A picture that can't be embedded prints as its alt text, and is
- * returned with the reason, once for each address.
+ * The pictures the exported page shows. Raw HTML can hide one where it never prints, such as in `<noscript>`,
+ * `<template>`, `<script>` or `<textarea>`, and the tags around it may be separate pieces of HTML. So each picture
+ * gets a stand-in address, the page is built as the export builds it, and the ones still there as pictures are kept.
  */
-export async function embedDocumentImages(tree: Root, options: DocumentImageOptions): Promise<PdfExportMissingImage[]> {
-    const sites = imageSites(tree)
+function shownSites(tree: Root, sites: ImageSite[]): ImageSite[] {
+    if (sites.length === 0) return sites
+    sites.forEach((site, index) => site.apply({ dataUrl: standIn(index) }))
+    const shown = new Set<unknown>()
+    try {
+        visit(exportPage.runSync(tree) as HastRoot, 'element', (node: Element) => {
+            if (node.tagName === 'img') shown.add(node.properties.src)
+        })
+    } finally {
+        for (const site of sites) site.apply(null)
+    }
+    return sites.filter((_, index) => shown.has(standIn(index)))
+}
+
+/**
+ * Puts each picture the document shows into it as a `data:` URL, so the PDF and Word files carry their images.
+ * Files are found the way the preview finds them. A picture that can't be embedded prints as its alt text, and is
+ * returned with the reason, once for each address. Web images the user hasn't loaded are left as they are, and
+ * counted.
+ */
+export async function embedDocumentImages(tree: Root, options: DocumentImageOptions): Promise<DocumentImages> {
+    const sites = shownSites(tree, imageSites(tree))
     const reads = new Map<string, Promise<Embedded | null>>()
     for (const { src } of sites) if (!reads.has(src)) reads.set(src, embed(src, options))
 
@@ -157,7 +196,10 @@ export async function embedDocumentImages(tree: Root, options: DocumentImageOpti
         const outcome = outcomes.get(src)
         if (outcome) apply(outcome)
     }
-    return [...outcomes].flatMap(([src, outcome]) =>
+    const missing = [...outcomes].flatMap(([src, outcome]) =>
         outcome && 'reason' in outcome ? [{ slot: 'Image', path: decode(src).trim(), reason: outcome.reason }] : []
     )
+    // Outside the desktop app a loaded web image still prints: the print dialog's page fetches it.
+    const webImagesLeftOut = options.allowRemoteImages ? 0 : [...outcomes.keys()].filter(isExportWebImageUrl).length
+    return { missing, webImagesLeftOut }
 }

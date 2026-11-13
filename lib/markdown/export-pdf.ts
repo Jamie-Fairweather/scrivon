@@ -36,6 +36,8 @@ export type SavedExport = {
     status: 'saved'
     path?: string
     missingImages?: PdfExportMissingImage[]
+    /** How many web images were left out because the user hasn't chosen Load images in the preview. */
+    webImagesLeftOut?: number
     /** Why the PDF was saved without its page numbers (the Windows app adds them after printing). */
     pageNumberWarning?: string
     /** The profile asks for a table of contents, but no heading matched its settings, so there is none. */
@@ -156,7 +158,7 @@ async function renderAndSave(
 ): Promise<ExportResult> {
     const { profile, overrides } = options
     const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
-    const missingImages = await embedDocumentImages(exportDocument.tree, {
+    const { missing: missingImages, webImagesLeftOut } = await embedDocumentImages(exportDocument.tree, {
         documentPath: options.documentPath ?? null,
         workspaceRoot: options.workspaceRoot ?? null,
         allowRemoteImages: options.allowRemoteImages === true,
@@ -165,7 +167,12 @@ async function renderAndSave(
     if (result.status !== 'saved') return result
     // Both renderers leave the contents page out when no heading matches the TOC settings.
     const tocSkipped = profile.frontMatter.toc && exportDocument.toc.length === 0
-    return { ...result, ...(missingImages.length > 0 && { missingImages }), ...(tocSkipped && { tocSkipped }) }
+    return {
+        ...result,
+        ...(missingImages.length > 0 && { missingImages }),
+        ...(webImagesLeftOut > 0 && { webImagesLeftOut }),
+        ...(tocSkipped && { tocSkipped }),
+    }
 }
 
 async function renderAndSaveDocument(
@@ -221,10 +228,20 @@ function fileName(path: string): string {
 /** Left-out images named in the saved notice; the rest are only counted, so a long list doesn't fill the screen. */
 const MAX_NAMED_IMAGES = 5
 
+/** `Image (a.png): Image not found; Image (b.png): …; and 2 more.` */
 function describeMissingImages(missing: PdfExportMissingImage[]): string {
     const named = missing.slice(0, MAX_NAMED_IMAGES).map(({ slot, path, reason }) => `${path ? `${slot} (${fileName(path)})` : slot}: ${reason}`)
     const more = missing.length - named.length
-    return [...named, ...(more > 0 ? [`and ${more} more.`] : [])].join('; ')
+    const items = [...named, ...(more > 0 ? [`and ${more} more.`] : [])]
+    // A full stop never comes before a `;`.
+    return items.map((item, index) => (index < items.length - 1 ? item.replace(/\.$/, '') : item)).join('; ')
+}
+
+/** Said when web images were left out because the user hasn't loaded them in the preview. */
+function describeWebImagesLeftOut(count: number): string {
+    return count === 1
+        ? '1 web image was left out. Choose Load images in the preview to include it.'
+        : `${count} web images were left out. Choose Load images in the preview to include them.`
 }
 
 const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'
@@ -237,11 +254,14 @@ function joinSentences(parts: (string | undefined)[]): string {
 
 /**
  * Tells the user the export was saved and where, with a button that shows the file in its
- * folder. One notice says what had to be left out (page numbers, profile images, or both),
+ * folder. One notice says what had to be left out (page numbers, images, or both),
  * and when no heading matched the table of contents settings.
  */
-export function notifyExportSaved({ path, missingImages = [], pageNumberWarning, tocSkipped }: SavedExport): void {
-    const images = missingImages.length > 0 ? describeMissingImages(missingImages) : ''
+export function notifyExportSaved({ path, missingImages = [], webImagesLeftOut = 0, pageNumberWarning, tocSkipped }: SavedExport): void {
+    const images = joinSentences([
+        missingImages.length > 0 ? describeMissingImages(missingImages) : '',
+        webImagesLeftOut > 0 ? describeWebImagesLeftOut(webImagesLeftOut) : '',
+    ])
     const toc = tocSkipped ? TOC_SKIPPED : ''
     if (!path) {
         // The print dialog or the browser's download took over; only what was left out needs a word.
