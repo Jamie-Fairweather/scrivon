@@ -60,6 +60,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             editorOpen: true,
             editorWidth: DEFAULT_EDITOR_WIDTH,
             restorePanelsOnOpen: true,
+            outlineOpen: false,
         },
         editor: {
             fontSize: 13,
@@ -72,9 +73,13 @@ export function createDefaultSettings(isMac = false): AppSettings {
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
+            reopenLastFolder: true,
         },
         updates: {
             checkOnLaunch: true,
+        },
+        statusBar: {
+            visible: true,
         },
         pdfExport: createDefaultPdfExportSettings(),
         keybinds: createDefaultKeybinds(isMac),

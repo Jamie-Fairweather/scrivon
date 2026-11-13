@@ -2,11 +2,12 @@
 
 import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useCallback, type RefObject } from 'react'
+import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
 import { useFileTreeActions, useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -30,6 +31,9 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                     <Copy />
                     Duplicate
                 </MenuItem>
+                <MenuSeparator />
+                <PathMenuItems path={node.path} />
+                <MenuSeparator />
                 <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                     <Trash2 />
                     Delete
@@ -56,6 +60,9 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 <Pencil />
                 Rename
             </MenuItem>
+            <MenuSeparator />
+            <PathMenuItems path={node.path} />
+            <MenuSeparator />
             <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                 <Trash2 />
                 Delete

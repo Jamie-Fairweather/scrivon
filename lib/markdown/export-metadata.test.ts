@@ -172,6 +172,11 @@ describe('fallbackPdfExportTitle', () => {
         expect(fallbackPdfExportTitle('# ![logo](logo.png) Project', 'x.md')).toBe('Project')
     })
 
+    it('keeps prices in the heading, and gives math its text', () => {
+        expect(fallbackPdfExportTitle('# Plans from $5 to $10', 'x.md')).toBe('Plans from $5 to $10')
+        expect(fallbackPdfExportTitle('# Why $E = mc^2$', 'x.md')).toBe('Why E = mc^2')
+    })
+
     it('leaves an HTML comment or tag in the heading off the title page (S03)', () => {
         expect(fallbackPdfExportTitle('# Report <!-- draft -->', 'x.md')).toBe('Report')
         expect(fallbackPdfExportTitle('# Press <kbd>Ctrl</kbd>', 'x.md')).toBe('Press Ctrl')

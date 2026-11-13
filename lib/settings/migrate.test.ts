@@ -92,12 +92,36 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['settings.open']).toEqual(createDefaultSettings(false).keybinds['settings.open'])
     })
 
+    it('keeps the Outline panel closed by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: 'yes' } }, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: true } }, false).layout.outlineOpen).toBe(true)
+        expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
         expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.tabMovesFocus).toBe(false)
         expect(mergeStoredSettings({ editor: { tabMovesFocus: true } }, false).editor.tabMovesFocus).toBe(true)
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
+    })
+
+    it('reopens the last folder by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.reopenLastFolder).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { maxRecentFolders: 5 } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: false } }, false).workspace.reopenLastFolder).toBe(false)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: 'no' } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(migrateLegacySettings(() => null, false).workspace.reopenLastFolder).toBe(true)
+    })
+
+    it('shows the status bar unless the user hid it', () => {
+        expect(createDefaultSettings(false).statusBar.visible).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).statusBar.visible).toBe(true)
+        expect(mergeStoredSettings({ statusBar: { visible: false } }, false).statusBar.visible).toBe(false)
+        expect(mergeStoredSettings({ statusBar: { visible: 'no' } }, false).statusBar.visible).toBe(true)
     })
 
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
@@ -287,6 +311,7 @@ describe('dualWriteLegacy helpers', () => {
                 editorOpen: false,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
+                outlineOpen: false,
             })
         ).not.toThrow()
         expect(() => dualWriteLegacyAutosave(true)).not.toThrow()
