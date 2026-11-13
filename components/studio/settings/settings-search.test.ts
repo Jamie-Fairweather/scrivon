@@ -58,7 +58,11 @@ describe('searchSettings', () => {
     it('only finds the update check in the desktop app, where it is shown', () => {
         expect(searchSettings('updates', { desktop: false })).toEqual([])
         expect(searchSettings('updates', { desktop: true })).toEqual([
-            expect.objectContaining({ section: 'advanced', label: 'Check for updates on launch' }),
+            expect.objectContaining({ section: 'advanced', label: 'Check for updates automatically' }),
+        ])
+        // The Check for updates now button sits under that switch.
+        expect(searchSettings('check now', { desktop: true })).toEqual([
+            expect.objectContaining({ section: 'advanced', label: 'Check for updates automatically' }),
         ])
     })
 

@@ -21,6 +21,7 @@ import {
 } from '@/components/studio/workspace/workspace-provider'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
+import { isTauri } from '@/lib/tauri/platform'
 import { StudioMenuBar } from './studio-menu-bar'
 
 vi.mock('next/image', () => ({
@@ -41,6 +42,8 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanva
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
 vi.mock('@/components/studio/dialogs/open-source-licenses-dialog', () => ({ OpenSourceLicensesDialog: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
+const { checkForUpdates } = vi.hoisted(() => ({ checkForUpdates: vi.fn(async () => {}) }))
+vi.mock('@/components/studio/app-update-provider', () => ({ useAppUpdate: () => ({ checking: false, checkForUpdates }) }))
 vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/components/studio/shell/window-titlebar-controls')>()),
     WindowTitlebarControls: () => null,
@@ -155,6 +158,7 @@ const menuLabels = (menu: HTMLElement) => menuItems(menu).map((item) => item.tex
 
 beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(isTauri).mockReturnValue(false)
     mockContexts()
     paletteRows = []
 })
@@ -231,6 +235,20 @@ describe('StudioMenuBar', () => {
         const menu = await openMenu('Help')
         expect(within(menu).getByRole('menuitem', { name: 'About Scrivon…' })).toBeInTheDocument()
         expect(within(menu).getByRole('menuitem', { name: 'Licences…' })).toBeInTheDocument()
+        // The browser build has no updates to check for.
+        expect(menuLabels(menu)).toEqual(['About Scrivon…', 'Licences…'])
+        expect(menu.querySelector('[role="separator"]')).toBeNull()
+    })
+
+    it('checks for updates from the Help menu of the desktop app', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        render(<Studio />)
+
+        const menu = await openMenu('Help')
+        expect(menuLabels(menu)).toEqual(['Check for Updates…', 'About Scrivon…', 'Licences…'])
+        await userEvent.setup().click(within(menu).getByRole('menuitem', { name: 'Check for Updates…' }))
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1)
     })
 
     it("shows each item's keyboard shortcut", async () => {
