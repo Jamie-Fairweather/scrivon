@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import nodeConsole from 'node:console'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
@@ -73,6 +74,11 @@ async function waitOutPreviewDelay() {
 
 function previewFrame(): HTMLIFrameElement {
     return screen.getByTitle('PDF preview') as HTMLIFrameElement
+}
+
+/** The preview's status line, which screen readers hear. */
+function previewStatus(): HTMLElement {
+    return within(screen.getByRole('region', { name: 'PDF preview' })).getByRole('status')
 }
 
 async function exportWithTitle(title: string) {
@@ -374,6 +380,14 @@ describe('PdfExportDialog', () => {
     describe('PDF preview', () => {
         beforeEach(() => {
             vi.useFakeTimers({ shouldAdvanceTime: true })
+            // happy-dom never loads frames, and logs that for each blob: PDF on Node's own console
+            // (not the test's). Keep only that message out of the test output.
+            const logError = nodeConsole.error.bind(nodeConsole)
+            vi.spyOn(nodeConsole, 'error').mockImplementation((...args: unknown[]) => {
+                const message = (args[0] as { message?: unknown } | undefined)?.message
+                if (typeof message === 'string' && message.startsWith('Failed to load iframe page "blob:preview-')) return
+                logError(...args)
+            })
         })
 
         it('shows the PDF beside the settings and makes it again shortly after a change', async () => {
@@ -381,6 +395,7 @@ describe('PdfExportDialog', () => {
             expect(await screen.findByRole('region', { name: 'PDF preview' })).toBeInTheDocument()
             await waitOutPreviewDelay()
             await waitFor(() => expect(previewFrame()).toHaveAttribute('src', 'blob:preview-1#navpanes=0'))
+            const firstFrame = previewFrame()
             expect(previewMarkdownPdf).toHaveBeenCalledTimes(1)
             expect(previewMarkdownPdf).toHaveBeenCalledWith(
                 '# Report\n\nBody',
@@ -406,6 +421,8 @@ describe('PdfExportDialog', () => {
             )
             expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
             expect(screen.queryByText('Updating…')).toBeNull()
+            // Each PDF gets a new frame, with no history for Back to return to the freed one.
+            expect(previewFrame()).not.toBe(firstFrame)
         })
 
         it('makes it again when the profile settings change, but not when nothing did', async () => {
@@ -435,11 +452,15 @@ describe('PdfExportDialog', () => {
             expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
         })
 
-        it('says why the page numbers are missing from the preview', async () => {
-            previewMarkdownPdf.mockResolvedValue({ pdf: new Blob(['%PDF-1.7']), pageNumberWarning: 'There is no footer to put the page numbers in.' })
+        it('says what the preview left out, on the page and to screen readers', async () => {
+            const note = 'There is no footer to put the page numbers in.'
+            previewMarkdownPdf.mockResolvedValue({ pdf: new Blob(['%PDF-1.7']), note })
             renderDialog()
+            expect(previewStatus()).toHaveTextContent('Updating…')
             await waitOutPreviewDelay()
-            expect(await screen.findByText('There is no footer to put the page numbers in.')).toBeInTheDocument()
+            await waitFor(() => expect(previewStatus()).toHaveTextContent(note))
+            const shown = screen.getAllByText(note).filter((element) => !element.closest('[role=status]'))
+            expect(shown).toHaveLength(1)
         })
 
         it('says why the preview could not be made', async () => {
@@ -447,6 +468,7 @@ describe('PdfExportDialog', () => {
             renderDialog()
             await waitOutPreviewDelay()
             expect(await screen.findByText('Preview failed: Nothing to export.')).toBeInTheDocument()
+            expect(previewStatus()).toHaveTextContent('Preview failed.')
             expect(screen.queryByTitle('PDF preview')).toBeNull()
             // Only the export itself puts up an alert.
             expect(screen.queryByRole('alert')).toBeNull()

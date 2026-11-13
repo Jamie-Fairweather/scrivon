@@ -2,6 +2,7 @@ mod atomic_write;
 mod close_watchdog;
 mod crash_report;
 mod legacy_profile;
+mod navigation_guard;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
@@ -57,6 +58,7 @@ fn open_stores(app: &tauri::AppHandle) {
 /// Builds the window from its entry in tauri.conf.json. That entry has
 /// `"create": false`, so Tauri doesn't build it before `setup` runs: the old
 /// profile has to be copied in before WebView2 opens it (see `legacy_profile`).
+/// The window only ever shows the app's own pages (see `navigation_guard`).
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let config = app
         .config()
@@ -66,7 +68,9 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .find(|window| window.label == "main")
         .ok_or(tauri::Error::WindowNotFound)?
         .clone();
-    tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
+    tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .on_navigation(navigation_guard::guard(app, &config))
+        .build()?;
     Ok(())
 }
 

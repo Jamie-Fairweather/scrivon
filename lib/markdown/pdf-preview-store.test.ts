@@ -52,13 +52,13 @@ describe('createPdfPreviewStore', () => {
         store.request(first)
         await vi.advanceTimersByTimeAsync(DELAY_MS - 1)
         store.request(last)
-        expect(store.getState()).toEqual({ url: '', pageNumberWarning: '', updating: true, error: '' })
+        expect(store.getState()).toEqual({ url: '', note: '', updating: true, error: '' })
         expect(listener).toHaveBeenCalled()
 
         await vi.advanceTimersByTimeAsync(DELAY_MS)
         expect(first).not.toHaveBeenCalled()
         expect(last).toHaveBeenCalledTimes(1)
-        expect(store.getState()).toEqual({ url: 'blob:4-1', pageNumberWarning: '', updating: false, error: '' })
+        expect(store.getState()).toEqual({ url: 'blob:4-1', note: '', updating: false, error: '' })
     })
 
     it('makes one preview at a time, then the newest one asked for', async () => {
@@ -86,16 +86,16 @@ describe('createPdfPreviewStore', () => {
         expect(b.render).not.toHaveBeenCalled()
         expect(c.render).toHaveBeenCalledTimes(1)
 
-        c.finish({ ...pdf('ccc'), pageNumberWarning: 'No room for page numbers.' })
+        c.finish({ ...pdf('ccc'), note: 'No room for page numbers.' })
         await vi.advanceTimersByTimeAsync(0)
-        expect(store.getState()).toEqual({ url: 'blob:3-2', pageNumberWarning: 'No room for page numbers.', updating: false, error: '' })
+        expect(store.getState()).toEqual({ url: 'blob:3-2', note: 'No room for page numbers.', updating: false, error: '' })
         // A's PDF is let go once C replaces it.
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:1-1')
     })
 
     it('says why a preview failed instead of showing an old one', async () => {
         const store = createPdfPreviewStore(DELAY_MS)
-        store.request(async () => ({ ...pdf('ok'), pageNumberWarning: 'No footer.' }))
+        store.request(async () => ({ ...pdf('ok'), note: 'No footer.' }))
         await vi.advanceTimersByTimeAsync(DELAY_MS)
         expect(store.getState().url).toBe('blob:2-1')
 
@@ -103,7 +103,7 @@ describe('createPdfPreviewStore', () => {
             throw new Error('Nothing to export.')
         })
         await vi.advanceTimersByTimeAsync(DELAY_MS)
-        expect(store.getState()).toEqual({ url: '', pageNumberWarning: '', updating: false, error: 'Nothing to export.' })
+        expect(store.getState()).toEqual({ url: '', note: '', updating: false, error: 'Nothing to export.' })
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:2-1')
 
         // The command's own errors arrive as plain strings.
@@ -128,13 +128,13 @@ describe('createPdfPreviewStore', () => {
 
         store.clear()
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:5-1')
-        expect(store.getState()).toMatchObject({ url: '', pageNumberWarning: '', error: '' })
+        expect(store.getState()).toMatchObject({ url: '', note: '', error: '' })
 
         printing.finish(pdf('late'))
         await vi.advanceTimersByTimeAsync(DELAY_MS)
         expect(waiting).not.toHaveBeenCalled()
         expect(createObjectURL).toHaveBeenCalledTimes(1)
-        expect(store.getState()).toEqual({ url: '', pageNumberWarning: '', updating: false, error: '' })
+        expect(store.getState()).toEqual({ url: '', note: '', updating: false, error: '' })
 
         // A cleared store still makes previews when asked again.
         store.request(async () => pdf('again'))

@@ -4,8 +4,8 @@ import { errorMessage } from '@/lib/notify'
 export type PdfPreviewState = {
     /** Object URL of the newest preview PDF; empty until there is one. */
     url: string
-    /** Why that PDF has no page numbers; empty when it has them or needs none. */
-    pageNumberWarning: string
+    /** What that PDF had to leave out (page numbers, images, the contents page); empty when nothing. */
+    note: string
     /** A newer preview is waiting or being made. */
     updating: boolean
     /** Why the newest preview couldn't be made; empty when it could. */
@@ -24,7 +24,7 @@ export type PdfPreviewStore = {
     clear: () => void
 }
 
-const EMPTY: PdfPreviewState = { url: '', pageNumberWarning: '', updating: false, error: '' }
+const EMPTY: PdfPreviewState = { url: '', note: '', updating: false, error: '' }
 
 /** Keeps the export dialog's PDF preview: when to remake it, and the URL of the newest one. */
 export function createPdfPreviewStore(delayMs: number): PdfPreviewStore {
@@ -52,10 +52,9 @@ export function createPdfPreviewStore(delayMs: number): PdfPreviewStore {
         let shown: Partial<PdfPreviewState>
         try {
             const preview = await render()
-            shown =
-                started === generation ? { url: URL.createObjectURL(preview.pdf), pageNumberWarning: preview.pageNumberWarning ?? '', error: '' } : {}
+            shown = started === generation ? { url: URL.createObjectURL(preview.pdf), note: preview.note ?? '', error: '' } : {}
         } catch (err) {
-            shown = started === generation ? { url: '', pageNumberWarning: '', error: errorMessage(err, "The preview couldn't be made.") } : {}
+            shown = started === generation ? { url: '', note: '', error: errorMessage(err, "The preview couldn't be made.") } : {}
         }
         running = false
         update(shown)
@@ -83,7 +82,7 @@ export function createPdfPreviewStore(delayMs: number): PdfPreviewStore {
             timer = undefined
             next = undefined
             generation++
-            update({ url: '', pageNumberWarning: '', error: '' })
+            update({ url: '', note: '', error: '' })
         },
     }
 }

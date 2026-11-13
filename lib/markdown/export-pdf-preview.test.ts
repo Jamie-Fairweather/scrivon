@@ -27,7 +27,10 @@ const renderExportPdf = vi.hoisted(() =>
     }))
 )
 const LOGO = vi.hoisted(() => ({ logoDataUrl: 'data:image/png;base64,AAAA', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
-const resolvePdfExportAssets = vi.hoisted(() => vi.fn(async () => ({ assets: LOGO, missing: [] })))
+type MissingImage = { slot: string; path: string; reason: string }
+const resolvePdfExportAssets = vi.hoisted(() =>
+    vi.fn<() => Promise<{ assets: typeof LOGO; missing: MissingImage[] }>>(async () => ({ assets: LOGO, missing: [] }))
+)
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 vi.mock('@/lib/markdown/markdown-to-export-html', () => ({ renderExportPdf }))
@@ -60,14 +63,32 @@ describe('previewMarkdownPdf', () => {
 
         expect(preview.pdf.type).toBe('application/pdf')
         expect(new TextDecoder().decode(await preview.pdf.arrayBuffer())).toBe('%PDF-1.7')
-        expect(preview.pageNumberWarning).toBeUndefined()
+        expect(preview.note).toBeUndefined()
     })
 
     it('passes on why the page numbers were left out', async () => {
         invoke.mockResolvedValue({ pdf: '', pageNumberWarning: 'There is no footer to put the page numbers in.' })
         const preview = await previewMarkdownPdf('Body', undefined, { profile: createDefaultPdfExportProfile() })
-        expect(preview.pageNumberWarning).toBe('There is no footer to put the page numbers in.')
+        expect(preview.note).toBe('There is no footer to put the page numbers in.')
         expect(renderExportPdf.mock.calls[0][1]).toEqual({ stamped: true, allowRemoteImages: false })
+    })
+
+    it('says which images and which contents page the export would leave out, as the saved notice does', async () => {
+        invoke.mockResolvedValue({ pdf: '', pageNumberWarning: null })
+        resolvePdfExportAssets.mockResolvedValueOnce({
+            assets: LOGO,
+            missing: [{ slot: 'Header left image', path: 'G:/brand/logo.png', reason: 'Could not read image: not found' }],
+        })
+        const profile = createDefaultPdfExportProfile()
+        // Only H1 headings, and the default contents page leaves H1 out.
+        profile.frontMatter.toc = true
+
+        const preview = await previewMarkdownPdf('# One\n\nText', 'notes.md', { profile })
+
+        expect(preview.note).toBe(
+            'Some images were left out. Header left image (logo.png): Could not read image: not found. ' +
+                'No headings matched the table of contents settings, so no contents page was added.'
+        )
     })
 
     it('fails with the reason when the document or the print fails', async () => {

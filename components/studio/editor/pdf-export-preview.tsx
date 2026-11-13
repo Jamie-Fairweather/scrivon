@@ -30,7 +30,7 @@ type PdfExportPreviewProps = {
  */
 export function PdfExportPreview({ source, tabName, profile, title, subtitle, author, date, allowRemoteImages, className }: PdfExportPreviewProps) {
     const [store] = useState(() => createPdfPreviewStore(PREVIEW_DELAY_MS))
-    const { url, pageNumberWarning, updating, error } = useSyncExternalStore(store.subscribe, store.getState, store.getState)
+    const { url, note, updating, error } = useSyncExternalStore(store.subscribe, store.getState, store.getState)
     // Settings can hand over a fresh profile object with the same values; only a real change counts.
     const profileKey = JSON.stringify(profile)
 
@@ -49,15 +49,22 @@ export function PdfExportPreview({ source, tabName, profile, title, subtitle, au
         <section aria-label="PDF preview" data-slot="pdf-preview" className={cn('flex min-h-0 min-w-0 flex-col gap-2', className)}>
             <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium">Preview</h3>
+                {/* Once an update ends, screen readers hear how it went; the page shows it below. */}
                 <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
-                    {updating ? 'Updating…' : ''}
+                    {updating ? 'Updating…' : <span className="sr-only">{error ? 'Preview failed.' : note}</span>}
                 </p>
             </div>
-            {pageNumberWarning ? <p className="text-xs text-warning-foreground">{pageNumberWarning}</p> : null}
+            {note ? <p className="text-xs text-warning-foreground">{note}</p> : null}
             <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted">
                 {url ? (
                     // The PDF opens without its page list, which leaves too little room for the page.
-                    <iframe title="PDF preview" src={`${url}#navpanes=0`} className={cn('size-full transition-opacity', updating && 'opacity-60')} />
+                    // A new frame for each PDF, so Back can't take it to an old one that was freed.
+                    <iframe
+                        key={url}
+                        title="PDF preview"
+                        src={`${url}#navpanes=0`}
+                        className={cn('size-full transition-opacity', updating && 'opacity-60')}
+                    />
                 ) : (
                     <p className="flex size-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
                         {error ? `Preview failed: ${error}` : 'Making the preview…'}
