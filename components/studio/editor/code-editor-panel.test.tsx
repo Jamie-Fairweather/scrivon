@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import { Suspense, lazy, type ComponentType } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -81,6 +81,12 @@ class FakeModel {
     updateOptions(options: FakeModel['options']) {
         Object.assign(this.options, options)
     }
+    getOptions() {
+        return { tabSize: this.options.tabSize ?? 4 }
+    }
+    getLineContent(lineNumber: number) {
+        return this.lines[lineNumber - 1] ?? ''
+    }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
         const line = this.lines[range.startLineNumber - 1] ?? ''
@@ -116,6 +122,8 @@ class FakeEditor {
         this.model?.listeners.delete(this.fire)
         this.model = model
         model?.listeners.add(this.fire)
+        // Like Monaco, a new buffer starts with the cursor at the top.
+        this.selection = null
         this.modelListeners.forEach((l) => l())
     }
     onDidChangeModel(listener: Listener) {
@@ -151,13 +159,29 @@ class FakeEditor {
     }
     revealPositionInCenter() {}
     revealRangeInCenter() {}
+    private readonly cursorListeners = new Set<Listener>()
     setSelection(selection: FakeRange) {
         this.selection = selection
+        this.cursorListeners.forEach((l) => l())
     }
     getSelection() {
         const range = this.selection
         if (!range) return null
         return { ...range, isEmpty: () => range.startLineNumber === range.endLineNumber && range.startColumn === range.endColumn }
+    }
+    getSelections() {
+        const selection = this.getSelection()
+        return selection ? [selection] : [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1, isEmpty: () => true }]
+    }
+    getPosition() {
+        return this.selection ? { lineNumber: this.selection.endLineNumber, column: this.selection.endColumn } : { lineNumber: 1, column: 1 }
+    }
+    onDidChangeCursorSelection(listener: Listener) {
+        this.cursorListeners.add(listener)
+        return { dispose: () => this.cursorListeners.delete(listener) }
+    }
+    onDidChangeModelOptions() {
+        return { dispose: () => {} }
     }
     onDidDispose(listener: Listener) {
         this.disposeListeners.add(listener)
@@ -225,6 +249,10 @@ const fakeMonaco = {
 
 // Skip loading the real bundled Monaco; the fake above stands in for it.
 vi.mock('@/lib/monaco/setup-monaco', () => ({}))
+
+// The link to the preview has its own tests (editor-scroll-sync.test.tsx), with an editor that has its events.
+const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
+vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
 
 /** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
 const tabFocus = {
@@ -298,6 +326,8 @@ const DEFAULT_EDITOR_SETTINGS = {
     lineNumbers: 'on',
     minimap: false,
     tabMovesFocus: false,
+    scrollSync: true,
+    jumpFromPreview: true,
 }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -309,7 +339,9 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
 const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
+const { useEditorCursor, useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
 function tab(path: string, content: string): DocumentTab {
@@ -346,6 +378,31 @@ beforeEach(() => {
     fakeMonaco.editor.registerCommand.mockClear()
     palette.open = vi.fn()
     palette.provided = true
+})
+
+describe('CodeEditorPanel cursor line', () => {
+    function CursorLine() {
+        return <output aria-label="Cursor line">{useEditorCursorLine() ?? 'none'}</output>
+    }
+
+    it('shares the line the cursor is on, for the Outline panel', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, '# A\n\ntext\n\n## Next'), tab(b, '# B')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        const line = render(<CursorLine />)
+        const shown = () => line.getByRole('status', { name: 'Cursor line' }).textContent
+
+        expect(shown()).toBe('1')
+        act(() => editor.setSelection({ startLineNumber: 5, startColumn: 1, endLineNumber: 5, endColumn: 1 }))
+        expect(shown()).toBe('5')
+
+        setTabs(view, { tabs: [tab(a, '# A'), tab(b, '# B')], activeTabId: b })
+        expect(shown()).toBe('1')
+
+        act(() => editor.dispose())
+        expect(shown()).toBe('none')
+    })
 })
 
 describe('CodeEditorPanel models', () => {
@@ -534,6 +591,23 @@ describe('CodeEditorPanel accessibility', () => {
 
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b })
         expect(editor.options.ariaLabel).toMatch(/^b\.mmd, Mermaid editor\./)
+    })
+})
+
+describe('CodeEditorPanel caret for the status bar', () => {
+    it('reports where the caret is and what is selected, until the editor goes away', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'hello world')], activeTabId: a }
+        const cursor = renderHook(() => useEditorCursor())
+        const { view, editor } = await mountEditor()
+        expect(cursor.result.current).toEqual({ line: 1, column: 1, selectedText: '' })
+
+        act(() => editor.setSelection({ startLineNumber: 1, startColumn: 7, endLineNumber: 1, endColumn: 12 }))
+        expect(cursor.result.current).toEqual({ line: 1, column: 12, selectedText: 'world' })
+
+        // The last tab closed: the editor is thrown away.
+        setTabs(view, { tabs: [], activeTabId: null })
+        expect(cursor.result.current).toBeNull()
     })
 })
 
@@ -813,6 +887,29 @@ describe('CodeEditorPanel scrolling', () => {
         editorSettings = { ...editorSettings, wordWrapColumn: 100 }
         view.rerender(<Panel />)
         expect(editor.options.wordWrapColumn).toBe(100)
+    })
+})
+
+describe('CodeEditorPanel link to the preview', () => {
+    it('links the editor with its tab, the settings and whether it shows, until the editor is thrown away', async () => {
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, scrollSync: false }
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        const [linked, options] = vi.mocked(bindEditorScrollSync).mock.calls.at(-1)!
+        expect(linked).toBe(editor)
+        expect(options.tabId()).toBe('/w/a.md')
+        expect(options.scrollEnabled()).toBe(false)
+        expect(options.jumpEnabled()).toBe(true)
+        expect(options.canFocus()).toBe(true)
+
+        editorSettings = { ...editorSettings, scrollSync: true, jumpFromPreview: false }
+        view.rerender(<Panel open={false} />)
+        expect(options.scrollEnabled()).toBe(true)
+        expect(options.jumpEnabled()).toBe(false)
+        expect(options.canFocus()).toBe(false)
+
+        act(() => editor.dispose())
+        expect(scrollSyncBinding.dispose).toHaveBeenCalled()
     })
 })
 

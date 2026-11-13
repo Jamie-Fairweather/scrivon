@@ -71,9 +71,9 @@ import {
     readStamp,
     readWorkspaceFile,
     readWorkspaceTextFile,
-    removeWorkspacePath,
     renameWorkspacePath,
     stampChanged,
+    trashWorkspacePath,
     watchWorkspace,
     writeWorkspaceFile,
 } from './fs'
@@ -292,24 +292,28 @@ describe('workspace fs (Tauri)', () => {
         expect(mkdirMock).not.toHaveBeenCalled()
     })
 
-    it('renames, removes, and duplicates paths', async () => {
+    it('renames and duplicates paths', async () => {
         const bytes = new Uint8Array([0xff, 0xfe, 0x41, 0x00])
         readFileMock.mockResolvedValue(bytes)
         statMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: bytes.length, mtime: null })
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
-        await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
         expect(invokeMock).toHaveBeenCalledWith('rename_workspace_path', { oldPath: '/ws/old.mmd', newPath: '/ws/new.mmd' })
-        expect(removeMock).toHaveBeenCalledWith('/ws/new.mmd', { recursive: false })
         // A byte-for-byte copy that refuses to replace an existing file (copyFile would replace it).
         expect(readFileMock).toHaveBeenCalledWith('/ws/source.mmd')
         expect(writeFileMock).toHaveBeenCalledWith('/ws/copy.mmd', bytes, { createNew: true })
         expect(copyFileMock).not.toHaveBeenCalled()
     })
 
-    it('deletes a folder with everything in it only when asked to', async () => {
-        await removeWorkspacePath('C:\\ws\\docs', { recursive: true })
-        expect(removeMock).toHaveBeenCalledWith('C:\\ws\\docs', { recursive: true })
+    it('deletes by moving to the Recycle Bin through the app, never erasing it outright', async () => {
+        await trashWorkspacePath('C:/ws/docs/')
+        expect(invokeMock).toHaveBeenCalledWith('trash_workspace_path', { path: 'C:\\ws\\docs' })
+        expect(removeMock).not.toHaveBeenCalled()
+    })
+
+    it('passes on why the Recycle Bin would not take it', async () => {
+        invokeMock.mockRejectedValueOnce('It is open in another program. Close it there and try again.')
+        await expect(trashWorkspacePath('C:\\ws\\notes.md')).rejects.toBe('It is open in another program. Close it there and try again.')
     })
 
     it('duplicates unsaved text when given, and never over an existing file', async () => {
@@ -716,7 +720,7 @@ describe('workspace fs (Tauri)', () => {
         await createWorkspaceDirectory('/ws/docs')
         await createWorkspaceFile('/ws/docs/readme.md', '# Hello')
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
-        await removeWorkspacePath('/ws/new.mmd')
+        await trashWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
         await expect(listFolderNames('/ws')).resolves.toEqual([])
         expect(writeTextFileMock).not.toHaveBeenCalled()
