@@ -100,6 +100,14 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
     })
 
+    it('shows the status bar unless the user hid it', () => {
+        expect(createDefaultSettings(false).statusBar.visible).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).statusBar.visible).toBe(true)
+        expect(mergeStoredSettings({ statusBar: { visible: false } }, false).statusBar.visible).toBe(false)
+        expect(mergeStoredSettings({ statusBar: { visible: 'no' } }, false).statusBar.visible).toBe(true)
+    })
+
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
         expect(createDefaultSettings(false).editor.wordWrapColumn).toBe(80)
         // Settings saved before the option existed.
