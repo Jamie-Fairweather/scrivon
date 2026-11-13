@@ -8,6 +8,7 @@ import { EXIT, SKIP, visit } from 'unist-util-visit'
 import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
 import {
     buildPdfExportCss,
+    PDF_BODY_START_MARK,
     PDF_PAGE_NUMBER_MARK,
     PDF_STAMP_GLYPHS_CLASS,
     pdfChromeShown,
@@ -128,10 +129,10 @@ function handleWebImages(hast: HastRoot, allowRemoteImages: boolean): void {
     })
 }
 
-/** Hidden mark inside each TOC-listed heading so the PDF stamper can read which page it landed on. */
-function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
-    if (items.length === 0) return
-    const markById = new Map(items.map((item, index) => [item.id, pdfTocMark(index, 'heading')]))
+/** Hidden mark inside each heading so the PDF stamper can read which page it landed on, for its bookmark and Contents row. */
+function addHeadingMarks(hast: HastRoot, outline: PdfExportOutlineItem[]): void {
+    if (outline.length === 0) return
+    const markById = new Map(outline.map((item, index) => [item.id, pdfTocMark(index, 'heading')]))
     visit(hast, 'element', (node: Element) => {
         if (!HEADING_TAGS.has(node.tagName)) return
         const mark = typeof node.properties.id === 'string' ? markById.get(node.properties.id) : undefined
@@ -348,15 +349,17 @@ function stampGlyphSample(format: string): string {
     return text ? `<span class="${PDF_STAMP_GLYPHS_CLASS}">${escapeHtml(text)}</span>` : ''
 }
 
-function renderToc(items: PdfExportOutlineItem[], stamped: boolean): string {
+/** `outline` is every heading: a row's mark carries its heading's place there, as the heading's own mark does. */
+function renderToc(items: PdfExportOutlineItem[], outline: PdfExportOutlineItem[], stamped: boolean): string {
     if (items.length === 0) return ''
     // Every TOC number is in the same font, so the first row's sample is enough for all of them.
     const sample = stamped ? stampGlyphSample('number') : ''
+    const indexById = new Map(outline.map((item, index) => [item.id, index]))
     const list = items
         .map((item, index) => {
             const level = Math.min(item.level, 4)
             // Only the stamper can fill in a TOC page number; without it the row is just the linked title.
-            const mark = `${index === 0 ? sample : ''}${pdfTocMark(index, 'slot')}`
+            const mark = `${index === 0 ? sample : ''}${pdfTocMark(indexById.get(item.id) ?? index, 'slot')}`
             const page = stamped
                 ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${mark}</span></span>`
                 : ''
@@ -512,7 +515,7 @@ export async function renderExportPdf(
     document: ExportDocument,
     { stamped = true, allowRemoteImages = false }: PdfRenderOptions = {}
 ): Promise<PdfExportDocument> {
-    const { profile, assets, metadata, lang, tree, toc: tocItems } = document
+    const { profile, assets, metadata, lang, tree, outline, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
     // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
@@ -530,7 +533,7 @@ export async function renderExportPdf(
     resolveLinks(hast)
     markTables(hast, profile)
     setTextDirection(hast, new Set(placeholders.keys()))
-    if (stamped) addHeadingMarks(hast, tocItems)
+    if (stamped) addHeadingMarks(hast, outline)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
@@ -538,8 +541,12 @@ export async function renderExportPdf(
         bodyHtml = bodyHtml.split(`<p>${key}</p>`).join(html).split(key).join(html)
     }
 
+    // Numbering from the body: the stamper starts at the page this mark lands on. It goes last, so it never becomes the
+    // body's first child, and CSS lifts it to the top of the body's first page.
+    if (stamped && profile.footer.numberFromBody) bodyHtml += `<span class="pdf-body-mark" dir="ltr">${PDF_BODY_START_MARK}</span>`
+
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
-    const toc = renderToc(tocItems, stamped)
+    const toc = renderToc(tocItems, outline, stamped)
     const baseCss = buildPdfExportCss(profile, metadata)
     const stylesheet = stamped ? baseCss : `${baseCss}\n  ${printDialogPageNumberCss(profile, metadata)}`
     // Backstop for any profile value written into the CSS raw: `</style` would end the stylesheet and start markup.
@@ -558,5 +565,7 @@ export async function renderExportPdf(
 </body>
 </html>`
 
-    return { html, metadata, print: resolvePdfPrintOptions(profile, metadata) }
+    // The stamper turns the headings it finds marked into the PDF's bookmarks.
+    const headings = stamped ? { headings: outline.map(({ level, text }) => ({ level, text })) } : {}
+    return { html, metadata, print: { ...resolvePdfPrintOptions(profile, metadata), ...headings } }
 }

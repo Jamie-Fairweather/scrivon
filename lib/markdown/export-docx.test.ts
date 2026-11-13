@@ -1795,6 +1795,50 @@ describe('renderExportDocx', () => {
         expect(emptyCustom.xml).not.toContain('Draft')
     })
 
+    it('numbers pages from the body: Word restarts at 1 there and counts only its pages (F48)', async () => {
+        const front = (fromBody: boolean) => (draft: PdfExportProfile) => {
+            draft.frontMatter.titlePage = true
+            draft.frontMatter.toc = true
+            draft.footer.pageNumbers = 'n-of-total'
+            // The footer shows on every page, so the title and contents pages have one too.
+            draft.footer.hideOnFirstPages = 'none'
+            draft.footer.numberFromBody = fromBody
+        }
+        const source = '# Report\n\n## Setup\n\nBody'
+        const footers = (parts: Record<string, string>) =>
+            Object.keys(parts)
+                .filter((name) => /^word\/footer\d+\.xml$/.test(name))
+                .map((name) => parts[name]!)
+        const sections = (xml: string) => [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].map((match) => match[0])
+
+        const fromBody = await render(source, front(true))
+        const body = fromBody.parts['word/document.xml']!
+        // Title, contents and body each get a section; only the body's restarts the numbers.
+        expect(sections(body)).toHaveLength(3)
+        expect(sections(body).map((section) => section.includes('<w:pgNumType w:start="1"/>'))).toEqual([false, false, true])
+        // The body's footer counts the body's pages; the front pages' footers show no number.
+        const numbered = footers(fromBody.parts).filter((footer) => footer.includes('>PAGE</w:instrText>'))
+        expect(numbered).toHaveLength(1)
+        expect(numbered[0]).toContain('>SECTIONPAGES</w:instrText>')
+        expect(numbered[0]).not.toContain('NUMPAGES')
+        // The contents row shows the heading's page counted from the body.
+        expect(tocPage(fromBody.xml, 'Setup')).toBe(1)
+
+        const counted = await render(source, front(false))
+        expect(counted.xml).not.toMatch(/<w:pgNumType[^>]*w:start=/)
+        expect(counted.xml).not.toContain('SECTIONPAGES')
+        expect(footers(counted.parts).every((footer) => footer.includes('>PAGE</w:instrText>'))).toBe(true)
+        expect(tocPage(counted.xml, 'Setup')).toBe(3)
+
+        // With no title or contents page, nothing comes before the body to skip.
+        const plain = await render(source, (draft) => {
+            draft.footer.pageNumbers = 'n-of-total'
+            draft.footer.numberFromBody = true
+        })
+        expect(plain.xml).not.toMatch(/<w:pgNumType[^>]*w:start=/)
+        expect(plain.parts['word/footer1.xml']).toContain('NUMPAGES')
+    })
+
     it('paints a watermark image when canvas can encode one', async () => {
         stubDocument('png')
         const { xml } = await render('# Hi', (draft) => {

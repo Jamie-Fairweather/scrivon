@@ -1980,23 +1980,37 @@ function chromeHalfPoints(state: RenderState): number {
     return Math.round(state.bodyHalfPoints * 0.85)
 }
 
-function pageNumberRuns(state: RenderState, color: string): TextRun[] {
+/**
+ * How a section's footer counts pages: every page of the document, only the body's (a section of its own that starts
+ * at 1, when numbering from the body), or not at all (the title and contents pages before such a body).
+ */
+type PageNumbering = 'document' | 'body' | 'none'
+
+/** Whether the pages are numbered from the body: the setting is on and a title or contents page comes before it. */
+function numbersFromBody(state: RenderState): boolean {
+    const { profile } = state.document
+    return profile.footer.numberFromBody && (profile.frontMatter.titlePage || state.toc.length > 0)
+}
+
+function pageNumberRuns(state: RenderState, color: string, numbering: PageNumbering): TextRun[] {
     const { profile, metadata } = state.document
     const format = profile.footer.pageNumbers
+    const total = numbering === 'body' ? PageNumber.TOTAL_PAGES_IN_SECTION : PageNumber.TOTAL_PAGES
     const run = (text?: string, field?: (typeof PageNumber)[keyof typeof PageNumber]) =>
         new TextRun({ text, children: field ? [field] : undefined, font: state.bodyFont, size: chromeHalfPoints(state), color })
-    if (format === 'none') return []
+    const template = format === 'custom' ? pdfPageNumberTemplate(profile, metadata) : ''
+    if (format === 'custom' && !template) {
+        // Plain custom text, with no counter in it, shows on every page.
+        const text = resolvePdfChromeText(profile.footer.right.text, metadata)
+        return text ? [run(text)] : []
+    }
+    if (format === 'none' || numbering === 'none') return []
     if (format === 'page-n') return [run('Page '), run(undefined, PageNumber.CURRENT)]
-    if (format === 'n-of-total') return [run(undefined, PageNumber.CURRENT), run(' / '), run(undefined, PageNumber.TOTAL_PAGES)]
+    if (format === 'n-of-total') return [run(undefined, PageNumber.CURRENT), run(' / '), run(undefined, total)]
     if (format === 'custom') {
-        const template = pdfPageNumberTemplate(profile, metadata)
-        if (!template) {
-            const text = resolvePdfChromeText(profile.footer.right.text, metadata)
-            return text ? [run(text)] : []
-        }
         return template.split(/(\{\{\s*page\s*\}\}|\{\{\s*total\s*\}\})/g).flatMap((part) => {
             if (/\{\{\s*page\s*\}\}/.test(part)) return [run(undefined, PageNumber.CURRENT)]
-            if (/\{\{\s*total\s*\}\}/.test(part)) return [run(undefined, PageNumber.TOTAL_PAGES)]
+            if (/\{\{\s*total\s*\}\}/.test(part)) return [run(undefined, total)]
             return part ? [run(part)] : []
         })
     }
@@ -2036,7 +2050,12 @@ function chromeGap(mm: number): Paragraph {
  * The header or footer bar. The page keeps its real side margins, so a bar that ignores them is
  * pulled out to the paper edge with a negative indent. `zeroSides` is a page with no side margins at all (the edge-to-edge cover).
  */
-function chromeTable(state: RenderState, kind: 'header' | 'footer', zeroSides: boolean): (Paragraph | Table)[] {
+function chromeTable(
+    state: RenderState,
+    kind: 'header' | 'footer',
+    zeroSides: boolean,
+    numbering: PageNumbering = 'document'
+): (Paragraph | Table)[] {
     const { profile, metadata, assets } = state.document
     const layout = resolvePdfExportLayout(profile)
     const chrome = kind === 'header' ? profile.header : profile.footer
@@ -2050,7 +2069,8 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer', zeroSides: b
     const leftImage = embeddedImage(decodeImage(state.images, images.left), 160, maxHeight, `${kind} left`)
     const rightImage = embeddedImage(decodeImage(state.images, images.right), 160, maxHeight, `${kind} right`)
     const leftText = resolvePdfChromeText(chrome.left.text, metadata)
-    const rightRuns = kind === 'footer' ? pageNumberRuns(state, color) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
+    const rightRuns =
+        kind === 'footer' ? pageNumberRuns(state, color, numbering) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
     const leftChildren = [...(leftImage ? [leftImage] : []), ...textRuns(state, leftText, color)]
     const rightChildren = [...rightRuns, ...(rightImage ? [rightImage] : [])]
     const width = bleeds ? state.pageWidthTwip : state.contentTwip
@@ -2562,7 +2582,8 @@ function headingPages(state: RenderState): Map<string, number> {
             used += height
         }
     }
-    const cursor = { page: page + 1, used: 0 }
+    // Numbered from the body, its first page is page 1.
+    const cursor = { page: numbersFromBody(state) ? 1 : page + 1, used: 0 }
     const pages = new Map<string, number>()
     measureFlow(state, tree.children, state.contentTwip, pages, cursor, pageContentTwip(state, 'body'), true)
     return pages
@@ -2648,7 +2669,13 @@ function isCoverEdge(state: RenderState, showHeader: boolean, titleOnly: boolean
     return titleOnly && logoHasBleed(state) && !showHeader
 }
 
-function sectionProperties(state: RenderState, showHeader: boolean, showFooter: boolean, titleOnly: boolean): ISectionOptions['properties'] {
+function sectionProperties(
+    state: RenderState,
+    showHeader: boolean,
+    showFooter: boolean,
+    titleOnly: boolean,
+    restartNumbers = false
+): ISectionOptions['properties'] {
     const { profile } = state.document
     const layout = resolvePdfExportLayout(profile)
     const portrait = pdfPageSizeMm(profile)
@@ -2682,13 +2709,16 @@ function sectionProperties(state: RenderState, showHeader: boolean, showFooter: 
                 header: edgeDistance(layout.headerBleeds && showHeader, margins.top),
                 footer: edgeDistance(layout.footerBleeds && showFooter, margins.bottom),
             },
+            ...(restartNumbers ? { pageNumbers: { start: 1 } } : {}),
         },
     }
 }
 
 function buildSections(state: RenderState, groups: { id: FrontGroup; children: Block[] }[], watermark: Picture | null): ISectionOptions[] {
     const { profile } = state.document
-    const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; children: Block[] }[] = []
+    // Numbered from the body, the body is a section of its own whose numbers start at 1.
+    const fromBody = numbersFromBody(state)
+    const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; body: boolean; children: Block[] }[] = []
     for (const group of groups) {
         const showHeader = pdfChromeShown(profile, 'header', group.id)
         const showFooter = pdfChromeShown(profile, 'footer', group.id)
@@ -2697,11 +2727,12 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         // A cover with no bleeding image is centred on its page, which only works in a section of its own.
         // A bleeding cover stays merged: its spacing assumes it shares the next page's margins.
         const keepTitleAlone = previous?.titleOnly === true && !logoHasBleed(state)
-        if (previous && previous.key === key && !keepTitleAlone) {
+        const ownSection = fromBody && group.id === 'body'
+        if (previous && previous.key === key && !keepTitleAlone && !ownSection) {
             previous.titleOnly = false
             previous.children.push(new Paragraph({ children: [new PageBreak()] }), ...group.children)
         } else {
-            merged.push({ key, showHeader, showFooter, titleOnly: group.id === 'title', children: [...group.children] })
+            merged.push({ key, showHeader, showFooter, titleOnly: group.id === 'title', body: group.id === 'body', children: [...group.children] })
         }
     }
 
@@ -2709,13 +2740,14 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         const zeroSides = isCoverEdge(state, section.showHeader, section.titleOnly)
         const chrome = section.showHeader ? chromeTable(state, 'header', zeroSides) : []
         const headerChildren = [...chrome, ...watermarkBlocks(state, watermark)]
+        const numbering: PageNumbering = !fromBody ? 'document' : section.body ? 'body' : 'none'
         return {
             properties: {
-                ...sectionProperties(state, section.showHeader, section.showFooter, section.titleOnly),
+                ...sectionProperties(state, section.showHeader, section.showFooter, section.titleOnly, numbering === 'body'),
                 type: index === 0 ? undefined : SectionType.NEXT_PAGE,
             },
             headers: headerChildren.length > 0 ? { default: new Header({ children: headerChildren }) } : undefined,
-            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer', zeroSides) }) } : undefined,
+            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer', zeroSides, numbering) }) } : undefined,
             children: section.children,
         }
     })
