@@ -5,6 +5,7 @@ import { useEditorCursor, type EditorCursor } from '@/components/studio/editor/e
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useDocumentSave, useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
+import { LARGE_FILE_BYTES } from '@/lib/workspace/document-tab'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { StudioStatusBar } from './studio-status-bar'
 
@@ -16,7 +17,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useStudioLayout: vi.fn(),
 }))
 
-const flushSave = vi.fn<(id: string) => Promise<boolean>>()
+const retrySave = vi.fn<(id: string) => Promise<boolean>>()
 
 function tab(overrides: Partial<DocumentTab> = {}): DocumentTab {
     return {
@@ -47,8 +48,8 @@ const statusBar = () => screen.getByRole('contentinfo', { name: 'Status bar' })
 
 beforeEach(() => {
     vi.clearAllMocks()
-    flushSave.mockResolvedValue(true)
-    vi.mocked(useDocumentSave).mockReturnValue({ flushSave } as unknown as ReturnType<typeof useDocumentSave>)
+    retrySave.mockResolvedValue(true)
+    vi.mocked(useDocumentSave).mockReturnValue({ retrySave } as unknown as ReturnType<typeof useDocumentSave>)
 })
 
 describe('StudioStatusBar', () => {
@@ -106,12 +107,16 @@ describe('StudioStatusBar', () => {
         show({ activeTab: tab({ isDirty: true, saveError: 'Access is denied.' }) })
         render(<StudioStatusBar />)
 
-        await user.click(within(statusBar()).getByRole('button', { name: 'Save failed' }))
+        const button = within(statusBar()).getByRole('button', { name: 'Save failed' })
+        // The reason also shows on hover, as it does on the tab.
+        expect(button).toHaveAttribute('title', 'Access is denied.')
+        await user.click(button)
         const details = await screen.findByRole('dialog', { name: "Couldn't save notes.md" })
         expect(details).toHaveTextContent('Access is denied.')
 
         await user.click(within(details).getByRole('button', { name: 'Try Again' }))
-        expect(flushSave).toHaveBeenCalledWith('C:\\ws\\notes.md')
+        // The same retry as the notice's Try Again, so a new failure gets a new notice.
+        expect(retrySave).toHaveBeenCalledWith('C:\\ws\\notes.md')
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
         // "Save failed" turns into "Saving…" at once, so the keyboard goes back to the file instead of being lost.
         expect(focusEditor).toHaveBeenCalledWith('C:\\ws\\notes.md')
@@ -151,6 +156,19 @@ describe('StudioStatusBar', () => {
         show({ visible: false })
         rerender(<StudioStatusBar />)
         expect(container).toBeEmptyDOMElement()
+    })
+
+    it('leaves out the counts for a very large file, as counting it after every edit would be slow', () => {
+        const big = `${'word '.repeat(Math.ceil(LARGE_FILE_BYTES / 5))}\n`
+        show({ activeTab: tab({ content: big }), cursor: { line: 1, column: 6, selectedText: 'word ' } })
+        render(<StudioStatusBar />)
+
+        const bar = within(statusBar())
+        expect(bar.queryByText(/words?$/)).not.toBeInTheDocument()
+        expect(bar.queryByText(/characters?$/)).not.toBeInTheDocument()
+        // The rest is still there.
+        expect(bar.getByText('Ln 1, Col 6')).toBeInTheDocument()
+        expect(bar.getByText('LF')).toBeInTheDocument()
     })
 
     it('says "1 word" rather than "1 words"', () => {

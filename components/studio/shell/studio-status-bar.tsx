@@ -9,6 +9,7 @@ import { useDocumentSave, useDocumentTabs, useStudioLayout } from '@/components/
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { isExampleTabId } from '@/lib/examples/example-tab'
+import { LARGE_FILE_BYTES } from '@/lib/workspace/document-tab'
 import { countCharacters, countWords, lineEndingsOf, type LineEndings } from '@/lib/workspace/text-stats'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -40,11 +41,12 @@ function encodingLabel(tab: DocumentTab): string | null {
 
 /** A failed save, as a button that shows why and lets the user try again. */
 function SaveFailed({ tab, error }: { tab: DocumentTab; error: string }) {
-    const { flushSave } = useDocumentSave()
+    const { retrySave } = useDocumentSave()
     const [open, setOpen] = useState(false)
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
+                title={error}
                 render={
                     <Button
                         variant="ghost"
@@ -67,7 +69,7 @@ function SaveFailed({ tab, error }: { tab: DocumentTab; error: string }) {
                                 setOpen(false)
                                 // This button goes as soon as the save starts, so the keyboard goes back to the file.
                                 focusEditorFor(tab.path)
-                                void flushSave(tab.id)
+                                void retrySave(tab.id)
                             }}
                         >
                             Try Again
@@ -104,7 +106,7 @@ function SaveState({ tab }: { tab: DocumentTab }) {
 /** A strip along the bottom of the window with facts about the open file, unless Settings hides it. */
 export function StudioStatusBar() {
     const { settings } = useAppSettings()
-    // Hidden, it doesn't follow the text at all, so typing doesn't count words for nothing.
+    // Hidden, it doesn't count words, so typing doesn't do that work for nothing.
     return settings.statusBar.visible ? <StatusBarContent /> : null
 }
 
@@ -113,19 +115,23 @@ function StatusBarContent() {
     const { layout } = useStudioLayout()
     const cursor = useEditorCursor()
     const content = useDeferredValue(activeTab?.content ?? '')
-    const stats = useMemo(
-        () => ({ words: countWords(content), characters: countCharacters(content), lineEndings: lineEndingsOf(content) }),
+    const lineEndings = useMemo(() => {
+        const kind = lineEndingsOf(content)
+        return kind ? LINE_ENDINGS[kind] : null
+    }, [content])
+    // Counting takes about 25 ms a megabyte, all in one go after each edit, so very large files go without.
+    const counts = useMemo(
+        () => (content.length > LARGE_FILE_BYTES ? null : { words: countWords(content), characters: countCharacters(content) }),
         [content]
     )
     // A hidden editor's caret and selection can't be seen, so they aren't shown here either.
     const showCursor = layout.editorOpen && cursor !== null
-    const selectedText = useDeferredValue(showCursor ? cursor.selectedText : '')
+    const selectedText = useDeferredValue(showCursor && counts ? cursor.selectedText : '')
     const selection = useMemo(
         () => (selectedText ? { words: countWords(selectedText), characters: countCharacters(selectedText) } : null),
         [selectedText]
     )
 
-    const lineEndings = stats.lineEndings ? LINE_ENDINGS[stats.lineEndings] : null
     const encoding = activeTab ? encodingLabel(activeTab) : null
 
     return (
@@ -139,8 +145,12 @@ function StatusBarContent() {
                     <SaveState tab={activeTab} />
                     <div className="flex-1" />
                     {showCursor && <span>{`Ln ${cursor.line}, Col ${cursor.column}`}</span>}
-                    <span>{countLabel(stats.words, selection?.words ?? null, 'word')}</span>
-                    <span>{countLabel(stats.characters, selection?.characters ?? null, 'character')}</span>
+                    {counts && (
+                        <>
+                            <span>{countLabel(counts.words, selection?.words ?? null, 'word')}</span>
+                            <span>{countLabel(counts.characters, selection?.characters ?? null, 'character')}</span>
+                        </>
+                    )}
                     {lineEndings && <span title={lineEndings.title}>{lineEndings.label}</span>}
                     {encoding && <span title="Text encoding">{encoding}</span>}
                 </>

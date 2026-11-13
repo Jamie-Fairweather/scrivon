@@ -8,6 +8,7 @@ import type { editor } from 'monaco-editor'
 export type EditorCursor = {
     /** 1-based, as shown to the user. */
     line: number
+    /** 1-based, with a tab reaching the next tab stop, as in VS Code (see statusBarColumn). */
     column: number
     /** The selected text (several selections joined by line breaks), or '' when nothing is selected. */
     selectedText: string
@@ -15,7 +16,14 @@ export type EditorCursor = {
 
 export type CursorSource = Pick<
     editor.IStandaloneCodeEditor,
-    'getModel' | 'getPosition' | 'getSelections' | 'onDidChangeCursorSelection' | 'onDidChangeModel' | 'onDidChangeModelContent' | 'onDidDispose'
+    | 'getModel'
+    | 'getPosition'
+    | 'getSelections'
+    | 'onDidChangeCursorSelection'
+    | 'onDidChangeModel'
+    | 'onDidChangeModelContent'
+    | 'onDidChangeModelOptions'
+    | 'onDidDispose'
 >
 
 let current: EditorCursor | null = null
@@ -35,6 +43,19 @@ function publish(next: EditorCursor | null) {
     for (const listener of listeners) listener()
 }
 
+/**
+ * The column VS Code's status bar shows: a tab goes on to the next tab stop, and any other character
+ * counts as one, an emoji or a Chinese character too. (Monaco's getVisibleColumnFromPosition counts
+ * those as two, as they take two places on screen.)
+ */
+export function statusBarColumn(lineText: string, column: number, tabSize: number): number {
+    let before = 0
+    for (const char of lineText.slice(0, column - 1)) {
+        before = char === '\t' ? before + tabSize - (before % tabSize) : before + 1
+    }
+    return before + 1
+}
+
 function readCursor(source: CursorSource): EditorCursor | null {
     const model = source.getModel()
     const position = source.getPosition()
@@ -43,7 +64,8 @@ function readCursor(source: CursorSource): EditorCursor | null {
         .filter((selection) => !selection.isEmpty())
         .map((selection) => model.getValueInRange(selection))
         .join('\n')
-    return { line: position.lineNumber, column: position.column, selectedText }
+    const column = statusBarColumn(model.getLineContent(position.lineNumber), position.column, model.getOptions().tabSize)
+    return { line: position.lineNumber, column, selectedText }
 }
 
 /** Reports the editor's caret and selection from now on. Returns the function that stops it. */
@@ -57,6 +79,8 @@ export function trackEditorCursor(source: CursorSource): () => void {
         source.onDidChangeModel(update),
         // Text replaced under a selection (a reload from disk) changes what is selected without moving it.
         source.onDidChangeModelContent(update),
+        // A new tab size moves the column after a tab.
+        source.onDidChangeModelOptions(update),
     ]
     const stop = () => {
         for (const subscription of subscriptions) subscription.dispose()

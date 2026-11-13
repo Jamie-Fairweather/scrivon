@@ -81,6 +81,12 @@ class FakeModel {
     updateOptions(options: FakeModel['options']) {
         Object.assign(this.options, options)
     }
+    getOptions() {
+        return { tabSize: this.options.tabSize ?? 4 }
+    }
+    getLineContent(lineNumber: number) {
+        return this.lines[lineNumber - 1] ?? ''
+    }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
         const line = this.lines[range.startLineNumber - 1] ?? ''
@@ -171,6 +177,9 @@ class FakeEditor {
     onDidChangeCursorSelection(listener: Listener) {
         this.cursorListeners.add(listener)
         return { dispose: () => this.cursorListeners.delete(listener) }
+    }
+    onDidChangeModelOptions() {
+        return { dispose: () => {} }
     }
     onDidDispose(listener: Listener) {
         this.disposeListeners.add(listener)

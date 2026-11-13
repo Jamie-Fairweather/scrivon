@@ -1,4 +1,4 @@
-/** Word and character counts and line endings, for the status bar. */
+/** Word and character counts (for the status bar), and the line endings a text uses. */
 
 /**
  * One Chinese or Japanese character (counted as a word each, as word processors do, since these

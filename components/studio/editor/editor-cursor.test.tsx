@@ -1,18 +1,25 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { trackEditorCursor, useEditorCursor, type CursorSource } from './editor-cursor'
+import { statusBarColumn, trackEditorCursor, useEditorCursor, type CursorSource } from './editor-cursor'
 
 type Range = { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }
 
 /** Just enough of a Monaco editor: a text, a caret and selections, and its change events. */
 function fakeEditor(lines: string[]) {
-    const listeners = { cursor: new Set<() => void>(), model: new Set<() => void>(), content: new Set<() => void>(), dispose: new Set<() => void>() }
+    const listeners = {
+        cursor: new Set<() => void>(),
+        model: new Set<() => void>(),
+        content: new Set<() => void>(),
+        options: new Set<() => void>(),
+        dispose: new Set<() => void>(),
+    }
     const on = (set: Set<() => void>) => (listener: () => void) => {
         set.add(listener)
         return { dispose: () => set.delete(listener) }
     }
     const fire = (set: Set<() => void>) => [...set].forEach((listener) => listener())
     let hasModel = true
+    let tabSize = 4
     let selections: Range[] = [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }]
     const model = {
         getValueInRange: (r: Range) => {
@@ -20,6 +27,8 @@ function fakeEditor(lines: string[]) {
             const offset = (line: number, column: number) => lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0) + column - 1
             return text.slice(offset(r.startLineNumber, r.startColumn), offset(r.endLineNumber, r.endColumn))
         },
+        getLineContent: (line: number) => lines[line - 1] ?? '',
+        getOptions: () => ({ tabSize }),
     }
     const isEmpty = (r: Range) => r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn
     const editor = {
@@ -32,6 +41,7 @@ function fakeEditor(lines: string[]) {
         onDidChangeCursorSelection: on(listeners.cursor),
         onDidChangeModel: on(listeners.model),
         onDidChangeModelContent: on(listeners.content),
+        onDidChangeModelOptions: on(listeners.options),
         onDidDispose: on(listeners.dispose),
     } as unknown as CursorSource
 
@@ -44,6 +54,10 @@ function fakeEditor(lines: string[]) {
         setText(next: string[]) {
             lines.splice(0, lines.length, ...next)
             act(() => fire(listeners.content))
+        },
+        setTabSize(size: number) {
+            tabSize = size
+            act(() => fire(listeners.options))
         },
         detachModel() {
             hasModel = false
@@ -152,6 +166,34 @@ describe('editor cursor', () => {
         stop = undefined
         expect(result.current).toBeNull()
         expect(stopped.listenerCount()).toBe(0)
+    })
+
+    it('counts a tab up to the next tab stop, and follows a new tab size', () => {
+        const fake = fakeEditor(['\tx = 1', ' \ty'])
+        const { result } = renderHook(() => useEditorCursor())
+        act(() => {
+            stop = trackEditorCursor(fake.editor)
+        })
+
+        fake.select(caret(1, 3))
+        expect(result.current).toMatchObject({ line: 1, column: 6 })
+        fake.select(caret(2, 3))
+        expect(result.current).toMatchObject({ line: 2, column: 5 })
+
+        // The caret didn't move, but the tab before it got narrower.
+        fake.setTabSize(2)
+        expect(result.current).toMatchObject({ line: 2, column: 3 })
+    })
+
+    it('counts the column as VS Code does', () => {
+        expect(statusBarColumn('hello', 1, 4)).toBe(1)
+        expect(statusBarColumn('hello', 4, 4)).toBe(4)
+        expect(statusBarColumn('\t\tx', 3, 4)).toBe(9)
+        expect(statusBarColumn('a\tx', 3, 4)).toBe(5)
+        expect(statusBarColumn('a\tx', 3, 2)).toBe(3)
+        // One each, though they are two wide on screen (or two UTF-16 units long).
+        expect(statusBarColumn('你好x', 3, 4)).toBe(3)
+        expect(statusBarColumn('😀x', 3, 4)).toBe(2)
     })
 
     it('ignores an old editor once a newer one is tracked', () => {
