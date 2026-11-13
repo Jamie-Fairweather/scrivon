@@ -8,7 +8,7 @@ export type PaneId = 'explorer' | 'outline' | 'editor' | 'preview'
  * Without one (or when nothing in it can take focus), focus goes to the first thing in the pane that can,
  * else to the pane itself when it has a tabIndex.
  */
-export const PANE_FOCUS_ATTRIBUTE = 'data-pane-focus'
+const PANE_FOCUS_ATTRIBUTE = 'data-pane-focus'
 
 /** What Tab stops on: links, enabled controls and elements with a tabIndex, but not those taken out of the Tab order. */
 const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]']
@@ -20,26 +20,42 @@ function isShown(element: Element): boolean {
     return element.isConnected && element.closest('[inert], [hidden]') === null
 }
 
-function firstTabbable(root: Element): HTMLElement | null {
-    for (const element of root.querySelectorAll<HTMLElement>(TABBABLE)) {
-        if (isShown(element)) return element
-    }
-    return null
+function tabbables(root: Element): HTMLElement[] {
+    return [...root.querySelectorAll<HTMLElement>(TABBABLE)].filter(isShown)
 }
 
 function shownPanes(doc: Document): HTMLElement[] {
     return [...doc.querySelectorAll<HTMLElement>('[data-pane]')].filter(isShown)
 }
 
+/** Focuses the element, and says whether focus really landed there (a link in a closed `<details>` can't take it). */
+function tryFocus(element: HTMLElement): boolean {
+    element.focus()
+    return element.ownerDocument.activeElement === element
+}
+
+/** The pane itself, when it has a tabIndex. */
+function paneItself(pane: HTMLElement): HTMLElement[] {
+    return pane.hasAttribute('tabindex') ? [pane] : []
+}
+
+/** Where focus may go in a pane, best first. */
+function focusTargets(pane: HTMLElement): HTMLElement[] {
+    if (pane.dataset.pane === 'preview') {
+        // Its scroll box when it scrolls, else the preview itself: never a link or button partway down the page.
+        const viewport = pane.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
+        const scrolls = viewport !== null && viewport.tabIndex >= 0 && isShown(viewport)
+        return [...(scrolls ? [viewport] : []), ...paneItself(pane)]
+    }
+    const preferred = pane.querySelector(`[${PANE_FOCUS_ATTRIBUTE}]`)
+    return [...(preferred ? tabbables(preferred) : []), ...tabbables(pane), ...paneItself(pane)]
+}
+
 /** Puts focus in the pane now. False when nothing in it can take focus (the editor with no file open, say). */
 function focusInPane(pane: HTMLElement): boolean {
     // Monaco takes focus through its own API, which also brings back its cursor.
     if (pane.dataset.pane === 'editor') return focusEditorNow()
-    const preferred = pane.querySelector(`[${PANE_FOCUS_ATTRIBUTE}]`)
-    const target = (preferred && firstTabbable(preferred)) ?? firstTabbable(pane) ?? (pane.hasAttribute('tabindex') ? pane : null)
-    if (!target) return false
-    target.focus()
-    return true
+    return focusTargets(pane).some(tryFocus)
 }
 
 /** The panes in the order F6 (1) or Shift+F6 (-1) tries them: from the one after (or before) focus, round to the one it is in. */

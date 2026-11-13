@@ -156,7 +156,7 @@ export function OutlinePanel() {
 
     return (
         // A pane for F6 (pane-focus.ts), which goes to the list before the button above it.
-        <aside data-pane="outline" className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+        <aside data-pane="outline" aria-label="Outline" className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             {/* As tall as the tab bar beside it, so their bottom borders line up. */}
             <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-sidebar-border ps-3 pe-1.5">
                 <p className="truncate text-xs font-medium text-muted-foreground uppercase">Outline</p>

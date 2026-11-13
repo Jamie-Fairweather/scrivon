@@ -106,8 +106,8 @@ export function StudioLayout() {
                                 />
                             )}
 
-                            {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). It takes focus itself when
-                                nothing in it can, such as a diagram. */}
+                            {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to its scroll box when
+                                it scrolls, else to this region itself. */}
                             <div
                                 data-pane="preview"
                                 role="region"

@@ -248,6 +248,8 @@ describe('OutlinePanel', () => {
             expect(focusPane('outline')).toBe(true)
         })
         expect(screen.getByRole('button', { name: 'Windows' })).toHaveFocus()
+        // Named, so a screen reader can tell it from the explorer.
+        expect(screen.getByRole('complementary', { name: 'Outline' })).toContainElement(screen.getByRole('button', { name: 'Windows' }))
 
         mocks.activeTab = null
         view.rerender(<OutlinePanel />)

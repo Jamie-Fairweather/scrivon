@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { cyclePaneFocus, cyclePaneFocusSoon, focusPane, focusPaneSoon } from '@/components/studio/shell/pane-focus'
 
@@ -54,6 +54,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+    vi.restoreAllMocks()
     unregisterEditor()
     ;(document.activeElement as HTMLElement | null)?.blur()
 })
@@ -120,6 +121,16 @@ describe('cyclePaneFocus', () => {
         expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
     })
 
+    it('moves on past a pane where nothing will take focus', () => {
+        render(<Panes />)
+        // Like a link in a closed <details>: it is a Tab stop, but the browser won't focus it.
+        vi.spyOn(screen.getByRole('button', { name: 'Hide Outline' }), 'focus').mockImplementation(() => {})
+        screen.getByRole('treeitem', { name: 'b.md' }).focus()
+
+        expect(cyclePaneFocus(1)).toBe(true)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+    })
+
     it('does nothing when no pane is shown', () => {
         render(<button type="button">Alone</button>)
         screen.getByRole('button', { name: 'Alone' }).focus()
@@ -155,6 +166,42 @@ describe('focusPane', () => {
 
         focusPane('explorer')
         expect(focused()).toBe(screen.getByRole('button', { name: 'Files' }))
+        focusPane('preview')
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it('tries the next thing in the pane when the first will not take focus', () => {
+        render(<Panes />)
+        vi.spyOn(screen.getByRole('treeitem', { name: 'b.md' }), 'focus').mockImplementation(() => {})
+
+        expect(focusPane('explorer')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Files' }))
+    })
+
+    it('goes to the preview scroll box when it scrolls, else to the preview itself, never into the page', () => {
+        function Preview({ scrolls = false, expanded = false }: { scrolls?: boolean; expanded?: boolean }) {
+            return (
+                <div data-pane="preview" role="region" aria-label="Preview" tabIndex={-1}>
+                    <button type="button">Load images</button>
+                    <div inert={expanded || undefined}>
+                        <div data-slot="scroll-area-viewport" data-testid="scroll box" tabIndex={scrolls ? 0 : -1}>
+                            <a href="#intro">Intro</a>
+                        </div>
+                    </div>
+                </div>
+            )
+        }
+        const { rerender } = render(<Preview />)
+
+        expect(focusPane('preview')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+
+        rerender(<Preview scrolls />)
+        focusPane('preview')
+        expect(focused()).toBe(screen.getByTestId('scroll box'))
+
+        // An expanded diagram covers the page, which is then inert.
+        rerender(<Preview scrolls expanded />)
         focusPane('preview')
         expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
     })
