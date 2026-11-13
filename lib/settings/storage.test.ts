@@ -191,7 +191,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
         function newerSettings() {
             const settings = createDefaultSettings(false)
             const profile = { ...settings.pdfExport.profiles[0]!, name: 'Report', futureField: 'kept' }
-            profile.page = { ...profile.page, size: 'a5' as 'a4' }
+            profile.page = { ...profile.page, size: 'b5' as 'a4' }
             return {
                 ...settings,
                 schemaVersion: 2,
@@ -232,7 +232,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
             expect(after.futureSection).toEqual({ enabled: true })
             expect(after.theme.id).toBe('future-theme')
             expect(after.editor.futureOption).toBe(true)
-            expect(after.pdfExport?.profiles[0]?.page.size).toBe('a5')
+            expect(after.pdfExport?.profiles[0]?.page.size).toBe('b5')
             expect(after.pdfExport?.profiles[0]?.futureField).toBe('kept')
             expect(after.keybinds['tabs.close']).toEqual([{ key: 'w', ctrl: true }])
             expect(after.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)

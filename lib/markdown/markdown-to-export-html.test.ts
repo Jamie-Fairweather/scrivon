@@ -730,6 +730,26 @@ SHIKI_FAIL
         expect(html).toContain('<span class="pdf-page-number"><span class="pdf-page-number-mark">')
     })
 
+    it('heads the contents page with the profile’s title, or the document’s own toc-title', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        const source = '# Intro\n\n## Part'
+
+        expect((await markdownToExportHtml(source, { profile })).html).toContain('<section class="pdf-toc-page"><h1 dir="auto">Contents</h1>')
+
+        profile.frontMatter.tocTitle = 'Sommaire & <plan>'
+        expect((await markdownToExportHtml(source, { profile })).html).toContain('<h1 dir="auto">Sommaire &amp; &lt;plan&gt;</h1>')
+
+        const own = await markdownToExportHtml(`---\ntoc-title: فهرس\n---\n${source}`, { profile })
+        expect(own.html).toContain('<section class="pdf-toc-page"><h1 dir="auto">فهرس</h1>')
+
+        // An emptied field still gets a heading.
+        profile.frontMatter.tocTitle = '  '
+        expect((await markdownToExportHtml(source, { profile })).html).toContain('<h1 dir="auto">Contents</h1>')
+    })
+
     it('turns a quote or list item right to left from its first letter, as dir="auto" can’t see into its paragraphs', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const { html } = await markdownToExportHtml(

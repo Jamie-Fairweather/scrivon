@@ -1,7 +1,8 @@
 import type { AppThemeId } from '@/lib/theme/catalog'
-import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import type { ShikiTheme } from '@/lib/markdown/code-themes'
 
-export type PdfPageSize = 'a4' | 'letter'
+/** A named paper size, or `custom` for the profile's own `page.customSizeMm`. */
+export type PdfPageSize = 'a3' | 'a4' | 'a5' | 'letter' | 'legal' | 'custom'
 export type PdfPageOrientation = 'portrait' | 'landscape'
 
 export type PdfMarginsMm = {
@@ -51,6 +52,8 @@ export type PdfExportProfile = {
     name: string
     page: {
         size: PdfPageSize
+        /** The upright sheet for the `custom` size. Kept while a named size is picked. */
+        customSizeMm: { width: number; height: number }
         orientation: PdfPageOrientation
         marginsMm: PdfMarginsMm
     }
@@ -75,6 +78,8 @@ export type PdfExportProfile = {
         toc: boolean
         tocDepth: PdfTocDepth
         tocExcludeH1: boolean
+        /** Heading of the contents page. Empty prints "Contents"; a document's `toc-title:` front matter wins. */
+        tocTitle: string
     }
     header: PdfExportChrome
     footer: PdfExportFooter

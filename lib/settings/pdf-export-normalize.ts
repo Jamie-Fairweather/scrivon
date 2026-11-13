@@ -1,5 +1,5 @@
 import { isAppThemeId } from '@/lib/theme/catalog'
-import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
+import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS, PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import { repairFontStack, repairMonoFontStack } from '@/lib/settings/pdf-export-fonts'
 import type {
     PdfExportChrome,
@@ -14,13 +14,13 @@ import type {
     PdfPageSize,
     PdfTocDepth,
 } from '@/lib/settings/pdf-export-types'
-import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import { EXPORT_CODE_THEMES, type ShikiTheme } from '@/lib/markdown/code-themes'
 
-const PAGE_SIZES: PdfPageSize[] = ['a4', 'letter']
+const PAGE_SIZES: PdfPageSize[] = [...(Object.keys(PDF_PAGE_SIZES) as PdfPageSize[]), 'custom']
 const ORIENTATIONS: PdfPageOrientation[] = ['portrait', 'landscape']
 const HIDE_OPTIONS: PdfHideOnFirstPages[] = ['none', 'title', 'title+toc']
 const PAGE_NUMBER_FORMATS: PdfPageNumberFormat[] = ['none', 'number', 'page-n', 'n-of-total', 'custom']
-const CODE_THEMES: ShikiTheme[] = ['github-light', 'github-dark']
+const CODE_THEMES: ShikiTheme[] = EXPORT_CODE_THEMES.map((theme) => theme.id)
 const TOC_DEPTHS: PdfTocDepth[] = [1, 2, 3, 4]
 const NEW_PAGE_LEVELS: PdfNewPageFromHeading[] = [0, 1, 2, 3, 4, 5, 6]
 
@@ -66,6 +66,14 @@ function normalizeMargins(raw: unknown, fallback: PdfExportProfile['page']['marg
         right: normalizeNumber(source?.right, fallback.right, limits),
         bottom: normalizeNumber(source?.bottom, fallback.bottom, limits),
         left: normalizeNumber(source?.left, fallback.left, limits),
+    }
+}
+
+function normalizeCustomSize(raw: unknown, fallback: PdfExportProfile['page']['customSizeMm']): PdfExportProfile['page']['customSizeMm'] {
+    const source = asRecord(raw)
+    return {
+        width: normalizeNumber(source?.width, fallback.width, PDF_EXPORT_LIMITS.pageMm),
+        height: normalizeNumber(source?.height, fallback.height, PDF_EXPORT_LIMITS.pageMm),
     }
 }
 
@@ -125,6 +133,7 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
         name: normalizeString(source.name, fallback.name) || fallback.name,
         page: {
             size: normalizeEnum(page?.size, PAGE_SIZES, fallback.page.size),
+            customSizeMm: normalizeCustomSize(page?.customSizeMm, fallback.page.customSizeMm),
             orientation: normalizeEnum(page?.orientation, ORIENTATIONS, fallback.page.orientation),
             marginsMm: normalizeMargins(page?.marginsMm, fallback.page.marginsMm),
         },
@@ -147,6 +156,7 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             toc: typeof frontMatter?.toc === 'boolean' ? frontMatter.toc : fallback.frontMatter.toc,
             tocDepth: normalizeIntEnum(frontMatter?.tocDepth, TOC_DEPTHS, fallback.frontMatter.tocDepth),
             tocExcludeH1: typeof frontMatter?.tocExcludeH1 === 'boolean' ? frontMatter.tocExcludeH1 : fallback.frontMatter.tocExcludeH1,
+            tocTitle: normalizeString(frontMatter?.tocTitle, fallback.frontMatter.tocTitle),
         },
         header: normalizeChrome(source.header, fallback.header),
         footer: normalizeFooter(source.footer, fallback.footer),

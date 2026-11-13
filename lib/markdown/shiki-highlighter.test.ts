@@ -222,6 +222,13 @@ describe('shiki highlighter', () => {
         expect(colours.size).toBeGreaterThan(1)
     })
 
+    it('colours Word code in an export theme that was not loaded up front', async () => {
+        const { highlightFencedCodeTokens } = await import('./shiki-highlighter')
+        const lines = await highlightFencedCodeTokens('const answer = 42', 'ts', 'nord')
+        // Nord's keyword blue (nord9).
+        expect(lines.flat().map((token) => token.color?.toUpperCase())).toContain('#81A1C1')
+    })
+
     it('still colours other languages after a fence named `constructor` or `__proto__` (N20)', async () => {
         const { highlightFencedCode, highlightFencedCodeTokens } = await import('./shiki-highlighter')
         const plain = await highlightFencedCode('x = 1', 'text', 'github-dark')

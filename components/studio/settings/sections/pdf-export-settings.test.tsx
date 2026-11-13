@@ -19,10 +19,15 @@ function SavedNames() {
         updateSettings = update
     }, [update])
     const { profiles } = settings.pdfExport
+    const active = getActivePdfExportProfile(settings.pdfExport)
+    const { size, customSizeMm } = active.page
     return (
         <>
             <output data-testid="saved-names">{profiles.map((profile) => profile.name).join('|')}</output>
-            <output data-testid="saved-mono-font">{getActivePdfExportProfile(settings.pdfExport).typography.monoFont}</output>
+            <output data-testid="saved-mono-font">{active.typography.monoFont}</output>
+            <output data-testid="saved-page">{`${size} ${customSizeMm.width}×${customSizeMm.height}`}</output>
+            <output data-testid="saved-code-theme">{active.content.codeTheme}</output>
+            <output data-testid="saved-toc-title">{active.frontMatter.tocTitle}</output>
         </>
     )
 }
@@ -162,8 +167,68 @@ describe('PdfExportSettings page space', () => {
     })
 })
 
+describe('PdfExportSettings page size', () => {
+    const typeInto = (input: HTMLElement, text: string) => {
+        act(() => input.focus())
+        fireEvent.change(input, { target: { value: text } })
+        fireEvent.blur(input)
+    }
+
+    it('offers A3, A5, Legal and a custom size', async () => {
+        renderSection()
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('combobox', { name: 'Page size' }))
+        for (const name of [
+            'A3 (297 × 420 mm)',
+            'A4 (210 × 297 mm)',
+            'A5 (148 × 210 mm)',
+            'Letter (8.5 × 11 in)',
+            'Legal (8.5 × 14 in)',
+            'Custom size',
+        ])
+            expect(await screen.findByRole('option', { name })).toBeInTheDocument()
+    })
+
+    it('asks for a width and height only for a custom size, and saves them', async () => {
+        renderSection()
+        expect(screen.queryByRole('textbox', { name: 'Page width (mm)' })).toBeNull()
+
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('combobox', { name: 'Page size' }))
+        await user.click(await screen.findByRole('option', { name: 'Custom size' }))
+        const width = await screen.findByRole('textbox', { name: 'Page width (mm)' })
+        expect(width).toHaveValue('210')
+        typeInto(width, '120')
+        typeInto(screen.getByRole('textbox', { name: 'Page height (mm)' }), '9000')
+        expect(screen.getByTestId('saved-page')).toHaveTextContent('custom 120×550')
+    })
+})
+
+describe('PdfExportSettings code theme', () => {
+    it('offers the newer code themes and saves the one picked', async () => {
+        renderSection()
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('combobox', { name: 'Code theme' }))
+        await user.click(await screen.findByRole('option', { name: 'Solarized Light' }))
+        expect(screen.getByTestId('saved-code-theme')).toHaveTextContent('solarized-light')
+        await user.click(screen.getByRole('combobox', { name: 'Code theme' }))
+        expect(await screen.findByRole('option', { name: 'Nord (dark)' })).toBeInTheDocument()
+    })
+})
+
 describe('PdfExportSettings table of contents', () => {
     const empty = /no headings are left, so no table of contents is added/
+
+    it('saves the Contents title, and keeps it off until the table of contents is on', () => {
+        renderSection()
+        const title = screen.getByRole('textbox', { name: 'Contents title' })
+        expect(title).toBeDisabled()
+        expect(title).toHaveValue('Contents')
+
+        fireEvent.click(screen.getByRole('switch', { name: 'Include a table of contents' }))
+        fireEvent.change(title, { target: { value: 'Sommaire' } })
+        expect(screen.getByTestId('saved-toc-title')).toHaveTextContent('Sommaire')
+    })
 
     it('warns when depth H1 and Exclude H1 leave the table of contents empty', async () => {
         renderWithProfile((profile) => ({ ...profile, frontMatter: { ...profile.frontMatter, toc: true } }))

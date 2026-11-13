@@ -114,6 +114,15 @@ describe('front matter lang', () => {
     })
 })
 
+describe('front matter toc-title', () => {
+    it('reads the Contents page title, quoted or not, and skips an empty one', () => {
+        expect(parsePdfExportFrontMatter('---\ntoc-title: Sommaire\n---\nBody')).toEqual({ matter: {}, body: 'Body', tocTitle: 'Sommaire' })
+        expect(parsePdfExportFrontMatter('---\nTOC-title: "目次"\n---\nBody').tocTitle).toBe('目次')
+        expect(parsePdfExportFrontMatter('---\ntoc-title: ""\n---\nBody').tocTitle).toBeUndefined()
+        expect(resolvePdfExportMetadata('---\ntoc-title: Índice\n---\n# Hi', undefined).tocTitle).toBe('Índice')
+    })
+})
+
 describe('guessDocumentLanguage', () => {
     it('tags text by the script that leads it', () => {
         expect(guessDocumentLanguage('骨角器と直線の写真について説明します。')).toBe('ja')

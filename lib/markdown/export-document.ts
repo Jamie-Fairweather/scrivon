@@ -40,6 +40,8 @@ export type ExportDocument = {
     tree: Root
     outline: PdfExportOutlineItem[]
     toc: PdfExportOutlineItem[]
+    /** Heading of the contents page: the front matter's `toc-title:`, else the profile's, else `Contents`. */
+    contentsTitle: string
 }
 
 /** The document's prose for guessing its language. Code is left out: it reads as English whatever the text is in. */
@@ -60,7 +62,7 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     const given = options.assets ?? EMPTY_ASSETS
     // A switched-off footer shows only its page number, never its images.
     const assets = profile.footer.enabled ? given : { ...given, footer: EMPTY_ASSETS.footer }
-    const { metadata, body, lang } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
+    const { metadata, body, lang, tocTitle } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
     if (!body.trim()) {
         throw new Error('Nothing to export.')
     }
@@ -73,5 +75,17 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
 
-    return { metadata, lang: lang ?? guessDocumentLanguage(proseText(tree)), langGuessed: lang === undefined, profile, assets, tree, outline, toc }
+    const contentsTitle = tocTitle ?? (profile.frontMatter.tocTitle.trim() || 'Contents')
+
+    return {
+        metadata,
+        lang: lang ?? guessDocumentLanguage(proseText(tree)),
+        langGuessed: lang === undefined,
+        profile,
+        assets,
+        tree,
+        outline,
+        toc,
+        contentsTitle,
+    }
 }

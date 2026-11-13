@@ -104,7 +104,7 @@ const YAML_CONTINUATION_LINE = /^(?:\s|-(?:\s|$)|[\]}])/
 /** A key written the way front matter keys are: lower case, or a script with no capitals (`标题`). */
 const FRONT_MATTER_STYLE_KEY = /^[\p{Ll}\p{Lo}_]/u
 /** Keys the export reads, so `Title:` still counts even though front matter keys are usually lower case. */
-const EXPORT_KEYS = new Set([...FRONT_MATTER_KEYS, 'lang'])
+const EXPORT_KEYS = new Set([...FRONT_MATTER_KEYS, 'lang', 'toc-title'])
 
 /** The key and the raw value of a top-level YAML `key: value` line, or null for any other line. */
 function yamlKeyLine(line: string): { key: string; value: string } | null {
@@ -140,16 +140,17 @@ function isFrontMatterBlock(block: string): boolean {
 const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/
 
 /**
- * Front matter `title`/`subtitle`/`author`/`date`, plus `lang` when it is a valid language tag.
- * `lang` is absent when the front matter doesn't set one.
+ * Front matter `title`/`subtitle`/`author`/`date`, plus `lang` when it is a valid language tag
+ * and `toc-title`, the Contents page's title. Each of those two is absent when not set.
  */
-export function parsePdfExportFrontMatter(source: string): { matter: Partial<PdfExportMetadata>; body: string; lang?: string } {
+export function parsePdfExportFrontMatter(source: string): { matter: Partial<PdfExportMetadata>; body: string; lang?: string; tocTitle?: string } {
     // The closing fence is a `---` line of its own: `----` or a `---|---` table divider doesn't close it.
     const match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/)
     if (!match || !isFrontMatterBlock(match[1]!)) return { matter: {}, body: source }
 
     const matter: Partial<PdfExportMetadata> = {}
     let lang: string | undefined
+    let tocTitle: string | undefined
     for (const line of match[1]!.split(/\r?\n/)) {
         // Only top-level keys: a `title:` nested under another key is not the document's title.
         const entry = yamlKeyLine(line)
@@ -157,11 +158,12 @@ export function parsePdfExportFrontMatter(source: string): { matter: Partial<Pdf
         const key = entry.key.toLowerCase()
         const value = stripQuotes(entry.value)
         if (key === 'lang' && LANGUAGE_TAG.test(value)) lang = value
+        if (key === 'toc-title' && value) tocTitle = value
         if (!FRONT_MATTER_KEYS.has(key) || !value) continue
         matter[key as keyof PdfExportMetadata] = value
     }
 
-    return lang ? { matter, body: match[2]!, lang } : { matter, body: match[2]! }
+    return { matter, body: match[2]!, ...(lang ? { lang } : {}), ...(tocTitle ? { tocTitle } : {}) }
 }
 
 /** Letters per script, for {@link guessDocumentLanguage}. */
@@ -262,8 +264,8 @@ export function resolvePdfExportMetadata(
     source: string,
     tabName: string | undefined,
     overrides: PdfExportMetadataOverrides = {}
-): { metadata: PdfExportMetadata; body: string; lang?: string } {
-    const { matter, body, lang } = parsePdfExportFrontMatter(source)
+): { metadata: PdfExportMetadata; body: string; lang?: string; tocTitle?: string } {
+    const { matter, body, lang, tocTitle } = parsePdfExportFrontMatter(source)
     const title = overrides.title?.trim() || matter.title?.trim() || fallbackPdfExportTitle(body, tabName)
     return {
         metadata: {
@@ -274,5 +276,6 @@ export function resolvePdfExportMetadata(
         },
         body,
         lang,
+        tocTitle,
     }
 }

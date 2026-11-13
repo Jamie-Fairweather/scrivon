@@ -100,6 +100,35 @@ describe('normalizePdfExportSettings', () => {
         expect(normalizePdfExportProfile({ footer: { pageNumbers: 'roman' } }).footer.pageNumbers).toBe('none')
     })
 
+    it('gives profiles saved before custom page sizes an A4 custom size, and keeps the new sizes', () => {
+        const old = normalizePdfExportProfile({ page: { size: 'letter', orientation: 'portrait' } })
+        expect(old.page).toMatchObject({ size: 'letter', customSizeMm: { width: 210, height: 297 } })
+
+        for (const size of ['a3', 'a5', 'legal', 'custom']) expect(normalizePdfExportProfile({ page: { size } }).page.size).toBe(size)
+        expect(normalizePdfExportProfile({ page: { size: 'b5' } }).page.size).toBe('a4')
+    })
+
+    it('gives profiles saved before the Contents title setting the old "Contents" heading', () => {
+        expect(normalizePdfExportProfile({ frontMatter: { toc: true, tocDepth: 2 } }).frontMatter.tocTitle).toBe('Contents')
+        expect(normalizePdfExportProfile({ frontMatter: { tocTitle: 'Inhalt' } }).frontMatter.tocTitle).toBe('Inhalt')
+        expect(normalizePdfExportProfile({ frontMatter: { tocTitle: '' } }).frontMatter.tocTitle).toBe('')
+        expect(normalizePdfExportProfile({ frontMatter: { tocTitle: 7 } }).frontMatter.tocTitle).toBe('Contents')
+    })
+
+    it('keeps the newer code themes', () => {
+        for (const codeTheme of ['one-light', 'solarized-dark', 'nord', 'dracula'])
+            expect(normalizePdfExportProfile({ content: { codeTheme } }).content.codeTheme).toBe(codeTheme)
+        expect(normalizePdfExportProfile({ content: { codeTheme: 'monokai' } }).content.codeTheme).toBe('github-light')
+    })
+
+    it('keeps a custom page size inside what PDF and Word can print', () => {
+        const page = (customSizeMm: unknown) => normalizePdfExportProfile({ page: { size: 'custom', customSizeMm } }).page.customSizeMm
+        expect(page({ width: 120.5, height: 180 })).toEqual({ width: 120.5, height: 180 })
+        expect(page({ width: 20, height: 9000 })).toEqual({ width: 100, height: 550 })
+        expect(page({ width: '120', height: null })).toEqual({ width: 210, height: 297 })
+        expect(page('A6')).toEqual({ width: 210, height: 297 })
+    })
+
     it('migrates legacy h1StartsNewPage and accepts newPageFromHeading', () => {
         expect(normalizePdfExportProfile({ flow: { h1StartsNewPage: true } }).flow.newPageFromHeading).toBe(1)
         expect(normalizePdfExportProfile({ flow: { h1StartsNewPage: false } }).flow.newPageFromHeading).toBe(0)

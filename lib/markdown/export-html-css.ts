@@ -1,4 +1,5 @@
 import { pdfPageNumberFormat, pdfPageNumberTemplate } from '@/lib/markdown/export-metadata'
+import { PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { getDiagramColors } from '@/lib/theme/catalog'
 
@@ -64,7 +65,10 @@ export function resolvePdfExportLayout(profile: PdfExportProfile): PdfExportLayo
 
 /** Portrait sheet dimensions for the profile's paper size; orientation is applied separately. */
 export function pdfPageSizeMm(profile: PdfExportProfile): { width: number; height: number } {
-    return profile.page.size === 'letter' ? { width: 215.9, height: 279.4 } : { width: 210, height: 297 }
+    const { size, customSizeMm } = profile.page
+    if (size === 'custom') return { ...customSizeMm }
+    const named = PDF_PAGE_SIZES[size]
+    return { width: named.widthMm, height: named.heightMm }
 }
 
 /** Margins the print engine itself must apply; zero when the CSS emulates them. */
@@ -147,8 +151,14 @@ export function pdfStampGlyphText(format: string): string {
 }
 
 function pageSizeCss(profile: PdfExportProfile): string {
-    const size = profile.page.size === 'letter' ? 'letter' : 'A4'
-    return profile.page.orientation === 'landscape' ? `${size} landscape` : size
+    const landscape = profile.page.orientation === 'landscape'
+    if (profile.page.size === 'custom') {
+        // CSS takes no orientation word after lengths, so landscape swaps them.
+        const { width, height } = pdfPageSizeMm(profile)
+        return landscape ? `${height}mm ${width}mm` : `${width}mm ${height}mm`
+    }
+    const size = PDF_PAGE_SIZES[profile.page.size].css
+    return landscape ? `${size} landscape` : size
 }
 
 function marginCss(margins: PdfMarginsMm): string {
