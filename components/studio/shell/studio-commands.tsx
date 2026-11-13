@@ -1,5 +1,6 @@
 'use client'
 
+import { usePaneFocusCommands } from '@/components/studio/shell/pane-focus-commands'
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
 import { useThemeCommands } from '@/components/studio/theme/theme-commands'
 import { useDocumentCommands } from '@/components/studio/workspace/document-commands'
@@ -20,6 +21,7 @@ export function StudioCommands() {
     useWorkspaceCommands()
     useDocumentCommands()
     useLayoutCommands()
+    usePaneFocusCommands()
     useThemeCommands()
     useExitCommand()
     return null

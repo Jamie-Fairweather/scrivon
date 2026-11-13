@@ -155,7 +155,8 @@ export function OutlinePanel() {
     else body = <OutlineTree nodes={tree} count={headings.length} currentIndex={currentIndex} onPick={onPick} />
 
     return (
-        <aside className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+        // A pane for F6 (pane-focus.ts), which goes to the list before the button above it.
+        <aside data-pane="outline" className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             {/* As tall as the tab bar beside it, so their bottom borders line up. */}
             <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-sidebar-border ps-3 pe-1.5">
                 <p className="truncate text-xs font-medium text-muted-foreground uppercase">Outline</p>
@@ -166,7 +167,7 @@ export function OutlinePanel() {
                 </IconTooltip>
             </div>
             {/* The list is a Tab stop of its own, so the scroll box isn't one. */}
-            <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
+            <ScrollArea data-pane-focus className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
                 {body}
             </ScrollArea>
         </aside>

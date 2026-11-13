@@ -28,6 +28,13 @@ describe('WelcomeScreen', () => {
         expect(container.textContent).not.toContain('`')
         expect(screen.getByText(/Open a folder to browse \.md, \.mmd and \.mermaid files/)).toBeInTheDocument()
     })
+
+    it('is the main landmark', () => {
+        mockSession()
+        render(<WelcomeScreen />)
+
+        expect(screen.getByRole('main')).toContainElement(screen.getByRole('heading', { level: 1 }))
+    })
 })
 
 describe('WelcomeScreen recent folders', () => {

@@ -441,12 +441,25 @@ describe('usePaletteSearch commands in the default results', () => {
         ['preview only', 'action:preview-only'],
         ['editor and preview', 'action:layout-editor-preview'],
         ['all panels', 'action:layout-all-panels'],
+        ['focus explorer', 'action:focus-explorer'],
+        ['focus preview', 'action:focus-preview'],
+        ['next pane', 'action:focus-next-pane'],
+        ['previous pane', 'action:focus-previous-pane'],
         ['exit', 'action:exit'],
     ])('finds %s by name', (query, value) => {
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
         act(() => result.current.setQuery(query))
         expect(groupPaths(result.current.groups, 'actions')).toContain(value)
+    })
+
+    it('finds Focus Editor once a file is open', () => {
+        state.tabs.tabs = [{ id: '/ws/notes.md', path: '/ws/notes.md', name: 'notes.md', content: '', isDirty: false }]
+        state.tabs.activeTabId = '/ws/notes.md'
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('focus editor'))
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:focus-editor')
     })
 
     it('lists commands after matching files while typing', () => {

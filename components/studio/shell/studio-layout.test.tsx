@@ -84,6 +84,7 @@ vi.mock('@/components/studio/editor/code-editor-panel', () => ({
 vi.mock('@/components/studio/shell/studio-status-bar', () => ({ StudioStatusBar: () => <footer aria-label="Status bar" /> }))
 
 const { StudioLayout } = await import('./studio-layout')
+const { focusPane } = await import('./pane-focus')
 
 function tab(path: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content: '', isDirty: false, isSaving: false }
@@ -143,6 +144,30 @@ describe('StudioLayout Outline panel', () => {
     it('hides the Outline panel when it is switched off', () => {
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Outline' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout landmarks and panes', () => {
+    it('has exactly one main landmark, holding the tabs, the editor and the preview', () => {
+        render(<StudioLayout />)
+
+        const [main, ...more] = screen.getAllByRole('main')
+        expect(more).toHaveLength(0)
+        expect(main).toContainElement(screen.getByRole('tab', { name: 'a.md' }))
+        expect(main).toContainElement(screen.getByRole('textbox', { name: 'Editor' }))
+        expect(main).toContainElement(screen.getByRole('region', { name: 'Preview' }))
+        expect(main).not.toContainElement(screen.getByRole('navigation', { name: 'Explorer' }))
+    })
+
+    it('lets the keyboard reach the preview, even when nothing in it can take focus', () => {
+        render(<StudioLayout />)
+        const preview = screen.getByRole('region', { name: 'Preview' })
+
+        act(() => {
+            expect(focusPane('preview')).toBe(true)
+        })
+        expect(preview).toHaveFocus()
+        expect(preview).toContainElement(screen.getByText('Markdown preview'))
     })
 })
 

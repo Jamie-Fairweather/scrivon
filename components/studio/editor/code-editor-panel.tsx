@@ -16,7 +16,7 @@ import { useOptionalCommandPalette } from '@/components/studio/command-palette/c
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
-import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
+import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
@@ -269,6 +269,18 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 if (!openRef.current) return
                 pendingFocusRef.current = path
                 setFocusRequest((n) => n + 1)
+            }),
+        []
+    )
+
+    // Focus Editor and F6 (pane-focus.ts) put the keyboard here at once, while the editor shows a file.
+    useEffect(
+        () =>
+            registerEditorFocusNow(() => {
+                const editor = editorRef.current
+                if (!openRef.current || !editor?.getModel()) return false
+                editor.focus()
+                return true
             }),
         []
     )
@@ -630,6 +642,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         <div
             ref={rootRef}
             data-slot="code-editor"
+            // A pane for F6 and Focus Editor (pane-focus.ts).
+            data-pane="editor"
             className={cn(
                 'flex h-full shrink-0 flex-col border-r border-border bg-code',
                 // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
