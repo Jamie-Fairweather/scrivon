@@ -2,7 +2,6 @@
 
 import { ChevronsDownUp, LocateFixed } from 'lucide-react'
 import { useExplorerTreeActions } from '@/components/studio/explorer/explorer-commands'
-import { useActiveTabId } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 
@@ -10,14 +9,14 @@ const NO_FILE_TO_REVEAL = 'No file from the folder is open'
 
 /** The explorer's Reveal Active File and Collapse All buttons; the palette has the same commands. */
 export function ExplorerTreeButtons() {
-    // Not useDocumentTabs: that changes with every keystroke.
-    const activeTabId = useActiveTabId()
-    const { canRevealActiveFile, collapseAllFolders, revealActiveFile } = useExplorerTreeActions(activeTabId)
+    const { canRevealActiveFile, collapseAllFolders, revealActiveFile } = useExplorerTreeActions()
+    // When it can't be used, the tooltip says why instead.
+    const revealLabel = canRevealActiveFile ? 'Reveal active file' : NO_FILE_TO_REVEAL
 
     return (
         <>
             {/* aria-disabled rather than disabled, so it can still be focused or hovered to say why. */}
-            <IconTooltip label="Reveal active file" description={canRevealActiveFile ? undefined : NO_FILE_TO_REVEAL}>
+            <IconTooltip label={revealLabel} description={canRevealActiveFile ? undefined : revealLabel}>
                 <Button
                     variant="ghost"
                     size="icon-sm"

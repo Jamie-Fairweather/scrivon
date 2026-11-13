@@ -11,6 +11,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import {
+    useActiveTabId,
     useCanvasFit,
     useDocumentSave,
     useDocumentTabs,
@@ -26,6 +27,7 @@ vi.mock('next/image', () => ({
     default: (props: { alt: string }) => <span data-alt={props.alt} />,
 }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
+    useActiveTabId: vi.fn(),
     useCanvasFit: vi.fn(),
     useDocumentSave: vi.fn(),
     useDocumentTabs: vi.fn(),
@@ -77,6 +79,7 @@ function mockContexts({
     vi.mocked(useWorkspaceCoordinator).mockReturnValue({ reloadChangedTabs: { current: vi.fn(async () => {}) } } as unknown as ReturnType<
         typeof useWorkspaceCoordinator
     >)
+    vi.mocked(useActiveTabId).mockReturnValue(activeTabId)
     vi.mocked(useDocumentTabs).mockReturnValue({
         tabs: activeTabId ? [{ id: activeTabId, path: activeTabId, name: 'a.md', content: '', isDirty: dirty }] : [],
         activeTabId,

@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { requestRevealActiveFile, setExplorerPanel } from '@/components/studio/explorer/explorer-view'
-import { useDocumentTabs, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useActiveTabId, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { closedFoldersAbove, openFolderPaths } from '@/lib/workspace/folder-toggles'
 
 export type ExplorerCommandsContext = {
@@ -39,16 +39,19 @@ export function buildExplorerCommands(ctx: ExplorerCommandsContext): AppCommand[
     ]
 }
 
-/**
- * Collapse All and Reveal Active File, for the explorer's buttons and the palette. Takes the open tab, so the
- * explorer can pass one that doesn't change with every keystroke.
- */
-export function useExplorerTreeActions(activeTabId: string | null): Omit<ExplorerCommandsContext, 'hasWorkspace'> {
+/** Collapse All and Reveal Active File, for the explorer's buttons and the palette. */
+export function useExplorerTreeActions(): Omit<ExplorerCommandsContext, 'hasWorkspace'> {
     const { tree, folderToggles, setFoldersExpanded } = useWorkspaceSession()
     const { layout, setExplorerOpen } = useStudioLayout()
     const explorerOpen = layout.explorerOpen
+    // Not useDocumentTabs: that changes with every keystroke.
+    const activeTabId = useActiveTabId()
 
-    const canRevealActiveFile = activeTabId !== null && closedFoldersAbove(tree, folderToggles, activeTabId) !== null
+    // Memoized: the palette's commands draw again on every keystroke, and this walks the folders above the file.
+    const canRevealActiveFile = useMemo(
+        () => activeTabId !== null && closedFoldersAbove(tree, folderToggles, activeTabId) !== null,
+        [tree, folderToggles, activeTabId]
+    )
 
     const collapseAllFolders = useCallback(
         () => setFoldersExpanded(openFolderPaths(tree, folderToggles), false),
@@ -67,8 +70,7 @@ export function useExplorerTreeActions(activeTabId: string | null): Omit<Explore
 
 export function useExplorerCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { activeTabId } = useDocumentTabs()
-    const { canRevealActiveFile, collapseAllFolders, revealActiveFile } = useExplorerTreeActions(activeTabId)
+    const { canRevealActiveFile, collapseAllFolders, revealActiveFile } = useExplorerTreeActions()
     const hasWorkspace = Boolean(workspaceRoot)
 
     const commands = useMemo(

@@ -61,9 +61,13 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
     // when another file is opened and from Reveal Active File; done once the tree has the file (a new one can come
     // later). Only then, so a folder the user closes stays closed.
     const revealRequests = useRevealActiveFileRequests()
-    const revealRef = useRef<{ path: string; opened: boolean } | null>(null)
+    // `asked`: from Reveal Active File, rather than opening a file.
+    const revealRef = useRef<{ path: string; opened: boolean; asked: boolean } | null>(null)
+    const lastRevealRequestsRef = useRef(revealRequests)
     useLayoutEffect(() => {
-        revealRef.current = activeTabId ? { path: activeTabId, opened: false } : null
+        const asked = revealRequests !== lastRevealRequestsRef.current
+        lastRevealRequestsRef.current = revealRequests
+        revealRef.current = activeTabId ? { path: activeTabId, opened: false, asked } : null
     }, [activeTabId, revealRequests])
 
     useLayoutEffect(() => {
@@ -82,6 +86,8 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         const row = [...items].find((item) => item.dataset.path !== undefined && samePath(item.dataset.path, reveal.path))
         // Not focused: the user is still typing in the editor, or choosing in the palette.
         row?.scrollIntoView?.({ block: 'nearest' })
+        // When asked for, it becomes the Tab stop, so the next Tab into the tree lands on it.
+        if (reveal.asked && row?.dataset.path) setFocusedPath(row.dataset.path)
     }, [tree, toggled, activeTabId, revealRequests, setFoldersExpanded])
 
     // Tab lands on the row last focused, else the open file, else the first row.

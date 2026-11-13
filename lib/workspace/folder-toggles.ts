@@ -36,16 +36,22 @@ export function closedFoldersAbove(tree: readonly FileNode[], toggles: FolderTog
     }
 }
 
-/** Every open folder in the tree, also those inside closed ones, so Collapse All closes them all. */
+/**
+ * Every open folder in the tree, also those inside closed ones, so Collapse All closes them all. Deepest first:
+ * only the newest choices are saved when there are very many, so the top folders (open by default) go last.
+ */
 export function openFolderPaths(tree: readonly FileNode[], toggles: FolderToggles): string[] {
     const open: string[] = []
-    const walk = (nodes: readonly FileNode[], level: number) => {
+    // One level at a time, top first; reversed at the end.
+    let nodes = tree
+    for (let level = 1; nodes.length > 0; level++) {
+        const next: FileNode[] = []
         for (const node of nodes) {
             if (node.kind !== 'directory') continue
             if (isFolderOpen(toggles, node.path, level)) open.push(node.path)
-            walk(node.children, level + 1)
+            for (const child of node.children) next.push(child)
         }
+        nodes = next
     }
-    walk(tree, 1)
-    return open
+    return open.reverse()
 }

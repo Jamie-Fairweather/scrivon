@@ -67,7 +67,12 @@ describe('openFolderPaths', () => {
             ['C:\\ws\\docs', false],
             ['C:\\ws\\docs\\guide\\deep', true],
         ])
-        expect(openFolderPaths(tree, toggles)).toEqual(['C:\\ws\\docs\\guide', 'C:\\ws\\docs\\guide\\deep', 'C:\\ws\\notes'])
+        expect(openFolderPaths(tree, toggles)).toEqual(['C:\\ws\\docs\\guide\\deep', 'C:\\ws\\docs\\guide', 'C:\\ws\\notes'])
+    })
+
+    it('lists deeper folders first, so the top ones are saved last and kept when the saved list is cut', () => {
+        const toggles = new Map([['C:\\ws\\docs\\guide\\deep', true]])
+        expect(openFolderPaths(tree, toggles)).toEqual(['C:\\ws\\docs\\guide\\deep', 'C:\\ws\\docs\\guide', 'C:\\ws\\notes', 'C:\\ws\\docs'])
     })
 
     it('is empty when every folder is closed', () => {

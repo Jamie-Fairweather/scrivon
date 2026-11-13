@@ -453,6 +453,25 @@ describe('FileTree shows the open file', () => {
         expect(scrollIntoView.mock.contexts).toEqual([item('notes.md')])
     })
 
+    it('makes the open file the Tab stop when asked, but not when a file is just opened', () => {
+        tabs.activeTabId = '/ws/docs/notes.md'
+        const { rerender } = render(<FileTree tree={tree} />)
+        act(() => item('docs').focus())
+        expect(item('docs').tabIndex).toBe(0)
+
+        // Opening another file leaves the Tab stop where the user was.
+        tabs.activeTabId = '/ws/flow.mmd'
+        rerender(<FileTree tree={tree} />)
+        expect(item('docs').tabIndex).toBe(0)
+        expect(item('flow.mmd').tabIndex).toBe(-1)
+
+        act(() => requestRevealActiveFile())
+        expect(item('flow.mmd').tabIndex).toBe(0)
+        expect(item('docs').tabIndex).toBe(-1)
+        // Still not focused: the user may be in the palette or the editor.
+        expect(item('flow.mmd')).not.toHaveFocus()
+    })
+
     it('does nothing for a tab that is not a file in the folder', () => {
         tabs.activeTabId = 'example:flowchart'
         render(<FileTree tree={tree} />)

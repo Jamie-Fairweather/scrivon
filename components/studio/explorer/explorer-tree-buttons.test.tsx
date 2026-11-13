@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandRegistryProvider, useCommands } from '@/components/studio/commands/command-registry'
 import { useExplorerCommands } from '@/components/studio/explorer/explorer-commands'
 import { setExplorerPanel, useExplorerPanel, useRevealActiveFileRequests } from '@/components/studio/explorer/explorer-view'
+import { closedFoldersAbove } from '@/lib/workspace/folder-toggles'
 import type { FileNode } from '@/lib/workspace/types'
 import { ExplorerTreeButtons } from './explorer-tree-buttons'
 
@@ -39,9 +40,13 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         setFoldersExpanded: state.setFoldersExpanded,
     }),
     useActiveTabId: () => state.activeTabId,
-    useDocumentTabs: () => ({ activeTabId: state.activeTabId }),
     useStudioLayout: () => ({ layout: { explorerOpen: state.explorerOpen }, setExplorerOpen: state.setExplorerOpen }),
 }))
+// Counts the walks through the tree that check whether Reveal can be used.
+vi.mock('@/lib/workspace/folder-toggles', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/workspace/folder-toggles')>()
+    return { ...actual, closedFoldersAbove: vi.fn(actual.closedFoldersAbove) }
+})
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
 
 beforeEach(() => {
@@ -60,7 +65,8 @@ describe('ExplorerTreeButtons', () => {
 
         await userEvent.setup().click(screen.getByRole('button', { name: 'Collapse all folders' }))
 
-        expect(state.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs', '/ws/docs/old'], false)
+        // Deepest first, so the top folders are saved last.
+        expect(state.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs/old', '/ws/docs'], false)
     })
 
     it('asks the tree to show the open file from Reveal active file', async () => {
@@ -82,9 +88,12 @@ describe('ExplorerTreeButtons', () => {
         render(<ExplorerTreeButtons />)
         const reveal = screen.getByRole('button', { name: 'Reveal active file' })
 
-        // Still focusable, so the reason can be found.
+        // Still focusable, so the reason can be found: in the tooltip, and as the description for screen readers.
         expect(reveal).toHaveAttribute('aria-disabled', 'true')
         expect(reveal).toHaveAccessibleDescription('No file from the folder is open')
+        act(() => reveal.focus())
+        expect(await screen.findByText('No file from the folder is open', { selector: '[data-slot="tooltip-popup"] *' })).toBeInTheDocument()
+
         await userEvent.setup().click(reveal)
         expect(requests.result.current).toBe(before)
     })
@@ -134,7 +143,7 @@ describe('explorer commands in the palette', () => {
 
         act(() => void command(result.current, 'collapse-all-folders').run())
 
-        expect(state.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs', '/ws/docs/old', '/ws/empty'], false)
+        expect(state.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs/old', '/ws/empty', '/ws/docs'], false)
     })
 
     it('turns Reveal off when no file from the folder is open, and both off with no folder', () => {
@@ -146,5 +155,19 @@ describe('explorer commands in the palette', () => {
         state.workspaceRoot = null
         rerender()
         expect(command(result.current, 'collapse-all-folders').disabled).toBe(true)
+    })
+
+    it('checks the tree only when the tree, the folders or the open file change, not on every draw', () => {
+        const { rerender } = renderHook(useCommands, { wrapper })
+        const walks = vi.mocked(closedFoldersAbove).mock.calls.length
+        expect(walks).toBeGreaterThan(0)
+
+        rerender()
+        rerender()
+        expect(closedFoldersAbove).toHaveBeenCalledTimes(walks)
+
+        state.activeTabId = '/ws/flow.mmd'
+        rerender()
+        expect(vi.mocked(closedFoldersAbove).mock.calls.length).toBeGreaterThan(walks)
     })
 })
