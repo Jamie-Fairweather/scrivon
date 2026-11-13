@@ -140,6 +140,19 @@ describe('SettingsDialog sections', () => {
         expect(screen.queryByRole('textbox', { name: 'Wrap column' })).not.toBeInTheDocument()
     })
 
+    it('hides the status bar from the Editor section, and remembers that', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
+
+        const statusBar = await screen.findByRole('switch', { name: 'Status bar' })
+        expect(statusBar).toHaveAttribute('aria-checked', 'true')
+        fireEvent.click(statusBar)
+
+        expect(statusBar).toHaveAttribute('aria-checked', 'false')
+        const saved = JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as { statusBar?: { visible?: boolean } }
+        expect(saved.statusBar?.visible).toBe(false)
+    })
+
     it('shows the saved wrap column when Word wrap is At column', async () => {
         store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ editor: { wordWrap: 'wordWrapColumn', wordWrapColumn: 100 } }))
         renderDialog()

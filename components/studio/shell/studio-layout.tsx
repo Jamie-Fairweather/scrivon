@@ -11,6 +11,7 @@ import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-pane
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
+import { StudioStatusBar } from '@/components/studio/shell/studio-status-bar'
 import { documentKind } from '@/lib/workspace/file-types'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 
@@ -114,6 +115,7 @@ export function StudioLayout() {
                     </div>
                 </MarkdownExpandProvider>
             </div>
+            <StudioStatusBar />
         </div>
     )
 }
