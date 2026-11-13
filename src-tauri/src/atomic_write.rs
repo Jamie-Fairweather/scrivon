@@ -325,7 +325,7 @@ const REPLACE_ATTEMPTS: u32 = 5;
 const REPLACE_RETRY: Duration = Duration::from_millis(50);
 
 /// Writes `bytes` to `path`, replacing the file in one step, or creating it.
-fn save(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn save(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let Ok(target) = fs::symlink_metadata(path) else {
         return write_new(path, bytes);
     };

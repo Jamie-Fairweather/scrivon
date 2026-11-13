@@ -628,6 +628,82 @@ pub async fn adopt_export_images(
         .map_err(|_| "Could not take on the profile images.".to_string())
 }
 
+/// Where images that came embedded in an imported export profile are kept,
+/// inside the app's data folder.
+const PROFILE_IMAGES_DIR: &str = "profile-images";
+/// The image types an imported profile may embed, and the extension each is saved with.
+const EMBEDDED_IMAGE_TYPES: [(&str, &str); 5] = [
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/gif", "gif"),
+    ("image/webp", "webp"),
+    ("image/svg+xml", "svg"),
+];
+
+/// Saves an image that came embedded in an imported export profile (a
+/// `data:` URL) as a file in the app's data folder, and lets the export read
+/// it. Returns its path, which the profile then names. Images stay out of the
+/// saved settings that way, as web storage only holds a few MB.
+#[tauri::command]
+pub async fn save_profile_image(app: tauri::AppHandle, data_url: String) -> Result<String, String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|err| err.to_string())?
+            .join(PROFILE_IMAGES_DIR);
+        save_embedded_image(export_image_access::access(&app), &dir, &data_url)
+    })
+    .await
+    .map_err(|_| "Could not save the image.".to_string())?
+}
+
+/// `save_profile_image` without the app: writes the image into `dir` under a
+/// new name, and records it as one the export may read.
+fn save_embedded_image(
+    access: &export_image_access::ExportImageAccess,
+    dir: &Path,
+    data_url: &str,
+) -> Result<String, String> {
+    let (extension, bytes) = decode_embedded_image(data_url)?;
+    let could_not_save = |err: std::io::Error| format!("Could not save the image: {err}");
+    std::fs::create_dir_all(dir).map_err(could_not_save)?;
+    let path = dir.join(format!("{}.{extension}", uuid::Uuid::new_v4()));
+    std::fs::write(&path, bytes).map_err(could_not_save)?;
+    let path = path.to_string_lossy().into_owned();
+    access.remember_saved(&path);
+    Ok(path)
+}
+
+/// The extension and bytes of a `data:<type>;base64,<data>` image, checked
+/// the way `read_image_as_data_url` checks a file.
+fn decode_embedded_image(data_url: &str) -> Result<(&'static str, Vec<u8>), String> {
+    let (mime, data) = data_url
+        .trim()
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(";base64,"))
+        .ok_or("This image isn't embedded in the file.")?;
+    let (mime, extension) = EMBEDDED_IMAGE_TYPES
+        .into_iter()
+        .find(|(known, _)| known.eq_ignore_ascii_case(mime))
+        .ok_or("Only PNG, JPEG, GIF, WebP and SVG images can be used.")?;
+    // Checked before decoding, so a huge one isn't decoded first.
+    if data.len() > MAX_EXPORT_IMAGE_BYTES.div_ceil(3) * 4 {
+        return Err(IMAGE_TOO_LARGE.into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|_| "This image is damaged.")?;
+    if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
+        return Err(IMAGE_TOO_LARGE.into());
+    }
+    if !content_matches(mime, &bytes) {
+        return Err("This file isn't a valid image.".into());
+    }
+    Ok((extension, bytes))
+}
+
 /// The image type of an export image path, or why it can't be one.
 fn export_image_mime(path: &str) -> Result<&'static str, String> {
     let path = path.trim();
@@ -670,8 +746,8 @@ mod tests {
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
         mime_from_path, place_printed_pdf, read_chosen_image, read_image_as_data_url,
-        save_printed_pdf, temp_sibling, wait_until_ready, PageReadiness, PdfPrintOptions,
-        MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
+        save_embedded_image, save_printed_pdf, temp_sibling, wait_until_ready, PageReadiness,
+        PdfPrintOptions, MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
     };
 
     #[test]
@@ -788,6 +864,60 @@ mod tests {
         let _ = std::fs::remove_file(&photo);
         assert_eq!(unchosen.unwrap_err(), NOT_CHOSEN);
         assert_eq!(chosen.unwrap(), "data:image/png;base64,iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn an_imported_profile_image_is_saved_and_can_be_exported() {
+        let access = ExportImageAccess::default();
+        let dir =
+            std::env::temp_dir().join(format!("scrivon-{}-profile-images", uuid::Uuid::new_v4()));
+
+        let saved = save_embedded_image(&access, &dir, "data:image/png;base64,iVBORw0KGgo=");
+        let svg = save_embedded_image(&access, &dir, "data:image/svg+xml;base64,PHN2Zy8+");
+        // The user never chose it with Browse, but the export may read it.
+        let exported = saved
+            .clone()
+            .and_then(|path| read_chosen_image(&access, &path, |_| false));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let saved = saved.unwrap();
+        assert!(saved.starts_with(&*dir.to_string_lossy()));
+        assert!(saved.ends_with(".png"));
+        assert!(svg.unwrap().ends_with(".svg"));
+        assert_eq!(exported.unwrap(), "data:image/png;base64,iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn an_imported_profile_image_must_be_a_real_image() {
+        let access = ExportImageAccess::default();
+        let dir =
+            std::env::temp_dir().join(format!("scrivon-{}-profile-images", uuid::Uuid::new_v4()));
+        let save = |data_url: &str| save_embedded_image(&access, &dir, data_url);
+
+        let not_embedded = save(r"C:\Users\me\logo.png").unwrap_err();
+        let other_type = save("data:text/html;base64,PGI+").unwrap_err();
+        let damaged = save("data:image/png;base64,%%%").unwrap_err();
+        let renamed = save("data:image/png;base64,LS0tLS1CRUdJTg==").unwrap_err();
+        let huge = format!(
+            "data:image/png;base64,{}",
+            "A".repeat(MAX_EXPORT_IMAGE_BYTES / 3 * 4 + 8)
+        );
+        let too_large = save(&huge).unwrap_err();
+        let made_folder = dir.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(not_embedded, "This image isn't embedded in the file.");
+        assert_eq!(
+            other_type,
+            "Only PNG, JPEG, GIF, WebP and SVG images can be used."
+        );
+        assert_eq!(damaged, "This image is damaged.");
+        assert_eq!(renamed, "This file isn't a valid image.");
+        assert_eq!(
+            too_large,
+            "Image is too large to embed in the export (limit 12 MB)."
+        );
+        assert!(!made_folder);
     }
 
     #[test]

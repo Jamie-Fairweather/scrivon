@@ -6,6 +6,7 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    importPdfExportProfile,
     otherProfileNamed,
     PDF_AUTO_BAR_HEIGHT_MM,
     pdfBodyHeightMm,
@@ -278,6 +279,29 @@ describe('pdf export profile CRUD', () => {
         settings = deletePdfExportProfile(settings, extraId)
         expect(settings.activeProfileId).toBe(DEFAULT_PDF_EXPORT_PROFILE_ID)
         expect(settings.profiles).toHaveLength(1)
+    })
+
+    it('adds an imported profile under a new id and a free name, and picks it', () => {
+        let settings = createPdfExportProfile(createDefaultPdfExportSettings(), 'Report')
+        const imported = {
+            ...createDefaultPdfExportProfile({ id: DEFAULT_PDF_EXPORT_PROFILE_ID, name: ' report ' }),
+            page: { ...settings.profiles[0]!.page, size: 'letter' as const },
+        }
+
+        settings = importPdfExportProfile(settings, imported)
+
+        const added = settings.profiles[2]!
+        expect(settings.profiles.map((profile) => profile.name)).toEqual(['Default', 'Report', 'report 2'])
+        expect(added.id).not.toBe(DEFAULT_PDF_EXPORT_PROFILE_ID)
+        expect(new Set(settings.profiles.map((profile) => profile.id)).size).toBe(3)
+        expect(settings.activeProfileId).toBe(added.id)
+        expect(added.page.size).toBe('letter')
+    })
+
+    it('names an imported profile without a name', () => {
+        const settings = importPdfExportProfile(createDefaultPdfExportSettings(), createDefaultPdfExportProfile({ name: '  ' }))
+
+        expect(settings.profiles[1]!.name).toBe('Imported profile')
     })
 })
 
