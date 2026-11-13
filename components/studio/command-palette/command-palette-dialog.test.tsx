@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import type { ComponentProps } from 'react'
+import { useState, type ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import type { ActionPaletteItem, PaletteItem } from '@/components/studio/command-palette/types'
@@ -36,9 +36,9 @@ describe('CommandPaletteDialog modes', () => {
         expect(screen.getByPlaceholderText('Go to file…')).toBeInTheDocument()
     })
 
-    it('uses the general placeholder and no filter chip in the default mode', () => {
+    it('uses the general placeholder, which names the prefixes, and no filter chip in the default mode', () => {
         renderDialog({ mode: 'all' })
-        expect(screen.getByPlaceholderText('Search files, text, and commands…')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Search files and text · > commands · : line · @ heading · ? help')).toBeInTheDocument()
         expect(screen.queryByRole('button', { name: /show all results/i })).toBeNull()
     })
 
@@ -423,5 +423,98 @@ describe('CommandPaletteDialog picking an item', () => {
         fireEvent.click(await screen.findByRole('option', { name: /Open Recent Folder: big/ }))
 
         await waitFor(() => expect(onSelectItem).toHaveBeenCalledTimes(2))
+    })
+})
+
+describe('CommandPaletteDialog prefixes', () => {
+    const lineItem: PaletteItem = {
+        kind: 'line',
+        value: 'line:12:5',
+        searchText: 'Go to line 12, column 5',
+        path: '/ws/notes.md',
+        label: 'Go to line 12, column 5',
+        detail: 'notes.md · 40 lines',
+        line: 12,
+        column: 5,
+    }
+
+    const headingItem = (text: string, depth: number, line: number): PaletteItem => ({
+        kind: 'heading',
+        value: `heading:${line}`,
+        searchText: text,
+        path: '/ws/guide.md',
+        headingId: text.toLowerCase(),
+        text,
+        line,
+        depth,
+    })
+
+    const help: PaletteItem[] = [
+        { kind: 'prefix', value: 'prefix:>', searchText: '> Run a command', prefix: '>', label: 'Run a command' },
+        { kind: 'prefix', value: 'prefix::', searchText: ': Go to a line', prefix: ':', label: 'Go to a line in the open file' },
+    ]
+
+    it('shows where : goes, in which file', () => {
+        renderDialog({ query: ':12:5', groups: [{ id: 'line', label: 'Go to Line', items: [lineItem] }] })
+        expect(screen.getByRole('option', { name: 'Go to line 12, column 5 notes.md · 40 lines' })).toBeInTheDocument()
+    })
+
+    it('sets headings in by level and shows their line', () => {
+        const items = [headingItem('Install', 0, 3), headingItem('Windows', 1, 5)]
+        renderDialog({ query: '@', groups: [{ id: 'headings', label: 'Headings', items }] })
+
+        const indent = (name: string) => parseFloat((screen.getByRole('option', { name }).firstElementChild as HTMLElement).style.paddingInlineStart)
+        expect(indent('Install Line 3')).toBe(0)
+        expect(indent('Windows Line 5')).toBe(12)
+        expect(within(screen.getByRole('option', { name: 'Windows Line 5' })).getByText('Windows')).toHaveAttribute('dir', 'auto')
+    })
+
+    it('shows the hint for a prefix that lists nothing', () => {
+        renderDialog({ query: ':', emptyHint: 'Type a line number from 1 to 40. Add :5 to go to a column.' })
+        expect(screen.getByText(/^Type a line number from 1 to 40\./)).toBeInTheDocument()
+    })
+
+    it('types the prefix picked from the ? list and stays open', async () => {
+        const onSelectItem = vi.fn()
+        const onOpenChange = vi.fn()
+        function Stateful() {
+            const [query, setQuery] = useState('?')
+            return (
+                <CommandPaletteDialog
+                    groups={query === '?' ? [{ id: 'help', label: 'Prefixes', items: help }] : []}
+                    hasWorkspace
+                    isSearchingText={false}
+                    mode="all"
+                    onModeChange={vi.fn()}
+                    onOpenChange={onOpenChange}
+                    onQueryChange={setQuery}
+                    onSelectItem={onSelectItem}
+                    open
+                    query={query}
+                    textCapped={false}
+                    textTruncatedFiles={0}
+                    textUnreadableFiles={0}
+                />
+            )
+        }
+        render(<Stateful />)
+        const input = screen.getByRole('combobox')
+
+        fireEvent.click(screen.getByRole('option', { name: /Go to a line in the open file/ }))
+
+        await waitFor(() => expect(input).toHaveValue(':'))
+        expect(input).toHaveFocus()
+        expect(onOpenChange).not.toHaveBeenCalled()
+        expect(onSelectItem).not.toHaveBeenCalled()
+    })
+
+    it('points to > only while searching', () => {
+        renderDialog({ query: '' })
+        expect(screen.getByText('Commands', { selector: 'span' })).toBeInTheDocument()
+    })
+
+    it.each([':', '@', '?', '>'])('leaves out the > hint once %s is typed', (query) => {
+        renderDialog({ query })
+        expect(screen.queryByText('Commands', { selector: 'span' })).toBeNull()
     })
 })

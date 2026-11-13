@@ -1,14 +1,34 @@
+import type { PaletteMode } from '@/components/studio/command-palette/types'
+
+/**
+ * What the palette is asked for: a plain search, or one of the prefixes ('>' commands, ':' go to line,
+ * '@' jump to a heading, '?' list the prefixes).
+ */
+export type PaletteQueryKind = 'search' | 'commands' | 'line' | 'heading' | 'help'
+
 export type ParsedPaletteQuery = {
-    actionsOnly: boolean
+    kind: PaletteQueryKind
     query: string
 }
 
-export function parsePaletteQuery(raw: string): ParsedPaletteQuery {
+const PREFIX_KINDS: Record<string, PaletteQueryKind> = {
+    '>': 'commands',
+    ':': 'line',
+    '@': 'heading',
+    '?': 'help',
+}
+
+/**
+ * Splits a leading prefix off the query. Find in Workspace (`mode` 'text') only knows '>', so text
+ * such as '@media' or ':root' can still be searched for there.
+ */
+export function parsePaletteQuery(raw: string, mode: PaletteMode = 'all'): ParsedPaletteQuery {
     const trimmed = raw.trimStart()
-    if (trimmed.startsWith('>')) {
-        return { actionsOnly: true, query: trimmed.slice(1).trimStart() }
+    const kind = PREFIX_KINDS[trimmed.charAt(0)]
+    if (kind && (mode !== 'text' || kind === 'commands')) {
+        return { kind, query: trimmed.slice(1).trim() }
     }
-    return { actionsOnly: false, query: raw.trim() }
+    return { kind: 'search', query: raw.trim() }
 }
 
 /**

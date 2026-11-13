@@ -10,6 +10,7 @@ import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@
 const search = vi.hoisted(() => ({
     enabled: false,
     groups: [] as PaletteGroup[],
+    emptyHint: null as string | null,
     runItem: (async () => {}) as (item: PaletteItem) => Promise<void>,
 }))
 
@@ -34,6 +35,7 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
                 textTruncatedFiles: 0,
                 runItem: (item: PaletteItem) => search.runItem(item),
                 hasWorkspace: true,
+                emptyHint: search.emptyHint,
             }
         },
     }
@@ -43,6 +45,7 @@ const palette: { openMode: (mode: PaletteMode) => void } = { openMode: () => {} 
 
 beforeEach(() => {
     search.groups = []
+    search.emptyHint = null
     search.runItem = async () => {}
 })
 
@@ -208,6 +211,21 @@ describe('CommandPaletteProvider after a pick', () => {
 
         await waitFor(() => expect(run).toHaveBeenCalled())
         expect(focusEditorFor).not.toHaveBeenCalled()
+    })
+})
+
+describe('CommandPaletteProvider prefixes', () => {
+    beforeEach(() => {
+        palette.openMode = () => {}
+    })
+
+    it('shows what the search says when a prefix lists nothing', () => {
+        search.emptyHint = 'Open a file to go to a line in it.'
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: ':12' } })
+        expect(screen.getByText(/^Open a file to go to a line in it\./)).toBeInTheDocument()
     })
 })
 

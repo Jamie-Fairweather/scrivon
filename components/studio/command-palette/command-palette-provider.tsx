@@ -51,8 +51,19 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
     const [mode, setMode] = useState<PaletteMode>('all')
     const openRef = useRef(false)
 
-    const { query, setQuery, resetSearch, groups, isSearchingText, textCapped, textUnreadableFiles, textTruncatedFiles, runItem, hasWorkspace } =
-        usePaletteSearch(mode, mounted)
+    const {
+        query,
+        setQuery,
+        resetSearch,
+        groups,
+        isSearchingText,
+        textCapped,
+        textUnreadableFiles,
+        textTruncatedFiles,
+        runItem,
+        hasWorkspace,
+        emptyHint,
+    } = usePaletteSearch(mode, mounted)
 
     const openPalette = useCallback(
         (nextMode: PaletteMode = 'all') => {
@@ -126,6 +137,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
             {children}
             <DialogErrorBoundary open={open} onCrash={handlePaletteCrash}>
                 <CommandPaletteDialog
+                    emptyHint={emptyHint}
                     groups={groups}
                     hasWorkspace={hasWorkspace}
                     isSearchingText={isSearchingText}

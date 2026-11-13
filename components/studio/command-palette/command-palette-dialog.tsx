@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, NetworkIcon, XIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, HashIcon, NetworkIcon, XIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
 import { MAX_HITS, MAX_HITS_PER_FILE, meetsTextQueryMinimum } from '@/components/studio/command-palette/search-content'
@@ -45,6 +45,8 @@ type CommandPaletteDialogProps = {
     textTruncatedFiles: number
     textUnreadableFiles: number
     hasWorkspace: boolean
+    /** Shown instead of results when ':', '@' or '?' lists nothing, e.g. 'Type a line number…'. */
+    emptyHint?: string | null
     onSelectItem: (item: PaletteItem) => void | Promise<void>
 }
 
@@ -165,6 +167,40 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
         )
     }
 
+    if (item.kind === 'line') {
+        return (
+            <CommandItem onClick={handleClick} value={item.value}>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate">{item.label}</span>
+                    <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">{item.detail}</span>
+                </span>
+            </CommandItem>
+        )
+    }
+
+    if (item.kind === 'heading') {
+        return (
+            <CommandItem onClick={handleClick} value={item.value}>
+                <span className="flex min-w-0 flex-1 items-center gap-2" style={{ paddingInlineStart: item.depth * 12 }}>
+                    <HashIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <span dir="auto" className="truncate">
+                        {item.text}
+                    </span>
+                </span>
+                <span className="ms-2 shrink-0 text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">Line {item.line}</span>
+            </CommandItem>
+        )
+    }
+
+    if (item.kind === 'prefix') {
+        return (
+            <CommandItem onClick={handleClick} value={item.value}>
+                <Kbd>{item.prefix}</Kbd>
+                <span className="flex-1 truncate">{item.label}</span>
+            </CommandItem>
+        )
+    }
+
     const folder = folderOf(item.relativePath)
     // Disabled while a newer search runs: the hit stays in place, but Enter and clicks can't open it.
     return (
@@ -189,7 +225,7 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
 }
 
 const MODE_PLACEHOLDERS: Record<PaletteMode, string> = {
-    all: 'Search files, text, and commands…',
+    all: 'Search files and text · > commands · : line · @ heading · ? help',
     files: 'Go to file…',
     text: 'Find in workspace…',
 }
@@ -217,8 +253,8 @@ const MODE_FILTER_LABELS: Record<PaletteMode, string | null> = {
 }
 
 function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string, isSearchingText: boolean): string {
-    const parsed = parsePaletteQuery(query)
-    if (parsed.actionsOnly) return 'No matching commands.'
+    const parsed = parsePaletteQuery(query, mode)
+    if (parsed.kind === 'commands') return 'No matching commands.'
     if (!hasWorkspace) return 'No results. Open a folder to search files, or type > for commands.'
     // Not "no results" yet: file contents are still being searched.
     if (isSearchingText) return 'Searching file contents…'
@@ -254,6 +290,7 @@ export function CommandPaletteDialog({
     textTruncatedFiles,
     textUnreadableFiles,
     hasWorkspace,
+    emptyHint,
     onSelectItem,
 }: CommandPaletteDialogProps) {
     // Set once an item is picked, until the palette opens again: a second Enter or click while it closes is ignored.
@@ -267,13 +304,19 @@ export function CommandPaletteDialog({
     const handleSelect = useCallback(
         (item: PaletteItem) => {
             if (busyRef.current) return
+            // A prefix from the '?' list is typed into the box, and the palette stays open for what follows it.
+            if (item.kind === 'prefix') {
+                onQueryChange(item.prefix)
+                inputRef.current?.focus()
+                return
+            }
             busyRef.current = true
             onOpenChange(false)
             void Promise.resolve()
                 .then(() => onSelectItem(item))
                 .catch((err: unknown) => notifyError("Couldn't run that", err))
         },
-        [onSelectItem, onOpenChange]
+        [onSelectItem, onOpenChange, onQueryChange]
     )
 
     const inputRef = useRef<HTMLInputElement>(null)
@@ -307,9 +350,9 @@ export function CommandPaletteDialog({
         [mode, onModeChange]
     )
 
-    const emptyMessage = emptyMessageFor(hasWorkspace, mode, query, isSearchingText)
-    // Point to the '>' prefix until the user is already in commands.
-    const showCommandsHint = !parsePaletteQuery(query).actionsOnly
+    const emptyMessage = emptyHint ?? emptyMessageFor(hasWorkspace, mode, query, isSearchingText)
+    // Point to the '>' prefix while the user is searching, not once a prefix is typed.
+    const showCommandsHint = parsePaletteQuery(query, mode).kind === 'search'
     const statusMessage = statusMessageFor(groups, isSearchingText)
 
     const endAddon =

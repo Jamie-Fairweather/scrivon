@@ -75,7 +75,52 @@ export type WorkspacePaletteItem = {
     name: string
 }
 
-export type PaletteItem = ActionPaletteItem | TabPaletteItem | FilePaletteItem | TextPaletteItem | RecentPaletteItem | WorkspacePaletteItem
+/** Goes to a line (and column) of the open file: the ':' prefix. */
+export type LinePaletteItem = {
+    kind: 'line'
+    value: string
+    searchText: string
+    path: string
+    label: string
+    /** The file's name and how many lines it has. */
+    detail: string
+    line: number
+    column: number
+}
+
+/** A heading of the open Markdown file: the '@' prefix. */
+export type HeadingPaletteItem = {
+    kind: 'heading'
+    value: string
+    searchText: string
+    path: string
+    /** The heading's id in the preview. */
+    headingId: string
+    text: string
+    line: number
+    /** How far in to draw it: 0 for the top level of the file's headings. */
+    depth: number
+}
+
+/** A prefix the palette understands, listed by '?'. Picking it types the prefix into the box. */
+export type PrefixPaletteItem = {
+    kind: 'prefix'
+    value: string
+    searchText: string
+    prefix: string
+    label: string
+}
+
+export type PaletteItem =
+    | ActionPaletteItem
+    | TabPaletteItem
+    | FilePaletteItem
+    | TextPaletteItem
+    | RecentPaletteItem
+    | WorkspacePaletteItem
+    | LinePaletteItem
+    | HeadingPaletteItem
+    | PrefixPaletteItem
 
 export type PaletteGroup = {
     id: string
