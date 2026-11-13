@@ -2696,7 +2696,6 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         const ownSection = fromBody && group.id === 'body'
         if (previous && previous.key === key && !keepTitleAlone && !ownSection) {
             previous.titleOnly = false
-            previous.body ||= group.id === 'body'
             previous.children.push(new Paragraph({ children: [new PageBreak()] }), ...group.children)
         } else {
             merged.push({ key, showHeader, showFooter, titleOnly: group.id === 'title', body: group.id === 'body', children: [...group.children] })

@@ -760,16 +760,20 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
   .pdf-body-mark {
     color: rgba(64, 64, 64, 0.01);
   }
-  .pdf-heading-mark,
-  .pdf-body-mark {
+  .pdf-heading-mark {
     font-size: 1px;
     line-height: 0;
   }
-  /* Last in the body, lifted to its top: it lands on the body's first page and takes no room. */
+  /*
+   * Last in the body, lifted to its top: it lands on the body's first page and takes no room.
+   * It needs a line of its own: with line-height 0, Chromium draws it on the page before.
+   */
   .pdf-body-mark {
     position: absolute;
     top: 0;
     left: 0;
+    font-size: 1px;
+    line-height: 1px;
   }
   /* Drawn, so its glyphs are embedded for the stamped numbers, but tiny, see-through and taking no room. Not clipped: a clipped sample may not be drawn at all. */
   .${PDF_STAMP_GLYPHS_CLASS} {

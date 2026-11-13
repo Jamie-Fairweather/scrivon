@@ -568,6 +568,13 @@ SHIKI_FAIL
         // Last in the body, so first-child rules still see the first heading; CSS lifts it to the body's top.
         expect(numbered.html).toContain('<span class="pdf-body-mark" dir="ltr">SFH0000</span></div>')
         expect(numbered.html).toMatch(/\.pdf-body-mark \{[^}]*position: absolute;[^}]*top: 0;/)
+        // With line-height 0 the mark has no height, and Chromium prints it at the foot of the page before the body
+        // whenever no header or footer is drawn, so the numbers would start a page early. Seen with headless Chrome.
+        const css = numbered.html.replace(/\/\*[\s\S]*?\*\//g, '')
+        const bodyMarkLineHeights = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+            .filter(([, selectors]) => selectors!.split(',').some((selector) => selector.trim() === '.pdf-body-mark'))
+            .flatMap(([, , declarations]) => [...declarations!.matchAll(/line-height:\s*([^;]+);/g)].map(([, value]) => value!.trim()))
+        expect(bodyMarkLineHeights).toEqual(['1px'])
 
         profile.footer.numberFromBody = false
         const counted = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
