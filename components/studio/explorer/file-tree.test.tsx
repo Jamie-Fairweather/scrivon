@@ -264,7 +264,7 @@ describe('FileTree', () => {
         )
 
         press('docs', 'Delete')
-        expect(confirmDelete).toHaveBeenCalledWith('docs', true)
+        expect(confirmDelete).toHaveBeenCalledWith(tree[0])
     })
 
     it('opens the row menu with Shift+F10 or the menu key', async () => {
@@ -299,7 +299,7 @@ describe('FileTree', () => {
 
         await chooseFromActionsMenu('notes.md', 'Delete')
 
-        expect(confirmDelete).toHaveBeenCalledWith('notes.md', false)
+        expect(confirmDelete).toHaveBeenCalledWith(expect.objectContaining({ kind: 'file', path: '/ws/docs/notes.md' }))
         expect(tabs.openFile).not.toHaveBeenCalled()
         expect(session.openFile).not.toHaveBeenCalled()
     })

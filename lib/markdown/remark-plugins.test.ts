@@ -8,7 +8,7 @@ import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 
 function parse(markdown: string): Root {
     const processor = unified().use(remarkParse).use(markdownRemarkPlugins)
-    return processor.runSync(processor.parse(markdown)) as Root
+    return processor.runSync(processor.parse(markdown), markdown) as Root
 }
 
 /** The text of each node of this type, outermost first, and how many sit inside another of the same type. */
@@ -43,5 +43,52 @@ describe('markdownRemarkPlugins: emphasis next to Chinese and Japanese punctuati
         expect(marked(tree, 'emphasis').texts).toEqual(['italic'])
         expect(marked(tree, 'delete').texts).toEqual(['gone'])
         expect(tree.children.some((node) => node.type === 'table')).toBe(true)
+    })
+})
+
+describe('markdownRemarkPlugins: math', () => {
+    /** Each piece of math in the document, as `$…$` (inline) or `$$…$$` (a block of its own). */
+    function maths(markdown: string): string[] {
+        const found: string[] = []
+        visit(parse(markdown), (node) => {
+            if (node.type === 'inlineMath') found.push(`$${node.value}$`)
+            if (node.type === 'math') found.push(`$$${node.value}$$`)
+        })
+        return found
+    }
+
+    it('reads $…$ as inline math and $$ lines as a block', () => {
+        expect(maths('Inline: $E = mc^2$\n\n$$\n\\frac{1}{3}\n$$')).toEqual(['$E = mc^2$', '$$\\frac{1}{3}$$'])
+    })
+
+    it('keeps the text of math that has emphasis marks in it', () => {
+        expect(maths('$a_1 * b_2 * c$')).toEqual(['$a_1 * b_2 * c$'])
+    })
+
+    it('leaves prices as text, as Pandoc does', () => {
+        expect(maths('It costs $5 and $10.')).toEqual([])
+        expect(maths('From $5 to $ 10, or $x$.')).toEqual(['$x$'])
+        expect(parse('It costs $5 and $10.').children[0]).toMatchObject({ children: [{ type: 'text', value: 'It costs $5 and $10.' }] })
+    })
+
+    it('keeps bold and links between two prices', () => {
+        const tree = parse('Plans: $5 for **Basic**, $10 for [Pro](https://example.com).')
+        expect(maths('Plans: $5 for **Basic**, $10 for [Pro](https://example.com).')).toEqual([])
+        expect(marked(tree, 'strong').texts).toEqual(['Basic'])
+        expect(tree.children[0]).toMatchObject({ children: [{}, {}, {}, { type: 'link', url: 'https://example.com' }, {}] })
+    })
+
+    it('needs no space just inside the dollars, and no digit after the closing one', () => {
+        expect(maths('$ x$, $x $, $x$5, $x\ty$ and $\tx$')).toEqual(['$x\ty$'])
+        expect(maths('A $x$ then $y$, and $a\nb$')).toEqual(['$x$', '$y$', '$a\nb$'])
+        expect(maths('Line one $x\n$ end')).toEqual([])
+    })
+
+    it('always reads $$…$$ in a line as math', () => {
+        expect(maths('Sum $$ x + 1 $$ here')).toHaveLength(1)
+    })
+
+    it('reads an escaped dollar as a dollar', () => {
+        expect(maths('\\$5 and \\$10')).toEqual([])
     })
 })

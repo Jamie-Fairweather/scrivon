@@ -15,6 +15,10 @@
 //! numbers, so they match each other). The marker glyphs are then cut out of
 //! the page content, so the codes don't turn up when the PDF's text is copied,
 //! searched or read by a screen reader.
+//!
+//! Every heading carries a marker too, so the stamper also knows each heading's
+//! page and writes the PDF's bookmarks from them. With "number from body", a
+//! marker at the top of the body tells it where page 1 is.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -24,7 +28,7 @@ use std::path::{Path, PathBuf};
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Dictionary, Document, Encoding, Object, ObjectId, Stream, StringFormat};
 
-use crate::pdf_export::PdfPrintOptions;
+use crate::pdf_export::{PdfHeading, PdfPrintOptions};
 
 pub const FOOTER_MARK: &str = "SFPN";
 
@@ -698,6 +702,9 @@ fn find_footer_marks(runs: &[Run], source: Option<Source>) -> Vec<Hit> {
 const TOC_SLOT_PREFIX: &str = "SFT";
 const TOC_HEAD_PREFIX: &str = "SFH";
 const TOC_ID_DIGITS: usize = 4;
+/// Drawn at the top of the body's first page, so the pages can be numbered
+/// from there. A heading mark with the one number no heading has.
+const BODY_MARK: &str = "SFH0000";
 
 /// `SFT0001` / `SFH0001` tokens inside one text block, paired by their four digits.
 fn find_toc_tokens(runs: &[Run], source: Option<Source>) -> Vec<(String, Hit)> {
@@ -1675,29 +1682,206 @@ struct TocEntry {
     label: String,
 }
 
-/// TOC rows whose heading mark was found, labelled with that heading's page.
-fn toc_entries(pages: &[(u32, ObjectId)], scans: &[Walked]) -> Vec<TocEntry> {
-    let mut slots = Vec::new();
-    let mut heading_pages: BTreeMap<String, u32> = BTreeMap::new();
-    for ((index, page_id), scan) in pages.iter().zip(scans) {
+/// Where each heading mark was found, by its four digits: the page's position
+/// in the document and the mark's slot. The first one found wins.
+fn heading_marks(scans: &[Walked]) -> BTreeMap<String, (usize, TextSlot)> {
+    let mut found = BTreeMap::new();
+    for (position, scan) in scans.iter().enumerate() {
         for (token, hit) in &scan.marks {
-            if let Some(id) = token.strip_prefix(TOC_SLOT_PREFIX) {
-                slots.push((id.to_string(), *page_id, hit.slot));
-            } else if let Some(id) = token.strip_prefix(TOC_HEAD_PREFIX) {
-                heading_pages.entry(id.to_string()).or_insert(*index);
+            if let Some(id) = token.strip_prefix(TOC_HEAD_PREFIX) {
+                found.entry(id.to_string()).or_insert((position, hit.slot));
             }
         }
     }
-    slots
-        .into_iter()
-        .filter_map(|(id, page_id, slot)| {
-            heading_pages.get(&id).map(|page| TocEntry {
+    found
+}
+
+/// The four digits of the mark on the heading at `index` in the export's heading list.
+fn heading_mark_id(index: usize) -> String {
+    format!("{:0width$}", index + 1, width = TOC_ID_DIGITS)
+}
+
+/// How many pages come before the body, for numbering from the body: 0 when
+/// numbering from the first page, or when the body's mark wasn't found.
+fn front_pages(options: &PdfPrintOptions, marks: &BTreeMap<String, (usize, TextSlot)>) -> usize {
+    if !options.number_from_body {
+        return 0;
+    }
+    marks
+        .get(&BODY_MARK[TOC_HEAD_PREFIX.len()..])
+        .map_or(0, |(position, _)| *position)
+}
+
+/// The number shown for the page at `position` when `front` pages come before
+/// page 1. A page before page 1 keeps its place in the document.
+fn page_number(position: usize, front: usize) -> u32 {
+    (position.checked_sub(front).unwrap_or(position) + 1) as u32
+}
+
+/// TOC rows whose heading mark was found, labelled with that heading's page.
+fn toc_entries(
+    pages: &[(u32, ObjectId)],
+    scans: &[Walked],
+    headings: &BTreeMap<String, (usize, TextSlot)>,
+    front: usize,
+) -> Vec<TocEntry> {
+    let mut entries = Vec::new();
+    for ((_, page_id), scan) in pages.iter().zip(scans) {
+        for (token, hit) in &scan.marks {
+            let Some(id) = token.strip_prefix(TOC_SLOT_PREFIX) else {
+                continue;
+            };
+            if let Some((position, _)) = headings.get(id) {
+                entries.push(TocEntry {
+                    page_id: *page_id,
+                    slot: hit.slot,
+                    label: page_number(*position, front).to_string(),
+                });
+            }
+        }
+    }
+    entries
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks
+// ---------------------------------------------------------------------------
+
+/// How far above a heading's baseline its bookmark opens the page: room for an
+/// H1 at the largest body size (1.64 × 24pt).
+const BOOKMARK_HEADROOM_PT: f32 = 40.0;
+
+/// A heading whose mark was found, for the PDF's bookmarks.
+struct Bookmark<'a> {
+    level: u8,
+    title: &'a str,
+    page_id: ObjectId,
+    /// Where the page opens, in page space.
+    top: f32,
+}
+
+/// The bookmarks for the export's headings whose marks were found. A heading
+/// whose mark is missing is left out, and the headings under it move up a level.
+fn bookmarks<'a>(
+    doc: &Document,
+    pages: &[(u32, ObjectId)],
+    headings: &'a [PdfHeading],
+    marks: &BTreeMap<String, (usize, TextSlot)>,
+) -> Vec<Bookmark<'a>> {
+    headings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, heading)| {
+            let (position, slot) = marks.get(&heading_mark_id(index))?;
+            let page_id = pages.get(*position)?.1;
+            let height = page_media_box(doc, page_id).map_or(f32::MAX, |(_, height)| height);
+            Some(Bookmark {
+                level: heading.level,
+                title: &heading.text,
                 page_id,
-                slot,
-                label: page.to_string(),
+                top: (slot.baseline + BOOKMARK_HEADROOM_PT).min(height),
             })
         })
         .collect()
+}
+
+/// Each item's parent: the nearest item before it with a lower level. A level
+/// can be skipped (an H3 straight after an H1 still goes under that H1).
+fn outline_parents(levels: &[u8]) -> Vec<Option<usize>> {
+    let mut open: Vec<usize> = Vec::new();
+    levels
+        .iter()
+        .enumerate()
+        .map(|(index, level)| {
+            while open.last().is_some_and(|&last| levels[last] >= *level) {
+                open.pop();
+            }
+            let parent = open.last().copied();
+            open.push(index);
+            parent
+        })
+        .collect()
+}
+
+/// Writes the bookmarks as the PDF's outline, nested by heading level, with
+/// every item open. Returns whether it added one.
+fn write_outline(doc: &mut Document, bookmarks: &[Bookmark<'_>]) -> bool {
+    if bookmarks.is_empty() || doc.catalog().is_err() {
+        return false;
+    }
+    let count = bookmarks.len();
+    let parents = outline_parents(&bookmarks.iter().map(|b| b.level).collect::<Vec<_>>());
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); count];
+    let mut top_level = Vec::new();
+    for (index, parent) in parents.iter().enumerate() {
+        match parent {
+            Some(parent) => children[*parent].push(index),
+            None => top_level.push(index),
+        }
+    }
+    let mut prev = vec![None; count];
+    let mut next = vec![None; count];
+    for siblings in std::iter::once(&top_level).chain(&children) {
+        for pair in siblings.windows(2) {
+            next[pair[0]] = Some(pair[1]);
+            prev[pair[1]] = Some(pair[0]);
+        }
+    }
+    // A child always comes after its parent, so going backwards totals each item's descendants.
+    let mut descendants = vec![0_i64; count];
+    for index in (0..count).rev() {
+        if let Some(parent) = parents[index] {
+            descendants[parent] += 1 + descendants[index];
+        }
+    }
+
+    let root_id = doc.new_object_id();
+    let ids: Vec<ObjectId> = (0..count).map(|_| doc.new_object_id()).collect();
+    for (index, bookmark) in bookmarks.iter().enumerate() {
+        let mut item = dictionary! {
+            "Title" => lopdf::text_string(bookmark.title),
+            "Parent" => parents[index].map_or(root_id, |parent| ids[parent]),
+            // Null left and zoom keep the reader's own.
+            "Dest" => vec![
+                bookmark.page_id.into(),
+                "XYZ".into(),
+                Object::Null,
+                bookmark.top.into(),
+                Object::Null,
+            ],
+        };
+        let links = [
+            ("Prev", prev[index]),
+            ("Next", next[index]),
+            ("First", children[index].first().copied()),
+            ("Last", children[index].last().copied()),
+        ];
+        for (key, other) in links {
+            if let Some(other) = other {
+                item.set(key, ids[other]);
+            }
+        }
+        if descendants[index] > 0 {
+            item.set("Count", descendants[index]);
+        }
+        doc.set_object(ids[index], item);
+    }
+    doc.set_object(
+        root_id,
+        dictionary! {
+            "Type" => "Outlines",
+            "First" => ids[top_level[0]],
+            "Last" => ids[top_level[top_level.len() - 1]],
+            "Count" => count as i64,
+        },
+    );
+    match doc.catalog_mut() {
+        Ok(catalog) => {
+            catalog.set("Outlines", root_id);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// What numbering the pages did.
@@ -1839,8 +2023,13 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
     // Markers whose alpha couldn't be read may be the document's own text
     // (`SFPN` in a code sample), so those are never cut out.
     let real_markers = keep_real_markers(&mut scans);
-    let toc = toc_entries(&pages, &scans);
-    if !want_footer && toc.is_empty() && !real_markers {
+    let headings = heading_marks(&scans);
+    // With "number from body", page 1 is the first body page and the title and
+    // contents pages before it get no number.
+    let front = front_pages(options, &headings);
+    let toc = toc_entries(&pages, &scans, &headings, front);
+    let bookmarks = bookmarks(doc, &pages, &options.headings, &headings);
+    if !want_footer && toc.is_empty() && bookmarks.is_empty() && !real_markers {
         return Ok(Stamped::default());
     }
 
@@ -1863,8 +2052,10 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
     // for all of them (see `LabelFonts::role_glyphs`).
     let mut footer_labels = Vec::new();
     if want_footer && !footers_lost {
-        for (position, ((page_index, page_id), scan)) in pages.iter().zip(&scans).enumerate() {
-            let Some(label) = format_page_label(format, *page_index, total) else {
+        for (position, ((_, page_id), scan)) in pages.iter().zip(&scans).enumerate().skip(front) {
+            let Some(label) =
+                format_page_label(format, page_number(position, front), total - front as u32)
+            else {
                 continue;
             };
             let slot = match scan.footers.first() {
@@ -1976,6 +2167,9 @@ fn stamp_document(doc: &mut Document, options: &PdfPrintOptions) -> Result<Stamp
         };
         overlay_page_content(doc, page_id, content.encode().map_err(|e| e.to_string())?)?;
     }
+    if write_outline(doc, &bookmarks) {
+        changed = true;
+    }
 
     Ok(Stamped { changed, warning })
 }
@@ -1999,6 +2193,8 @@ mod tests {
             page_number_color: color.into(),
             author: String::new(),
             subject: String::new(),
+            headings: Vec::new(),
+            number_from_body: false,
         }
     }
 
@@ -3597,6 +3793,287 @@ end";
         let stamped = Document::load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert!(stamped.extract_text(&[1]).unwrap().contains("Page 1"));
+    }
+
+    fn heading(level: u8, text: &str) -> PdfHeading {
+        PdfHeading {
+            level,
+            text: text.into(),
+        }
+    }
+
+    /// A page drawing the given heading marks, each at its y (in Chromium's flipped space).
+    fn marked_page(marks: &[(&str, f32)]) -> (Vec<Operation>, Dictionary) {
+        let mut ops = vec![flip()];
+        for (mark, y) in marks {
+            ops.extend(marker_text(1.0, 100.0, *y, mark));
+        }
+        (ops, marker_resources())
+    }
+
+    /// Stamps `pages` with `options` and gives back the numbered PDF.
+    fn stamp_pages(
+        name: &str,
+        pages: Vec<(Vec<Operation>, Dictionary)>,
+        options: &PdfPrintOptions,
+    ) -> Document {
+        let mut doc = Document::with_version("1.5");
+        build_pdf(&mut doc, pages);
+        let path = save_temp(&mut doc, name);
+        let result = stamp_page_numbers(path.to_str().unwrap(), options);
+        let stamped = Document::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        result.unwrap();
+        stamped
+    }
+
+    /// The outline item at `id` and its siblings after it.
+    fn outline_items(doc: &Document, first: Option<ObjectId>) -> Vec<&Dictionary> {
+        let mut items = Vec::new();
+        let mut next = first;
+        while let Some(id) = next {
+            let item = doc.get_dictionary(id).unwrap();
+            items.push(item);
+            next = item.get(b"Next").and_then(Object::as_reference).ok();
+        }
+        items
+    }
+
+    fn outline_root(doc: &Document) -> Option<&Dictionary> {
+        let id = doc
+            .catalog()
+            .ok()?
+            .get(b"Outlines")
+            .and_then(Object::as_reference)
+            .ok()?;
+        doc.get_dictionary(id).ok()
+    }
+
+    /// Every bookmark as (depth, title, page number), in reading order.
+    fn bookmarks(doc: &Document) -> Vec<(usize, String, u32)> {
+        let page_numbers: HashMap<ObjectId, u32> =
+            doc.get_pages().into_iter().map(|(n, id)| (id, n)).collect();
+        let mut found = Vec::new();
+        let mut stack: Vec<(usize, &Dictionary)> = outline_root(doc)
+            .map(|root| {
+                outline_items(doc, root.get(b"First").and_then(Object::as_reference).ok())
+                    .into_iter()
+                    .rev()
+                    .map(|item| (0, item))
+                    .collect()
+            })
+            .unwrap_or_default();
+        while let Some((depth, item)) = stack.pop() {
+            let title = lopdf::decode_text_string(item.get(b"Title").unwrap()).unwrap();
+            let dest = item.get(b"Dest").unwrap().as_array().unwrap();
+            found.push((depth, title, page_numbers[&dest[0].as_reference().unwrap()]));
+            let children =
+                outline_items(doc, item.get(b"First").and_then(Object::as_reference).ok());
+            stack.extend(children.into_iter().rev().map(|child| (depth + 1, child)));
+        }
+        found
+    }
+
+    #[test]
+    fn adds_bookmarks_nested_by_heading_level() {
+        let mut with_headings = options("none", "");
+        with_headings.headings = vec![
+            heading(1, "Intro"),
+            heading(2, "Setup"),
+            heading(2, "Usage"),
+            heading(1, "Zoë's end"),
+        ];
+
+        let stamped = stamp_pages(
+            "scrivon-bookmarks-nested.pdf",
+            vec![
+                marked_page(&[("SFH0001", 200.0)]),
+                marked_page(&[("SFH0002", 200.0), ("SFH0003", 600.0)]),
+                marked_page(&[("SFH0004", 300.0)]),
+            ],
+            &with_headings,
+        );
+
+        assert_eq!(
+            bookmarks(&stamped),
+            vec![
+                (0, "Intro".to_string(), 1),
+                (1, "Setup".to_string(), 2),
+                (1, "Usage".to_string(), 2),
+                (0, "Zoë's end".to_string(), 3),
+            ]
+        );
+        // Every bookmark starts open, so the root counts all of them.
+        let root = outline_root(&stamped).unwrap();
+        assert_eq!(root.get(b"Count").unwrap().as_i64().unwrap(), 4);
+        let intro = outline_items(
+            &stamped,
+            root.get(b"First").and_then(Object::as_reference).ok(),
+        )[0];
+        assert_eq!(intro.get(b"Count").unwrap().as_i64().unwrap(), 2);
+        // The marks themselves are cut out of the page text.
+        assert!(!stamped.extract_text(&[2]).unwrap().contains("SFH"));
+    }
+
+    #[test]
+    fn a_bookmark_opens_its_page_just_above_the_heading() {
+        let mut with_headings = options("none", "");
+        with_headings.headings = vec![heading(2, "Usage")];
+
+        let stamped = stamp_pages(
+            "scrivon-bookmarks-position.pdf",
+            vec![marked_page(&[("SFH0001", 600.0)])],
+            &with_headings,
+        );
+
+        let root = outline_root(&stamped).unwrap();
+        let usage = outline_items(
+            &stamped,
+            root.get(b"First").and_then(Object::as_reference).ok(),
+        )[0];
+        let dest = usage.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(dest[1], Object::Name(b"XYZ".to_vec()));
+        // The mark's baseline: 842 - 0.75 × 600 = 392. The view starts a little above it.
+        let top = operand_f32(&dest[3]);
+        assert!(
+            (392.0..=842.0).contains(&top) && top > 400.0,
+            "top was {top}"
+        );
+        assert_eq!(dest[2], Object::Null, "keeps the reader's left edge");
+        assert_eq!(dest[4], Object::Null, "keeps the reader's zoom");
+    }
+
+    #[test]
+    fn leaves_out_bookmarks_whose_heading_was_not_found() {
+        let mut with_headings = options("none", "");
+        // B's mark is missing, so C moves up under A. D skips a level and still nests under C.
+        with_headings.headings = vec![
+            heading(1, "A"),
+            heading(2, "B"),
+            heading(3, "C"),
+            heading(5, "D"),
+            heading(2, "E"),
+        ];
+
+        let stamped = stamp_pages(
+            "scrivon-bookmarks-missing.pdf",
+            vec![marked_page(&[
+                ("SFH0001", 100.0),
+                ("SFH0003", 200.0),
+                ("SFH0004", 300.0),
+                ("SFH0005", 400.0),
+            ])],
+            &with_headings,
+        );
+
+        assert_eq!(
+            bookmarks(&stamped),
+            vec![
+                (0, "A".to_string(), 1),
+                (1, "C".to_string(), 1),
+                (2, "D".to_string(), 1),
+                (1, "E".to_string(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn adds_no_bookmarks_without_headings() {
+        let stamped = stamp_pages(
+            "scrivon-bookmarks-none.pdf",
+            vec![marked_page(&[("SFH0001", 100.0)])],
+            &options("none", ""),
+        );
+        assert!(outline_root(&stamped).is_none());
+    }
+
+    /// A page with the given marks, each drawn the way the export draws it, at its y.
+    fn page_with(marks: &[(&str, f32)]) -> (Vec<Operation>, Dictionary) {
+        let mut ops = vec![flip()];
+        for (mark, y) in marks {
+            let size = if *mark == FOOTER_MARK { 9.0 } else { 1.0 };
+            ops.extend(marker_text(size, 700.0, *y, mark));
+        }
+        (ops, marker_resources())
+    }
+
+    fn from_body(format: &str) -> PdfPrintOptions {
+        let mut numbered = options(format, "");
+        numbered.number_from_body = true;
+        numbered
+    }
+
+    #[test]
+    fn numbers_pages_from_the_first_body_page() {
+        // A title page without a footer, a contents page that shows it, then the body.
+        let stamped = stamp_pages(
+            "scrivon-number-from-body.pdf",
+            vec![
+                page_with(&[]),
+                page_with(&[(FOOTER_MARK, 1060.0)]),
+                page_with(&[(BODY_MARK, 100.0), (FOOTER_MARK, 1060.0)]),
+                page_with(&[(FOOTER_MARK, 1060.0)]),
+            ],
+            &from_body("n-of-total"),
+        );
+
+        assert!(stamped.extract_text(&[1]).unwrap().trim().is_empty());
+        assert!(
+            stamped.extract_text(&[2]).unwrap().trim().is_empty(),
+            "the contents page must not be numbered"
+        );
+        assert!(stamped.extract_text(&[3]).unwrap().contains("1 / 2"));
+        assert!(stamped.extract_text(&[4]).unwrap().contains("2 / 2"));
+    }
+
+    #[test]
+    fn numbers_the_contents_from_the_first_body_page() {
+        let stamped = stamp_pages(
+            "scrivon-number-toc-from-body.pdf",
+            vec![
+                page_with(&[("SFT0001", 300.0), ("SFT0002", 400.0)]),
+                page_with(&[(BODY_MARK, 100.0), ("SFH0001", 100.0)]),
+                page_with(&[("SFH0002", 100.0)]),
+            ],
+            &from_body("none"),
+        );
+
+        let labels = shown_strings(&page_operations(&stamped, 1));
+        assert!(labels.contains(&b"1".to_vec()), "{labels:?}");
+        assert!(labels.contains(&b"2".to_vec()), "{labels:?}");
+        assert!(!labels.contains(&b"3".to_vec()), "{labels:?}");
+    }
+
+    #[test]
+    fn numbers_every_page_when_the_body_start_was_not_found() {
+        let stamped = stamp_pages(
+            "scrivon-number-from-body-unmarked.pdf",
+            vec![
+                page_with(&[(FOOTER_MARK, 1060.0)]),
+                page_with(&[(FOOTER_MARK, 1060.0)]),
+            ],
+            &from_body("page-n"),
+        );
+
+        assert!(stamped.extract_text(&[1]).unwrap().contains("Page 1"));
+        assert!(stamped.extract_text(&[2]).unwrap().contains("Page 2"));
+    }
+
+    #[test]
+    fn counts_the_front_pages_unless_numbering_from_the_body() {
+        let stamped = stamp_pages(
+            "scrivon-number-from-first-page.pdf",
+            vec![
+                page_with(&[(FOOTER_MARK, 1060.0)]),
+                page_with(&[(BODY_MARK, 100.0), (FOOTER_MARK, 1060.0)]),
+            ],
+            &options("n-of-total", ""),
+        );
+
+        assert!(stamped.extract_text(&[1]).unwrap().contains("1 / 2"));
+        assert!(stamped.extract_text(&[2]).unwrap().contains("2 / 2"));
+        // The body mark is cut out either way.
+        assert!(!stamped.extract_text(&[2]).unwrap().contains("SFH"));
     }
 
     /// Device-space right edge, baseline and flip state of the stamped label on a page.

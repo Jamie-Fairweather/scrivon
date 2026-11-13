@@ -10,6 +10,8 @@ export type ActionPaletteItem = {
     /** Muted second line, e.g. the full path of a recent folder. */
     detail?: string
     shortcut?: string
+    /** Set for an on/off setting: whether it is on now. */
+    checked?: boolean
     disabled?: boolean
     disabledReason?: string
     run: () => void | Promise<void>
