@@ -2,6 +2,7 @@
 
 import { reportLastUpdateAttempt } from '@/lib/updater/update-attempt'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { shareUpdateCheck } from '@/components/studio/shared-update-check'
 import {
     UpdateAvailableDialog,
     type AppUpdateInfo,
@@ -9,9 +10,10 @@ import {
     type InstallPhase,
 } from '@/components/studio/dialogs/update-available-dialog'
 import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
-import { notifyError } from '@/lib/notify'
+import { errorMessage, notifyError, notifySuccess } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
+import { checkForAppUpdate } from '@/lib/updater/update-check'
 import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
 import { getVersion } from '@tauri-apps/api/app'
 import { Channel, invoke } from '@tauri-apps/api/core'
@@ -19,18 +21,32 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 const UPDATE_CHECK_DELAY_MS = 4_000
+/** While automatic checks are on, a long session checks again this often. */
+const UPDATE_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 /** What install_app_update says while it works (UpdateProgress in src-tauri/src/updater.rs). */
 export type UpdateProgress =
     { event: 'started'; total: number | null } | { event: 'progress'; downloaded: number; total: number | null } | { event: 'installing' }
 
+/** What one update check found. `isNew` is false for the version an earlier check already found. */
+type CheckOutcome =
+    | { status: 'available'; update: AppUpdateInfo; isNew: boolean }
+    | { status: 'up-to-date'; currentVersion: string | null }
+    | { status: 'failed'; error: unknown }
+
 type AppUpdateContextValue = {
     update: AppUpdateInfo | null
     notesLoading: boolean
+    /** True while an update check runs. */
+    checking: boolean
+    /** Checks now, then opens the update dialog or says the app is up to date or couldn't check. */
+    checkForUpdates: () => Promise<void>
     /** What Install is doing: nothing yet, saving the open files (or asking about them), downloading or installing. */
     installPhase: InstallPhase
     /** How much of the update has downloaded, once the download has started. */
     download: DownloadProgress | null
+    /** Why the last Install failed, until the next try. */
+    installError: string | null
     dialogOpen: boolean
     openUpdateDialog: () => void
     dismissUpdateDialog: () => void
@@ -48,56 +64,98 @@ export function useAppUpdate(): AppUpdateContextValue {
 }
 
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
-    const { settings, flushPendingSettings } = useAppSettings()
+    const { settings, flushPendingSettings, closeSettings } = useAppSettings()
     const coordinator = useWorkspaceCoordinator()
     const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
     const [notesLoading, setNotesLoading] = useState(false)
+    const [checking, setChecking] = useState(false)
     const [installPhase, setInstallPhase] = useState<InstallPhase>('idle')
     const [download, setDownload] = useState<DownloadProgress | null>(null)
+    const [installError, setInstallError] = useState<string | null>(null)
     const [dialogOpen, setDialogOpen] = useState(false)
     // Set straight away, so a second press while the first is still saving does nothing.
     const installRunning = useRef(false)
+    // The version found so far, and the check that is running, for checks that overlap.
+    const foundVersion = useRef<string | null>(null)
+    const runningCheck = useRef<Promise<CheckOutcome> | null>(null)
 
     // The installer runs after the app has closed, so say on the next launch how it went.
     useEffect(() => {
         void reportLastUpdateAttempt()
     }, [])
 
+    /** Runs one update check; a call while one runs gets that check's result. */
+    const runCheck = useCallback((): Promise<CheckOutcome> => {
+        runningCheck.current ??= (async (): Promise<CheckOutcome> => {
+            setChecking(true)
+            try {
+                const currentVersion = await getVersion().catch(() => null)
+                const found = await checkForAppUpdate(currentVersion)
+                if (!found) return { status: 'up-to-date', currentVersion }
+                if (found.version === foundVersion.current) return { status: 'available', update: found, isNew: false }
+
+                foundVersion.current = found.version
+                setUpdate(found)
+                // The manifest only has notes for the new version, so also fetch every version in between for
+                // someone skipping releases; the manifest notes show until that arrives. This finishes even if
+                // automatic checks are switched off meanwhile (that only stops new checks).
+                setNotesLoading(true)
+                void fetchUpdateReleaseNotes(found, currentVersion)
+                    .then((notes) => {
+                        if (notes) setUpdate((current) => (current?.version === found.version ? { ...current, notes } : current))
+                    })
+                    .finally(() => setNotesLoading(false))
+                return { status: 'available', update: found, isNew: true }
+            } catch (error) {
+                return { status: 'failed', error }
+            } finally {
+                runningCheck.current = null
+                setChecking(false)
+            }
+        })()
+        return runningCheck.current
+    }, [])
+
+    // Shortly after launch, then every few hours for a long session. A new version shows a toast.
     useEffect(() => {
         if (!isTauri() || !settings.updates.checkOnLaunch) return
 
-        let cancelled = false
-
-        const timer = window.setTimeout(async () => {
-            try {
-                const result = await invoke<AppUpdateInfo | null>('check_for_app_update')
-                if (!result || cancelled) return
-
-                setUpdate(result)
-                showUpdateAvailableToast(result.version, () => setDialogOpen(true))
-
-                // The update is already found and shown, so finish loading its notes even if the
-                // "check on launch" setting is switched off meanwhile (that only stops new checks).
-                // The manifest only has notes for the new version, so also fetch every version in
-                // between for someone skipping releases; the manifest notes show until that arrives.
-                setNotesLoading(true)
-                const currentVersion = await getVersion().catch(() => null)
-                const notes = await fetchUpdateReleaseNotes(result, currentVersion)
-                if (notes) {
-                    setUpdate((current) => (current ? { ...current, notes } : null))
-                }
-            } catch (error) {
-                console.warn('Update check failed:', error)
-            } finally {
-                setNotesLoading(false)
-            }
-        }, UPDATE_CHECK_DELAY_MS)
-
-        return () => {
-            cancelled = true
-            window.clearTimeout(timer)
+        const check = async () => {
+            // The dialog shows the update being installed; leave it as it is.
+            if (installRunning.current) return
+            const outcome = await runCheck()
+            if (outcome.status === 'failed') console.warn('Update check failed:', outcome.error)
+            else if (outcome.status === 'available' && outcome.isNew) showUpdateAvailableToast(outcome.update.version, () => setDialogOpen(true))
         }
-    }, [settings.updates.checkOnLaunch])
+        const first = window.setTimeout(check, UPDATE_CHECK_DELAY_MS)
+        const again = window.setInterval(check, UPDATE_RECHECK_INTERVAL_MS)
+        return () => {
+            window.clearTimeout(first)
+            window.clearInterval(again)
+        }
+    }, [settings.updates.checkOnLaunch, runCheck])
+
+    const checkForUpdates = useCallback(async () => {
+        const outcome = await runCheck()
+        if (outcome.status === 'available') {
+            // Settings (where the check may have come from) is a dialog of its own, so close it rather
+            // than open one dialog over another.
+            closeSettings()
+            setDialogOpen(true)
+        } else if (outcome.status === 'up-to-date') {
+            notifySuccess("You're up to date", {
+                description: outcome.currentVersion ? `Version ${outcome.currentVersion} is the newest version.` : undefined,
+            })
+        } else {
+            notifyError("Couldn't check for updates", outcome.error)
+        }
+    }, [runCheck, closeSettings])
+
+    // Settings has a Check now button, but sits outside this provider (see shared-update-check).
+    useEffect(() => {
+        shareUpdateCheck({ check: checkForUpdates, checking })
+        return () => shareUpdateCheck(null)
+    }, [checkForUpdates, checking])
 
     // The toast never times out, so close it once the dialog is open (from the toast or the
     // menu-bar button); otherwise it floats over the dialog for the rest of the session.
@@ -112,11 +170,13 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     const dismissUpdateDialog = useCallback(() => {
         if (installPhase !== 'idle') return
         setDialogOpen(false)
+        setInstallError(null)
     }, [installPhase])
 
     const installUpdate = useCallback(async () => {
         if (installRunning.current) return
         installRunning.current = true
+        setInstallError(null)
         try {
             // The installer ends the app straight away (on Windows before relaunch() runs), so open files are
             // dealt with first, exactly as closing the window does: saved, or the user is asked about them (with
@@ -149,7 +209,9 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 await invoke('install_app_update', { onProgress })
                 await relaunch()
             } catch (error) {
-                notifyError("Couldn't install the update", error)
+                // Shown in the update dialog, which stays open.
+                console.error("Couldn't install the update", error)
+                setInstallError(errorMessage(error))
                 setInstallPhase('idle')
                 setDownload(null)
                 // The app stays open with its tabs, so their unsaved edits get their safety copies back.
@@ -164,14 +226,29 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
         () => ({
             update,
             notesLoading,
+            checking,
+            checkForUpdates,
             installPhase,
             download,
+            installError,
             dialogOpen,
             openUpdateDialog,
             dismissUpdateDialog,
             installUpdate,
         }),
-        [update, notesLoading, installPhase, download, dialogOpen, openUpdateDialog, dismissUpdateDialog, installUpdate]
+        [
+            update,
+            notesLoading,
+            checking,
+            checkForUpdates,
+            installPhase,
+            download,
+            installError,
+            dialogOpen,
+            openUpdateDialog,
+            dismissUpdateDialog,
+            installUpdate,
+        ]
     )
 
     return (
@@ -183,6 +260,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                     notesLoading={notesLoading}
                     phase={installPhase}
                     download={download}
+                    error={installError}
                     onLater={dismissUpdateDialog}
                     onInstall={() => void installUpdate()}
                 />

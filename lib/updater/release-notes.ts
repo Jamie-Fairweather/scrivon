@@ -1,3 +1,5 @@
+import { compareParsedVersions, parseVersion, type ParsedVersion } from '@/lib/updater/version'
+
 const GITHUB_REPO = 'Jamie-Fairweather/scrivon'
 const GITHUB_HEADERS = { Accept: 'application/vnd.github+json' }
 /** GitHub's maximum page size, so one request covers anyone who has skipped many releases. */
@@ -14,47 +16,8 @@ export type GitHubReleaseSummary = {
     prerelease?: unknown
 }
 
-type ParsedVersion = {
-    core: [number, number, number]
-    prerelease: string[]
-}
-
 export function releaseTagForVersion(version: string): string {
     return version.startsWith('v') ? version : `v${version}`
-}
-
-function parseVersion(version: string): ParsedVersion | null {
-    const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version.trim())
-    if (!match) return null
-    return {
-        core: [Number(match[1]), Number(match[2]), Number(match[3])],
-        prerelease: match[4] ? match[4].split('.') : [],
-    }
-}
-
-function comparePrereleaseIds(a: string, b: string): number {
-    const aNumeric = /^\d+$/.test(a)
-    const bNumeric = /^\d+$/.test(b)
-    if (aNumeric && bNumeric) return Number(a) - Number(b)
-    if (aNumeric) return -1
-    if (bNumeric) return 1
-    return a < b ? -1 : a > b ? 1 : 0
-}
-
-/** Semver order: negative when `a` is older than `b`, positive when newer, 0 when equal. */
-function compareParsedVersions(a: ParsedVersion, b: ParsedVersion): number {
-    for (let i = 0; i < 3; i++) {
-        const diff = a.core[i] - b.core[i]
-        if (diff !== 0) return diff
-    }
-    // A release is newer than any prerelease of the same version (1.0.0 > 1.0.0-beta).
-    if (a.prerelease.length === 0 || b.prerelease.length === 0) return b.prerelease.length - a.prerelease.length
-    const length = Math.min(a.prerelease.length, b.prerelease.length)
-    for (let i = 0; i < length; i++) {
-        const diff = comparePrereleaseIds(a.prerelease[i], b.prerelease[i])
-        if (diff !== 0) return diff
-    }
-    return a.prerelease.length - b.prerelease.length
 }
 
 /**
@@ -108,8 +71,8 @@ export async function fetchReleaseNotes(version: string): Promise<string | null>
     }
 }
 
-/** Notes for every release between the installed version (exclusive) and `targetVersion` (inclusive). */
-export async function fetchReleaseNotesSince(currentVersion: string, targetVersion: string): Promise<string | null> {
+/** The published releases on GitHub, newest first; null when GitHub can't be reached. */
+export async function fetchReleaseList(): Promise<GitHubReleaseSummary[] | null> {
     try {
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=${RELEASES_PER_PAGE}`, {
             headers: GITHUB_HEADERS,
@@ -118,11 +81,16 @@ export async function fetchReleaseNotesSince(currentVersion: string, targetVersi
         if (!response.ok) return null
 
         const releases: unknown = await response.json()
-        if (!Array.isArray(releases)) return null
-        return combineReleaseNotes(releases as GitHubReleaseSummary[], currentVersion, targetVersion)
+        return Array.isArray(releases) ? (releases as GitHubReleaseSummary[]) : null
     } catch {
         return null
     }
+}
+
+/** Notes for every release between the installed version (exclusive) and `targetVersion` (inclusive). */
+export async function fetchReleaseNotesSince(currentVersion: string, targetVersion: string): Promise<string | null> {
+    const releases = await fetchReleaseList()
+    return releases ? combineReleaseNotes(releases, currentVersion, targetVersion) : null
 }
 
 /**

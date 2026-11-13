@@ -44,7 +44,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
 - **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
-- **Auto-updates** — Stable releases can update in-app (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
+- **Auto-updates** — Updates install in-app; **Help → Check for Updates…** looks for one at any time (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 
 > Scrivon is an independent editor. It is not affiliated with Mermaid Chart Inc. or the mermaid-js project.
 
@@ -55,7 +55,7 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 | Channel     | Branch | Notes                                                |
 | ----------- | ------ | ---------------------------------------------------- |
 | Stable      | `main` | Recommended for everyday use; in-app updates enabled |
-| Pre-release | `rc`   | Test builds; install manually from Releases          |
+| Pre-release | `rc`   | Test builds; update in-app to the next rc or stable  |
 
 ## Getting started
 

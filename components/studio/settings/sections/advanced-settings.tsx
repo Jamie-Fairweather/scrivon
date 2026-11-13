@@ -4,9 +4,12 @@ import { isTauri } from '@/lib/tauri/platform'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
+import { useSharedUpdateCheck } from '@/components/studio/shared-update-check'
+import { Button } from '@/components/ui/button'
 
 export function AdvancedSettings() {
     const { settings, updateSettings } = useAppSettings()
+    const updateCheck = useSharedUpdateCheck()
     const desktop = isTauri()
 
     return (
@@ -54,17 +57,29 @@ export function AdvancedSettings() {
             />
 
             {desktop ? (
-                <SwitchSetting
-                    label="Check for updates on launch"
-                    description="Automatically check for app updates after startup."
-                    checked={settings.updates.checkOnLaunch}
-                    onChange={(checkOnLaunch) =>
-                        updateSettings((current) => ({
-                            ...current,
-                            updates: { ...current.updates, checkOnLaunch },
-                        }))
-                    }
-                />
+                <>
+                    <SwitchSetting
+                        label="Check for updates automatically"
+                        description="Look for a new version shortly after startup, then every few hours."
+                        checked={settings.updates.checkOnLaunch}
+                        onChange={(checkOnLaunch) =>
+                            updateSettings((current) => ({
+                                ...current,
+                                updates: { ...current.updates, checkOnLaunch },
+                            }))
+                        }
+                    />
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        loading={updateCheck.checking}
+                        disabled={!updateCheck.check}
+                        onClick={() => void updateCheck.check?.()}
+                    >
+                        Check for updates now
+                    </Button>
+                </>
             ) : null}
         </div>
     )

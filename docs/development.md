@@ -128,7 +128,9 @@ If `main` or `rc` require pull requests, the Release workflow uses the `RELEASE_
 
 ### In-app updates
 
-Stable releases only. The desktop app checks [latest stable `latest.json`](https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json) shortly after launch. Pre-release builds (e.g. `1.0.0-rc.1`) do not check for updates — install a new rc build from GitHub Releases manually.
+The desktop app checks the [latest stable `latest.json`](https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json) shortly after launch and then every 6 hours, while **Check for updates automatically** is on (Settings → Advanced). **Help → Check for Updates…**, the same command in the palette and **Check for updates now** in Settings check at any time, and say whether the app is up to date or why the check failed.
+
+Pre-release builds (e.g. `1.0.0-rc.1`) update too. GitHub's `releases/latest` link never points at a pre-release, so an rc build first asks the GitHub API for the newest published release, rc or stable, and checks that release's `latest.json`, then the stable one (`check_for_app_update` in [`src-tauri/src/updater.rs`](../src-tauri/src/updater.rs)). The updater only installs a version newer than the one running, so an rc install moves to the next rc, or to the stable release once it is out. A stable install never moves to an rc. **About** marks a pre-release build with a **Pre-release** badge.
 
 ### Updating Tauri
 
