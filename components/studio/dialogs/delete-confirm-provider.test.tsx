@@ -90,6 +90,10 @@ describe('DeleteConfirmProvider', () => {
         expect(dialog).toHaveTextContent('Closes 2 open tabs: README.md and img\\notes.md.')
         expect(dialog).toHaveTextContent('Unsaved changes in README.md will be lost.')
         expect(dialog).not.toHaveTextContent('other.md')
+        // A screen reader reads all of it as the dialog opens, the unsaved warning most of all.
+        expect(dialog).toHaveAccessibleDescription(expect.stringContaining('It has 2 files in it.'))
+        expect(dialog).toHaveAccessibleDescription(expect.stringContaining('Closes 2 open tabs: README.md and img\\notes.md.'))
+        expect(dialog).toHaveAccessibleDescription(expect.stringContaining('Unsaved changes in README.md will be lost.'))
 
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
         await settle()

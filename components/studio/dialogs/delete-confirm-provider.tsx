@@ -77,18 +77,21 @@ export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
                 <AlertDialogPopup>
                     <AlertDialogHeader>
                         <AlertDialogTitle>{summary?.title}</AlertDialogTitle>
-                        {/* Long names with no spaces (snake_case, dotted) break anywhere instead of running past the dialog. */}
-                        <AlertDialogDescription className="wrap-anywhere">
-                            {/* The path stands out, so it's clear at a glance what is about to go. */}
-                            Moves <span className="font-medium text-foreground">{displayPath(summary?.path ?? '')}</span>
-                            {summary?.isDirectory ? ' and everything in it' : ''} to the Recycle Bin. {summary?.contents}
+                        {/* A div, so the tab lines sit inside it too and a screen reader reads the unsaved warning.
+                            Long names with no spaces (snake_case, dotted) break anywhere instead of running past the dialog. */}
+                        <AlertDialogDescription className="flex flex-col gap-2 wrap-anywhere" render={<div />}>
+                            <p>
+                                {/* The path stands out, so it's clear at a glance what is about to go. */}
+                                Moves <span className="font-medium text-foreground">{displayPath(summary?.path ?? '')}</span>
+                                {summary?.isDirectory ? ' and everything in it' : ''} to the Recycle Bin. {summary?.contents}
+                            </p>
+                            {(summary?.closingTabs || summary?.unsaved) && (
+                                <ul className="flex flex-col gap-1">
+                                    {summary.closingTabs && <li>{summary.closingTabs}</li>}
+                                    {summary.unsaved && <li className="font-medium text-destructive-foreground">{summary.unsaved}</li>}
+                                </ul>
+                            )}
                         </AlertDialogDescription>
-                        {(summary?.closingTabs || summary?.unsaved) && (
-                            <ul className="flex flex-col gap-1 text-sm wrap-anywhere text-muted-foreground">
-                                {summary.closingTabs && <li>{summary.closingTabs}</li>}
-                                {summary.unsaved && <li className="font-medium text-destructive-foreground">{summary.unsaved}</li>}
-                            </ul>
-                        )}
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogClose render={<Button type="button" variant="ghost" />} onClick={() => finish(false)}>

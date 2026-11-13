@@ -1,4 +1,5 @@
 import { pathInside } from '@/lib/tauri/fs'
+import { displayPath } from '@/lib/workspace/display-path'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 
 /** What deleting a file or folder does, in words for the confirm dialog. */
@@ -51,9 +52,10 @@ function describeContents(node: FileNode): string {
  */
 export function describeDelete(node: FileNode, root: string | null, closingTabs: readonly ClosingTab[]): DeleteSummary {
     const isDirectory = node.kind === 'directory'
-    // A tab inside a folder goes by where it is in that folder (`guide\README.md`), as names often repeat there.
+    // A tab inside a folder goes by where it is in that folder (`guide\README.md`), as names often repeat there,
+    // kept in order on screen when it holds Hebrew or Arabic folder names.
     const names = (tabs: readonly ClosingTab[]) =>
-        listNames(tabs.map((tab) => (isDirectory ? (pathInside(tab.path, node.path) ?? tab.name) : tab.name)))
+        listNames(tabs.map((tab) => displayPath(isDirectory ? (pathInside(tab.path, node.path) ?? tab.name) : tab.name)))
     const unsaved = closingTabs.filter((tab) => tab.isDirty)
     let closing: string | null = null
     if (closingTabs.length > 0) {

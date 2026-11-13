@@ -65,6 +65,18 @@ describe('describeDelete', () => {
         expect(describeDelete(docs, 'C:\\ws', tabs).closingTabs).toBe('Closes 2 open tabs: README.md and guide\\README.md.')
     })
 
+    it('keeps Hebrew or Arabic folder names in tab paths in order on screen', () => {
+        const docs = folder('C:\\ws\\docs', [])
+        const tabs = [tab('C:\\ws\\docs\\מסמכים\\פרויקט.md', true)]
+        const lrm = '\u200E'
+        const shown = `${lrm}מסמכים\\${lrm}פרויקט.md${lrm}`
+
+        const summary = describeDelete(docs, 'C:\\ws', tabs)
+
+        expect(summary.closingTabs).toBe(`Closes 1 open tab: ${shown}.`)
+        expect(summary.unsaved).toBe(`Unsaved changes in ${shown} will be lost.`)
+    })
+
     it('keeps a long list of tabs short', () => {
         const tabs = ['a', 'b', 'c', 'd', 'e'].map((name) => tab(`C:\\ws\\docs\\${name}.md`))
 
