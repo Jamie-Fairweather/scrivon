@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { combineReleaseNotes, fetchReleaseNotesSince, fetchUpdateReleaseNotes, type GitHubReleaseSummary } from './release-notes'
+import { combineReleaseNotes, fetchReleaseNotesSince, fetchUpdateReleaseNotes, GITHUB_TIMEOUT_MS, type GitHubReleaseSummary } from './release-notes'
 
 function release(
     tag: string,
@@ -63,6 +63,25 @@ describe('fetchReleaseNotesSince', () => {
 
         await expect(fetchReleaseNotesSince('1.0.0', '1.1.0')).resolves.toBe('## [1.1.0]\n\n* change in v1.1.0')
         expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/repos/Jamie-Fairweather/scrivon/releases?per_page='), expect.anything())
+    })
+
+    it('gives up when GitHub takes too long', async () => {
+        const timeout = vi.spyOn(AbortSignal, 'timeout')
+        const fetchMock = vi.fn(
+            (_url: string, init?: RequestInit) =>
+                new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        const controller = new AbortController()
+        timeout.mockReturnValue(controller.signal)
+
+        const result = fetchReleaseNotesSince('1.0.0', '1.1.0')
+        controller.abort(new DOMException('timed out', 'TimeoutError'))
+
+        await expect(result).resolves.toBeNull()
+        expect(timeout).toHaveBeenCalledWith(GITHUB_TIMEOUT_MS)
+        expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ signal: controller.signal }))
+        timeout.mockRestore()
     })
 
     it('returns null when the request fails or the reply is not a list', async () => {

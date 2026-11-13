@@ -8,15 +8,17 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
-import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
+import { attachEditorImages, imageDocumentFor } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
@@ -111,6 +113,8 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 type CodeEditorPanelProps = {
     /** When false the panel is hidden but stays mounted, so undo history and scroll survive. */
     open?: boolean
+    /** True while the preview is hidden: the editor takes the whole row and can't be resized. */
+    fill?: boolean
     width: number
     onWidthChange: (width: number) => void
     /** Puts the editor back to its default width (double-click or Enter on the resize handle). */
@@ -148,16 +152,17 @@ function isTab(tabId: string | null, path: string): boolean {
 }
 
 function languageForTab(tab: DocumentTab) {
-    if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
-    return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
+    if (kind === 'mermaid') return MERMAID_LANGUAGE_ID
+    return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ open = true, fill = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
+    const { workspaceRoot } = useWorkspaceSession()
     // The panel also works on its own (without a palette above it, the right-click entry does nothing).
     const openPalette = useOptionalCommandPalette()?.open
     // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
@@ -227,6 +232,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         activeTabIdRef.current = activeTab?.id ?? null
         activeTabRef.current = activeTab
     }, [activeTab])
+
+    // Read when an image is pasted or dropped, so the editor's handlers never hold an old one.
+    const workspaceRootRef = useRef(workspaceRoot)
+    useEffect(() => {
+        workspaceRootRef.current = workspaceRoot
+    }, [workspaceRoot])
 
     // A hidden editor keeps its buffer, but can't take focus and has no visible selection.
     const openRef = useRef(open)
@@ -431,6 +442,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             domReadOnly: isReadOnly,
             ariaLabel,
             unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
+            // Diagram files offer a starter for each diagram type on Ctrl+Space (lib/monaco/mermaid-snippets.ts).
+            // Nothing pops up while typing, so Enter can pick from the list the user asked for.
+            ...(isMermaid ? { snippetSuggestions: 'inline' as const, acceptSuggestionOnEnter: 'on' as const } : {}),
         }),
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
@@ -605,6 +619,9 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            // A picture pasted or dropped into a Markdown file is saved next to it, with a link at the cursor.
+            const images = attachEditorImages(editor, () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current))
+            editor.onDidDispose(() => images.dispose())
             const spelling = attachEditorSpellcheck(editor, monaco)
             editor.onDidDispose(() => spelling.dispose())
             // Scrolls the Markdown preview with the editor, and the other way round.
@@ -645,13 +662,14 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // A pane for F6 and Focus Editor (pane-focus.ts).
             data-pane="editor"
             className={cn(
-                'flex h-full shrink-0 flex-col border-r border-border bg-code',
+                'flex h-full flex-col bg-code',
+                fill ? 'min-w-0 flex-1' : 'shrink-0 border-r border-border',
                 // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
                 // would lay out and wrap the whole file one character per line on every hide,
                 // show and tab switch.
                 open ? 'relative' : 'invisible absolute inset-y-0 left-0'
             )}
-            style={{ width: shownWidth }}
+            style={fill ? undefined : { width: shownWidth }}
             inert={!open}
         >
             <ReadOnlyReasonBar />
@@ -691,25 +709,27 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
 
             {/* Straddles the border and sits above Monaco's scrollbar (z-index 11), so it can be
                 grabbed from the text side too. */}
-            <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize editor"
-                aria-valuenow={shownWidth}
-                aria-valuemin={minEditorWidth(availableWidth)}
-                aria-valuemax={maxEditorWidth(availableWidth)}
-                aria-valuetext={`${shownWidth} pixels wide`}
-                tabIndex={0}
-                className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30 focus-visible:bg-ring/60
-                    active:bg-ring/50"
-                onKeyDown={onResizeKeyDown}
-                onDoubleClick={onResetWidth}
-                onPointerDown={onResizePointerDown}
-                onPointerMove={onResizePointerMove}
-                onPointerUp={endResize}
-                onPointerCancel={endResize}
-                onLostPointerCapture={endResize}
-            />
+            {!fill && (
+                <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize editor"
+                    aria-valuenow={shownWidth}
+                    aria-valuemin={minEditorWidth(availableWidth)}
+                    aria-valuemax={maxEditorWidth(availableWidth)}
+                    aria-valuetext={`${shownWidth} pixels wide`}
+                    tabIndex={0}
+                    className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30
+                        focus-visible:bg-ring/60 active:bg-ring/50"
+                    onKeyDown={onResizeKeyDown}
+                    onDoubleClick={onResetWidth}
+                    onPointerDown={onResizePointerDown}
+                    onPointerMove={onResizePointerMove}
+                    onPointerUp={endResize}
+                    onPointerCancel={endResize}
+                    onLostPointerCapture={endResize}
+                />
+            )}
         </div>
     )
 }

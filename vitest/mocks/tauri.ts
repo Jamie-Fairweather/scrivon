@@ -99,6 +99,16 @@ vi.mock(
         }) satisfies typeof import('@/lib/tauri/platform')
 )
 
+// Nothing waits to be opened from File Explorer; a test that needs a file there mocks these itself.
+vi.mock(
+    '@/lib/tauri/launch',
+    () =>
+        ({
+            takeLaunchPaths: vi.fn(async () => []),
+            onLaunchPaths: vi.fn(async () => () => undefined),
+        }) satisfies typeof import('@/lib/tauri/launch')
+)
+
 vi.mock(
     '@/lib/tauri/store',
     () =>

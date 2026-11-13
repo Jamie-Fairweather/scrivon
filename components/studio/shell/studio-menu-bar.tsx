@@ -221,6 +221,7 @@ export function StudioMenuBar() {
                             <MenuGroup>
                                 {item('toggle-explorer')}
                                 {item('toggle-editor')}
+                                {item('toggle-preview')}
                                 {item('toggle-outline')}
                             </MenuGroup>
                             <MenuSeparator />
@@ -243,6 +244,13 @@ export function StudioMenuBar() {
                     </MenuBarEntry>
 
                     <MenuBarEntry label="Help" focusAfterCommand={focusAfterCommand}>
+                        {/* Only the desktop app registers it. */}
+                        {byId.has('check-for-updates') && (
+                            <>
+                                {item('check-for-updates')}
+                                <MenuSeparator />
+                            </>
+                        )}
                         <MenuGroup>
                             {item('about')}
                             {item('licences')}
