@@ -9,8 +9,10 @@ function context(overrides: Partial<PaneFocusCommandsContext> = {}): PaneFocusCo
         hasOpenFile: true,
         explorerOpen: true,
         editorOpen: true,
+        previewOpen: true,
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setPreviewOpen: vi.fn(),
         focusPane: vi.fn(),
         cyclePaneFocus: vi.fn(),
         ...overrides,
@@ -43,16 +45,19 @@ describe('buildPaneFocusCommands', () => {
         expect(vi.mocked(ctx.cyclePaneFocus).mock.calls).toEqual([[1], [-1]])
         expect(ctx.setExplorerOpen).not.toHaveBeenCalled()
         expect(ctx.setEditorOpen).not.toHaveBeenCalled()
+        expect(ctx.setPreviewOpen).not.toHaveBeenCalled()
     })
 
-    it('shows a hidden explorer or editor before focusing it', () => {
-        const ctx = context({ explorerOpen: false, editorOpen: false })
+    it('shows a hidden explorer, editor or preview before focusing it', () => {
+        const ctx = context({ explorerOpen: false, editorOpen: false, previewOpen: false })
         void find(ctx, 'focus-explorer').run()
         void find(ctx, 'focus-editor').run()
+        void find(ctx, 'focus-preview').run()
 
         expect(ctx.setExplorerOpen).toHaveBeenCalledWith(true)
         expect(ctx.setEditorOpen).toHaveBeenCalledWith(true)
-        expect(vi.mocked(ctx.focusPane).mock.calls).toEqual([['explorer'], ['editor']])
+        expect(ctx.setPreviewOpen).toHaveBeenCalledWith(true)
+        expect(vi.mocked(ctx.focusPane).mock.calls).toEqual([['explorer'], ['editor'], ['preview']])
     })
 
     it('is off with no folder open, and Focus Editor with no file open', () => {

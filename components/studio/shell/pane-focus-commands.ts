@@ -11,8 +11,10 @@ export type PaneFocusCommandsContext = {
     hasOpenFile: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    previewOpen: boolean
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setPreviewOpen: (open: boolean) => void
     focusPane: (id: PaneId) => void
     cyclePaneFocus: (direction: 1 | -1) => void
 }
@@ -55,7 +57,10 @@ export function buildPaneFocusCommands(ctx: PaneFocusCommandsContext): AppComman
             keybind: 'view.focusPreview',
             disabled: off,
             disabledReason: NO_FOLDER,
-            run: () => ctx.focusPane('preview'),
+            run: () => {
+                if (!ctx.previewOpen) ctx.setPreviewOpen(true)
+                ctx.focusPane('preview')
+            },
         },
         {
             id: 'focus-next-pane',
@@ -81,7 +86,7 @@ export function buildPaneFocusCommands(ctx: PaneFocusCommandsContext): AppComman
 export function usePaneFocusCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
     const { activeTabId } = useDocumentTabs()
-    const { layout, setExplorerOpen, setEditorOpen } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen } = useStudioLayout()
     const hasWorkspace = Boolean(workspaceRoot)
     const hasOpenFile = activeTabId !== null
 
@@ -92,12 +97,14 @@ export function usePaneFocusCommands(): void {
                 hasOpenFile,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                previewOpen: layout.previewOpen,
                 setExplorerOpen,
                 setEditorOpen,
+                setPreviewOpen,
                 focusPane: focusPaneSoon,
                 cyclePaneFocus: cyclePaneFocusSoon,
             }),
-        [hasWorkspace, hasOpenFile, layout.explorerOpen, layout.editorOpen, setExplorerOpen, setEditorOpen]
+        [hasWorkspace, hasOpenFile, layout.explorerOpen, layout.editorOpen, layout.previewOpen, setExplorerOpen, setEditorOpen, setPreviewOpen]
     )
     useRegisterCommands(commands)
 }
