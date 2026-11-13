@@ -80,6 +80,7 @@ import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
+import { GITHUB_ALERT_COLOURS, GITHUB_ALERT_TITLES, githubAlertKind } from '@/lib/markdown/github-alerts'
 import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { PDF_KEEP_TOGETHER_MAX_CODE_LINES, PDF_KEEP_TOGETHER_MAX_TABLE_ROWS } from '@/lib/markdown/markdown-to-export-html'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
@@ -110,6 +111,8 @@ type Marks = {
     link?: boolean
     /** Half-points. Set on heading runs so they don't inherit the body size. */
     headingSize?: number
+    /** A colour of its own, as hex, such as an alert title's. */
+    color?: string
 }
 
 const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-monospace', 'ui-serif', 'ui-sans-serif'])
@@ -1040,6 +1043,10 @@ type RenderState = {
     extraLeft: number
     /** How many quotes the blocks being rendered sit inside. */
     quoteDepth: number
+    /** The colour of the innermost quote's bar: the accent, or an alert's own colour. */
+    quoteBar: string
+    /** Whether the innermost quote is an alert, whose text isn't grey and italic. */
+    inAlert: boolean
     /** Set while a footnote's text is rendered: smaller type, and no footnotes inside it. */
     inFootnote: boolean
     /** Text width, in pixels, of the table cell being rendered, so its pictures fit inside it. Null outside tables. */
@@ -1156,6 +1163,8 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         pageWidthTwip: widthTwip,
         extraLeft: 0,
         quoteDepth: 0,
+        quoteBar: hexColor(profile.brand.accentColor, '262626'),
+        inAlert: false,
         inFootnote: false,
         cellPx: null,
         toc: tocEntries(document),
@@ -1196,12 +1205,16 @@ const QUOTE_BAR_INSET = QUOTE_BAR.space * 20 + (QUOTE_BAR.size * 20) / 8 / 2
 
 /** The quote's accent bar, on every block inside a quote. Word draws it `space` points left of the text, at the quote's edge. */
 function quoteBorder(state: RenderState) {
-    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, ...QUOTE_BAR, color: state.accent } } : undefined
+    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, ...QUOTE_BAR, color: state.quoteBar } } : undefined
 }
 
-/** Quote text is grey and italic, as in the PDF. */
+/** Whether text is in a quote's grey italic style, as in the PDF. An alert's text isn't. */
+function inQuoteText(state: RenderState): boolean {
+    return state.quoteDepth > 0 && !state.inAlert
+}
+
 function quoteMarks(state: RenderState): Marks {
-    return state.quoteDepth > 0 ? { quote: true } : {}
+    return inQuoteText(state) ? { quote: true } : {}
 }
 
 /** Runs `render` with the content `extraLeft` twips further in, as it is drawn there. */
@@ -1258,7 +1271,7 @@ function footnoteHalfPoints(state: RenderState): number {
 
 function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     const heading = marks.headingSize
-    const color = marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined
+    const color = marks.color ?? (marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined)
     const size = heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)
     return new TextRun({
         text,
@@ -1498,7 +1511,7 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     const bookmark = state.bookmarks.get(headingId(node))
     // A heading in a quote keeps its colour and is italic, as in the PDF.
     const size = headingHalfPoints(state, depth)
-    const inlines = renderInlines(state, node.children, { headingSize: size, italics: state.quoteDepth > 0 || undefined })
+    const inlines = renderInlines(state, node.children, { headingSize: size, italics: inQuoteText(state) || undefined })
     const rtl = bidi(plainText(node))
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
@@ -1608,9 +1621,30 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     return blocks
 }
 
-/** Everything inside a quote, not only its paragraphs, gets the bar, the indent, and the quote text style. */
+/**
+ * Everything inside a quote, not only its paragraphs, gets the bar, the indent, and the quote text style. An alert
+ * (see remarkGithubAlerts) gets a bar in its own colour, its title in bold in that colour, and plain text.
+ */
 async function renderBlockquote(state: RenderState, node: Blockquote): Promise<Block[]> {
-    return nested(state, QUOTE_STEP, true, () => renderBlocks(state, node.children))
+    const kind = githubAlertKind(node)
+    const saved = { quoteBar: state.quoteBar, inAlert: state.inAlert }
+    state.quoteBar = kind ? GITHUB_ALERT_COLOURS[kind] : state.accent
+    state.inAlert = kind !== undefined
+    try {
+        return await nested(state, QUOTE_STEP, true, async () => {
+            if (!kind) return renderBlocks(state, node.children)
+            const title = new Paragraph({
+                ...paragraphOptions(state),
+                spacing: { after: 60, ...bodyLineSpacing(state) },
+                keepNext: true,
+                children: [...takePendingAnchors(state), textRun(state, GITHUB_ALERT_TITLES[kind], { bold: true, color: state.quoteBar })],
+            })
+            // The first child is the title paragraph the alert was given.
+            return [title, ...(await renderBlocks(state, node.children.slice(1)))]
+        })
+    } finally {
+        Object.assign(state, saved)
+    }
 }
 
 /** The header's column count. Like the PDF, short rows are padded to it and extra cells are dropped. */
@@ -1757,7 +1791,7 @@ function renderTableCell(
                 top: GRID_BORDER,
                 bottom: GRID_BORDER,
                 // In a quote, the first column's edge is the quote bar, so the bar runs on past the table.
-                left: first && state.quoteDepth > 0 ? { style: BorderStyle.SINGLE, size: QUOTE_BAR.size, color: state.accent } : GRID_BORDER,
+                left: first && state.quoteDepth > 0 ? { style: BorderStyle.SINGLE, size: QUOTE_BAR.size, color: state.quoteBar } : GRID_BORDER,
                 right: GRID_BORDER,
             },
             children: [
@@ -2715,9 +2749,20 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     }
 }
 
+/** Word can't draw MathML, so math is written as its TeX source in the code font: a block as code, inline math as inline code. */
+function mathAsCode(tree: Root): void {
+    visit(tree, (node, index, parent) => {
+        if (!parent || index === undefined) return
+        const children = parent.children as RootContent[]
+        if (node.type === 'math') children[index] = { type: 'code', lang: 'latex', value: node.value }
+        else if (node.type === 'inlineMath') children[index] = { type: 'inlineCode', value: node.value }
+    })
+}
+
 /** Word renderer for an {@link ExportDocument}. */
 export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
     const document = xmlSafeDocument(source)
+    mathAsCode(document.tree)
     expandHtml(document.tree)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {
