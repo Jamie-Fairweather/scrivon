@@ -44,7 +44,8 @@ export function getKeybindActionMeta(id: KeybindActionId): KeybindActionMeta | u
     return BY_ID.get(id)
 }
 
-function isEditorAction(id: KeybindActionId): boolean {
+/** An action that only runs while typing in the editor (Bold, Link…). */
+export function isEditorAction(id: KeybindActionId): boolean {
     return BY_ID.get(id)?.when === 'editor'
 }
 

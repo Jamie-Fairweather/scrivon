@@ -10,7 +10,9 @@ export type LineEdit = { from: number; to: number; text: string }
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])([ \t]+)(\[[ xX]\](?:[ \t]+|$))?(.*)$/
 // A line of three or more - * or _ (spaces allowed between) is a divider, not a list.
 const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
-const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+// Any indent, as a code block in a nested list item is indented with it. A ``` line with another
+// backtick after it is inline code, not a fence.
+const CODE_FENCE = /^\s*(`{3,}(?!.*`)|~{3,})(.*)$/
 
 /** Whether the line sits inside a ``` or ~~~ code block that starts above it. */
 function insideCodeBlock(lineAt: (index: number) => string, lineIndex: number): boolean {

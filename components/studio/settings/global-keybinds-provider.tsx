@@ -7,7 +7,7 @@ import { useCommands } from '@/components/studio/commands/command-registry'
 import { useGlobalKeybinds, type KeybindHandlers } from '@/components/studio/hooks/use-global-keybinds'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { isEditorAction } from '@/lib/settings/keybind-registry'
 
 type GlobalKeybindsProviderProps = {
     children: ReactNode
@@ -42,7 +42,7 @@ export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps
         }
         for (const command of commands) {
             if (!command.keybind || result[command.keybind]) continue
-            const editorCommand = getKeybindActionMeta(command.keybind)?.when === 'editor'
+            const editorCommand = isEditorAction(command.keybind)
             result[command.keybind] = () => {
                 // To the app shortcut on the same keys, or to the editor.
                 if (command.disabled && editorCommand) return false

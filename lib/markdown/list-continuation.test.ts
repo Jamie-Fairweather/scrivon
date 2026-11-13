@@ -60,4 +60,14 @@ describe('listEnter', () => {
         expect(enter('~~~~\n```\n- still code|')).toBeNull()
         expect(enter('```js\ncode\n```\n- a list again|')).toBe('```js\ncode\n```\n- a list again\n- |')
     })
+
+    it('sees a code block in a nested list item, however far it is indented', () => {
+        expect(enter('- item\n  - nested\n    ```\n    - x|\n    ```')).toBeNull()
+        expect(enter('- item\n      ~~~\n      - x|')).toBeNull()
+        expect(enter('- item\n    ```\n    code\n    ```\n- next|')).toBe('- item\n    ```\n    code\n    ```\n- next\n- |')
+    })
+
+    it('does not take inline code with three backticks for a code block', () => {
+        expect(enter('```npm test```\n- a list|')).toBe('```npm test```\n- a list\n- |')
+    })
 })

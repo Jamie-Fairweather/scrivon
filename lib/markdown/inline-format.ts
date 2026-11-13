@@ -18,19 +18,39 @@ export type FormatResult = { edits: TextEdit[]; selections: TextRange[] }
 /** One selection's edits, and its selection after them (counting only its own edits). */
 type Change = { edits: TextEdit[]; selection: TextRange }
 
+/**
+ * Languages written without spaces between words. The editor's double-click and Ctrl+Left/Right
+ * split words in these (its wordSegmenterLocales option), and so does the word at the caret here.
+ */
+export const WORD_SEGMENTER_LOCALES: string[] = ['ja', 'zh-CN', 'zh-TW', 'ko', 'th']
+
+const WORDS = new Intl.Segmenter(WORD_SEGMENTER_LOCALES, { granularity: 'word' })
+
 const WORD_CHAR = /[\p{L}\p{N}\p{M}_]/u
 
 function isWordChar(char: string | undefined): boolean {
     return char !== undefined && WORD_CHAR.test(char)
 }
 
-/** The word the caret is in or touches, or null when it's between spaces or punctuation. */
+/** Where the line with `offset` in it starts and ends. */
+function lineAround(text: string, offset: number): TextRange {
+    const start = offset === 0 ? 0 : text.lastIndexOf('\n', offset - 1) + 1
+    const end = text.indexOf('\n', offset)
+    return { start, end: end === -1 ? text.length : end }
+}
+
+/**
+ * The word the caret is in or touches, or null when it's between spaces or punctuation. Between
+ * two words (as in Chinese or Japanese), the one before the caret, where Ctrl+Right leaves it.
+ */
 function wordAt(text: string, offset: number): TextRange | null {
-    let start = offset
-    let end = offset
-    while (start > 0 && isWordChar(text[start - 1])) start -= 1
-    while (end < text.length && isWordChar(text[end])) end += 1
-    return start === end ? null : { start, end }
+    const line = lineAround(text, offset)
+    const segments = WORDS.segment(text.slice(line.start, line.end))
+    for (const column of [offset - line.start - 1, offset - line.start]) {
+        const word = segments.containing(column)
+        if (word?.isWordLike) return { start: line.start + word.index, end: line.start + word.index + word.segment.length }
+    }
+    return null
 }
 
 /** The selection without spaces or line breaks at its ends, which can't sit inside the markers. */
@@ -86,6 +106,22 @@ function hasEmphasis(markers: number, level: 1 | 2): boolean {
     return level === 2 ? markers >= 2 : markers === 1 || markers >= 3
 }
 
+const MARKER_RUNS: Record<string, RegExp> = { '*': /\*+/g, _: /_+/g, '`': /`+/g }
+
+/**
+ * Whether the text between two markers has a marker of the same kind in it (`closes` says which
+ * lengths count). Then the two ends belong to two spans, as in "**a** and **b**", not one.
+ * An underscore inside a word (snake_case) is not a marker.
+ */
+function hasMarker(between: string, char: string, closes: (length: number) => boolean): boolean {
+    for (const run of between.matchAll(MARKER_RUNS[char])) {
+        const inWord = isWordChar(between[run.index - 1]) && isWordChar(between[run.index + run[0].length])
+        if (char === '_' && inWord) continue
+        if (closes(run[0].length)) return true
+    }
+    return false
+}
+
 /** Bold (level 2) or italic (level 1) on or off, for one selection. */
 function toggleEmphasis(text: string, selection: TextRange, target: TextRange, level: 1 | 2): Change {
     const { start, end } = target
@@ -101,7 +137,8 @@ function toggleEmphasis(text: string, selection: TextRange, target: TextRange, l
     const half = Math.floor((end - start) / 2)
     for (const char of ['*', '_']) {
         const markers = Math.min(runLength(text, start, char, 1, half), runLength(text, end, char, -1, half))
-        if (hasEmphasis(markers, level)) {
+        const between = text.slice(start + markers, end - markers)
+        if (hasEmphasis(markers, level) && !hasMarker(between, char, (length) => hasEmphasis(length, level))) {
             return {
                 edits: [remove(start, start + level), remove(end - level, end)],
                 selection: after(selection, target, 0, -2 * level),
@@ -116,6 +153,9 @@ function toggleEmphasis(text: string, selection: TextRange, target: TextRange, l
 function codeFence(text: string, start: number, end: number): { size: number; padded: boolean } | null {
     const plain = Math.min(runLength(text, start, '`', -1), runLength(text, end, '`', 1))
     if (plain > 0) return { size: plain, padded: false }
+    // Only code with a backtick at an end is padded, so " or " in "`npm` or `bun`" isn't code.
+    const code = text.slice(start, end)
+    if (!code.startsWith('`') && !code.endsWith('`')) return null
     if (text[start - 1] !== ' ' || text[end] !== ' ') return null
     const padded = Math.min(runLength(text, start - 1, '`', -1), runLength(text, end + 1, '`', 1))
     return padded > 0 ? { size: padded, padded: true } : null
@@ -131,7 +171,7 @@ function toggleCode(text: string, selection: TextRange, target: TextRange): Chan
     }
 
     const inner = /^(`+)( ?)([\s\S]*?)\2\1$/.exec(text.slice(start, end))
-    if (inner && inner[3].length > 0) {
+    if (inner && inner[3].length > 0 && !hasMarker(inner[3], '`', (length) => length === inner[1].length)) {
         const width = inner[1].length + inner[2].length
         return { edits: [remove(start, start + width), remove(end - width, end)], selection: after(selection, target, 0, -2 * width) }
     }
@@ -183,19 +223,21 @@ export function toggleInlineStyle(text: string, selections: readonly TextRange[]
     })
 }
 
-const LINK = /\[([^\]\n]*)\]\(([^)\n]*)\)/g
+// One level of brackets is allowed in an address, as in Wikipedia's (https://…/Foo_(bar)).
+const ADDRESS = String.raw`\((?:[^()\n]|\([^()\n]*\))*\)`
+const IMAGE = String.raw`!\[[^\[\]\n]*\]${ADDRESS}`
+// A link, or an image (with a ! first). A link's text may be an image: [![alt](image.png)](address).
+const LINK = new RegExp(String.raw`(!?)\[((?:[^\[\]\n]|${IMAGE})*)\]${ADDRESS}`, 'g')
 const WEB_ADDRESS = /^(?:https?:\/\/|mailto:|www\.)\S+$/i
 
-/** The link (not an image) the range sits in, with where its text is. */
-function linkAround(text: string, range: TextRange): { start: number; end: number; label: string } | null {
-    const lineStart = text.lastIndexOf('\n', range.start - 1) + 1
-    const lineEndAt = text.indexOf('\n', range.end)
-    const line = text.slice(lineStart, lineEndAt === -1 ? text.length : lineEndAt)
+/** The link or image the range sits in, with its text. */
+function linkAround(text: string, range: TextRange): { start: number; end: number; label: string; image: boolean } | null {
+    const lineStart = lineAround(text, range.start).start
+    const line = text.slice(lineStart, lineAround(text, range.end).end)
     for (const match of line.matchAll(LINK)) {
         const start = lineStart + match.index
         const end = start + match[0].length
-        if (text[start - 1] === '!') continue
-        if (range.start >= start && range.end <= end) return { start, end, label: match[1] }
+        if (range.start >= start && range.end <= end) return { start, end, label: match[2], image: match[1] === '!' }
     }
     return null
 }
@@ -207,6 +249,11 @@ function linkAround(text: string, range: TextRange): { start: number; end: numbe
 export function toggleLink(text: string, selections: readonly TextRange[]): FormatResult {
     return forEachSelection(selections, (selection) => {
         const existing = linkAround(text, selection)
+        if (existing?.image) {
+            // In an image, link the whole image, with the caret where the address goes.
+            const caret = existing.end + 3
+            return { edits: wrap(existing, '[', ']()'), selection: { start: caret, end: caret } }
+        }
         if (existing) {
             return {
                 edits: [{ start: existing.start, end: existing.end, text: existing.label }],

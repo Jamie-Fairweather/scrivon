@@ -111,7 +111,7 @@ function mockContexts({
 
 /** Stands in for the editor panel, which registers the Edit menu's commands. */
 function EditorCommands({ state }: { state: EditorState }) {
-    useEditorCommands(state === 'none' ? null : (fakeEditor as never), state === 'ready', false, true)
+    useEditorCommands(state === 'none' ? null : (fakeEditor as never), { shown: state === 'ready', readOnly: false, markdown: true })
     return null
 }
 

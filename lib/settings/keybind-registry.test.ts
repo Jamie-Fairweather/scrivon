@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { canShareKeys, getKeybindActionMeta, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
+import { canShareKeys, getKeybindActionMeta, isEditorAction, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import { matchKeybind } from '@/lib/settings/match-keybind'
 import type { KeybindActionId, KeybindBindings } from '@/lib/settings/types'
 
@@ -32,6 +32,12 @@ describe('keybind registry', () => {
             'view.toggleExplorer': [{ key: 'b', meta: true, shift: true }],
         })
         expect(getKeybindActionMeta('format.bold')).toMatchObject({ label: 'Bold', category: 'Markdown', when: 'editor' })
+    })
+
+    it('knows which actions only run in the editor', () => {
+        expect(isEditorAction('format.link')).toBe(true)
+        expect(isEditorAction('view.toggleEditor')).toBe(false)
+        expect(isEditorAction('tabs.close' as KeybindActionId)).toBe(false)
     })
 
     it('lets an editor action share keys with an app action, but not two of the same kind', () => {

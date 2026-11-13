@@ -10,6 +10,7 @@ import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/m
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { bindMarkdownListEnter } from '@/lib/monaco/markdown-editing'
+import { WORD_SEGMENTER_LOCALES } from '@/lib/markdown/inline-format'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
@@ -101,7 +102,7 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     doubleClickSelectsBlock: false,
     // These languages don't put spaces between words, so without this double-click and Ctrl+Left/Right
     // take a whole sentence at a time.
-    wordSegmenterLocales: ['ja', 'zh-CN', 'zh-TW', 'ko', 'th'],
+    wordSegmenterLocales: WORD_SEGMENTER_LOCALES,
     scrollbar: {
         vertical: 'auto',
         // Only appears when a line is wider than the pane (word wrap off or at a column).
@@ -401,7 +402,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
-    useEditorCommands(editorPath ? mountedEditor : null, open, isReadOnly, isMarkdownTab(activeTab))
+    useEditorCommands(editorPath ? mountedEditor : null, { shown: open, readOnly: isReadOnly, markdown: isMarkdownTab(activeTab) })
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name

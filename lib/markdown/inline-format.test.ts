@@ -73,6 +73,26 @@ describe('toggleInlineStyle: bold', () => {
     it('formats a word only once when two carets are in it', () => {
         expect(bold('o|n|e')).toBe('**o|ne**')
     })
+
+    it('does not take two bold words for one, and can take the added bold off again', () => {
+        expect(bold('«**a** and **b**»')).toBe('**«**a** and **b**»**')
+        expect(bold('**«**a** and **b**»**')).toBe('«**a** and **b**»')
+        expect(bold('«__a__ and __b__»')).toBe('**«__a__ and __b__»**')
+        expect(bold('«**a *b* c**»')).toBe('«a *b* c»')
+    })
+
+    it('picks one word in Chinese or Japanese, as double-click does', () => {
+        expect(bold('今日は良|い天気です。')).toBe('今日は**良|い**天気です。')
+        expect(bold('今日|は')).toBe('**今日|**は')
+        expect(bold('我们今天去公|园')).toBe('我们今天去**公|园**')
+    })
+
+    it('keeps a word with an apostrophe whole, and finds the word on its own line', () => {
+        expect(bold("do|n't")).toBe("**do|n't**")
+        expect(bold('one\ntw|o')).toBe('one\n**tw|o**')
+        expect(bold('tw|o\nthree')).toBe('**tw|o**\nthree')
+        expect(bold('|one')).toBe('**|one**')
+    })
 })
 
 describe('toggleInlineStyle: italic', () => {
@@ -91,6 +111,16 @@ describe('toggleInlineStyle: italic', () => {
     it('does not mistake a list bullet for a marker', () => {
         expect(italic('* «item»')).toBe('* *«item»*')
     })
+
+    it('does not take two italic words for one, and can take the added italic off again', () => {
+        expect(italic('«*a* and *b*»')).toBe('*«*a* and *b*»*')
+        expect(italic('*«*a* and *b*»*')).toBe('«*a* and *b*»')
+    })
+
+    it('still sees one span with bold or a snake_case word inside it', () => {
+        expect(italic('«*a **b** c*»')).toBe('«a **b** c»')
+        expect(italic('«_my_var_»')).toBe('«my_var»')
+    })
 })
 
 describe('toggleInlineStyle: code', () => {
@@ -108,6 +138,17 @@ describe('toggleInlineStyle: code', () => {
 
     it('puts the caret between new backticks away from a word', () => {
         expect(code('see | here')).toBe('see `|` here')
+    })
+
+    it('does not take two code spans for one, and can take the added backticks off again', () => {
+        expect(code('«`npm` or `bun`»')).toBe('`` «`npm` or `bun`» ``')
+        expect(code('`` «`npm` or `bun`» ``')).toBe('«`npm` or `bun`»')
+        expect(code('«``a`b``»')).toBe('«a`b»')
+    })
+
+    it('does not take the spaces between two code spans for padding', () => {
+        expect(code('Use `npm` o|r `bun`')).toBe('Use `npm` `o|r` `bun`')
+        expect(code('Use `npm` `o|r` `bun`')).toBe('Use `npm` o|r `bun`')
     })
 })
 
@@ -130,7 +171,21 @@ describe('toggleLink', () => {
         expect(link('see [the docs](https://x|.dev) here')).toBe('see «the docs» here')
     })
 
-    it('leaves images alone', () => {
-        expect(link('![a «cat»](cat.png)')).toBe('![a [cat](|)](cat.png)')
+    it('leaves a link alone when the selection is only next to it', () => {
+        expect(link('[a](https://x.dev) «b»')).toBe('[a](https://x.dev) [b](|)')
+    })
+
+    it('takes off a link whose address has brackets in it', () => {
+        expect(link('see [x](https://en.wikipedia.org/wiki/Foo_(b|ar)) here')).toBe('see «x» here')
+    })
+
+    it('links the whole image when the selection is in one', () => {
+        expect(link('![a c|at](cat.png)')).toBe('[![a cat](cat.png)](|)')
+        expect(link('see ![a «cat»](cat.png)')).toBe('see [![a cat](cat.png)](|)')
+    })
+
+    it('takes the link off a linked image, keeping the image', () => {
+        expect(link('[![a cat](cat.png)](https://x|.dev)')).toBe('«![a cat](cat.png)»')
+        expect(link('[![a c|at](cat.png)](https://x.dev)')).toBe('«![a cat](cat.png)»')
     })
 })

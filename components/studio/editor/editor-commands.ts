@@ -113,12 +113,20 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
     return [...editorCommands, ...formatCommands]
 }
 
+export type EditorCommandsState = {
+    /** The editor pane is showing. */
+    shown: boolean
+    readOnly: boolean
+    /** The file is Markdown. */
+    markdown: boolean
+}
+
 /**
  * Registers the editor's commands, acting on `codeEditor`: null while no file is open. Call from
  * the editor panel, which knows whether its editor is shown, whether the file can be edited and
  * whether it is Markdown.
  */
-export function useEditorCommands(codeEditor: editor.ICodeEditor | null, shown: boolean, readOnly: boolean, markdown: boolean): void {
+export function useEditorCommands(codeEditor: editor.ICodeEditor | null, { shown, readOnly, markdown }: EditorCommandsState): void {
     const commands = useMemo(
         () =>
             buildEditorCommands({

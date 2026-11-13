@@ -1,6 +1,6 @@
 import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, isReservedKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
-import { canShareKeys, getKeybindActionMeta, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
+import { canShareKeys, isEditorAction, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 
 export type KeybindConflict = {
@@ -33,7 +33,7 @@ export function findKeybindConflicts(bindings: KeybindBindings): KeybindConflict
 
 /** The editor actions that have one of this app action's chords, and so take it while typing in the editor. */
 export function editorActionsSharingKeys(bindings: KeybindBindings, actionId: KeybindActionId): { chord: KeybindChord; actionId: KeybindActionId }[] {
-    if (getKeybindActionMeta(actionId)?.when === 'editor') return []
+    if (isEditorAction(actionId)) return []
     return (bindings[actionId] ?? []).flatMap((chord) =>
         KEYBIND_ACTIONS.filter(
             (other) => other.when === 'editor' && (bindings[other.id] ?? []).some((editorChord) => chordsEqual(editorChord, chord))
@@ -101,7 +101,7 @@ function usesEditorChord(chord: KeybindChord, editorAction: boolean): boolean {
 
 /** Why a chord would break an editor or clipboard shortcut for this action, or null when it's free to use. */
 export function describeEditorChordClash(chord: KeybindChord, isMac = isMacPlatform(), actionId?: KeybindActionId): string | null {
-    const editorAction = actionId !== undefined && getKeybindActionMeta(actionId)?.when === 'editor'
+    const editorAction = actionId !== undefined && isEditorAction(actionId)
     return usesEditorChord(chord, editorAction) ? `${formatChord(chord, isMac)} is used by the editor` : null
 }
 
