@@ -4,7 +4,7 @@ import type { Code, Parent, Root, Text } from 'mdast'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
-import { SKIP, visit } from 'unist-util-visit'
+import { EXIT, SKIP, visit } from 'unist-util-visit'
 import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
 import {
     buildPdfExportCss,
@@ -22,6 +22,7 @@ import {
 import { pdfPageNumberFormat, pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
+import { htmlAlertKind, isAlertTitle } from '@/lib/markdown/github-alerts'
 import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { blockDirection } from '@/lib/markdown/text-direction'
@@ -57,6 +58,18 @@ function normalizeShikiPre(html: string): string {
 }
 
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+/** Whether the page has math for KaTeX to draw (see mathRehypePlugins), which is only loaded when it does. */
+function hasMath(hast: HastRoot): boolean {
+    let found = false
+    visit(hast, 'element', (node: Element) => {
+        const classes = node.properties.className
+        if (node.tagName !== 'code' || !Array.isArray(classes) || !classes.includes('language-math')) return
+        found = true
+        return EXIT
+    })
+    return found
+}
 
 /** A page can't be clicked open, so every <details> prints open: what it holds would otherwise be missing from the PDF. */
 function openDetails(hast: HastRoot): void {
@@ -153,10 +166,12 @@ function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>):
             node.properties.dir ??= 'ltr'
             return SKIP
         }
-        if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
+        // An alert is a quote. Its English title follows the alert, so it sits on the same side as the bar.
+        const alert = htmlAlertKind(node) !== undefined
+        if ((!AUTO_DIRECTION_TAGS.has(node.tagName) && !alert) || isAlertTitle(node) || node.properties.dir !== undefined) return
         const only = node.children.length === 1 ? node.children[0] : undefined
         if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
-        node.properties.dir = CONTAINER_DIRECTION_TAGS.has(node.tagName) ? blockDirection(node, placeholderKeys) : 'auto'
+        node.properties.dir = alert || CONTAINER_DIRECTION_TAGS.has(node.tagName) ? blockDirection(node, placeholderKeys) : 'auto'
     })
 }
 
@@ -295,6 +310,8 @@ async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promi
     const replacements: { parent: Parent; index: number; promise: Promise<string> }[] = []
 
     visit(tree, 'code', (node: Code, index, parent) => {
+        // Printed as math (see hasMath).
+        if (node.lang === 'math') return
         replacements.push({
             parent: parent as Parent,
             index: index as number,
@@ -502,11 +519,15 @@ export async function renderExportPdf(
     const placeholders = await transformCodeBlocks(tree, profile)
 
     // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
-    const hast = unified()
+    let hast = unified()
         .use(remarkRehype, { allowDangerousHtml: true })
         .use(rehypeRawWhenNeeded)
         .use(rehypeSanitize, exportSanitizeSchema)
         .runSync(tree) as HastRoot
+    if (hasMath(hast)) {
+        const { mathRehypePlugins } = await import('@/lib/markdown/rehype-math')
+        hast = unified().use(mathRehypePlugins).runSync(hast) as HastRoot
+    }
     openDetails(hast)
     handleWebImages(hast, allowRemoteImages)
     resolveLinks(hast)

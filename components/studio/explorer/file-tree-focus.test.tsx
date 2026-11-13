@@ -10,6 +10,7 @@ import { FileTree } from './file-tree'
 const { tabs, session } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
     session: {
+        workspaceRoot: '/ws',
         folderToggles: new Map<string, boolean>(),
         setFolderExpanded: vi.fn(),
         openFile: vi.fn(async () => undefined),
@@ -23,11 +24,16 @@ const { tabs, session } = vi.hoisted(() => ({
     },
 }))
 
-vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useActiveTabId: () => tabs.activeTabId,
-    useDocumentTabActions: () => tabs,
-    useWorkspaceSession: () => session,
-}))
+vi.mock('@/components/studio/workspace/workspace-provider', async () => {
+    const { createWorkspaceCoordinatorRefs } = await import('@/components/studio/workspace/workspace-coordinator')
+    const coordinator = createWorkspaceCoordinatorRefs()
+    return {
+        useActiveTabId: () => tabs.activeTabId,
+        useDocumentTabActions: () => tabs,
+        useWorkspaceSession: () => session,
+        useWorkspaceCoordinator: () => coordinator,
+    }
+})
 
 const file = (name: string): FileNode => ({ kind: 'file', name, path: `/ws/${name}` })
 const tree: FileNode[] = [file('a.md'), file('b.md'), file('c.md')]

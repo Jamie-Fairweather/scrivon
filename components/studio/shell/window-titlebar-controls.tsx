@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useFlushPendingSettings } from '@/components/studio/settings/settings-provider'
+import { closeAppWindow } from '@/components/studio/shell/close-app-window'
 import { cn } from '@/lib/utils'
 
 /**
@@ -78,11 +79,7 @@ export function WindowTitlebarControls() {
         void getCurrentWindow().toggleMaximize()
     }, [])
 
-    const close = useCallback(() => {
-        // The window may go without a pagehide, so write a settings change that is still waiting first.
-        flushPendingSettings()
-        void getCurrentWindow().close()
-    }, [flushPendingSettings])
+    const close = useCallback(() => closeAppWindow(flushPendingSettings), [flushPendingSettings])
 
     return (
         <div className="flex h-[var(--titlebar-height)] shrink-0 items-center">

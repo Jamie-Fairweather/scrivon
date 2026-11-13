@@ -126,8 +126,8 @@ function SettingsDialogContent() {
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Restore all settings?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    Theme, layout, editor, autosave, keyboard shortcut and advanced settings go back to their defaults. Your document
-                                    export profiles are kept. This cannot be undone.
+                                    Theme, layout, editor, autosave, keyboard shortcut and advanced settings go back to their defaults. Your export
+                                    profiles and the words you added to the dictionary are kept. This cannot be undone.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

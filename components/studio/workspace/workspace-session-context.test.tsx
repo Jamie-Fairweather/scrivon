@@ -16,6 +16,7 @@ import {
     writeTextFile,
     type WatchEvent,
 } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import {
     confirmCloseAfterSaveFailure,
@@ -33,20 +34,26 @@ import { isTauri } from '@/lib/tauri/platform'
 import {
     addRecentWorkspace,
     getFolderToggles,
+    getLastWorkspace,
     getRecentWorkspaces,
     getWorkspaceTabSession,
     removeRecentFiles,
     removeRecentWorkspace,
     renameRecentFiles,
     setFolderToggles,
+    setLastWorkspace,
 } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
+import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 
-const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 }, workspace: { maxRecentFolders: 10 } }))
+const settingsState = vi.hoisted(() => ({
+    autosave: { enabled: true, delayMs: 400 },
+    workspace: { maxRecentFolders: 10 } as { maxRecentFolders: number; reopenLastFolder?: boolean },
+}))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: settingsState, setAutosaveEnabled: vi.fn() }),
@@ -65,7 +72,11 @@ vi.mock('@/lib/tauri/store', () => ({
     removeRecentFiles: vi.fn(async () => []),
     getFolderToggles: vi.fn(async () => []),
     setFolderToggles: vi.fn(async () => undefined),
+    getLastWorkspace: vi.fn(async () => null),
+    setLastWorkspace: vi.fn(async () => undefined),
 }))
+
+vi.mock('@/lib/workspace/workspace-images', () => ({ forgetWorkspaceImages: vi.fn() }))
 
 vi.mock('@/lib/tauri/backups', () => ({
     saveUnsavedBackup: vi.fn(async () => undefined),
@@ -946,6 +957,33 @@ describe('file system errors', () => {
         expect(await disk.exists('C:\\ws\\sub')).toBe(false)
     })
 
+    it('moves what it deletes to the Recycle Bin instead of erasing it', async () => {
+        await disk.write('C:\\ws\\sub\\b.mmd', 'graph LR')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub\\a.mmd', false)
+        })
+
+        expect(invoke).toHaveBeenCalledWith('trash_workspace_path', { path: 'C:\\ws\\sub\\a.mmd' })
+        expect(await disk.exists('C:\\ws\\sub\\a.mmd')).toBe(false)
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('says in plain words why the Recycle Bin would not take it', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        vi.mocked(invoke).mockRejectedValueOnce('It is open in another program. Close it there and try again.')
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub\\a.mmd', false)
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't delete a.mmd", 'It is open in another program. Close it there and try again.')
+        expect(await disk.exists('C:\\ws\\sub\\a.mmd')).toBe(true)
+    })
+
     it('says why a delete failed and keeps the tabs of what is still there', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await openWorkspace(result)
@@ -1534,6 +1572,59 @@ describe('changes made outside Scrivon', () => {
 
             await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
             expect(readDir).toHaveBeenCalledTimes(readsBefore + 1)
+        })
+
+        it('tells the preview which images another app changed, so it shows them again (F02)', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\img\\chart.png'], attrs: null })
+            })
+
+            await waitFor(() => expect(forgetWorkspaceImages).toHaveBeenCalledWith(expect.arrayContaining(['C:\\ws\\img\\chart.png'])))
+            // Coming back to the window doesn't read them all again while the watcher is on.
+            vi.mocked(forgetWorkspaceImages).mockClear()
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+            expect(forgetWorkspaceImages).not.toHaveBeenCalled()
+        })
+
+        it('reads a folder’s images again when it is opened again, as nothing watched them while it was closed (F02)', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.session.closeWorkspace()
+            })
+            expect(unwatch).toHaveBeenCalled()
+            vi.mocked(forgetWorkspaceImages).mockClear()
+
+            await openWatched(result)
+
+            expect(forgetWorkspaceImages).toHaveBeenCalledWith(['C:\\ws'])
+        })
+
+        it('shows images again on focus where the folder cannot be watched, at most every few seconds (F02)', async () => {
+            vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            vi.mocked(forgetWorkspaceImages).mockClear()
+
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+            expect(forgetWorkspaceImages).toHaveBeenCalledExactlyOnceWith(['C:\\ws'])
+
+            // Back again straight away (alt-tab, or a dialog closing): a network drive isn't asked for every image again.
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            })
+            expect(forgetWorkspaceImages).toHaveBeenCalledOnce()
         })
 
         it('still reads the folder on focus where it cannot be watched', async () => {
@@ -2667,5 +2758,159 @@ describe('folders opened and closed in the file tree', () => {
         act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
 
         expect(result.current.session.setFolderExpanded).toBe(first)
+    })
+})
+
+describe('reopening the last folder at startup', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        settingsState.workspace = { maxRecentFolders: 10, reopenLastFolder: true }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine', 'C:\\ws\\other.md': 'other', 'D:\\else\\x.md': 'x' })
+        mountDisk(disk)
+    })
+
+    it('leaves alone a folder the user picks while Scrivon is still starting', async () => {
+        let answer!: (path: string | null) => void
+        vi.mocked(getLastWorkspace).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+        let finishReading!: () => void
+        const reading = new Promise<void>((resolve) => (finishReading = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (String(dir).startsWith('D:')) await reading
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+
+        let picked!: Promise<void>
+        act(() => {
+            picked = result.current.session.openWorkspace('D:\\else')
+        })
+        await act(async () => answer('C:\\ws'))
+        await act(async () => {
+            finishReading()
+            await picked
+        })
+
+        expect(result.current.session.workspaceRoot).toBe('D:\\else')
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    afterEach(() => {
+        settingsState.workspace = { maxRecentFolders: 10 }
+        vi.mocked(getLastWorkspace).mockReset()
+        vi.mocked(getLastWorkspace).mockResolvedValue(null)
+        vi.mocked(getWorkspaceTabSession).mockReset()
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue(null)
+        vi.mocked(listUnsavedBackups).mockReset()
+        vi.mocked(listUnsavedBackups).mockResolvedValue([])
+    })
+
+    /** Lets the work started at launch run to its end. */
+    async function settle() {
+        for (let i = 0; i < 5; i++) {
+            await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            })
+        }
+    }
+
+    it('reopens the folder and the files that were open when Scrivon closed', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\ws')
+        vi.mocked(getWorkspaceTabSession).mockResolvedValue({ tabIds: ['C:\\ws\\notes.md', 'C:\\ws\\other.md'], activeTabId: 'C:\\ws\\other.md' })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+        await waitFor(() => expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md', 'C:\\ws\\other.md']))
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\other.md')
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('starts with no folder open when the setting is off', async () => {
+        settingsState.workspace = { maxRecentFolders: 10, reopenLastFolder: false }
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\ws')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+        await settle()
+        expect(result.current.session.workspaceRoot).toBeNull()
+        expect(readDir).not.toHaveBeenCalled()
+    })
+
+    it('starts with no folder open, and says why, when the folder is gone', async () => {
+        vi.mocked(getRecentWorkspaces).mockResolvedValueOnce(['C:\\gone', 'C:\\ws'])
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\gone')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() =>
+            expect(notifyError).toHaveBeenCalledWith("Couldn't reopen gone", expect.anything(), {
+                action: { label: 'Remove from Recent', onClick: expect.any(Function) },
+            })
+        )
+        await settle()
+        expect(result.current.session.hydrated).toBe(true)
+        expect(result.current.session.workspaceRoot).toBeNull()
+        expect(result.current.session.openingWorkspace).toBeNull()
+    })
+
+    it('remembers the open folder, and none once it is closed', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.hydrated).toBe(true))
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        expect(setLastWorkspace).toHaveBeenLastCalledWith('C:\\ws')
+
+        await act(async () => {
+            await result.current.session.closeWorkspace()
+        })
+        expect(setLastWorkspace).toHaveBeenLastCalledWith(null)
+    })
+
+    it('brings back unsaved changes kept for the reopened folder in its tabs, without asking to open it', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\ws')
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            { path: 'C:\\ws\\notes.md', root: 'C:\\ws', content: 'typed before the crash', stamp: { mtimeMs: 1, size: 4 }, savedAt: 1 },
+        ])
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'typed before the crash', isDirty: true }))
+        await settle()
+        expect(notifyWarning).not.toHaveBeenCalledWith('Unsaved changes from last time', expect.anything())
+    })
+
+    it('only asks once about unsaved changes kept for a folder that is gone', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\gone')
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            { path: 'C:\\gone\\a.md', root: 'C:\\gone', content: 'typed before the crash', stamp: { mtimeMs: 1, size: 1 }, savedAt: 1 },
+        ])
+        renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() => expect(confirmKeptChangesWithoutFolder).toHaveBeenCalledWith('gone', ['a.md']))
+        await settle()
+        expect(notifyWarning).not.toHaveBeenCalledWith('Unsaved changes from last time', expect.anything())
+    })
+
+    it('still mentions unsaved changes kept for another folder', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\gone')
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            { path: 'C:\\gone\\a.md', root: 'C:\\gone', content: 'asked about in its own dialog', stamp: { mtimeMs: 1, size: 1 }, savedAt: 2 },
+            { path: 'D:\\else\\x.md', root: 'D:\\else', content: 'typed before the crash', stamp: { mtimeMs: 1, size: 1 }, savedAt: 1 },
+        ])
+        renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't reopen gone", expect.anything(), expect.anything()))
+        await waitFor(() =>
+            expect(notifyWarning).toHaveBeenCalledWith('Unsaved changes from last time', {
+                id: expect.any(String),
+                description: 'Scrivon closed before your changes to x.md in else were saved. Open the folder to get them back.',
+                timeout: 0,
+                action: { label: 'Open Folder', onClick: expect.any(Function) },
+            })
+        )
     })
 })

@@ -1160,3 +1160,46 @@ SHIKI_FAIL
         expect(doc.html).toContain('SFPN')
     })
 })
+
+describe('markdownToExportHtml: GitHub alerts and math', () => {
+    it('prints an alert as a coloured callout with its title', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('> [!WARNING]\n> Back up first.')
+        expect(html).toMatch(
+            /<div class="markdown-alert markdown-alert-warning" dir="auto">\s*<p class="markdown-alert-title">Warning<\/p>\s*<p dir="auto">Back up first.<\/p>/
+        )
+        expect(html).toContain('.markdown-alert-warning { border-inline-start-color: #9A6700; }')
+    })
+
+    it('keeps the bar of a right-to-left alert on the right', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('> [!NOTE]\n> שלום')
+        expect(html).toContain('<div class="markdown-alert markdown-alert-note" dir="rtl">')
+    })
+
+    it("doesn't let raw HTML add other classes", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('<div class="markdown-alert pdf-body">Hi</div>')
+        expect(html).toContain('<div class="markdown-alert">Hi</div>')
+    })
+
+    it('prints inline and block math as MathML', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('Inline $E = mc^2$ here.\n\n$$\n\\frac{1}{3}\n$$')
+        expect(html).toMatch(/<p dir="auto">Inline <span class="katex"><math[^>]*><semantics><mrow><mi>E<\/mi>/)
+        expect(html).toMatch(/<span class="katex"><math[^>]*display="block"[^>]*><semantics><mrow><mfrac>/)
+    })
+
+    it('prints a ```math block as math, as GitHub does', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('```math\nx^2\n```')
+        expect(html).toMatch(/<math[^>]*display="block"[^>]*><semantics><mrow><msup><mi>x<\/mi>/)
+        expect(html).not.toContain('class="code-block')
+    })
+
+    it('prints math it cannot read as its source, in red', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('Bad $\\frac{$ math')
+        expect(html).toMatch(/<span class="katex-error"[^>]*>\\frac\{<\/span>/)
+    })
+})
