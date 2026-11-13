@@ -10,6 +10,7 @@ const setActiveTab = vi.fn(async (id: string) => {
 const closeTab = vi.fn(async () => {})
 const fitToView = vi.fn()
 let canFitToView = false
+let previewOpen = true
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
@@ -22,6 +23,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         closeAllTabs: vi.fn(),
     }),
     useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
+    useStudioLayout: () => ({ layout: { explorerOpen: true, editorOpen: true, previewOpen, outlineOpen: false } }),
 }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => ({ canFitToView, fitToView }),
@@ -46,6 +48,7 @@ beforeEach(() => {
     closeTab.mockClear()
     fitToView.mockClear()
     canFitToView = false
+    previewOpen = true
 })
 
 describe('EditorTabBar', () => {
@@ -194,6 +197,24 @@ describe('EditorTabBar', () => {
         expect(fit).not.toHaveAccessibleDescription()
         fireEvent.click(fit)
         expect(fitToView).toHaveBeenCalledTimes(1)
+    })
+
+    it('says to show the preview when it is hidden, for Markdown and diagram tabs', () => {
+        tabs = [tab('/w/notes.md'), tab('/w/flow.mmd')]
+        activeTabId = '/w/notes.md'
+        previewOpen = false
+        canFitToView = true
+        const view = render(<EditorTabBar />)
+
+        const fit = screen.getByRole('button', { name: 'Fit diagram to screen' })
+        expect(fit).toHaveAttribute('aria-disabled', 'true')
+        expect(fit).toHaveAccessibleDescription('Show the preview to fit a diagram')
+
+        activeTabId = '/w/flow.mmd'
+        view.rerender(<EditorTabBar />)
+        expect(fit).toHaveAccessibleDescription('Show the preview to fit a diagram')
+        fireEvent.click(fit)
+        expect(fitToView).not.toHaveBeenCalled()
     })
 
     it('shows the folder when two open files have the same name', () => {

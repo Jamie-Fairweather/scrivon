@@ -59,6 +59,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
     useDocumentTabs: () => state.tabs,
+    useActiveTabId: () => state.tabs.activeTabId,
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
     useCanvasFit: () => state.canvas,

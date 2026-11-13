@@ -26,6 +26,7 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'palette.openFiles': [chord('n', { ...mod, shift: true })],
         'view.toggleExplorer': [chord('b', mod)],
         'view.toggleEditor': [chord('e', mod)],
+        'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
@@ -49,6 +50,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
         layout: {
             explorerOpen: true,
             editorOpen: true,
+            previewOpen: true,
             editorWidth: DEFAULT_EDITOR_WIDTH,
             restorePanelsOnOpen: true,
             outlineOpen: false,

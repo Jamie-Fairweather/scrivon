@@ -221,6 +221,7 @@ export function StudioMenuBar() {
                             <MenuGroup>
                                 {item('toggle-explorer')}
                                 {item('toggle-editor')}
+                                {item('toggle-preview')}
                                 {item('toggle-outline')}
                             </MenuGroup>
                             <MenuSeparator />

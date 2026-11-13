@@ -61,6 +61,29 @@ describe('diagramAltText', () => {
         })
     })
 
+    it('reads the diagram the way the renderer tidies it: after front matter, and one statement per line', () => {
+        expect(diagramAltText('---\nconfig:\n  look: handDrawn\n---\ngraph TD\n  A[Start] --> B[End]')).toEqual({
+            name: 'Flowchart',
+            description: 'Flowchart: Start, End',
+        })
+        expect(diagramAltText('graph TD; A[Start] --> B[End]')).toEqual({ name: 'Flowchart', description: 'Flowchart: Start, End' })
+        expect(diagramAltText('%% Steps\nsequenceDiagram;\n  Alice->>Bob: Hi')).toEqual({
+            name: 'Sequence diagram',
+            description: 'Sequence diagram: Alice, Bob',
+        })
+    })
+
+    it('uses the title in front matter, after accTitle', () => {
+        const source = '---\ntitle: "Order flow"\n---\ngraph TD\n  A[Start] --> B[End]'
+        expect(diagramAltText(source)).toEqual({ name: 'Order flow', description: 'Order flow' })
+        expect(diagramAltText(source.replace('graph TD', 'graph TD\n  accDescr: How an order moves'))).toEqual({
+            name: 'Order flow',
+            description: 'Order flow. How an order moves',
+        })
+        expect(diagramAltText(source.replace('graph TD', 'graph TD\n  accTitle: Orders'))).toEqual({ name: 'Orders', description: 'Orders' })
+        expect(diagramAltText('---\ntitle: Pets\n---\npie\n  "Dogs" : 3')).toEqual({ name: 'Pets', description: 'Pets' })
+    })
+
     it('falls back to the kind alone when there is nothing to name', () => {
         expect(diagramAltText('graph TD\n  A --> B')).toEqual({ name: 'Flowchart', description: 'Flowchart' })
         expect(diagramAltText('pie\n  "Dogs" : 3')).toEqual({ name: 'Diagram', description: 'Diagram' })

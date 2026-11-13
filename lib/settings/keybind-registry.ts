@@ -24,6 +24,7 @@ const KEYBIND_ACTION_META = {
     'palette.openFiles': { label: 'Go to file', category: 'Navigation', when: 'global', allowInPalette: true },
     'view.toggleExplorer': { label: 'Toggle explorer', category: 'View', when: 'workspace' },
     'view.toggleEditor': { label: 'Toggle editor', category: 'View', when: 'workspace' },
+    'view.togglePreview': { label: 'Toggle preview', category: 'View', when: 'workspace' },
     'view.previewOnly': { label: 'Preview only layout', category: 'View', when: 'workspace' },
     'view.fitDiagram': { label: 'Fit diagram to screen', category: 'View', when: 'workspace' },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
