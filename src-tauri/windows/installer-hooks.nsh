@@ -30,38 +30,59 @@
 ; The oldest Windows Scrivon runs on: Windows 10 version 1809. README.md says
 ; the same; change both together.
 !define SCRIVON_MIN_BUILD 17763
-!define SCRIVON_TOO_OLD "Scrivon needs Windows 10 version 1809 or later, or Windows 11."
 
-; Checks the Windows version before the first page, so nothing (not even the
-; WebView2 Runtime) is installed on a PC Scrivon can't run on. Silent installs
-; skip this; NSIS_HOOK_PREINSTALL checks again for them.
+; The template defines ARCH ("x64" or "arm64") only after it includes this
+; file, too late for the functions below. So read it from the generated script
+; (makensis runs in its folder). NSIS_HOOK_PREINSTALL checks the two match.
+!searchparse /file "installer.nsi" `!define ARCH "` SCRIVON_ARCH `"`
+
+Var ScrivonCantRun
+
+; Sets $ScrivonCantRun to why this copy of Scrivon can't run on this PC, or to
+; "" if it can.
+Function ScrivonCheckPC
+  StrCpy $ScrivonCantRun ""
+  ${IfNot} ${AtLeastBuild} ${SCRIVON_MIN_BUILD}
+    StrCpy $ScrivonCantRun "Scrivon needs Windows 10 version 1809 or later, or Windows 11."
+  !if "${SCRIVON_ARCH}" == "arm64"
+  ${ElseIfNot} ${IsNativeARM64}
+    StrCpy $ScrivonCantRun "This installer is for Windows on ARM PCs. Download the x64 installer for this PC."
+  !else if "${SCRIVON_ARCH}" == "x64"
+  ; Windows 10 on ARM can't run x64 apps; Windows 11 on ARM can.
+  ${ElseIf} ${IsNativeARM64}
+  ${AndIfNot} ${AtLeastWin11}
+    StrCpy $ScrivonCantRun "Windows 10 on ARM can't run this installer's copy of Scrivon. Download the ARM64 installer instead."
+  !endif
+  ${EndIf}
+FunctionEnd
+
+; Checks before the first page, so on a PC this copy can't run on nothing is
+; installed (not even the WebView2 Runtime) and an installed copy isn't
+; uninstalled (the page that offers that runs it as soon as you click Next).
+; Silent installs skip this; NSIS_HOOK_PREINSTALL checks again for them.
 !define MUI_CUSTOMFUNCTION_GUIINIT ScrivonCheckWindows
 Function ScrivonCheckWindows
-  ${IfNot} ${AtLeastBuild} ${SCRIVON_MIN_BUILD}
-    MessageBox MB_ICONSTOP "${SCRIVON_TOO_OLD}"
+  Call ScrivonCheckPC
+  ${If} $ScrivonCantRun != ""
+    MessageBox MB_ICONSTOP $ScrivonCantRun
     Quit
   ${EndIf}
 FunctionEnd
 
 ; Runs before any of the app's files are copied, in every install mode.
 !macro NSIS_HOOK_PREINSTALL
-  ${IfNot} ${AtLeastBuild} ${SCRIVON_MIN_BUILD}
-    MessageBox MB_ICONSTOP "${SCRIVON_TOO_OLD}" /SD IDOK
+  !if "${SCRIVON_ARCH}" != "${ARCH}"
+    !error "installer-hooks.nsh read ARCH as ${SCRIVON_ARCH}, but the template says ${ARCH}."
+  !endif
+  Call ScrivonCheckPC
+  ${If} $ScrivonCantRun != ""
+    MessageBox MB_ICONSTOP $ScrivonCantRun /SD IDOK
+    ; The template has made the install folder. Remove it if it's still empty
+    ; (it is the working folder until SetOutPath moves away from it).
+    SetOutPath "$TEMP"
+    RMDir "$INSTDIR"
     Abort
   ${EndIf}
-  !if "${ARCH}" == "arm64"
-    ${IfNot} ${IsNativeARM64}
-      MessageBox MB_ICONSTOP "This installer is for Windows on ARM PCs. Download the x64 installer for this PC." /SD IDOK
-      Abort
-    ${EndIf}
-  !else if "${ARCH}" == "x64"
-    ; Windows 10 on ARM can't run x64 apps; Windows 11 on ARM can.
-    ${If} ${IsNativeARM64}
-    ${AndIfNot} ${AtLeastWin11}
-      MessageBox MB_ICONSTOP "Windows 10 on ARM can't run this installer's copy of Scrivon. Download the ARM64 installer instead." /SD IDOK
-      Abort
-    ${EndIf}
-  !endif
 !macroend
 
 ; Points `lnk` at the installed program if it currently opens `oldTarget`.

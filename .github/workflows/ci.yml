@@ -194,6 +194,9 @@ jobs:
         runs-on: windows-latest
         # Keep the same as the release builds' matrix (release.yml, build-release.yml).
         strategy:
+            # A failed ARM64 build doesn't cancel the x64 one, so its result and its cache are kept.
+            # The release builds keep the default: there, stopping at the first failure is right.
+            fail-fast: false
             matrix:
                 include:
                     - arch: x64

@@ -55,7 +55,7 @@ The **semantic-release** job can also fail after its log says `Created tag vX.Y.
 
 Stable and pre-releases ship two installers (NSIS), `Scrivon_<version>_x64-setup.exe` and `Scrivon_<version>_arm64-setup.exe`, plus `latest.json` for the updater, which holds both installers' signatures. The ARM64 one is cross-compiled on the x64 runner. Each copy of the app asks the updater for its own architecture (`windows-x86_64` or `windows-aarch64` in `latest.json`), so an x64 copy on an ARM PC stays x64 until the ARM64 installer is run over it. Each installs for the current user, with no admin prompt. There is no `.msi` any more: it installed a second, per-machine copy next to the setup `.exe` one, and no one downloaded it (GitHub counted 0 downloads of the `.msi` across every release up to 1.4.2, against 46 of the setup `.exe`, in November 2026). If an MSI copy is there anyway, the setup `.exe` finds it by name and publisher and runs its uninstaller before installing, also when the updater runs it (Tauri's NSIS template does this). `bundle.targets` in [`tauri.conf.json`](../src-tauri/tauri.conf.json) and the `--bundles nsis` in both release workflows keep it that way; the WiX settings stay pinned in case an MSI is ever needed again.
 
-To rebuild installers for an existing tag (e.g. `v1.0.0`), run **Actions → Build release artifacts (manual)** and enter the tag name.
+To rebuild installers for an existing tag (e.g. `v1.0.0`), run **Actions → Build release artifacts (manual)** and enter the tag name. It builds both installers from that tag's code. On a tag from before the ARM64 installer was added, the ARM64 one lacks the installer's check for the wrong kind of PC, and the run fails if that code doesn't build for ARM64. **Publish the release** then doesn't run, so a draft stays a draft.
 
 ### Commit messages
 
@@ -138,7 +138,7 @@ Dependabot only sends patch updates for Tauri ([`.github/dependabot.yml`](../.gi
 
 ### Supported Windows
 
-Scrivon supports Windows 10 version 1809 (build 17763) or later and Windows 11, on x64 and ARM64. The installer checks this before it copies anything ([`src-tauri/windows/installer-hooks.nsh`](../src-tauri/windows/installer-hooks.nsh)): it stops on older Windows, stops the ARM64 installer on a PC without an ARM processor, and stops the x64 one on Windows 10 on ARM, which can't run x64 apps (Windows 11 on ARM can). An interactive install checks the Windows version before its first page, so not even the WebView2 Runtime gets installed. The minimum build is `SCRIVON_MIN_BUILD` in that file and is also stated in the README; change both together.
+Scrivon supports Windows 10 version 1809 (build 17763) or later and Windows 11, on x64 and ARM64. The installer checks this before its first page ([`src-tauri/windows/installer-hooks.nsh`](../src-tauri/windows/installer-hooks.nsh)): it stops on older Windows, stops the ARM64 installer on a PC without an ARM processor, and stops the x64 one on Windows 10 on ARM, which can't run x64 apps (Windows 11 on ARM can). Checking that early matters: on an upgrade, the second page's default choice uninstalls the installed copy as soon as you click Next, and the WebView2 Runtime is installed before any of Scrivon's files. A silent install has no pages, so it checks again before it copies anything. The hooks file is included before the template defines `ARCH`, so it reads the architecture from the generated `installer.nsi` itself. The minimum build is `SCRIVON_MIN_BUILD` in that file and is also stated in the README; change both together.
 
 ### Installer identity
 

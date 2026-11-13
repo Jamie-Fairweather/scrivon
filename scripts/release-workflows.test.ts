@@ -9,7 +9,7 @@ type Step = { name?: string; uses?: string; run?: string; with?: Record<string, 
 type Job = {
     needs?: string | string[]
     if?: string
-    strategy?: { 'max-parallel'?: number; matrix?: { include?: Record<string, string>[] } }
+    strategy?: { 'fail-fast'?: boolean; 'max-parallel'?: number; matrix?: { include?: Record<string, string>[] } }
     steps: Step[]
 }
 type Workflow = { jobs: Record<string, Job> }
@@ -43,6 +43,14 @@ describe('Windows installer builds', () => {
         expect(toolchain(job)?.with?.targets).toBe('${{ matrix.target }}')
         expect(buildArgs(job)).toContain('--target ${{ matrix.target }}')
         expect(buildArgs(job)).toContain('--bundles nsis')
+    })
+
+    it("CI's check builds both even if one fails, and the release builds stop at the first failure", () => {
+        // So a failed ARM64 build doesn't cancel the x64 one and lose its result and cache.
+        expect(ciBuild().strategy?.['fail-fast']).toBe(false)
+        for (const file of releaseWorkflows) {
+            expect(workflow(file).jobs['build-windows'].strategy?.['fail-fast'], file).toBeUndefined()
+        }
     })
 
     it.each(releaseWorkflows)('%s uploads one installer at a time, so neither overwrites the other in latest.json', (file) => {
