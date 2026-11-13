@@ -101,6 +101,90 @@ describe('OutlinePanel', () => {
         expect(screen.getByRole('button', { current: true })).toHaveTextContent('Use')
     })
 
+    it('marks no heading while the editor is hidden', () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        mocks.editorOpen = false
+        setEditorCursorLine(6)
+        render(<OutlinePanel />)
+
+        expect(screen.queryByRole('button', { current: true })).toBeNull()
+    })
+
+    it("is one Tab stop: the heading you're in, else the first one", () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        render(<OutlinePanel />)
+        const tabStops = () =>
+            within(screen.getByRole('navigation', { name: 'Outline' }))
+                .getAllByRole('button')
+                .filter((button) => button.tabIndex === 0)
+                .map((button) => button.textContent)
+
+        expect(tabStops()).toEqual(['Guide'])
+        act(() => setEditorCursorLine(6))
+        expect(tabStops()).toEqual(['Windows'])
+    })
+
+    it('moves focus with the arrow keys, Home and End, and the Tab stop follows', async () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        render(<OutlinePanel />)
+        const user = userEvent.setup()
+        const heading = (name: string) => screen.getByRole('button', { name })
+
+        act(() => heading('Guide').focus())
+        await user.keyboard('{ArrowUp}')
+        expect(heading('Guide')).toHaveFocus()
+        await user.keyboard('{ArrowDown}{ArrowDown}')
+        expect(heading('Windows')).toHaveFocus()
+        expect(heading('Windows').tabIndex).toBe(0)
+        expect(heading('Guide').tabIndex).toBe(-1)
+        await user.keyboard('{End}{ArrowDown}')
+        expect(heading('Use')).toHaveFocus()
+        await user.keyboard('{ArrowUp}')
+        expect(heading('Windows')).toHaveFocus()
+        await user.keyboard('{Home}')
+        expect(heading('Guide')).toHaveFocus()
+
+        // Keys with Shift, Ctrl or Alt, and other keys, are left alone.
+        await user.keyboard('{Shift>}{ArrowDown}{/Shift}{Control>}{End}{/Control}{PageDown}')
+        expect(heading('Guide')).toHaveFocus()
+    })
+
+    it("leaves in one Tab press, and comes back to the heading you're in", async () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        setEditorCursorLine(6)
+        render(
+            <>
+                <OutlinePanel />
+                <button type="button">After</button>
+            </>
+        )
+        const user = userEvent.setup()
+
+        act(() => screen.getByRole('button', { name: 'Hide Outline' }).focus())
+        await user.tab()
+        expect(screen.getByRole('button', { name: 'Windows' })).toHaveFocus()
+        await user.keyboard('{ArrowDown}')
+        await user.tab()
+        expect(screen.getByRole('button', { name: 'After' })).toHaveFocus()
+        await user.tab({ shift: true })
+        expect(screen.getByRole('button', { name: 'Windows' })).toHaveFocus()
+    })
+
+    it('picks the focused heading with Enter or Space', async () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        const revealInPreview = vi.fn()
+        const unregister = registerPreviewHeadingReveal(revealInPreview)
+        render(<OutlinePanel />)
+        const user = userEvent.setup()
+
+        act(() => screen.getByRole('button', { name: 'Guide' }).focus())
+        await user.keyboard('{ArrowDown}{Enter}')
+        expect(revealInPreview).toHaveBeenLastCalledWith('install')
+        await user.keyboard('{End} ')
+        expect(revealInPreview).toHaveBeenLastCalledWith('use')
+        unregister()
+    })
+
     it('follows the text as it is typed', () => {
         mocks.activeTab = tab('guide.md', GUIDE)
         const { rerender } = render(<OutlinePanel />)

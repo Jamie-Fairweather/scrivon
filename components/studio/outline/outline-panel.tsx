@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useEditorCursorLine } from '@/components/studio/editor/editor-cursor'
 import { revealHeadingInPreview } from '@/components/studio/markdown/preview-heading'
@@ -17,10 +17,12 @@ type OutlineListProps = {
     nodes: OutlineNode[]
     depth: number
     currentIndex: number
+    /** The one heading the Tab key lands on; the arrow keys move between headings. */
+    tabStopIndex: number
     onPick: (heading: OutlineHeading) => void
 }
 
-function OutlineList({ nodes, depth, currentIndex, onPick }: OutlineListProps) {
+function OutlineList({ nodes, depth, currentIndex, tabStopIndex, onPick }: OutlineListProps) {
     return (
         <ul>
             {nodes.map((node) => {
@@ -29,6 +31,8 @@ function OutlineList({ nodes, depth, currentIndex, onPick }: OutlineListProps) {
                     <li key={node.heading.id}>
                         <button
                             type="button"
+                            data-index={node.index}
+                            tabIndex={node.index === tabStopIndex ? 0 : -1}
                             className={cn(
                                 'block w-full truncate py-1 pe-2 text-left text-xs transition-colors hover:bg-sidebar-accent/60',
                                 depth === 0 && 'font-medium',
@@ -45,7 +49,13 @@ function OutlineList({ nodes, depth, currentIndex, onPick }: OutlineListProps) {
                             <span dir="auto">{node.heading.text}</span>
                         </button>
                         {node.children.length > 0 && (
-                            <OutlineList nodes={node.children} depth={depth + 1} currentIndex={currentIndex} onPick={onPick} />
+                            <OutlineList
+                                nodes={node.children}
+                                depth={depth + 1}
+                                currentIndex={currentIndex}
+                                tabStopIndex={tabStopIndex}
+                                onPick={onPick}
+                            />
                         )}
                     </li>
                 )
@@ -54,18 +64,57 @@ function OutlineList({ nodes, depth, currentIndex, onPick }: OutlineListProps) {
     )
 }
 
-/** Memoized: the panel draws again on every keystroke, and the headings change far less often. */
-const OutlineTree = memo(function OutlineTree({ nodes, currentIndex, onPick }: Omit<OutlineListProps, 'depth'>) {
+/** Where a key moves focus in a list of `count` headings, from `at`. Null for keys the list doesn't use. */
+function outlineKeyTarget(key: string, at: number, count: number): number | null {
+    if (key === 'ArrowDown') return Math.min(at + 1, count - 1)
+    if (key === 'ArrowUp') return Math.max(at - 1, 0)
+    if (key === 'Home') return 0
+    if (key === 'End') return count - 1
+    return null
+}
+
+type OutlineTreeProps = Omit<OutlineListProps, 'depth' | 'tabStopIndex'> & { count: number }
+
+/**
+ * The headings as one Tab stop: the arrow keys, Home and End move between them, and Enter or Space picks one.
+ * Memoized: the panel draws again on every keystroke, and the headings change far less often.
+ */
+const OutlineTree = memo(function OutlineTree({ nodes, count, currentIndex, onPick }: OutlineTreeProps) {
     const rootRef = useRef<HTMLElement>(null)
+    // The heading with focus, while focus is in the list. Once it leaves, Tab comes back to the heading you're in.
+    const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
+    const tabStopIndex = focusedIndex !== null && focusedIndex < count ? focusedIndex : Math.max(currentIndex, 0)
 
     // Keeps the heading you're in on screen when the list is longer than the panel.
     useEffect(() => {
         rootRef.current?.querySelector<HTMLElement>('[aria-current="true"]')?.scrollIntoView?.({ block: 'nearest' })
     }, [currentIndex])
 
+    const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+        const at = Number((e.target as HTMLElement).dataset.index)
+        if (Number.isNaN(at)) return
+        const next = outlineKeyTarget(e.key, at, count)
+        if (next === null) return
+        e.preventDefault()
+        rootRef.current?.querySelector<HTMLElement>(`[data-index="${next}"]`)?.focus()
+    }
+
     return (
-        <nav ref={rootRef} aria-label="Outline" className="py-1">
-            <OutlineList nodes={nodes} depth={0} currentIndex={currentIndex} onPick={onPick} />
+        <nav
+            ref={rootRef}
+            aria-label="Outline"
+            className="py-1"
+            onKeyDown={onKeyDown}
+            onFocus={(e) => {
+                const index = Number((e.target as HTMLElement).dataset.index)
+                if (!Number.isNaN(index)) setFocusedIndex(index)
+            }}
+            onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) setFocusedIndex(null)
+            }}
+        >
+            <OutlineList nodes={nodes} depth={0} currentIndex={currentIndex} tabStopIndex={tabStopIndex} onPick={onPick} />
         </nav>
     )
 })
@@ -83,10 +132,11 @@ export function OutlinePanel() {
     const headings = useMarkdownOutline(isMarkdown ? activeTab.id : null, isMarkdown ? activeTab.content : null)
     const tree = useMemo(() => (headings ? outlineTree(headings) : []), [headings])
     const cursorLine = useEditorCursorLine()
-    const currentIndex = headings ? headingAtLine(headings, cursorLine) : -1
+    const editorOpen = layout.editorOpen
+    // A hidden editor's cursor isn't where the user is looking, so nothing is marked then.
+    const currentIndex = headings && editorOpen ? headingAtLine(headings, cursorLine) : -1
 
     const path = activeTab?.path ?? null
-    const editorOpen = layout.editorOpen
     const onPick = useCallback(
         (heading: OutlineHeading) => {
             revealHeadingInPreview(heading.id)
@@ -102,7 +152,7 @@ export function OutlinePanel() {
     // Still reading this file for the first time: nothing yet, rather than "No headings" for a moment.
     else if (headings === null) body = null
     else if (headings.length === 0) body = <EmptyOutline>No headings yet. Start a line with # to add one.</EmptyOutline>
-    else body = <OutlineTree nodes={tree} currentIndex={currentIndex} onPick={onPick} />
+    else body = <OutlineTree nodes={tree} count={headings.length} currentIndex={currentIndex} onPick={onPick} />
 
     return (
         <aside className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -115,7 +165,7 @@ export function OutlinePanel() {
                     </Button>
                 </IconTooltip>
             </div>
-            {/* Every heading is a button of its own, so the scroll box isn't a Tab stop. */}
+            {/* The list is a Tab stop of its own, so the scroll box isn't one. */}
             <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
                 {body}
             </ScrollArea>
