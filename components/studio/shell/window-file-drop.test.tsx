@@ -98,7 +98,9 @@ describe('WindowFileDrop', () => {
         await drop(['C:\\notes\\report.pdf', 'C:\\notes\\a.md'])
 
         await vi.waitFor(() =>
-            expect(notify.info).toHaveBeenCalledWith("Can't open report.pdf", { description: 'Scrivon opens .md, .mmd and .mermaid files.' })
+            expect(notify.info).toHaveBeenCalledWith("Can't open report.pdf", {
+                description: 'Scrivon opens .md, .markdown, .mmd and .mermaid files.',
+            })
         )
         expect(session.openFile).toHaveBeenCalledWith('C:\\notes\\a.md')
     })
