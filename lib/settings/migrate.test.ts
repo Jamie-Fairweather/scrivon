@@ -45,6 +45,17 @@ describe('migrateLegacySettings', () => {
         expect(settings.theme.id).toBe(createDefaultSettings(false).theme.id)
         expect(settings.layout.editorWidth).toBe(createDefaultSettings(false).layout.editorWidth)
     })
+
+    it('starts a new install in System mode, with Scrivon Light and Scrivon Dark', () => {
+        expect(migrateLegacySettings(() => null, false).theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+        expect(createDefaultSettings(false).theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it('keeps a theme saved by a version before unified settings as a fixed choice', () => {
+        const read = (key: string) => (key === STORAGE_MERMAID_THEME ? 'dracula' : null)
+
+        expect(migrateLegacySettings(read, false).theme).toEqual({ id: 'dracula', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
 })
 
 describe('mergeStoredSettings', () => {
@@ -72,6 +83,28 @@ describe('mergeStoredSettings', () => {
 
     it('returns defaults for non-object stored values', () => {
         expect(mergeStoredSettings(null, false)).toEqual(createDefaultSettings(false))
+    })
+
+    it('keeps a theme saved before System mode existed as a fixed choice', () => {
+        expect(mergeStoredSettings({ theme: { id: 'nord' } }, false).theme).toEqual({ id: 'nord', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it("reads System mode and its light and dark themes, putting back a default for one that doesn't fit", () => {
+        expect(mergeStoredSettings({ theme: { id: 'system', light: 'solarized-light', dark: 'dracula' } }, false).theme).toEqual({
+            id: 'system',
+            light: 'solarized-light',
+            dark: 'dracula',
+        })
+        // A dark theme saved as the light one, and a theme this version doesn't know.
+        expect(mergeStoredSettings({ theme: { id: 'system', light: 'dracula', dark: 'future-theme' } }, false).theme).toEqual({
+            id: 'system',
+            light: 'scrivon-light',
+            dark: 'scrivon-dark',
+        })
+    })
+
+    it('follows Windows when the saved theme is unknown, as a newer version may save', () => {
+        expect(mergeStoredSettings({ theme: { id: 'future-theme' } }, false).theme.id).toBe('system')
     })
 
     it('normalizes invalid editor and keybind values', () => {
