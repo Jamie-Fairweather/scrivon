@@ -1,6 +1,6 @@
 'use client'
 
-import { Code2, PanelLeft } from 'lucide-react'
+import { Code2, Eye, PanelLeft } from 'lucide-react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import type { KeybindActionId } from '@/lib/settings/types'
 import { toggleButtonClassName } from '@/lib/ui/button-classes'
 
 export function LayoutToggleButtons() {
-    const { layout, setExplorerOpen, setEditorOpen } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen } = useStudioLayout()
     const { settings } = useAppSettings()
 
     /** The tooltip text, with the user's shortcut when one is set, e.g. 'Toggle explorer (Ctrl+B)'. */
@@ -44,6 +44,18 @@ export function LayoutToggleButtons() {
                     onClick={() => setEditorOpen(!layout.editorOpen)}
                 >
                     <Code2 className="size-4" />
+                </Button>
+            </IconTooltip>
+            <IconTooltip label={label('Toggle preview', 'view.togglePreview')}>
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={toggleButtonClassName}
+                    aria-label="Toggle preview"
+                    aria-pressed={layout.previewOpen}
+                    onClick={() => setPreviewOpen(!layout.previewOpen)}
+                >
+                    <Eye className="size-4" />
                 </Button>
             </IconTooltip>
         </div>

@@ -43,7 +43,7 @@ export function AdvancedSettings() {
 
             <SwitchSetting
                 label="Restore panel layout"
-                description="Remember explorer and editor visibility when reopening the app."
+                description="Remember which panels are shown when reopening the app."
                 checked={settings.layout.restorePanelsOnOpen}
                 onChange={(restorePanelsOnOpen) =>
                     updateSettings((current) => ({

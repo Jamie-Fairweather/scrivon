@@ -899,6 +899,21 @@ describe('CodeEditorPanel width', () => {
     })
 })
 
+describe('CodeEditorPanel with the preview hidden', () => {
+    it('fills the row with no resize handle, and goes back to its width when the preview shows again', () => {
+        const view = render(<CodeEditorPanel fill width={400} onWidthChange={() => {}} />)
+        const panel = view.container.firstElementChild as HTMLElement
+        expect(panel).toHaveClass('flex-1')
+        expect(panel.style.width).toBe('')
+        expect(view.queryByRole('separator', { name: 'Resize editor' })).toBeNull()
+
+        view.rerender(<CodeEditorPanel width={400} onWidthChange={() => {}} />)
+        expect(panel).not.toHaveClass('flex-1')
+        expect(panel.style.width).toBe('400px')
+        expect(view.getByRole('separator', { name: 'Resize editor' })).toBeInTheDocument()
+    })
+})
+
 describe('CodeEditorPanel scrolling', () => {
     it('shows a horizontal scrollbar when long lines are not wrapped', async () => {
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }

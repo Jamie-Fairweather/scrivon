@@ -515,6 +515,29 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
     })
 
+    it('remembers a hidden preview after a restart', () => {
+        const first = renderSettings()
+        act(() => first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, previewOpen: false } })))
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: false })
+    })
+
+    it('starts with the preview shown while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() =>
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, previewOpen: false },
+            }))
+        )
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: true })
+    })
+
     it('starts with the explorer and editor shown, and the outline hidden, while Restore panel layout is off', () => {
         const first = renderSettings()
         act(() => {
@@ -532,6 +555,7 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.layout).toEqual({
             explorerOpen: true,
             editorOpen: true,
+            previewOpen: true,
             editorWidth: 600,
             restorePanelsOnOpen: false,
             outlineOpen: false,
