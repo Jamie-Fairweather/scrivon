@@ -96,9 +96,16 @@ function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
+/** With Restore panel layout off, every start shows the explorer and editor, as on a first launch. */
+function withStartupLayout(settings: AppSettings): AppSettings {
+    if (settings.layout.restorePanelsOnOpen) return settings
+    const { explorerOpen, editorOpen } = createDefaultSettings(isMacPlatform()).layout
+    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen } }
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
     const [loaded] = useState(loadSettingsWithRecovery)
-    const [settings, setSettingsState] = useState<AppSettings>(loaded.settings)
+    const [settings, setSettingsState] = useState<AppSettings>(() => withStartupLayout(loaded.settings))
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [activeSection, setActiveSectionState] = useState<SettingsSection>(loadLastSection)
     // Latest settings, updated straight away so back-to-back updates build on each other.

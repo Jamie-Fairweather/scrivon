@@ -484,4 +484,34 @@ describe('SettingsProvider persistence', () => {
         expect(reloaded.editor.fontSize).toBe(20)
         expect(reloaded.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
     })
+
+    it('starts with the panels as they were left while Restore panel layout is on', () => {
+        const first = renderSettings()
+        act(() => {
+            first.result.current.setLayoutExplorerOpen(false)
+            first.result.current.setLayoutEditorOpen(false)
+        })
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+
+    it('starts with the explorer and editor shown while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() => {
+            first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, restorePanelsOnOpen: false } }))
+            first.result.current.setLayoutExplorerOpen(false)
+            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.setEditorWidth(600)
+        })
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toEqual({ explorerOpen: true, editorOpen: true, editorWidth: 600, restorePanelsOnOpen: false })
+        // Hiding a panel still works, and is still saved.
+        act(() => result.current.setLayoutEditorOpen(false))
+        waitForSave()
+        expect(stored().layout.editorOpen).toBe(false)
+    })
 })
