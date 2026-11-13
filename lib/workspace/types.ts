@@ -55,6 +55,7 @@ export type DocumentTab = {
 export type StudioLayoutState = {
     explorerOpen: boolean
     editorOpen: boolean
+    outlineOpen: boolean
 }
 
 export const AUTO_SAVE_MS = 400

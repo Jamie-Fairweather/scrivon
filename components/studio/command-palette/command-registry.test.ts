@@ -19,6 +19,7 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         autosaveEnabled: true,
         explorerOpen: true,
         editorOpen: true,
+        outlineOpen: false,
         canFitDiagram: true,
         keybinds: createDefaultSettings(false).keybinds,
         pickAndOpenWorkspace: vi.fn(async () => {}),
@@ -30,6 +31,7 @@ function context(overrides: Partial<CommandRegistryContext> = {}): CommandRegist
         setAutosaveEnabled: vi.fn(),
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
         requestCanvasFit: vi.fn(),
         closeTab: vi.fn(async () => {}),
@@ -109,6 +111,29 @@ describe('buildCommandRegistry Refresh Explorer', () => {
     it('says why it is off when no folder is open', () => {
         const [refresh] = byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:refresh-explorer')
         expect(refresh).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
+    })
+})
+
+describe('buildCommandRegistry Outline', () => {
+    it('shows and hides the Outline panel', () => {
+        const closed = context({ outlineOpen: false })
+        const [show] = byValue(closed, 'action:toggle-outline')
+        expect(show).toMatchObject({ label: 'Show Outline', disabled: false })
+        void show!.run()
+        expect(closed.setOutlineOpen).toHaveBeenCalledWith(true)
+
+        const open = context({ outlineOpen: true })
+        const [hide] = byValue(open, 'action:toggle-outline')
+        expect(hide).toMatchObject({ label: 'Hide Outline' })
+        void hide!.run()
+        expect(open.setOutlineOpen).toHaveBeenCalledWith(false)
+    })
+
+    it('is off with no folder open, as the panel only shows with one', () => {
+        expect(byValue(context({ workspaceRoot: null, activeTabId: null }), 'action:toggle-outline')[0]).toMatchObject({
+            disabled: true,
+            disabledReason: 'No folder open',
+        })
     })
 })
 
