@@ -682,12 +682,20 @@ function ChromeFields({
                 onChange={(enabled) => onChange({ enabled })}
             />
             {footer ? (
-                <FooterPageNumbers
-                    format={footer.pageNumbers}
-                    text={footer.right.text}
-                    onFormatChange={(pageNumbers) => onChange({ pageNumbers })}
-                    onTextChange={(text) => onChange({ right: { ...footer.right, text } })}
-                />
+                <>
+                    <FooterPageNumbers
+                        format={footer.pageNumbers}
+                        text={footer.right.text}
+                        onFormatChange={(pageNumbers) => onChange({ pageNumbers })}
+                        onTextChange={(text) => onChange({ right: { ...footer.right, text } })}
+                    />
+                    <SwitchSetting
+                        label="Number pages from the body"
+                        description="Page 1 is the first page after the title page and contents. Also used for the contents page and Word."
+                        checked={footer.numberFromBody}
+                        onChange={(numberFromBody) => onChange({ numberFromBody })}
+                    />
+                </>
             ) : null}
             <DependentFields enabled={chrome.enabled}>
                 <p className="text-sm text-muted-foreground">Images always sit outermost, nearest the page edge.</p>

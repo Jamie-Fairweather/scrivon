@@ -115,6 +115,7 @@ function normalizeFooter(raw: unknown, fallback: PdfExportFooter): PdfExportFoot
     return {
         ...chrome,
         pageNumbers: normalizeEnum(source?.pageNumbers, PAGE_NUMBER_FORMATS, fallback.pageNumbers),
+        numberFromBody: normalizeBoolean(source?.numberFromBody, fallback.numberFromBody),
     }
 }
 

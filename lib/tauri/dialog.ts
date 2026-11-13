@@ -197,7 +197,7 @@ export async function confirmDeleteHiddenFolders(folderName: string, hidden: str
               ? shown[0]!
               : `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
     const title = 'Delete hidden folders too?'
-    const body = `${folderName} also has ${names} in it, which Scrivon doesn't show in the file list.\n\nDeleting ${folderName} deletes them too. This can't be undone.`
+    const body = `${folderName} also has ${names} in it, which Scrivon doesn't show in the file list.\n\nDeleting ${folderName} moves them to the Recycle Bin too.`
     const confirm = 'Delete All'
 
     if (!isTauri()) {

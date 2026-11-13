@@ -45,6 +45,17 @@ describe('migrateLegacySettings', () => {
         expect(settings.theme.id).toBe(createDefaultSettings(false).theme.id)
         expect(settings.layout.editorWidth).toBe(createDefaultSettings(false).layout.editorWidth)
     })
+
+    it('starts a new install in System mode, with Scrivon Light and Scrivon Dark', () => {
+        expect(migrateLegacySettings(() => null, false).theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+        expect(createDefaultSettings(false).theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it('keeps a theme saved by a version before unified settings as a fixed choice', () => {
+        const read = (key: string) => (key === STORAGE_MERMAID_THEME ? 'dracula' : null)
+
+        expect(migrateLegacySettings(read, false).theme).toEqual({ id: 'dracula', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
 })
 
 describe('mergeStoredSettings', () => {
@@ -74,6 +85,28 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings(null, false)).toEqual(createDefaultSettings(false))
     })
 
+    it('keeps a theme saved before System mode existed as a fixed choice', () => {
+        expect(mergeStoredSettings({ theme: { id: 'nord' } }, false).theme).toEqual({ id: 'nord', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it("reads System mode and its light and dark themes, putting back a default for one that doesn't fit", () => {
+        expect(mergeStoredSettings({ theme: { id: 'system', light: 'solarized-light', dark: 'dracula' } }, false).theme).toEqual({
+            id: 'system',
+            light: 'solarized-light',
+            dark: 'dracula',
+        })
+        // A dark theme saved as the light one, and a theme this version doesn't know.
+        expect(mergeStoredSettings({ theme: { id: 'system', light: 'dracula', dark: 'future-theme' } }, false).theme).toEqual({
+            id: 'system',
+            light: 'scrivon-light',
+            dark: 'scrivon-dark',
+        })
+    })
+
+    it('follows Windows when the saved theme is unknown, as a newer version may save', () => {
+        expect(mergeStoredSettings({ theme: { id: 'future-theme' } }, false).theme.id).toBe('system')
+    })
+
     it('normalizes invalid editor and keybind values', () => {
         const merged = mergeStoredSettings(
             {
@@ -92,12 +125,52 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['settings.open']).toEqual(createDefaultSettings(false).keybinds['settings.open'])
     })
 
+    it('keeps the Outline panel closed by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: 'yes' } }, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: true } }, false).layout.outlineOpen).toBe(true)
+        expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
         expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.tabMovesFocus).toBe(false)
         expect(mergeStoredSettings({ editor: { tabMovesFocus: true } }, false).editor.tabMovesFocus).toBe(true)
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
+    })
+
+    it('links the editor and preview by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.scrollSync).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.scrollSync).toBe(true)
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.scrollSync).toBe(false)
+        expect(mergeStoredSettings({ editor: { scrollSync: 'no' } }, false).editor.scrollSync).toBe(true)
+    })
+
+    it('jumps from the preview to the editor on double-click by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.jumpFromPreview).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.jumpFromPreview).toBe(true)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: false } }, false).editor.jumpFromPreview).toBe(false)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: 1 } }, false).editor.jumpFromPreview).toBe(true)
+    })
+
+    it('reopens the last folder by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.reopenLastFolder).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { maxRecentFolders: 5 } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: false } }, false).workspace.reopenLastFolder).toBe(false)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: 'no' } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(migrateLegacySettings(() => null, false).workspace.reopenLastFolder).toBe(true)
+    })
+
+    it('shows the status bar unless the user hid it', () => {
+        expect(createDefaultSettings(false).statusBar.visible).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).statusBar.visible).toBe(true)
+        expect(mergeStoredSettings({ statusBar: { visible: false } }, false).statusBar.visible).toBe(false)
+        expect(mergeStoredSettings({ statusBar: { visible: 'no' } }, false).statusBar.visible).toBe(true)
     })
 
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
@@ -287,6 +360,7 @@ describe('dualWriteLegacy helpers', () => {
                 editorOpen: false,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
+                outlineOpen: false,
             })
         ).not.toThrow()
         expect(() => dualWriteLegacyAutosave(true)).not.toThrow()

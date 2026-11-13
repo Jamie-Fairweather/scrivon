@@ -32,8 +32,13 @@ vi.mock('@tauri-apps/api/core', async () => {
         // The app's save command (src-tauri/src/atomic_write.rs, sent by writeWorkspaceFile in lib/tauri/fs.ts)
         // writes through the plugin-fs mock here, so a test sees every save as a writeFile of the file itself.
         // Its rename command (renameWorkspacePath) is a rename there, refused like the real one when something
-        // is already at the new path, unless only the letter case changes.
+        // is already at the new path, unless only the letter case changes. Its Recycle Bin command
+        // (trashWorkspacePath) is a remove there, with everything in a folder.
         invoke: vi.fn(async (command: string, args?: unknown) => {
+            if (command === 'trash_workspace_path') {
+                await fs.remove((args as { path: string }).path, { recursive: true })
+                return undefined
+            }
             if (command === 'rename_workspace_path') {
                 const { oldPath, newPath } = args as { oldPath: string; newPath: string }
                 if (oldPath.toLowerCase() !== newPath.toLowerCase() && (await fs.exists(newPath))) {
@@ -103,6 +108,8 @@ vi.mock(
             getRecentWorkspaces: vi.fn(async () => []),
             addRecentWorkspace: vi.fn(async () => []),
             removeRecentWorkspace: vi.fn(async () => []),
+            getLastWorkspace: vi.fn(async () => null),
+            setLastWorkspace: vi.fn(async () => undefined),
             getLastOpenedFile: vi.fn(async () => null),
             setLastOpenedFile: vi.fn(async () => undefined),
             setWorkspaceTabSession: vi.fn(async () => undefined),

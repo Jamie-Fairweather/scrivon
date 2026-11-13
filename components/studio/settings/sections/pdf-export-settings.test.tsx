@@ -120,6 +120,17 @@ describe('PdfExportSettings groups', () => {
         fireEvent.click(footer.getByRole('switch', { name: 'Show footer' }))
         expect(browse).toBeEnabled()
     })
+
+    it('numbers pages from the body when that switch is on, even with the footer off (F48)', () => {
+        renderSection()
+        const fromBody = group('Footer').getByRole('switch', { name: 'Number pages from the body' })
+        expect(fromBody).toHaveAttribute('aria-checked', 'false')
+        // It also numbers the Contents page, so it works with the footer off.
+        expect(fromBody).not.toHaveAttribute('data-disabled')
+
+        fireEvent.click(fromBody)
+        expect(fromBody).toHaveAttribute('aria-checked', 'true')
+    })
 })
 
 describe('PdfExportSettings page space', () => {
