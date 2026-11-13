@@ -531,6 +531,39 @@ describe('workspace store', () => {
         })
     })
 
+    describe('the folder to reopen at startup', () => {
+        it('is the folder open when Scrivon closed, and none once it was closed by hand', async () => {
+            const first = await launch()
+            expect(await first.getLastWorkspace()).toBeNull()
+
+            await first.setLastWorkspace('C:/notes/')
+            quitApp()
+            const second = await launch()
+            expect(await second.getLastWorkspace()).toBe('C:\\notes')
+
+            await second.setLastWorkspace(null)
+            quitApp()
+            expect(await (await launch()).getLastWorkspace()).toBeNull()
+        })
+
+        it('is forgotten with the folder when it leaves the recent folders', async () => {
+            fake.disk.set('workspace.json', JSON.stringify({ ...SAVED, 'last-workspace': 'c:/Notes' }))
+            const store = await launch()
+
+            await store.removeRecentWorkspace('C:\\notes')
+
+            expect(await store.getLastWorkspace()).toBeNull()
+            expect(onDisk('workspace.json')?.['last-workspace']).toBeUndefined()
+        })
+
+        it('ignores a saved value that is not a path', async () => {
+            fake.disk.set('workspace.json', JSON.stringify({ 'last-workspace': 42 }))
+            const store = await launch()
+
+            expect(await store.getLastWorkspace()).toBeNull()
+        })
+    })
+
     describe('resetting from a crash screen', () => {
         it('empties workspace.json on disk, and leaves the copies of unsaved edits alone', async () => {
             fake.disk.set('workspace.json', JSON.stringify(SAVED))

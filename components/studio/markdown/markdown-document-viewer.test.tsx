@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { invoke } from '@tauri-apps/api/core'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { notifyInfo } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
@@ -7,6 +8,7 @@ import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
 import { extractMermaidBlockSources } from './mermaid-block-sources'
+import { revealHeadingInPreview } from './preview-heading'
 
 const workspace = vi.hoisted(() => ({
     tabs: [] as DocumentTab[],
@@ -74,6 +76,8 @@ vi.mock('./mermaid-block-sources', async (importOriginal) => {
 
 const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
 
+/** A tiny inline picture, which shows without the app reading a file. */
+const GIF = 'data:image/gif;base64,R0lGOD'
 const DOC_A = 'C:\\notes/a.md'
 const DOC_OTHER = 'C:\\notes/docs/other.md'
 
@@ -271,7 +275,7 @@ describe('MarkdownDocumentViewer', () => {
             '',
             '[![Build badge](//badges.example/build.svg)](https://ci.example)',
             '',
-            '![Local](./diagram.png)',
+            `![Local](${GIF})`,
             '',
             // The webview reads this as https://sneaky.example/pixel.png.
             '![Sneaky](https:sneaky.example/pixel.png)',
@@ -285,7 +289,7 @@ describe('MarkdownDocumentViewer', () => {
             expect(screen.getByRole('link', { name: 'Blocked web image: Build badge' })).toHaveAttribute('href', 'https://ci.example')
             expect(screen.getByRole('img', { name: 'Blocked web image: Sneaky' })).toBeInTheDocument()
             expect(container.querySelectorAll('img')).toHaveLength(1)
-            expect(container.querySelector('img[src="./diagram.png"]')).not.toBeNull()
+            expect(container.querySelector(`img[src="${GIF}"]`)).not.toBeNull()
 
             fireEvent.click(screen.getByRole('button', { name: 'Load images' }))
 
@@ -312,7 +316,7 @@ describe('MarkdownDocumentViewer', () => {
         })
 
         it('shows the notice only for documents that have blocked web images', () => {
-            render(viewer(DOC_A, '![Local](./diagram.png)'))
+            render(viewer(DOC_A, `![Local](${GIF})`))
             expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
         })
 
@@ -337,6 +341,66 @@ describe('MarkdownDocumentViewer', () => {
             rerender(viewer(DOC_A, withImages))
             expect(container.querySelector('img[src^="https:"]')).not.toBeNull()
             expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+    })
+
+    describe('Outline panel', () => {
+        const source = ['# Guide', '', 'Intro.', '', '```mermaid', 'flowchart TD', '  A --> B', '```', '', '## Install', '', 'Steps.'].join('\n')
+
+        it('scrolls to the heading picked in the Outline panel, without taking focus', () => {
+            const { container } = render(viewer(DOC_A, source))
+            const before = document.activeElement
+
+            act(() => revealHeadingInPreview('install'))
+
+            expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-install')])
+            expect(document.activeElement).toBe(before)
+        })
+
+        it('closes an expanded diagram so the heading shows', () => {
+            const { container } = render(viewer(DOC_A, source))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 1' }))
+            scrollIntoView.mockImplementation(() => {
+                viewport(container).scrollTop = 300
+            })
+
+            act(() => revealHeadingInPreview('install'))
+
+            expect(screen.queryByRole('region', { name: 'Expanded diagram' })).toBeNull()
+            expect(viewport(container).scrollTop).toBe(300)
+        })
+
+        it('does nothing for a heading the preview does not show yet, or once it has gone', () => {
+            const { unmount } = render(viewer(DOC_A, source))
+            act(() => revealHeadingInPreview('not-written-yet'))
+            unmount()
+            act(() => revealHeadingInPreview('install'))
+            expect(scrollIntoView).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('images from the open folder (F02)', () => {
+        beforeEach(() => {
+            vi.mocked(isTauri).mockReturnValue(true)
+        })
+
+        it('finds an image from the document’s own folder, and doesn’t count it as a web image', async () => {
+            vi.mocked(invoke).mockImplementationOnce(async () => 'data:image/png;base64,FOLDER')
+            workspace.tabs = [fileTab(DOC_OTHER)]
+            render(viewer(DOC_OTHER, '![Chart](../img/chart.png)'))
+
+            await waitFor(() => expect(screen.getByRole('img', { name: 'Chart' })).toHaveAttribute('src', 'data:image/png;base64,FOLDER'))
+            expect(invoke).toHaveBeenCalledWith('read_workspace_image', { root: 'C:\\notes', path: 'C:\\notes\\img\\chart.png' })
+            expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+
+        it('reads no file for an example, which has no folder', () => {
+            const example = 'example:readme'
+            workspace.tabs = [{ ...fileTab(example), path: example }]
+            render(viewer(example, '![Chart](chart.png)'))
+
+            expect(screen.getByRole('img', { name: /^Image not shown: Chart \(chart\.png\)\. Save the document/ })).toBeInTheDocument()
+            expect(invoke).not.toHaveBeenCalled()
         })
     })
 

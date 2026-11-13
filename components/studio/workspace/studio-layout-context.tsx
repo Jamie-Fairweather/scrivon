@@ -8,6 +8,7 @@ type StudioLayoutContextValue = {
     layout: StudioLayoutState
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setOutlineOpen: (open: boolean) => void
     setPreviewOnly: () => void
 }
 
@@ -20,29 +21,37 @@ export function useStudioLayout(): StudioLayoutContextValue {
 }
 
 export function StudioLayoutProvider({ children }: { children: ReactNode }) {
-    const { settings, setLayoutExplorerOpen, setLayoutEditorOpen } = useAppSettings()
+    const { settings, updateSettings, setLayoutExplorerOpen, setLayoutEditorOpen } = useAppSettings()
 
     const layout = useMemo<StudioLayoutState>(
         () => ({
             explorerOpen: settings.layout.explorerOpen,
             editorOpen: settings.layout.editorOpen,
+            outlineOpen: settings.layout.outlineOpen,
         }),
-        [settings.layout.explorerOpen, settings.layout.editorOpen]
+        [settings.layout.explorerOpen, settings.layout.editorOpen, settings.layout.outlineOpen]
+    )
+
+    const setOutlineOpen = useCallback(
+        (open: boolean) => updateSettings((current) => ({ ...current, layout: { ...current.layout, outlineOpen: open } })),
+        [updateSettings]
     )
 
     const setPreviewOnly = useCallback(() => {
         setLayoutExplorerOpen(false)
         setLayoutEditorOpen(false)
-    }, [setLayoutExplorerOpen, setLayoutEditorOpen])
+        setOutlineOpen(false)
+    }, [setLayoutExplorerOpen, setLayoutEditorOpen, setOutlineOpen])
 
     const value = useMemo(
         () => ({
             layout,
             setExplorerOpen: setLayoutExplorerOpen,
             setEditorOpen: setLayoutEditorOpen,
+            setOutlineOpen,
             setPreviewOnly,
         }),
-        [layout, setLayoutExplorerOpen, setLayoutEditorOpen, setPreviewOnly]
+        [layout, setLayoutExplorerOpen, setLayoutEditorOpen, setOutlineOpen, setPreviewOnly]
     )
 
     return <StudioLayoutContext.Provider value={value}>{children}</StudioLayoutContext.Provider>

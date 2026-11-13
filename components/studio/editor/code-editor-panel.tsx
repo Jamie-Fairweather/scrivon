@@ -8,17 +8,23 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
+import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { lineEndingsOf } from '@/lib/workspace/text-stats'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -137,25 +143,15 @@ function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
-/**
- * The one line ending `text` uses, or null when it has no line break or mixes them. Monaco gives a buffer
- * one line ending, so a file that mixes them is evened out on purpose and is left that way.
- */
-function lineEndingOf(text: string): '\r\n' | '\n' | null {
-    if (!/[\r\n]/.test(text)) return null
-    if (!/\r(?!\n)|(?<!\r)\n/.test(text)) return '\r\n'
-    return text.includes('\r') ? null : '\n'
-}
-
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
 function isTab(tabId: string | null, path: string): boolean {
     return tabId !== null && samePath(tabId, path)
 }
 
 function languageForTab(tab: DocumentTab) {
-    if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
-    return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
+    if (kind === 'mermaid') return MERMAID_LANGUAGE_ID
+    return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
 export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
@@ -175,6 +171,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const [rowWidth, setRowWidth] = useState(0)
     const monacoRef = useRef<Monaco | null>(null)
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+    // The same editor as editorRef, kept as state so the Edit menu and the palette follow it.
+    const [mountedEditor, setMountedEditor] = useState<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
     const activeTabRef = useRef<DocumentTab | null>(null)
     const suppressChangeRef = useRef(false)
@@ -393,7 +391,10 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
+    const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
+    // The Edit menu and the palette's editor commands act on this editor while it shows a file.
+    useEditorCommands(editorPath ? mountedEditor : null, open, isReadOnly)
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
@@ -419,9 +420,18 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             domReadOnly: isReadOnly,
             ariaLabel,
             unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
+            // Diagram files offer a starter for each diagram type on Ctrl+Space (lib/monaco/mermaid-snippets.ts).
+            // Nothing pops up while typing, so Enter can pick from the list the user asked for.
+            ...(isMermaid ? { snippetSuggestions: 'inline' as const, acceptSuggestionOnEnter: 'on' as const } : {}),
         }),
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
+
+    // Read through a ref, so the link to the preview always sees the current settings.
+    const previewLinkRef = useRef({ scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview })
+    useEffect(() => {
+        previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
+    }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
 
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
@@ -473,8 +483,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // The change goes on the undo stack as its own step, as VS Code does: Ctrl+Z first puts the
             // old line endings back, then undoes earlier edits. Don't use setEOL: it skips the undo
             // stack, so undoing an earlier edit would land in the wrong place and garble the text.
-            const eol = lineEndingOf(tab.content)
-            if (eol === null || model.getEOL() === eol) return
+            // Monaco gives a buffer one line ending, so a file that mixes them is evened out on purpose and left that way.
+            const endings = lineEndingsOf(tab.content)
+            if (endings === null || endings === 'mixed') return
+            const eol = endings === 'CRLF' ? '\r\n' : '\n'
+            if (model.getEOL() === eol) return
             suppressChangeRef.current = true
             try {
                 model.pushStackElement()
@@ -560,10 +573,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
             editorRef.current = editor
             monacoRef.current = monaco
+            setMountedEditor(editor)
             // Closing the last tab throws the editor away. Forget it, so a search hit picked
             // before the next one is ready waits for it instead of going to the old one.
             editor.onDidDispose(() => {
                 if (editorRef.current === editor) editorRef.current = null
+                setMountedEditor((current) => (current === editor ? null : current))
                 setEditorFocused(false)
             })
             editor.onDidFocusEditorText(() => {
@@ -571,6 +586,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 showHintAgain()
             })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
+            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away.
+            trackEditorCursor(editor)
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
             // or the cursor and selection drift away from the text.
@@ -580,6 +597,16 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            const spelling = attachEditorSpellcheck(editor, monaco)
+            editor.onDidDispose(() => spelling.dispose())
+            // Scrolls the Markdown preview with the editor, and the other way round.
+            const scrollSync = bindEditorScrollSync(editor, {
+                tabId: () => activeTabIdRef.current,
+                scrollEnabled: () => previewLinkRef.current.scroll,
+                jumpEnabled: () => previewLinkRef.current.jump,
+                canFocus: () => openRef.current,
+            })
+            editor.onDidDispose(() => scrollSync.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -595,7 +622,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
     )
 
     useEffect(() => {
