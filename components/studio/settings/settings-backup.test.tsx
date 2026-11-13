@@ -55,7 +55,7 @@ describe('SettingsBackup', () => {
     it('saves every setting and export profile to the chosen file', async () => {
         vi.mocked(save).mockResolvedValue('C:/Backups/Scrivon settings.json')
         renderBackup()
-        act(() => current.updateSettings((settings) => ({ ...settings, theme: { id: 'tokyo-night' } })))
+        act(() => current.updateSettings((settings) => ({ ...settings, theme: { ...settings.theme, id: 'tokyo-night' } })))
 
         fireEvent.click(screen.getByRole('button', { name: 'Export settings…' }))
 

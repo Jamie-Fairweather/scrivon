@@ -34,7 +34,7 @@ describe('settings export file', () => {
         expect(file.scrivon).toBe('settings')
         expect(file.version).toBe(1)
         expect(file.settings.schemaVersion).toBe(1)
-        expect(file.settings.theme).toEqual({ id: 'tokyo-night' })
+        expect(file.settings.theme).toMatchObject({ id: 'tokyo-night' })
         expect(file.settings.keybinds).toEqual({ 'view.toggleEditor': [{ key: 'k', ctrl: true, alt: true }] })
     })
 
