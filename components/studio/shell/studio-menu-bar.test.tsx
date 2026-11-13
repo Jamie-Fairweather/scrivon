@@ -59,6 +59,7 @@ function mockContexts({
     dirty = false,
     outlineOpen = false,
     activeTab = null as { name: string; isDirty: boolean } | null,
+    zoom = 1,
 } = {}) {
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
@@ -97,7 +98,8 @@ function mockContexts({
         flushAllSaves: vi.fn(async () => true),
     } as unknown as ReturnType<typeof useDocumentSave>)
     vi.mocked(useAppSettings).mockReturnValue({
-        settings: { keybinds },
+        settings: { keybinds, appearance: { zoom, previewFontSize: 14 } },
+        updateSettings: vi.fn(),
         openSettings: vi.fn(),
         flushPendingSettings: vi.fn(),
     } as unknown as ReturnType<typeof useAppSettings>)
@@ -394,7 +396,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(26)
+        expect(compared).toBe(29)
     })
 })
 
@@ -435,6 +437,20 @@ describe('StudioMenuBar View menu', () => {
         await userEvent.setup().click(outline)
 
         expect(vi.mocked(useStudioLayout)().setOutlineOpen).toHaveBeenCalledWith(true)
+    })
+
+    it('zooms the whole app in, out and back to 100%, with the zoom keys', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', zoom: 1.25 })
+        render(<Studio />)
+
+        const view = await openMenu('View')
+        expect(within(view).getByRole('menuitem', { name: 'Zoom In Ctrl+= or Ctrl+Plus' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Out Ctrl+-' })).toBeInTheDocument()
+        await userEvent.setup().click(within(view).getByRole('menuitem', { name: 'Reset Zoom Ctrl+0' }))
+
+        const update = vi.mocked(useAppSettings)().updateSettings as unknown as ReturnType<typeof vi.fn>
+        const change = update.mock.calls[0]?.[0] as (current: { appearance: { zoom: number } }) => { appearance: { zoom: number } }
+        expect(change({ appearance: { zoom: 1.25 } }).appearance.zoom).toBe(1)
     })
 })
 

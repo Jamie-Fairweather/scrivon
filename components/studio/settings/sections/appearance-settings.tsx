@@ -4,9 +4,15 @@ import { CheckIcon } from 'lucide-react'
 import { useId, type ReactNode } from 'react'
 import { APP_DARK_THEME_IDS, APP_LIGHT_THEME_IDS, APP_THEME_LABELS, getDiagramColors, isAppThemeId, type AppThemeId } from '@/lib/theme/catalog'
 import { FOLLOW_SYSTEM, type ThemeChoice } from '@/lib/settings/types'
+import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
+import { useAppZoom } from '@/components/studio/zoom/use-app-zoom'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 import { RadioGroupPrimitive, RadioPrimitive } from '@/components/ui/radio-group'
+import { APP_ZOOM_LEVELS, formatZoomPercent } from '@/lib/zoom/app-zoom'
+import { MAX_PREVIEW_FONT_SIZE, MIN_PREVIEW_FONT_SIZE } from '@/lib/zoom/preview-text-size'
 
 function ThemeSwatch({ id }: { id: AppThemeId }) {
     const colors = getDiagramColors(id)
@@ -93,6 +99,36 @@ function ThemeRadioGroup({ value, onPick, children, ...props }: ThemeRadioGroupR
     )
 }
 
+const ZOOM_OPTIONS: SelectOption<string>[] = APP_ZOOM_LEVELS.map((level) => ({ label: formatZoomPercent(level), value: String(level) }))
+
+/** The app zoom and the preview's text size. */
+function TextSizeSettings() {
+    const { settings, updateSettings } = useAppSettings()
+    const { zoom, setZoom } = useAppZoom()
+
+    return (
+        <>
+            <Field>
+                <FieldLabel htmlFor="app-zoom">Zoom</FieldLabel>
+                <FieldDescription>
+                    Makes everything in the window bigger or smaller. Ctrl+mouse wheel and Zoom In and Zoom Out in the View menu change it too.
+                </FieldDescription>
+                <OptionSelect id="app-zoom" className="w-40" value={String(zoom)} options={ZOOM_OPTIONS} onChange={(next) => setZoom(Number(next))} />
+            </Field>
+            <NumberSetting
+                id="preview-font-size"
+                label="Preview text size"
+                description="The size of the Markdown preview's text, in pixels. Headings and code grow with it."
+                value={settings.appearance.previewFontSize}
+                min={MIN_PREVIEW_FONT_SIZE}
+                max={MAX_PREVIEW_FONT_SIZE}
+                step={1}
+                onChange={(previewFontSize) => updateSettings((current) => ({ ...current, appearance: { ...current.appearance, previewFontSize } }))}
+            />
+        </>
+    )
+}
+
 export function AppearanceSettings() {
     const { settings, setThemeId, setFollowSystem, setSystemThemeId } = useAppSettings()
     const theme = settings.theme
@@ -100,6 +136,8 @@ export function AppearanceSettings() {
 
     return (
         <div className="space-y-6">
+            <TextSizeSettings />
+
             <SwitchSetting
                 label="Follow Windows"
                 description="Use one theme when Windows is in light mode and another when it's in dark mode."

@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppearanceSettings } from '@/components/studio/settings/sections/appearance-settings'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
-import { SETTINGS_STORAGE_KEY, type ThemeSetting } from '@/lib/settings/types'
+import { SETTINGS_STORAGE_KEY, type AppSettings, type ThemeSetting } from '@/lib/settings/types'
 
 let store: Map<string, string>
 
@@ -17,6 +18,10 @@ function renderAppearance(theme: Partial<ThemeSetting>) {
 
 function savedTheme(): ThemeSetting {
     return (JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as { theme: ThemeSetting }).theme
+}
+
+function savedAppearance(): AppSettings['appearance'] {
+    return (JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}') as AppSettings).appearance
 }
 
 function checkedIn(name: string) {
@@ -73,6 +78,31 @@ describe('AppearanceSettings theme picker', () => {
         expect(checkedIn('When Windows is light')).toEqual(['GitHub Light'])
         // Changes made in quick succession are saved a moment after the last one.
         await waitFor(() => expect(savedTheme()).toEqual({ id: 'system', light: 'github-light', dark: 'dracula' }))
+    })
+
+    describe('text size', () => {
+        it('zooms the whole app from a list of steps', async () => {
+            renderAppearance({ id: 'scrivon-dark' })
+            const user = userEvent.setup()
+
+            const zoom = screen.getByRole('combobox', { name: 'Zoom' })
+            expect(zoom).toHaveTextContent('100%')
+            await user.click(zoom)
+            await user.click(await screen.findByRole('option', { name: '125%' }))
+
+            await waitFor(() => expect(savedAppearance().zoom).toBe(1.25))
+        })
+
+        it('makes the Markdown preview text bigger or smaller', async () => {
+            renderAppearance({ id: 'scrivon-dark' })
+
+            const size = screen.getByRole('textbox', { name: 'Preview text size' })
+            expect(size).toHaveValue('14')
+            fireEvent.change(size, { target: { value: '18' } })
+            fireEvent.blur(size)
+
+            await waitFor(() => expect(savedAppearance().previewFontSize).toBe(18))
+        })
     })
 
     it('turning off Follow Windows keeps the theme on screen', () => {

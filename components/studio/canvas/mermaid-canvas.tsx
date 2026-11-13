@@ -145,6 +145,8 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
         <div
             ref={containerRef}
             className={cn('relative isolate min-h-0 flex-1 cursor-grab touch-none overflow-hidden bg-background select-none', className)}
+            // Ctrl+wheel and the zoom keys here zoom the diagram, not the whole app (OWN_ZOOM_SELECTOR).
+            data-own-zoom
             onDoubleClick={reset}
             {...handlers}
         >

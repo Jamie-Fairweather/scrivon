@@ -231,6 +231,12 @@ export function StudioMenuBar() {
                             </MenuGroup>
                             <MenuSeparator />
                             {item('fit-diagram')}
+                            <MenuSeparator />
+                            <MenuGroup>
+                                {item('app-zoom-in')}
+                                {item('app-zoom-out')}
+                                {item('app-zoom-reset')}
+                            </MenuGroup>
                         </MenuBarEntry>
                     )}
 

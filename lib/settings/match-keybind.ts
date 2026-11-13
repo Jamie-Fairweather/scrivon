@@ -22,8 +22,7 @@ export function isNativeTextField(target: EventTarget | null): boolean {
  * and its find box is a textarea too, so look for the editor itself rather than the element type.
  */
 export function isInsideCodeEditor(target: EventTarget | null): boolean {
-    if (!target || typeof (target as Element).closest !== 'function') return false
-    return (target as Element).closest('.monaco-editor') !== null
+    return isInside(target, '.monaco-editor')
 }
 
 /**
@@ -43,7 +42,13 @@ function eventToChords(event: KeyboardEvent): KeybindChord[] {
     return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
 }
 
+function isInside(target: EventTarget | null, selector: string): boolean {
+    if (!target || typeof (target as Element).closest !== 'function') return false
+    return (target as Element).closest(selector) !== null
+}
+
 function shouldSkipForTarget(meta: KeybindActionMeta, target: EventTarget | null, pressed: KeybindChord, inPalette: boolean): boolean {
+    if (meta.leaveInside && isInside(target, meta.leaveInside)) return true
     if (meta.allowInNativeTextField) return false
     // In the editor, real shortcuts (Ctrl/Alt/Cmd or an F-key) work on every platform; a bare key
     // never fires there, so it can't stop that character being typed. The same goes for the palette's

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import { OWN_ZOOM_SELECTOR } from '@/lib/zoom/app-zoom'
 
 const fit = vi.hoisted(() => ({ requestId: 0 }))
 
@@ -73,6 +74,14 @@ describe('MermaidCanvas', () => {
         expect(message.closest('.origin-center')).toBeNull()
         // The canvas calls preventDefault on pointer down to pan, which would block text selection.
         expect(fireEvent.pointerDown(message, { button: 0, pointerId: 1 })).toBe(true)
+    })
+
+    it('zooms by itself, so Ctrl+wheel and the zoom keys there zoom the diagram, not the whole app', () => {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+
+        render(<MermaidCanvas source="graph TD" />)
+
+        expect(screen.getAllByTitle('Diagram preview')[0]!.closest(OWN_ZOOM_SELECTOR)).not.toBeNull()
     })
 
     it('shows the empty message outside the pan/zoom layer, so zoom never shrinks it (U37)', () => {
