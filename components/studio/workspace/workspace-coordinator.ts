@@ -47,6 +47,8 @@ export type WorkspaceCoordinatorRefs = {
     backUpUnsavedTabs: MutableRefObject<() => void>
     remapTabsAfterRename: MutableRefObject<(oldPath: string, newPath: string, newName: string) => void>
     closeTabsForDelete: MutableRefObject<(path: string, isDirectory: boolean) => void>
+    /** The tabs closeTabsForDelete would close, as they are now (with their unsaved state), for the delete confirm. */
+    findTabsToCloseOnDelete: MutableRefObject<(path: string, isDirectory: boolean) => DocumentTab[]>
     requestCanvasFit: MutableRefObject<() => void>
     /** Closes every tab, dropping its leftovers as closing a tab does; for a folder switch or close after confirmCloseTabs. */
     clearTabs: MutableRefObject<() => void>
@@ -98,6 +100,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         backUpUnsavedTabs: { current: () => {} },
         remapTabsAfterRename: { current: () => {} },
         closeTabsForDelete: { current: () => {} },
+        findTabsToCloseOnDelete: { current: () => [] },
         requestCanvasFit: { current: () => {} },
         clearTabs: { current: () => {} },
         setTabsFromWorkspace: { current: () => [] },

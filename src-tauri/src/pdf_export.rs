@@ -527,7 +527,7 @@ pub async fn export_html_to_pdf(
     export_html_to_pdf_impl(app, html, output_path, options).await
 }
 
-const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+pub(crate) const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 /// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
 const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
@@ -629,7 +629,7 @@ pub async fn adopt_export_images(
 }
 
 /// The image type of an export image path, or why it can't be one.
-fn export_image_mime(path: &str) -> Result<&'static str, String> {
+pub(crate) fn export_image_mime(path: &str) -> Result<&'static str, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("Image path is empty.".into());
@@ -639,17 +639,23 @@ fn export_image_mime(path: &str) -> Result<&'static str, String> {
 }
 
 fn read_image_as_data_url(path: &str) -> Result<String, String> {
+    read_image_data_url(path, IMAGE_TOO_LARGE)
+}
+
+/// Reads a real image file (PNG, JPEG, GIF, WebP or SVG, checked by its first
+/// bytes) as a data URL. An image over MAX_EXPORT_IMAGE_BYTES gets `too_large`.
+pub(crate) fn read_image_data_url(path: &str, too_large: &str) -> Result<String, String> {
     let path = path.trim();
     let mime = export_image_mime(path)?;
     let size = std::fs::metadata(path)
         .map_err(|e| format!("Could not read image: {e}"))?
         .len();
     if size > MAX_EXPORT_IMAGE_BYTES as u64 {
-        return Err(IMAGE_TOO_LARGE.into());
+        return Err(too_large.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read image: {e}"))?;
     if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
-        return Err(IMAGE_TOO_LARGE.into());
+        return Err(too_large.into());
     }
     if !content_matches(mime, &bytes) {
         return Err("This file isn't a valid image.".into());

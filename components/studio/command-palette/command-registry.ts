@@ -18,6 +18,7 @@ export type CommandRegistryContext = {
     autosaveEnabled: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    outlineOpen: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
     keybinds: KeybindBindings
@@ -30,6 +31,7 @@ export type CommandRegistryContext = {
     setAutosaveEnabled: (enabled: boolean) => void
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setOutlineOpen: (open: boolean) => void
     setPreviewOnly: () => void
     requestCanvasFit: () => void
     closeTab: (id: string) => Promise<void>
@@ -135,6 +137,15 @@ export function buildCommandRegistry(ctx: CommandRegistryContext): ActionPalette
             disabled: !hasWorkspace,
             disabledReason: 'No folder open',
             run: () => ctx.setEditorOpen(!ctx.editorOpen),
+        },
+        {
+            kind: 'action',
+            value: 'action:toggle-outline',
+            searchText: 'outline headings contents toggle',
+            label: ctx.outlineOpen ? 'Hide Outline' : 'Show Outline',
+            disabled: !hasWorkspace,
+            disabledReason: 'No folder open',
+            run: () => ctx.setOutlineOpen(!ctx.outlineOpen),
         },
         {
             kind: 'action',

@@ -97,6 +97,13 @@ export function EditorSettings() {
             />
 
             <SwitchSetting
+                label="Status bar"
+                description="Show the line and column, word count and save state at the bottom of the window."
+                checked={settings.statusBar.visible}
+                onChange={(visible) => updateSettings((current) => ({ ...current, statusBar: { ...current.statusBar, visible } }))}
+            />
+
+            <SwitchSetting
                 label="Scroll with the preview"
                 description="The editor and the Markdown preview scroll together."
                 checked={settings.editor.scrollSync}

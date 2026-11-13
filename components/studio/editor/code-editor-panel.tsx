@@ -14,12 +14,14 @@ import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModel
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { lineEndingsOf } from '@/lib/workspace/text-stats'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -136,16 +138,6 @@ function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column:
 function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.detectIndentation(true, tabSize)
     model.updateOptions({ tabSize, indentSize: tabSize })
-}
-
-/**
- * The one line ending `text` uses, or null when it has no line break or mixes them. Monaco gives a buffer
- * one line ending, so a file that mixes them is evened out on purpose and is left that way.
- */
-function lineEndingOf(text: string): '\r\n' | '\n' | null {
-    if (!/[\r\n]/.test(text)) return null
-    if (!/\r(?!\n)|(?<!\r)\n/.test(text)) return '\r\n'
-    return text.includes('\r') ? null : '\n'
 }
 
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
@@ -480,8 +472,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // The change goes on the undo stack as its own step, as VS Code does: Ctrl+Z first puts the
             // old line endings back, then undoes earlier edits. Don't use setEOL: it skips the undo
             // stack, so undoing an earlier edit would land in the wrong place and garble the text.
-            const eol = lineEndingOf(tab.content)
-            if (eol === null || model.getEOL() === eol) return
+            // Monaco gives a buffer one line ending, so a file that mixes them is evened out on purpose and left that way.
+            const endings = lineEndingsOf(tab.content)
+            if (endings === null || endings === 'mixed') return
+            const eol = endings === 'CRLF' ? '\r\n' : '\n'
+            if (model.getEOL() === eol) return
             suppressChangeRef.current = true
             try {
                 model.pushStackElement()
@@ -578,6 +573,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 showHintAgain()
             })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
+            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away.
+            trackEditorCursor(editor)
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
             // or the cursor and selection drift away from the text.
