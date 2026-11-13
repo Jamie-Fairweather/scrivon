@@ -121,8 +121,9 @@ SHIKI_FAIL
         expect(html).toContain('class="pdf-toc-l2"')
         expect(html).toContain('class="pdf-toc-leader"')
         expect(html).toContain('href="#section"')
-        expect(html).toContain('>SFT0001<')
-        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        // The marks number every heading (the H1 is SFH0001), so the one listed row carries the H2's number.
+        expect(html).toContain('>SFT0002<')
+        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0002</span>')
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
@@ -519,6 +520,63 @@ SHIKI_FAIL
         expect(html).toContain('<span class="pdf-toc-mark">SFT0003</span>')
         // Numbering is off, so the footer has no marker and no sample.
         expect(html.match(/class="pdf-stamp-glyphs"/g)).toHaveLength(1)
+    })
+
+    it('marks every heading for the PDF bookmarks and sends the headings with the print settings (F47)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+
+        const { html, print } = await markdownToExportHtml('# Report\n\n## Setup\n\n#### Deep\n\nBody', { profile, assets: EMPTY_ASSETS })
+        expect(print.headings).toEqual([
+            { level: 1, text: 'Report' },
+            { level: 2, text: 'Setup' },
+            { level: 4, text: 'Deep' },
+        ])
+        // Each mark is the heading's place in that list, whether or not the Contents lists it.
+        expect(html).toContain('<h1 id="report" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        expect(html).toContain('<h2 id="setup" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0002</span>')
+        expect(html).toContain('<h4 id="deep" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0003</span>')
+        // The Contents row for Setup (H1 and H4 are left out) carries the same number.
+        expect(html).toMatch(/<a href="#setup">.*SFT0002<\/span><\/span><\/a>/)
+        expect(html).not.toContain('SFT0001')
+        expect(html).not.toContain('SFT0003')
+    })
+
+    it('marks the headings even without a Contents page, but not for the print dialog (F47)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const stamped = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS })
+        expect(stamped.html).toContain('<span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        expect(stamped.print.headings).toEqual([{ level: 1, text: 'Only' }])
+
+        const printed = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS, stamped: false })
+        expect(printed.html).not.toContain('SFH0001')
+        expect(printed.print.headings).toBeUndefined()
+    })
+
+    it('marks where the body starts when numbering pages from the body (F48)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.footer.pageNumbers = 'n-of-total'
+        profile.footer.numberFromBody = true
+        const source = '# Report\n\n## Setup\n\nBody'
+
+        const numbered = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(numbered.print.numberFromBody).toBe(true)
+        // Last in the body, so first-child rules still see the first heading; CSS lifts it to the body's top.
+        expect(numbered.html).toContain('<span class="pdf-body-mark" dir="ltr">SFH0000</span></div>')
+        expect(numbered.html).toMatch(/\.pdf-body-mark \{[^}]*position: absolute;[^}]*top: 0;/)
+
+        profile.footer.numberFromBody = false
+        const counted = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(counted.print.numberFromBody).toBeUndefined()
+        expect(counted.html).not.toContain('SFH0000')
+
+        profile.footer.numberFromBody = true
+        const printed = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(printed.html).not.toContain('SFH0000')
     })
 
     it('keeps an indented code block that opens the document, with or without front matter', async () => {
@@ -1090,6 +1148,7 @@ SHIKI_FAIL
             marginLeftMm: 10,
             pageNumberFormat: 'custom:Spec · {{page}}/{{total}}',
             pageNumberColor: '#ff0000',
+            headings: [{ level: 1, text: 'Hi' }],
         })
         expect(doc.html).toContain('SFPN')
     })

@@ -33,6 +33,21 @@ pub struct PdfPrintOptions {
     pub author: String,
     #[serde(default)]
     pub subject: String,
+    /// Every heading in order, for the PDF's bookmarks. The export marks the
+    /// heading at index `i` with `SFH` and `i + 1` in four digits.
+    #[serde(default)]
+    pub headings: Vec<PdfHeading>,
+    /// Page 1 is the first body page: the title and contents pages get no number.
+    #[serde(default)]
+    pub number_from_body: bool,
+}
+
+/// One heading of the exported document, for its bookmark.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PdfHeading {
+    /// 1 for H1 up to 6 for H6.
+    pub level: u8,
+    pub text: String,
 }
 
 /// How long to wait for the export page's images and web fonts before
@@ -697,6 +712,18 @@ mod tests {
         .unwrap();
         assert_eq!(with_properties.author, "Ada");
         assert_eq!(with_properties.subject, "Q3");
+        // Older callers send no headings and number every page.
+        assert!(with_properties.headings.is_empty());
+        assert!(!with_properties.number_from_body);
+
+        let with_headings: PdfPrintOptions = serde_json::from_str(
+            r##"{"pageWidthMm":210,"pageHeightMm":297,"landscape":false,"marginTopMm":10,"marginRightMm":10,"marginBottomMm":10,"marginLeftMm":10,"pageNumberFormat":"number","pageNumberColor":"","headings":[{"level":2,"text":"Résumé"}],"numberFromBody":true}"##,
+        )
+        .unwrap();
+        assert_eq!(with_headings.headings.len(), 1);
+        assert_eq!(with_headings.headings[0].level, 2);
+        assert_eq!(with_headings.headings[0].text, "Résumé");
+        assert!(with_headings.number_from_body);
     }
 
     #[test]
@@ -955,6 +982,8 @@ mod tests {
             page_number_color: String::new(),
             author: String::new(),
             subject: String::new(),
+            headings: Vec::new(),
+            number_from_body: false,
         }
     }
 
