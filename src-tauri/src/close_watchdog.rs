@@ -167,7 +167,7 @@ pub fn watch_page_process(app: &tauri::AppHandle) {
             let frozen = kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE;
             if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
                 // WebView2 itself is gone, and the window can't show anything again.
-                eprintln!("WebView2 stopped, so Scrivon is closing.");
+                log::error!("WebView2 stopped, so Scrivon is closing.");
                 app.exit(1);
             } else if (frozen || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED)
                 && !asking.swap(true, Ordering::SeqCst)
@@ -199,11 +199,11 @@ pub fn watch_page_process(app: &tauri::AppHandle) {
                 .and_then(|core| core.add_ProcessFailed(&handler, &mut token))
         };
         if let Err(err) = added {
-            eprintln!("Could not watch the window's page process: {err}");
+            log::warn!("Could not watch the window's page process: {err}");
         }
     });
     if let Err(err) = result {
-        eprintln!("Could not watch the window's page process: {err}");
+        log::warn!("Could not watch the window's page process: {err}");
     }
 }
 

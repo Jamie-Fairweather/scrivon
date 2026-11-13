@@ -45,7 +45,7 @@ pub fn show_system_menu(window: tauri::WebviewWindow) -> Result<(), String> {
         window
             .run_on_main_thread(move || {
                 if let Err(err) = native::show(hwnd as *mut std::ffi::c_void) {
-                    eprintln!("Could not show the window menu: {err}");
+                    log::warn!("Could not show the window menu: {err}");
                 }
             })
             .map_err(|e| e.to_string())?;

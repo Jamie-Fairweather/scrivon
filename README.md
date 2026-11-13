@@ -137,4 +137,4 @@ Scrivon is released under the [MIT License](LICENSE). Third-party dependencies a
 
 - [Releases](https://github.com/Jamie-Fairweather/scrivon/releases)
 - [Development & releases guide](docs/development.md)
-- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues)
+- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues), or use **Help → Report an Issue** in the app, which fills in your app, Windows and WebView2 versions. **Help → Open Logs Folder** shows the log files to attach.

@@ -404,6 +404,8 @@ where
 /// A plain message for a failed update download or install.
 fn install_error_message(err: &tauri_plugin_updater::Error) -> String {
     use tauri_plugin_updater::Error;
+    // The message below is for the user; the log keeps the technical reason.
+    log::error!("The update failed: {err}");
     match err {
         Error::Reqwest(_) => {
             "The update couldn't be downloaded. Check your internet connection and try again."
@@ -526,7 +528,7 @@ fn install_with_record(
 ) -> Result<(), String> {
     if let Some(dir) = dir {
         if let Err(err) = record_attempt(dir, from, to) {
-            eprintln!("Could not record the update attempt: {err}");
+            log::warn!("Could not record the update attempt: {err}");
         }
     }
     let result = install();

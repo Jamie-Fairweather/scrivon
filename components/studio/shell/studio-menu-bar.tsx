@@ -244,6 +244,12 @@ export function StudioMenuBar() {
 
                     <MenuBarEntry label="Help" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
+                            {item('report-issue')}
+                            {item('copy-diagnostic-info')}
+                            {item('open-logs-folder')}
+                        </MenuGroup>
+                        <MenuSeparator />
+                        <MenuGroup>
                             {item('about')}
                             {item('licences')}
                         </MenuGroup>

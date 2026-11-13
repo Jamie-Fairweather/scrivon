@@ -1,6 +1,7 @@
 mod atomic_write;
 mod close_watchdog;
 mod crash_report;
+mod diagnostics;
 mod legacy_profile;
 mod page_numbers;
 mod pdf_export;
@@ -55,7 +56,7 @@ fn open_stores(app: &tauri::AppHandle) {
             builder.defaults(HashMap::new()).disable_auto_save()
         };
         if let Err(err) = builder.build() {
-            eprintln!("Could not open {name}: {err}");
+            log::warn!("Could not open {name}: {err}");
         }
     }
 }
@@ -169,7 +170,7 @@ fn reopen_main_window(app: &tauri::AppHandle) {
                 Err(err) => {
                     // Still gone, so the next launch tries again.
                     MAIN_CLOSED.store(true, Ordering::SeqCst);
-                    eprintln!("Could not open the window again: {err}");
+                    log::error!("Could not open the window again: {err}");
                 }
             }
         },
@@ -270,7 +271,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
-            // First: the copied workspace.json must be there before the stores
+            // First, so what goes wrong from here on is in the log.
+            diagnostics::start_logging(app.handle());
+            // Then the copied workspace.json must be there before the stores
             // and the folder list read it, and the copied localStorage before
             // the window opens its WebView2 profile.
             legacy_profile::migrate(app);
@@ -307,6 +310,8 @@ pub fn run() {
             atomic_write::rename_workspace_path,
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
+            diagnostics::open_logs_folder,
+            diagnostics::system_info,
             pdf_export::export_html_to_pdf,
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
@@ -363,6 +368,12 @@ mod config_tests {
         assert!(!permissions.iter().any(|p| p == "fs:default"));
         // Its block on the WebView2 profile folder stays.
         assert!(permissions.iter().any(|p| p == "fs:deny-default"));
+    }
+
+    #[test]
+    fn the_webview_can_write_to_the_log_file() {
+        // lib/diagnostics/app-log.ts logs the errors the user is shown (F25).
+        assert!(permissions().iter().any(|p| p == "log:default"));
     }
 
     #[test]

@@ -218,12 +218,15 @@ describe('StudioMenuBar', () => {
         expect(screen.getByRole('menuitem', { name: 'File' })).toHaveFocus()
     })
 
-    it('lists About and Licences directly in the Help menu', async () => {
+    it('lists the bug report helpers, About and Licences directly in the Help menu', async () => {
         render(<Studio />)
 
         const menu = await openMenu('Help')
-        expect(within(menu).getByRole('menuitem', { name: 'About Scrivon…' })).toBeInTheDocument()
-        expect(within(menu).getByRole('menuitem', { name: 'Licences…' })).toBeInTheDocument()
+        expect(
+            within(menu)
+                .getAllByRole('menuitem')
+                .map((item) => item.textContent)
+        ).toEqual(['Report an Issue', 'Copy Diagnostic Info', 'Open Logs Folder', 'About Scrivon…', 'Licences…'])
     })
 
     it("shows each item's keyboard shortcut", async () => {
@@ -394,7 +397,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(26)
+        expect(compared).toBe(29)
     })
 })
 

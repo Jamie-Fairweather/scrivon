@@ -9,6 +9,7 @@ import { ToastProvider } from '@/components/ui/toast'
 import { getThemeBootScript } from '@/lib/theme/theme-boot-script'
 import { APP_TAGLINE } from '@/lib/app-branding'
 import { DisableNativeContextMenu } from '@/components/disable-native-context-menu'
+import { GlobalErrorReporter } from '@/components/global-error-reporter'
 
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono', preload: true })
 
@@ -35,6 +36,7 @@ export default function RootLayout({
                     <AppThemeProvider>
                         <ToastProvider position="bottom-right">
                             <DisableNativeContextMenu />
+                            <GlobalErrorReporter />
                             {children}
                             <SettingsDialog />
                         </ToastProvider>

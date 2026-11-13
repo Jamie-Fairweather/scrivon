@@ -1,8 +1,10 @@
 'use client'
 
 import './globals.css'
-import { useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { formatErrorDetails, StudioReloadFallback } from '@/components/studio/shell/studio-error-boundary'
+import { APP_NAME } from '@/lib/app-branding'
+import { logError } from '@/lib/diagnostics/app-log'
 
 type RootAttributes = { className: string; others: [name: string, value: string][] }
 
@@ -30,6 +32,8 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             document.documentElement.setAttribute(name, value)
         }
     }, [rootAttributes])
+
+    useEffect(() => logError(`${APP_NAME} hit an error while rendering`, error), [error])
 
     return (
         // Joined, not merged with cn(): tailwind-merge could drop one of the layout's class names.
