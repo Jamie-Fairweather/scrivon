@@ -61,6 +61,11 @@ function interpretKey(input: KeyInput): KeyGesture | null {
 /** Wheel events from inside an element with this attribute (e.g. a scrollable error banner) are left to the browser. */
 export const NO_CANVAS_GESTURES_ATTRIBUTE = 'data-canvas-no-gestures'
 
+/** For things on the canvas (buttons, messages): a click there is theirs, not the start of a drag or a double-click reset. */
+export function stopCanvasGesture(event: React.SyntheticEvent) {
+    event.stopPropagation()
+}
+
 export function computeFitTransform(
     containerWidth: number,
     containerHeight: number,

@@ -412,9 +412,9 @@ describe('StudioMenuBar View menu', () => {
         render(<Studio />)
 
         const view = await openMenu('View')
-        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram In Ctrl+Alt+=' })).toBeInTheDocument()
-        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram Out Ctrl+Alt+-' })).toBeInTheDocument()
-        await userEvent.setup().click(within(view).getByRole('menuitem', { name: 'Reset Diagram Zoom Ctrl+Alt+0' }))
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram In Alt+=' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram Out Alt+-' })).toBeInTheDocument()
+        await userEvent.setup().click(within(view).getByRole('menuitem', { name: 'Reset Diagram Zoom Alt+0' }))
 
         expect(vi.mocked(useCanvasControls)().zoomDiagram).toHaveBeenCalledWith('reset')
     })

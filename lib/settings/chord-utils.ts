@@ -117,6 +117,14 @@ export function typesAltGraphCharacter(event: {
 }
 
 /**
+ * True for Alt with a number-pad digit. On Windows that types a character by its code
+ * (Alt+0233 is é), so Alt+0 can't fire on the first digit of one.
+ */
+export function isAltCodeKey(event: { code?: string; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }): boolean {
+    return Boolean(event.altKey && !event.ctrlKey && !event.metaKey) && /^Numpad[0-9]$/.test(event.code ?? '')
+}
+
+/**
  * Whether a chord can be an app shortcut: it needs Ctrl, Alt or Cmd unless it is a function key,
  * and it can never use Tab, Enter, Space, Escape, Backspace, Delete, the arrow keys, or a key
  * the browser can't name (IME, dead keys).

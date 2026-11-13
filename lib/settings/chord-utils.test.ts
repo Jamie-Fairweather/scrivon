@@ -4,6 +4,7 @@ import {
     chordKey,
     chordsEqual,
     isAllowedChord,
+    isAltCodeKey,
     isComposingKeyEvent,
     isMacPlatform,
     isWindowsPlatform,
@@ -109,6 +110,22 @@ describe('typesAltGraphCharacter', () => {
     it('is false without AltGr', () => {
         expect(typesAltGraphCharacter(pressed('@', false))).toBe(false)
         expect(typesAltGraphCharacter({ key: '@' })).toBe(false)
+    })
+})
+
+describe('isAltCodeKey', () => {
+    it('is true for Alt with a number-pad digit, which starts an Alt code', () => {
+        expect(isAltCodeKey({ code: 'Numpad0', altKey: true })).toBe(true)
+        expect(isAltCodeKey({ code: 'Numpad9', altKey: true, ctrlKey: false })).toBe(true)
+    })
+
+    it('is false for the digits row, other keys, no Alt, or Ctrl+Alt', () => {
+        expect(isAltCodeKey({ code: 'Digit0', altKey: true })).toBe(false)
+        expect(isAltCodeKey({ code: 'NumpadAdd', altKey: true })).toBe(false)
+        expect(isAltCodeKey({ code: 'Numpad0' })).toBe(false)
+        expect(isAltCodeKey({ code: 'Numpad0', altKey: true, ctrlKey: true })).toBe(false)
+        expect(isAltCodeKey({ code: 'Numpad0', altKey: true, metaKey: true })).toBe(false)
+        expect(isAltCodeKey({ altKey: true })).toBe(false)
     })
 })
 

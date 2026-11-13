@@ -235,6 +235,7 @@ describe('usePanZoom', () => {
         const container = getByTestId('container')
 
         expect(fireEvent.keyDown(container, { key: 'a' })).toBe(true)
+        expect(fireEvent.keyDown(container, { key: '=', altKey: true })).toBe(true)
         expect(fireEvent.keyDown(container, { key: '=', ctrlKey: true, altKey: true })).toBe(true)
         expect(fireEvent.keyDown(container, { key: 'ArrowLeft', ctrlKey: true })).toBe(true)
         expect(fireEvent.keyDown(getByTestId('banner'), { key: '+' })).toBe(true)

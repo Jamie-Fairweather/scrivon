@@ -17,6 +17,10 @@ function chord(key: string, modifiers: Partial<Omit<KeybindChord, 'key'>> = {}):
  */
 export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
     const mod = isMac ? { meta: true } : { ctrl: true }
+    // Ctrl+=, Ctrl+- and Ctrl+0 are left for zooming the whole app. Not Ctrl+Alt: on Windows that is
+    // AltGr on many keyboards (UK, German, Spanish…), where it types characters. Alt alone never
+    // types on Windows. On a Mac, Option alone does (Option+= is ≠), so Cmd+Option there.
+    const diagramZoom = isMac ? { meta: true, alt: true } : { alt: true }
 
     const bindings: KeybindBindings = {
         'document.save': [chord('s', mod)],
@@ -28,10 +32,9 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.toggleEditor': [chord('e', mod)],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
-        // Ctrl+=, Ctrl+- and Ctrl+0 are left for zooming the whole app.
-        'view.zoomDiagramIn': [chord('=', { ...mod, alt: true })],
-        'view.zoomDiagramOut': [chord('-', { ...mod, alt: true })],
-        'view.resetDiagramZoom': [chord('0', { ...mod, alt: true })],
+        'view.zoomDiagramIn': [chord('=', diagramZoom)],
+        'view.zoomDiagramOut': [chord('-', diagramZoom)],
+        'view.resetDiagramZoom': [chord('0', diagramZoom)],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
     }
 

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import type { DiagramZoom, PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import { createDefaultKeybinds } from '@/lib/settings/defaults'
+import type { KeybindBindings } from '@/lib/settings/types'
 
 const fit = vi.hoisted(() => ({ requestId: 0 }))
 /** The zoom the canvas hands the View menu and palette. */
@@ -28,6 +30,16 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useCanvasFit: () => ({ canvasFitRequestId: fit.requestId }),
 }))
 
+const keybinds = vi.hoisted(() => ({ current: {} as KeybindBindings }))
+
+vi.mock('@/components/studio/settings/settings-provider', () => ({
+    useAppSettings: () => ({ settings: { keybinds: keybinds.current } }),
+}))
+vi.mock('@/lib/settings/chord-utils', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/settings/chord-utils')>()),
+    isMacPlatform: () => false,
+}))
+
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"></svg>'
 
 function mockHook(result: Partial<ReturnType<typeof useMermaidSvg>>) {
@@ -46,6 +58,7 @@ function mockHook(result: Partial<ReturnType<typeof useMermaidSvg>>) {
 beforeEach(() => {
     vi.mocked(useMermaidSvg).mockReset()
     fit.requestId = 0
+    keybinds.current = createDefaultKeybinds(false)
 })
 
 afterEach(() => {
@@ -196,6 +209,21 @@ describe('MermaidCanvas zoom (F06)', () => {
 
         fireEvent.click(within(toolbar).getByRole('button', { name: 'Fit to screen' }))
         expect(level()).toBe('150%')
+    })
+
+    it("shows each button's shortcut in its tooltip, as set in Keyboard settings", async () => {
+        keybinds.current = { ...keybinds.current, 'view.zoomDiagramOut': [{ key: 'j', ctrl: true, shift: true }], 'view.fitDiagram': [] }
+        const { toolbar } = renderDiagram()
+        const hover = async (name: string, tooltip: string) => {
+            act(() => within(toolbar).getByRole('button', { name }).focus())
+            expect(await screen.findByText(tooltip)).toBeInTheDocument()
+        }
+
+        await hover('Zoom in', 'Zoom in (Alt+=)')
+        await hover('Zoom out', 'Zoom out (Ctrl+Shift+J)')
+        await hover('Reset to 100%', 'Reset to 100% (Alt+0)')
+        // No shortcut set: just the name.
+        await hover('Fit to screen', 'Fit to screen')
     })
 
     it('keeps clicks on the toolbar from moving the diagram or resetting it', () => {

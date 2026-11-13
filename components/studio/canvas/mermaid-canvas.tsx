@@ -5,7 +5,7 @@ import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-pr
 import { DiagramZoomToolbar } from '@/components/studio/canvas/diagram-zoom-toolbar'
 import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/studio/canvas/use-canvas-fit-on-load'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
-import { usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import { stopCanvasGesture, usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
@@ -22,10 +22,6 @@ type MermaidCanvasProps = {
     canvasKey?: string
     /** Keeps each tab's pan and zoom while this canvas is unmounted (see usePanZoomMemory). */
     viewMemory?: PanZoomMemory
-}
-
-function stopCanvasGesture(event: React.SyntheticEvent) {
-    event.stopPropagation()
 }
 
 /** Shown when there is no earlier diagram. The message can be selected, copied and scrolled. */
