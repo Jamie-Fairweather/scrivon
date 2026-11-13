@@ -30,8 +30,8 @@ vi.mock('@/lib/mermaid/svg-iframe', () => ({
 const ALPHA = 'graph TD\n  A1[Alpha] --> B1[Beta]'
 const GAMMA = 'graph TD\n  C2[Gamma] --> D2[Delta]'
 const GAMMA_EDITED = 'graph TD\n  C2[Gamma] --> D2[Delta] --> E2[Epsilon]'
-/** Doesn't parse: no direction after `graph`. */
-const GAMMA_BROKEN = 'graph\n  C2[Gamma] --> D2[Delta]'
+/** Doesn't parse: a misspelt header. */
+const GAMMA_BROKEN = 'grpah TD\n  C2[Gamma] --> D2[Delta]'
 const NEW = 'graph TD\n  N1[Newcomer] --> N2[Arrival]'
 
 const noop = () => {}

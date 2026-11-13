@@ -2,6 +2,7 @@
 
 import { isTauri } from '@/lib/tauri/platform'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
+import { SettingsBackup } from '@/components/studio/settings/settings-backup'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 
@@ -66,6 +67,8 @@ export function AdvancedSettings() {
                     }
                 />
             ) : null}
+
+            <SettingsBackup />
         </div>
     )
 }

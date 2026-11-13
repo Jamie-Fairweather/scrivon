@@ -1861,9 +1861,11 @@ function diagramDisplaySize(
 
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     if (prepared.kind === 'error') {
-        return [
-            new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), textRun(state, prepared.message, { code: true })] }),
-        ]
+        // Word doesn't break a line at '\n' in a run, so each line of the message gets a run, with a break between.
+        const runs = prepared.message
+            .split(/\r?\n/)
+            .flatMap((line, index) => [...(index > 0 ? [new TextRun({ break: 1 })] : []), textRun(state, line, { code: true })])
+        return [new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), ...runs] })]
     }
     if (prepared.kind === 'diagram') {
         const size = diagramDisplaySize(state, prepared)
@@ -2461,7 +2463,10 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
     const prepared = state.prepared.get(node)
     const diagram = prepared?.kind === 'diagram' ? diagramDisplaySize(state, prepared, measuredPx(state, width)) : null
     if (diagram) return pxToTwip(diagram.height) + 120
-    if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, width, 0, 120)
+    if (prepared?.kind === 'error') {
+        // Each line of the message starts a new line, as renderPrepared writes it.
+        return prepared.message.split(/\r?\n/).reduce((height, line) => height + textBlockTwip(state, line, state.bodyHalfPoints, width, 0, 0), 120)
+    }
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
     // A code line is about 276 twips with the default 9pt code, and grows with it.
     return 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)

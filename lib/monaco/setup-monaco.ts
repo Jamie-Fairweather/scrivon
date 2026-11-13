@@ -17,6 +17,7 @@ import '@/lib/monaco/code-block-languages'
 import { StandaloneServices } from 'monaco-editor/editor/standalone/browser/standaloneServices.js'
 import { IOpenerService } from 'monaco-editor/platform/opener/common/opener.js'
 import { registerExternalLinkOpener } from '@/lib/monaco/link-opener'
+import { registerMermaidLanguage } from '@/lib/monaco/mermaid-language'
 
 // Monaco's background work (link detection, word suggestions) runs in a bundled worker.
 // The bundler turns this `new Worker(new URL(...))` into its own worker chunk.
@@ -25,6 +26,9 @@ globalThis.MonacoEnvironment = {
 }
 
 loader.config({ monaco })
+
+// .mmd and .mermaid files, and ```mermaid blocks in Markdown.
+registerMermaidLanguage(monaco)
 
 // Ctrl+Clicked web and email links open in the system browser or mail app.
 registerExternalLinkOpener(StandaloneServices.get(IOpenerService))

@@ -157,6 +157,7 @@ describe('fallbackPdfExportTitle', () => {
     it('prefers the first heading, then tab basename, then Document', () => {
         expect(fallbackPdfExportTitle('# Title\n\nHi', 'x.md')).toBe('Title')
         expect(fallbackPdfExportTitle('No heading', 'notes.md')).toBe('notes')
+        expect(fallbackPdfExportTitle('No heading', 'notes.markdown')).toBe('notes')
         expect(fallbackPdfExportTitle('No heading', '.md')).toBe('Document')
         expect(fallbackPdfExportTitle('No heading', undefined)).toBe('Document')
     })

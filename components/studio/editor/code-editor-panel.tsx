@@ -8,15 +8,17 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
-import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
+import { attachEditorImages, imageDocumentFor } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
@@ -150,9 +152,9 @@ function isTab(tabId: string | null, path: string): boolean {
 }
 
 function languageForTab(tab: DocumentTab) {
-    if (tab.readOnly) return 'markdown'
     const kind = documentKind(tab.name)
-    return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
+    if (kind === 'mermaid') return MERMAID_LANGUAGE_ID
+    return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
 export function CodeEditorPanel({ open = true, fill = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
@@ -160,6 +162,7 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
+    const { workspaceRoot } = useWorkspaceSession()
     // The panel also works on its own (without a palette above it, the right-click entry does nothing).
     const openPalette = useOptionalCommandPalette()?.open
     // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
@@ -229,6 +232,12 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
         activeTabIdRef.current = activeTab?.id ?? null
         activeTabRef.current = activeTab
     }, [activeTab])
+
+    // Read when an image is pasted or dropped, so the editor's handlers never hold an old one.
+    const workspaceRootRef = useRef(workspaceRoot)
+    useEffect(() => {
+        workspaceRootRef.current = workspaceRoot
+    }, [workspaceRoot])
 
     // A hidden editor keeps its buffer, but can't take focus and has no visible selection.
     const openRef = useRef(open)
@@ -421,6 +430,9 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             domReadOnly: isReadOnly,
             ariaLabel,
             unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
+            // Diagram files offer a starter for each diagram type on Ctrl+Space (lib/monaco/mermaid-snippets.ts).
+            // Nothing pops up while typing, so Enter can pick from the list the user asked for.
+            ...(isMermaid ? { snippetSuggestions: 'inline' as const, acceptSuggestionOnEnter: 'on' as const } : {}),
         }),
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
@@ -595,6 +607,9 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            // A picture pasted or dropped into a Markdown file is saved next to it, with a link at the cursor.
+            const images = attachEditorImages(editor, () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current))
+            editor.onDidDispose(() => images.dispose())
             const spelling = attachEditorSpellcheck(editor, monaco)
             editor.onDidDispose(() => spelling.dispose())
             // Scrolls the Markdown preview with the editor, and the other way round.
