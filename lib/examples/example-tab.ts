@@ -1,5 +1,5 @@
 import type { AppExample } from '@/lib/examples/types'
-import { validateFileName } from '@/lib/workspace/paths'
+import { safeFileStem, validateFileName } from '@/lib/workspace/paths'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 const EXAMPLE_TAB_PREFIX = 'example:'
@@ -22,18 +22,13 @@ function exampleExtension(example: AppExample): string {
 }
 
 /**
- * A file name for a copy of the example: its title, minus the characters Windows won't allow
- * ('CI/CD Pipeline' -> 'CI-CD Pipeline.mmd'), or 'example' when nothing usable is left.
+ * A file name for a copy of the example: its title made safe for Windows, the same way diagram
+ * exports are ('CI/CD Pipeline' -> 'CI-CD Pipeline.mmd'), or 'example' when nothing usable is left.
  */
 export function exampleFileName(example: AppExample): string {
-    const stem = example.title
-        .replace(/[/\\]/g, '-')
-        .replace(/[<>:"|?*\x00-\x1f]/g, '')
-        .replace(/\s+/g, ' ')
-        .replace(/[\s.]+$/, '')
-        .trim()
-    const name = `${stem}${exampleExtension(example)}`
-    return stem && validateFileName(name) === null ? name : `example${exampleExtension(example)}`
+    const extension = exampleExtension(example)
+    const name = `${safeFileStem(example.title, 'example')}${extension}`
+    return validateFileName(name) === null ? name : `example${extension}`
 }
 
 export function tabFromExample(example: AppExample): DocumentTab {

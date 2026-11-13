@@ -53,7 +53,7 @@ describe('useSaveExampleCopy', () => {
     })
 
     it('picks a name nothing in the folder uses, on disk or in the file list, ignoring letter case', async () => {
-        vi.mocked(listFolderNames).mockResolvedValue(['simple flow.mmd', 'notes.md'])
+        vi.mocked(listFolderNames).mockResolvedValueOnce(['simple flow.mmd', 'notes.md'])
         session.tree = [file('Simple Flow 2.mmd')]
 
         await save('sample-1')
@@ -62,7 +62,7 @@ describe('useSaveExampleCopy', () => {
     })
 
     it('says why when the folder could not be read, and writes nothing', async () => {
-        vi.mocked(listFolderNames).mockRejectedValue(new Error('Access is denied. (os error 5)'))
+        vi.mocked(listFolderNames).mockRejectedValueOnce(new Error('Access is denied. (os error 5)'))
 
         await save('sample-1')
 
