@@ -79,14 +79,14 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 
 Your documents stay where you save them. Scrivon keeps its own data in your Windows user folders:
 
-| What                                                      | Where                                                                                 |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| The program                                               | `%LOCALAPPDATA%\Scrivon`, unless you chose another folder when installing             |
-| Recent folders, open tabs, and unsaved edits kept for you | `%APPDATA%\io.github.jamie-fairweather.scrivon`                                       |
-| Settings (theme, shortcuts, export profiles)              | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\EBWebView`                        |
-| Crash log                                                 | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                             |
-| Data from before version 1.4.1                            | `com.diagram.app` in `%APPDATA%` and `%LOCALAPPDATA%` (copied across once, then left) |
-| Downloaded updates                                        | `%TEMP%\Scrivon-<version>-updater-…`, removed the next time Scrivon starts            |
+| What                                                                   | Where                                                                                                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| The program                                                            | `%LOCALAPPDATA%\Scrivon`, unless you chose another folder when installing                                                      |
+| Recent folders, open tabs, window size, and unsaved edits kept for you | `%APPDATA%\io.github.jamie-fairweather.scrivon`                                                                                |
+| Settings (theme, shortcuts, export profiles)                           | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\EBWebView`, with a copy in `settings.json` in the `%APPDATA%` folder above |
+| Crash log                                                              | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                                                                      |
+| Data from before version 1.4.1                                         | `com.diagram.app` in `%APPDATA%` and `%LOCALAPPDATA%` (copied across once, then left)                                          |
+| Downloaded updates                                                     | `%TEMP%\Scrivon-<version>-updater-…`, removed the next time Scrivon starts                                                     |
 
 To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings and crash log, and the old `com.diagram.app` folders. Your documents are never touched.
 
