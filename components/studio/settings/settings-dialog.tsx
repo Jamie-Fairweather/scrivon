@@ -19,7 +19,7 @@ import { KeyboardSettings } from '@/components/studio/settings/sections/keyboard
 import { PdfExportSettings } from '@/components/studio/settings/sections/pdf-export-settings'
 import { getSettingsSectionLabel, SettingsNav } from '@/components/studio/settings/settings-nav'
 import { searchSettings, type SettingsSearchEntry } from '@/components/studio/settings/settings-search'
-import { revealSetting, SettingsSearchResults } from '@/components/studio/settings/settings-search-results'
+import { describeSearchResults, revealSetting, SettingsSearchResults } from '@/components/studio/settings/settings-search-results'
 import { DialogErrorBoundary } from '@/components/studio/shell/dialog-error-boundary'
 import { useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
 import { Button } from '@/components/ui/button'
@@ -103,6 +103,7 @@ function SettingsDialogContent() {
     const searching = query.trim() !== ''
     // The setting a search result was picked for, shown once its section has drawn.
     const revealRef = useRef<SettingsSearchEntry | null>(null)
+    const searchBoxRef = useRef<HTMLInputElement>(null)
 
     const showSection = (section: SettingsSection) => {
         setQuery('')
@@ -127,6 +128,14 @@ function SettingsDialogContent() {
             event.preventDefault()
             showSetting(results[0])
         }
+        // Down arrow goes to the results, so they're a key away rather than past the section list.
+        if (event.key === 'ArrowDown' && searching) {
+            const firstResult = document.getElementById(panelId)?.querySelector<HTMLElement>('li button')
+            if (firstResult) {
+                event.preventDefault()
+                firstResult.focus()
+            }
+        }
         // Clear the search first; Esc in an empty box closes Settings as usual.
         if (event.key === 'Escape' && query) {
             event.stopPropagation()
@@ -147,6 +156,7 @@ function SettingsDialogContent() {
                 <div data-slot="dialog-panel" className="flex min-h-0 flex-1 gap-4 px-6 py-1">
                     <div className="flex w-40 shrink-0 flex-col gap-2 border-r border-border pr-3">
                         <Input
+                            ref={searchBoxRef}
                             type="search"
                             size="sm"
                             placeholder="Search settings"
@@ -156,6 +166,10 @@ function SettingsDialogContent() {
                             onChange={(event) => setQuery(event.target.value)}
                             onKeyDown={onSearchKeyDown}
                         />
+                        {/* Always here, outside the results that come and go, so screen readers notice each new count. */}
+                        <p role="status" className="sr-only">
+                            {searching ? describeSearchResults(query, results) : ''}
+                        </p>
                         <SettingsNav activeSection={searching ? null : activeSection} onSectionChange={showSection} panelId={panelId} />
                     </div>
                     {/* Keyed by section, so each one opens at the top. The scrolling element is a named region,
@@ -171,7 +185,12 @@ function SettingsDialogContent() {
                             {searching ? 'Search results' : getSettingsSectionLabel(activeSection)}
                         </h3>
                         {searching ? (
-                            <SettingsSearchResults query={query} results={results} onPick={showSetting} />
+                            <SettingsSearchResults
+                                query={query}
+                                results={results}
+                                onPick={showSetting}
+                                onUpFromFirst={() => searchBoxRef.current?.focus()}
+                            />
                         ) : (
                             // Inside the keyed scroll area, so picking another section tries afresh.
                             <DialogErrorBoundary key={resetCount} open={settingsOpen} fallback={<SectionCrashNotice section={activeSection} />}>

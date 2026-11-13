@@ -38,7 +38,8 @@ function headerFooterEntries(group: 'Header' | 'Footer'): SettingsSearchEntry[] 
 
 /**
  * Every setting search can find, in the order the sections show them. A new setting needs a row
- * here to be found (a test checks each row here is still in its section).
+ * here to be found. A test checks each row here is in its section, and each labelled setting in a
+ * section has a row here.
  */
 const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'general', label: 'Autosave', keywords: 'save automatically' },
@@ -63,6 +64,7 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'editor', label: 'Line numbers', keywords: 'gutter relative' },
     { section: 'editor', label: 'Minimap', keywords: 'overview scroll' },
     { section: 'editor', label: 'Tab key moves focus', keywords: 'indent keyboard' },
+    { section: 'editor', label: 'Status bar', keywords: 'line column word count' },
     { section: 'editor', label: 'Editor width', keywords: 'pane panel size reset' },
 
     { section: 'pdf-export', label: 'Default export profile', keywords: 'pdf word new duplicate delete' },

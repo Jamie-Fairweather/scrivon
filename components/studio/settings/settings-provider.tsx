@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isSettingsSection } from '@/components/studio/settings/settings-nav'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
@@ -21,23 +22,13 @@ export type KeybindRefusal = {
 
 export type SettingsSection = 'general' | 'appearance' | 'editor' | 'pdf-export' | 'keyboard' | 'advanced'
 
-// Every section, so the type check fails when one is added without it.
-const SETTINGS_SECTIONS: Record<SettingsSection, true> = {
-    general: true,
-    appearance: true,
-    editor: true,
-    'pdf-export': true,
-    keyboard: true,
-    advanced: true,
-}
-
 /** Where the section Settings last showed is kept, so it opens there again after a restart. Not a setting, so not reset or exported. */
 export const SETTINGS_SECTION_STORAGE_KEY = 'scrivon-settings-section'
 
 function loadLastSection(): SettingsSection {
     try {
         const saved = localStorage.getItem(SETTINGS_SECTION_STORAGE_KEY)
-        if (saved && Object.hasOwn(SETTINGS_SECTIONS, saved)) return saved as SettingsSection
+        if (saved && isSettingsSection(saved)) return saved
     } catch {
         // storage blocked
     }

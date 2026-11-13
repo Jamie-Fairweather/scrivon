@@ -1,5 +1,6 @@
 'use client'
 
+import type { KeyboardEvent } from 'react'
 import { getSettingsSectionLabel } from '@/components/studio/settings/settings-nav'
 import type { SettingsSearchEntry } from '@/components/studio/settings/settings-search'
 
@@ -61,8 +62,19 @@ function flash(row: HTMLElement) {
 }
 
 /**
+ * For a setting that's switched off: the nearest switch above it in its group (or section), which
+ * most likely turns it on. Failing that, the group's first control.
+ */
+function controlForOffSetting(row: HTMLElement, scope: HTMLElement): HTMLElement | undefined {
+    const switchesAbove = Array.from(scope.querySelectorAll<HTMLElement>('[role="switch"]')).filter(
+        (control) => canFocus(control) && Boolean(control.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING)
+    )
+    return switchesAbove.at(-1) ?? firstFocusableControl(scope)
+}
+
+/**
  * Scrolls to the setting, lights it up and puts focus on its control. A setting that's switched off
- * gets focus on the first control in its group instead, often the switch that turns it on.
+ * gets focus on the switch above it instead, which most likely turns it on.
  */
 export function revealSetting(panel: HTMLElement, entry: SettingsSearchEntry): void {
     const found = findSetting(panel, entry)
@@ -75,7 +87,13 @@ export function revealSetting(panel: HTMLElement, entry: SettingsSearchEntry): v
     flash(row)
     const control = firstFocusableControl(row)
     if (control) control.focus({ preventScroll: true })
-    else firstFocusableControl(scope)?.focus()
+    else controlForOffSetting(row, scope)?.focus()
+}
+
+/** What a search found, in words: shown above the results and read out by screen readers. */
+export function describeSearchResults(query: string, results: SettingsSearchEntry[]): string {
+    if (results.length === 0) return `No settings match "${query.trim()}".`
+    return `${results.length} ${results.length === 1 ? 'setting' : 'settings'} found`
 }
 
 function whereIs(entry: SettingsSearchEntry): string {
@@ -87,19 +105,33 @@ type SettingsSearchResultsProps = {
     query: string
     results: SettingsSearchEntry[]
     onPick: (entry: SettingsSearchEntry) => void
+    /** Up arrow on the first result, to go back to the search box. */
+    onUpFromFirst: () => void
 }
 
-/** Settings that match a search, each with the section (and group) it's in. */
-export function SettingsSearchResults({ query, results, onPick }: SettingsSearchResultsProps) {
+/**
+ * Settings that match a search, each with the section (and group) it's in. Up and Down arrows move
+ * through them.
+ */
+export function SettingsSearchResults({ query, results, onPick, onUpFromFirst }: SettingsSearchResultsProps) {
+    const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+        const buttons = Array.from(event.currentTarget.querySelectorAll('button'))
+        const index = buttons.findIndex((button) => button === event.target)
+        if (index < 0) return
+        // So the arrow doesn't scroll the list as well.
+        event.preventDefault()
+        const next = index + (event.key === 'ArrowDown' ? 1 : -1)
+        if (next < 0) onUpFromFirst()
+        else buttons[Math.min(next, buttons.length - 1)].focus()
+    }
+
     return (
         <div className="space-y-3">
-            <p role="status" className="text-sm text-muted-foreground">
-                {results.length === 0
-                    ? `No settings match "${query.trim()}".`
-                    : `${results.length} ${results.length === 1 ? 'setting' : 'settings'} found`}
-            </p>
+            {/* The dialog's own status line reads this out; this one is for the eye. */}
+            <p className="text-sm text-muted-foreground">{describeSearchResults(query, results)}</p>
             {results.length > 0 ? (
-                <ul className="grid gap-0.5">
+                <ul className="grid gap-0.5" onKeyDown={onKeyDown}>
                     {results.map((entry) => (
                         <li key={`${entry.section}:${entry.group ?? ''}:${entry.label}`}>
                             <button

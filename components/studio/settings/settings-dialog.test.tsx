@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from '@/components/studio/settings/settings-dialog'
-import { SettingsProvider, useAppSettings, type SettingsSection } from '@/components/studio/settings/settings-provider'
+import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 import { settingsSearchEntries } from '@/components/studio/settings/settings-search'
 import { findSetting } from '@/components/studio/settings/settings-search-results'
+import { getSettingsSectionLabel, SETTINGS_SECTIONS } from '@/components/studio/settings/settings-nav'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/storage'
 import { notifyError } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
@@ -175,10 +176,14 @@ describe('SettingsDialog sections', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Open editor settings' }))
 
         expect(await screen.findByText(/^Set to 640 px \(default 400 px\)\./)).toBeInTheDocument()
-        fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+        const reset = screen.getByRole('button', { name: 'Reset to default' })
+        reset.focus()
+        fireEvent.click(reset)
 
         expect(screen.getByText(/^Set to 400 px \(default 400 px\)\./)).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
+        // Still usable, so keyboard focus isn't lost when it's pressed.
+        expect(reset).toBeEnabled()
+        expect(reset).toHaveFocus()
     })
 })
 
@@ -215,7 +220,7 @@ describe('SettingsDialog search', () => {
 
         expect(within(results()).getByRole('button', { name: /Font size/ })).toHaveTextContent('Editor')
         expect(within(results()).getByRole('button', { name: /Heading font/ })).toHaveTextContent('Document export › Text')
-        expect(within(results()).getByRole('status')).toHaveTextContent(/^\d+ settings found$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^\d+ settings found$/)
         // No section is showing, so none is marked as the current one.
         expect(screen.getByRole('button', { name: 'General' })).not.toHaveAttribute('aria-current')
     })
@@ -223,12 +228,13 @@ describe('SettingsDialog search', () => {
     it('says so when nothing matches', async () => {
         await search('xyzzy')
 
-        expect(within(results()).getByRole('status')).toHaveTextContent('No settings match "xyzzy".')
+        expect(screen.getByRole('status')).toHaveTextContent('No settings match "xyzzy".')
+        expect(results()).toHaveTextContent('No settings match "xyzzy".')
     })
 
     it('opens the section of a result and puts focus on that setting', async () => {
         const box = await search('minimap')
-        expect(within(results()).getByRole('status')).toHaveTextContent('1 setting found')
+        expect(screen.getByRole('status')).toHaveTextContent('1 setting found')
 
         fireEvent.click(within(results()).getByRole('button', { name: /Minimap/ }))
 
@@ -264,6 +270,69 @@ describe('SettingsDialog search', () => {
 
         expect(screen.getByRole('textbox', { name: 'Autosave delay (ms)' })).toBeDisabled()
         expect(screen.getByRole('switch', { name: 'Autosave' })).toHaveFocus()
+    })
+
+    it('keeps its status line in place before the first key, so screen readers read the first count', async () => {
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+        const box = await screen.findByRole('searchbox', { name: 'Search settings' })
+        const status = screen.getByRole('status')
+        expect(status).toHaveTextContent('')
+
+        fireEvent.change(box, { target: { value: 'minimap' } })
+        expect(screen.getByRole('status')).toBe(status)
+        expect(status).toHaveTextContent('1 setting found')
+
+        fireEvent.change(box, { target: { value: '' } })
+        expect(status).toHaveTextContent('')
+    })
+
+    it('finds the status bar switch', async () => {
+        await search('status bar')
+
+        fireEvent.click(within(results()).getByRole('button', { name: /Status bar/ }))
+
+        expect(screen.getByRole('switch', { name: 'Status bar' })).toHaveFocus()
+    })
+
+    it('puts focus on the editor width reset button, even when the width is already the default', async () => {
+        await search('editor width')
+
+        fireEvent.click(within(results()).getByRole('button', { name: /Editor width/ }))
+
+        expect(screen.getByRole('button', { name: 'Reset to default' })).toHaveFocus()
+    })
+
+    it('moves between the search box and the results with the arrow keys', async () => {
+        const box = await search('margin')
+        const buttons = within(results()).getAllByRole('button')
+        expect(buttons.length).toBeGreaterThan(2)
+
+        fireEvent.keyDown(box, { key: 'ArrowDown' })
+        expect(buttons[0]).toHaveFocus()
+        fireEvent.keyDown(buttons[0], { key: 'ArrowDown' })
+        expect(buttons[1]).toHaveFocus()
+        fireEvent.keyDown(buttons[1], { key: 'ArrowUp' })
+        expect(buttons[0]).toHaveFocus()
+        fireEvent.keyDown(buttons[0], { key: 'ArrowUp' })
+        expect(box).toHaveFocus()
+
+        // Down on the last result stays there, and other keys are left alone.
+        const last = buttons[buttons.length - 1]
+        last.focus()
+        fireEvent.keyDown(last, { key: 'ArrowDown' })
+        expect(last).toHaveFocus()
+        fireEvent.keyDown(last, { key: 'Home' })
+        expect(last).toHaveFocus()
+    })
+
+    it('leaves Down arrow alone in the search box when nothing matches', async () => {
+        const box = await search('xyzzy')
+        box.focus()
+
+        fireEvent.keyDown(box, { key: 'ArrowDown' })
+
+        expect(box).toHaveFocus()
     })
 
     it('goes to the first result on Enter', async () => {
@@ -310,14 +379,15 @@ describe('SettingsDialog search', () => {
         vi.mocked(isTauri).mockReturnValue(true)
         const entries = settingsSearchEntries({ desktop: true })
         const sections = [...new Set(entries.map((entry) => entry.section))]
-        expect(sections).toEqual(['general', 'appearance', 'editor', 'pdf-export', 'keyboard', 'advanced'] satisfies SettingsSection[])
+        expect(sections).toEqual(SETTINGS_SECTIONS)
 
         renderDialog()
         fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
         await screen.findByRole('dialog')
         for (const section of sections) {
-            fireEvent.click(screen.getByRole('button', { name: SECTION_NAMES[section] }))
-            const panel = screen.getByRole('region', { name: SECTION_NAMES[section] })
+            const name = getSettingsSectionLabel(section)
+            fireEvent.click(screen.getByRole('button', { name }))
+            const panel = screen.getByRole('region', { name })
             const missing = entries.filter((entry) => entry.section === section && !findSetting(panel, entry)).map((entry) => entry.label)
             expect(missing, section).toEqual([])
         }
@@ -327,15 +397,39 @@ describe('SettingsDialog search', () => {
         expect(findSetting(panel, { section: 'advanced', label: 'Not a setting' })).toBeNull()
         expect(findSetting(panel, { section: 'advanced', group: 'Not a group', label: 'Recent folders limit' })).toBeNull()
     })
+
+    it('lists every labelled setting each section shows, so a new setting can’t be left out of search', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        // Shows Wrap column, which only appears with this choice.
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ editor: { wordWrap: 'wordWrapColumn' } }))
+        const entries = settingsSearchEntries({ desktop: true })
+
+        renderDialog()
+        fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+        await screen.findByRole('dialog')
+        for (const section of SETTINGS_SECTIONS) {
+            const name = getSettingsSectionLabel(section)
+            fireEvent.click(screen.getByRole('button', { name }))
+            const panel = screen.getByRole('region', { name })
+            const missing = Array.from(panel.querySelectorAll('[data-slot="field-label"]'))
+                .map((label) => ({ label: label.textContent?.trim() ?? '', group: groupOf(label) }))
+                .filter(({ label }) => !ONLY_SHOWN_SOMETIMES.has(label))
+                .filter(({ label, group }) => !entries.some((entry) => entry.section === section && entry.label === label && entry.group === group))
+            expect(missing, section).toEqual([])
+        }
+    })
 })
 
-const SECTION_NAMES: Record<SettingsSection, string> = {
-    general: 'General',
-    appearance: 'Appearance',
-    editor: 'Editor',
-    'pdf-export': 'Document export',
-    keyboard: 'Keyboard',
-    advanced: 'Advanced',
+/** Rows that only show after another setting's choice. Search finds them through that setting. */
+const ONLY_SHOWN_SOMETIMES = new Set(['Wrap column', 'Custom text'])
+
+/** The title of the group a setting's label sits in, the way findSetting looks for it. */
+function groupOf(label: Element): string | undefined {
+    for (let group = label.closest('fieldset, [role="group"]'); group; group = group.parentElement?.closest('fieldset, [role="group"]') ?? null) {
+        const title = Array.from(group.children).find((child) => child.matches('[data-slot="fieldset-legend"], h4'))
+        if (title) return title.textContent?.trim()
+    }
+    return undefined
 }
 
 describe('SettingsDialog when a section fails to draw', () => {

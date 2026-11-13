@@ -12,10 +12,16 @@ const SECTION_LABELS: Record<SettingsSection, string> = {
     advanced: 'Advanced',
 }
 
-const SECTIONS = Object.keys(SECTION_LABELS) as SettingsSection[]
+/** Every section, in the order the nav shows them. */
+export const SETTINGS_SECTIONS = Object.keys(SECTION_LABELS) as SettingsSection[]
 
 export function getSettingsSectionLabel(section: SettingsSection): string {
     return SECTION_LABELS[section]
+}
+
+/** Whether a saved string is still a section's name. */
+export function isSettingsSection(value: string): value is SettingsSection {
+    return Object.hasOwn(SECTION_LABELS, value)
 }
 
 type SettingsNavProps = {
@@ -29,7 +35,7 @@ type SettingsNavProps = {
 export function SettingsNav({ activeSection, onSectionChange, panelId }: SettingsNavProps) {
     return (
         <nav aria-label="Settings sections" className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
-            {SECTIONS.map((section) => (
+            {SETTINGS_SECTIONS.map((section) => (
                 <button
                     key={section}
                     type="button"

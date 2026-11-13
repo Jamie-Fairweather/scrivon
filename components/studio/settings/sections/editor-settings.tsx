@@ -109,13 +109,7 @@ export function EditorSettings() {
                 <FieldDescription>
                     {`Set to ${settings.layout.editorWidth} px (default ${DEFAULT_EDITOR_WIDTH} px). Drag the edge between the editor and the preview to change it.`}
                 </FieldDescription>
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={settings.layout.editorWidth === DEFAULT_EDITOR_WIDTH}
-                    onClick={resetEditorWidth}
-                >
+                <Button type="button" variant="outline" size="sm" onClick={resetEditorWidth}>
                     Reset to default
                 </Button>
             </Field>
