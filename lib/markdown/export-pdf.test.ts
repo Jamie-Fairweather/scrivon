@@ -92,6 +92,7 @@ describe('export-pdf helpers', () => {
         const { markdownExportBaseName } = await import('@/lib/markdown/export-pdf')
         expect(markdownExportBaseName(undefined)).toBe('document')
         expect(markdownExportBaseName('notes.md')).toBe('notes')
+        expect(markdownExportBaseName('notes.Markdown')).toBe('notes')
         expect(markdownExportBaseName('.md')).toBe('document')
     })
 

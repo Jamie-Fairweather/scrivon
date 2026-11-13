@@ -297,10 +297,21 @@ pub fn run() {
             open_stores(app.handle());
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             app.manage(WindowStateFile::new(data_dir.as_deref()));
-            // Waits for the page, which takes them as it starts.
-            let cwd = std::env::current_dir().unwrap_or_default();
-            let paths = launch_paths::parse_args(std::env::args_os().skip(1), &cwd);
-            receive_launch_paths(app.handle(), paths);
+            // After an in-app update the installer restarts Scrivon with the
+            // arguments it was first started with (tauri-plugin-updater passes
+            // them on). Those were opened back then, so skip them and let the
+            // last folder reopen. If the update failed, this skips one launch's
+            // files, and the page then says the update didn't install.
+            if !data_dir.as_deref().is_some_and(updater::attempt_waiting) {
+                // Checked here, though it touches the disk, because the page asks
+                // for them as it starts. Any later, it would reopen the last
+                // folder first and then switch. Explorer has usually just read
+                // the file, so this is quick.
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let paths = launch_paths::parse_args(std::env::args_os().skip(1), &cwd);
+                // Waits for the page, which takes them as it starts.
+                receive_launch_paths(app.handle(), paths);
+            }
             open_main_window(app.handle())?;
             crash_report::mark_started();
             Ok(())
@@ -406,6 +417,85 @@ mod config_tests {
         let mut opened = super::launch_paths::DOCUMENT_EXTENSIONS;
         opened.sort_unstable();
         assert_eq!(registered, opened);
+    }
+
+    const INSTALLER_HOOKS: &str = include_str!("../windows/installer-hooks.nsh");
+
+    /// The lines of one `!macro name` ... `!macroend` in the installer hooks, trimmed.
+    fn installer_hook(name: &str) -> Vec<&'static str> {
+        let mut lines = INSTALLER_HOOKS.lines().map(str::trim);
+        let start = format!("!macro {name}");
+        lines
+            .find(|line| {
+                line.strip_prefix(&start)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .unwrap_or_else(|| panic!("{name} is not in installer-hooks.nsh"));
+        lines.take_while(|line| *line != "!macroend").collect()
+    }
+
+    #[test]
+    fn the_installer_keeps_the_app_each_file_type_opened_with_before() {
+        // The template's APP_ASSOCIATE overwrites that on every install after
+        // the first (see SCRIVON_FILE_TYPES in installer-hooks.nsh).
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mut registered: Vec<String> = config["bundle"]["fileAssociations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|association| {
+                let class = association["name"].as_str().unwrap();
+                association["ext"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(move |ext| format!("\"{}\" \"{class}\"", ext.as_str().unwrap()))
+            })
+            .collect();
+        let mut kept: Vec<String> = installer_hook("SCRIVON_FILE_TYPES")
+            .iter()
+            .map(|line| {
+                let args = line.strip_prefix("!insertmacro ${do} ").unwrap();
+                args.rsplit_once(' ').unwrap().0.to_string()
+            })
+            .collect();
+        registered.sort_unstable();
+        kept.sort_unstable();
+        assert_eq!(kept, registered);
+
+        assert!(installer_hook("NSIS_HOOK_PREINSTALL")
+            .contains(&"!insertmacro SCRIVON_FILE_TYPES SCRIVON_READ_ASSOC_BACKUP"));
+        assert!(installer_hook("NSIS_HOOK_POSTINSTALL")
+            .contains(&"!insertmacro SCRIVON_FILE_TYPES SCRIVON_KEEP_ASSOC_BACKUP"));
+    }
+
+    #[test]
+    fn file_explorer_hears_when_the_file_types_change() {
+        for hook in ["NSIS_HOOK_POSTINSTALL", "NSIS_HOOK_POSTUNINSTALL"] {
+            assert!(
+                installer_hook(hook).contains(&"!insertmacro UPDATEFILEASSOC"),
+                "{hook}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_installer_hook_is_defined_once() {
+        // makensis stops on a macro defined twice, which a merge could leave.
+        for hook in [
+            "NSIS_HOOK_PREINSTALL",
+            "NSIS_HOOK_POSTINSTALL",
+            "NSIS_HOOK_PREUNINSTALL",
+            "NSIS_HOOK_POSTUNINSTALL",
+        ] {
+            let start = format!("!macro {hook}");
+            let defined = INSTALLER_HOOKS
+                .lines()
+                .filter(|line| line.trim() == start)
+                .count();
+            assert!(defined <= 1, "{hook} is defined {defined} times");
+        }
     }
 
     #[test]

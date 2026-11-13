@@ -37,6 +37,12 @@ export function documentExtension(name: string): string | null {
     return ext ? name.slice(name.length - ext.length) : null
 }
 
+/** `name` without the extension that makes it a document: `notes` for `notes.md` or `notes.markdown`. */
+export function withoutDocumentExtension(name: string): string {
+    const ext = documentExtension(name)
+    return ext ? name.slice(0, name.length - ext.length) : name
+}
+
 /**
  * The extension of any file name, as written: `.png` in `screenshot.png`. Null when there is none: no dot, only a
  * leading one (`.gitignore`), a dot at the end, or a space after the last dot (`Dr. Smith`).

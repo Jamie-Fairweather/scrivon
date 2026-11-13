@@ -8,6 +8,7 @@ import {
     isSupportedDocument,
     supportedExtensionsLabel,
     withDocumentExtension,
+    withoutDocumentExtension,
 } from './file-types'
 
 describe('supportedExtensionsLabel', () => {
@@ -63,6 +64,17 @@ describe('documentExtension', () => {
         expect(documentExtension('flow.mermaid')).toBe('.mermaid')
         expect(documentExtension('image.png')).toBeNull()
         expect(documentExtension('drafts')).toBeNull()
+    })
+})
+
+describe('withoutDocumentExtension', () => {
+    it('removes the extension that makes a name a document, and nothing else', () => {
+        expect(withoutDocumentExtension('notes.md')).toBe('notes')
+        expect(withoutDocumentExtension('notes.Markdown')).toBe('notes')
+        expect(withoutDocumentExtension('flow.mermaid')).toBe('flow')
+        expect(withoutDocumentExtension('v1.2.md')).toBe('v1.2')
+        expect(withoutDocumentExtension('.md')).toBe('')
+        expect(withoutDocumentExtension('image.png')).toBe('image.png')
     })
 })
 

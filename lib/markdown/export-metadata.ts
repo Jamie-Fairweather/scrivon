@@ -4,6 +4,7 @@ import { unified } from 'unified'
 import { nodeText } from '@/lib/markdown/export-outline'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/settings/pdf-export-types'
+import { withoutDocumentExtension } from '@/lib/workspace/file-types'
 
 const FRONT_MATTER_KEYS = new Set(['title', 'subtitle', 'author', 'date'])
 
@@ -246,7 +247,7 @@ export function fallbackPdfExportTitle(body: string, tabName: string | undefined
     const heading = firstHeadingText(body)
     if (heading) return heading
     if (!tabName) return 'Document'
-    const base = tabName.replace(/\.md$/i, '').trim()
+    const base = withoutDocumentExtension(tabName).trim()
     return base || 'Document'
 }
 
