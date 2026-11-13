@@ -1,8 +1,10 @@
 'use client'
 
-import { memo, useSyncExternalStore } from 'react'
+import { memo } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
+import { ExplorerTreeButtons } from '@/components/studio/explorer/explorer-tree-buttons'
+import { setExplorerPanel, useExplorerPanel } from '@/components/studio/explorer/explorer-view'
 import { FileTree } from '@/components/studio/explorer/file-tree'
 import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root-actions'
 import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
@@ -13,37 +15,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { toggleButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
-const STORAGE_EXPLORER_PANEL = 'mermaid-studio-explorer-panel'
-
-type ExplorerPanel = 'files' | 'examples'
-
-const explorerPanelListeners = new Set<() => void>()
-
-function getExplorerPanelSnapshot(): ExplorerPanel {
-    const stored = sessionStorage.getItem(STORAGE_EXPLORER_PANEL)
-    return stored === 'examples' ? 'examples' : 'files'
-}
-
-function getExplorerPanelServerSnapshot(): ExplorerPanel {
-    return 'files'
-}
-
-function subscribeExplorerPanel(onStoreChange: () => void): () => void {
-    explorerPanelListeners.add(onStoreChange)
-    return () => explorerPanelListeners.delete(onStoreChange)
-}
-
-function setExplorerPanel(value: ExplorerPanel): void {
-    sessionStorage.setItem(STORAGE_EXPLORER_PANEL, value)
-    for (const listener of explorerPanelListeners) {
-        listener()
-    }
-}
-
 /** Memoized: the layout around it draws again on every keystroke, and nothing here depends on the text. */
 export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
     const { workspaceName, tree } = useWorkspaceSession()
-    const panel = useSyncExternalStore(subscribeExplorerPanel, getExplorerPanelSnapshot, getExplorerPanelServerSnapshot)
+    const panel = useExplorerPanel()
 
     return (
         <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -84,7 +59,10 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
                                 {workspaceName}
                             </p>
                         </div>
-                        <FileTreeRootActions />
+                        <div className="flex shrink-0 items-center gap-0.5">
+                            <FileTreeRootActions />
+                            <ExplorerTreeButtons />
+                        </div>
                     </div>
                 )}
 

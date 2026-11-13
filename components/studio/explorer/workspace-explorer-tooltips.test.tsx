@@ -8,6 +8,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspac
 vi.mock('@/components/studio/explorer/file-tree', () => ({ FileTree: () => null }))
 vi.mock('@/components/studio/explorer/examples-explorer', () => ({ ExamplesExplorer: () => null }))
 vi.mock('@/components/studio/explorer/file-tree-root-actions', () => ({ FileTreeRootActions: () => null }))
+vi.mock('@/components/studio/explorer/explorer-tree-buttons', () => ({ ExplorerTreeButtons: () => null }))
 vi.mock('@/components/studio/command-palette/command-palette-trigger-button', () => ({ CommandPaletteTriggerButton: () => null }))
 
 afterEach(() => {
