@@ -1,9 +1,11 @@
 'use client'
 
 import { useCallback } from 'react'
-import { MenuItem } from '@/components/ui/menu'
+import { MenuItem, MenuSeparator } from '@/components/ui/menu'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
+import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { isExampleTabId } from '@/lib/examples/example-tab'
 
 export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; children: React.ReactNode }) {
     const { tabs, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
@@ -20,6 +22,7 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
     )
 
     const canCloseOthers = tabs.length > 1
+    const tab = tabs.find((t) => t.id === tabId)
 
     return (
         // data-menu-open lets the tab show which one the open menu is for.
@@ -33,6 +36,13 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
                 <MenuItem disabled={tabs.length === 0} onClick={() => void closeAllTabs()}>
                     Close All
                 </MenuItem>
+                {/* Examples have no file on disk. */}
+                {tab && !isExampleTabId(tab.id) && (
+                    <>
+                        <MenuSeparator />
+                        <PathMenuItems path={tab.path} />
+                    </>
+                )}
             </ContextMenuAtPoint>
         </span>
     )
