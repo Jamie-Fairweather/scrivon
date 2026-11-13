@@ -46,6 +46,19 @@ describe('searchActions', () => {
     })
 })
 
+describe('searchActions with theme picks', () => {
+    const themes = [action('theme:nord', 'Theme: Nord'), action('theme:ayu-dark', 'Theme: Ayu Dark'), action('toggle-theme', 'Switch to Dark Theme')]
+
+    it('puts a command named by the typed words above the theme picks, which share its words', () => {
+        expect(values(searchActions(themes, 'theme'))[0]).toBe('action:toggle-theme')
+        expect(values(searchActions(themes, 'dark theme'))[0]).toBe('action:toggle-theme')
+    })
+
+    it("still puts a theme first when its name is typed, even if another command's letters match", () => {
+        expect(values(searchActions([action('open-folder', 'Open Folder'), ...themes], 'nord'))[0]).toBe('action:theme:nord')
+    })
+})
+
 describe('matchesCommandName', () => {
     const theme = action('toggle-theme', 'Switch to Dark Theme')
     const editor = action('toggle-editor', 'Hide Editor')
@@ -69,5 +82,27 @@ describe('matchesCommandName', () => {
 
     it('matches nothing when only punctuation is typed', () => {
         expect(matchesCommandName(theme, '::')).toBe(false)
+    })
+})
+
+describe('matchesCommandName for an on/off command', () => {
+    const explorer = (checked: boolean): ActionPaletteItem => ({ ...action('toggle-explorer', 'Explorer'), checked })
+
+    it('answers to the words for what picking it does now', () => {
+        expect(matchesCommandName(explorer(true), 'hide explorer')).toBe(true)
+        expect(matchesCommandName(explorer(true), 'turn off')).toBe(true)
+        expect(matchesCommandName(explorer(true), 'toggle explorer')).toBe(true)
+        expect(matchesCommandName(explorer(false), 'show explorer')).toBe(true)
+        expect(matchesCommandName(explorer(false), 'enable')).toBe(true)
+    })
+
+    it('does not answer to the opposite, which picking it would not do', () => {
+        expect(matchesCommandName(explorer(true), 'show explorer')).toBe(false)
+        expect(matchesCommandName(explorer(true), 'turn on')).toBe(false)
+        expect(matchesCommandName(explorer(false), 'disable explorer')).toBe(false)
+    })
+
+    it('ranks it for those words with >', () => {
+        expect(values(searchActions([action('open-folder', 'Open Folder'), explorer(true)], 'hide'))).toEqual(['action:toggle-explorer'])
     })
 })

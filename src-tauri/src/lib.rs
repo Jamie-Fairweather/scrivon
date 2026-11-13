@@ -10,7 +10,10 @@ mod store_recovery;
 mod system_fonts;
 mod system_menu;
 mod updater;
+mod window_state;
 mod workspace_access;
+mod workspace_image;
+mod workspace_trash;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,6 +26,7 @@ use tauri_plugin_fs::FsExt;
 use close_watchdog::CloseWatchdog;
 use store_recovery::StoreRecovery;
 use updater::PendingUpdate;
+use window_state::WindowStateFile;
 use workspace_access::WorkspaceAccess;
 
 /// The store files the frontend uses (lib/tauri/store.ts and lib/tauri/backups.ts),
@@ -74,6 +78,7 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// Builds the main window and starts what looks after it.
 fn open_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     build_main_window(app)?;
+    window_state::restore(app);
     show_main_window_later(app);
     #[cfg(windows)]
     close_watchdog::watch_page_process(app);
@@ -267,6 +272,7 @@ pub fn run() {
             app.manage(StoreRecovery::set_aside_damaged(data_dir.as_deref()));
             open_stores(app.handle());
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
+            app.manage(WindowStateFile::new(data_dir.as_deref()));
             open_main_window(app.handle())?;
             crash_report::mark_started();
             Ok(())
@@ -277,7 +283,12 @@ pub fn run() {
             }
             match event {
                 tauri::WindowEvent::CloseRequested { .. } => {
+                    // Saved even if the page then keeps the window open: it is where the window is now.
+                    window_state::save(window);
                     close_watchdog::on_close_requested(window);
+                }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    window_state::save_soon(window);
                 }
                 tauri::WindowEvent::Destroyed => MAIN_CLOSED.store(true, Ordering::SeqCst),
                 _ => {}
@@ -300,6 +311,8 @@ pub fn run() {
             updater::check_for_app_update,
             updater::install_app_update,
             updater::take_update_attempt,
+            workspace_image::read_workspace_image,
+            workspace_trash::trash_workspace_path,
         ])
         .run(context);
     if let Err(err) = result {
@@ -341,6 +354,12 @@ mod config_tests {
         assert!(!permissions.iter().any(|p| p == "fs:default"));
         // Its block on the WebView2 profile folder stays.
         assert!(permissions.iter().any(|p| p == "fs:deny-default"));
+    }
+
+    #[test]
+    fn the_webview_cannot_erase_files_only_move_them_to_the_recycle_bin() {
+        // Deletes go through workspace_trash, so a mistake can be undone (F01).
+        assert!(!permissions().iter().any(|p| p == "fs:allow-remove"));
     }
 
     #[test]

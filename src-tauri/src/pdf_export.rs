@@ -33,6 +33,21 @@ pub struct PdfPrintOptions {
     pub author: String,
     #[serde(default)]
     pub subject: String,
+    /// Every heading in order, for the PDF's bookmarks. The export marks the
+    /// heading at index `i` with `SFH` and `i + 1` in four digits.
+    #[serde(default)]
+    pub headings: Vec<PdfHeading>,
+    /// Page 1 is the first body page: the title and contents pages get no number.
+    #[serde(default)]
+    pub number_from_body: bool,
+}
+
+/// One heading of the exported document, for its bookmark.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PdfHeading {
+    /// 1 for H1 up to 6 for H6.
+    pub level: u8,
+    pub text: String,
 }
 
 /// How long to wait for the export page's images and web fonts before
@@ -527,7 +542,7 @@ pub async fn export_html_to_pdf(
     export_html_to_pdf_impl(app, html, output_path, options).await
 }
 
-const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+pub(crate) const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 /// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
 const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
@@ -629,7 +644,7 @@ pub async fn adopt_export_images(
 }
 
 /// The image type of an export image path, or why it can't be one.
-fn export_image_mime(path: &str) -> Result<&'static str, String> {
+pub(crate) fn export_image_mime(path: &str) -> Result<&'static str, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("Image path is empty.".into());
@@ -639,17 +654,23 @@ fn export_image_mime(path: &str) -> Result<&'static str, String> {
 }
 
 fn read_image_as_data_url(path: &str) -> Result<String, String> {
+    read_image_data_url(path, IMAGE_TOO_LARGE)
+}
+
+/// Reads a real image file (PNG, JPEG, GIF, WebP or SVG, checked by its first
+/// bytes) as a data URL. An image over MAX_EXPORT_IMAGE_BYTES gets `too_large`.
+pub(crate) fn read_image_data_url(path: &str, too_large: &str) -> Result<String, String> {
     let path = path.trim();
     let mime = export_image_mime(path)?;
     let size = std::fs::metadata(path)
         .map_err(|e| format!("Could not read image: {e}"))?
         .len();
     if size > MAX_EXPORT_IMAGE_BYTES as u64 {
-        return Err(IMAGE_TOO_LARGE.into());
+        return Err(too_large.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read image: {e}"))?;
     if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
-        return Err(IMAGE_TOO_LARGE.into());
+        return Err(too_large.into());
     }
     if !content_matches(mime, &bytes) {
         return Err("This file isn't a valid image.".into());
@@ -697,6 +718,18 @@ mod tests {
         .unwrap();
         assert_eq!(with_properties.author, "Ada");
         assert_eq!(with_properties.subject, "Q3");
+        // Older callers send no headings and number every page.
+        assert!(with_properties.headings.is_empty());
+        assert!(!with_properties.number_from_body);
+
+        let with_headings: PdfPrintOptions = serde_json::from_str(
+            r##"{"pageWidthMm":210,"pageHeightMm":297,"landscape":false,"marginTopMm":10,"marginRightMm":10,"marginBottomMm":10,"marginLeftMm":10,"pageNumberFormat":"number","pageNumberColor":"","headings":[{"level":2,"text":"Résumé"}],"numberFromBody":true}"##,
+        )
+        .unwrap();
+        assert_eq!(with_headings.headings.len(), 1);
+        assert_eq!(with_headings.headings[0].level, 2);
+        assert_eq!(with_headings.headings[0].text, "Résumé");
+        assert!(with_headings.number_from_body);
     }
 
     #[test]
@@ -955,6 +988,8 @@ mod tests {
             page_number_color: String::new(),
             author: String::new(),
             subject: String::new(),
+            headings: Vec::new(),
+            number_from_body: false,
         }
     }
 

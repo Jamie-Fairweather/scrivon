@@ -124,7 +124,7 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
 
     const deleteWithConfirm = useCallback(
         async (node: FileNode) => {
-            const ok = await confirmDelete(node.name, node.kind === 'directory')
+            const ok = await confirmDelete(node)
             if (ok) await deleteEntry(node.path, node.kind === 'directory')
             return ok
         },

@@ -59,7 +59,10 @@ fn save_allowed(
 /// could point the file anywhere on disk (the file plugin's own commands refuse
 /// `..` for the same reason). Its folder is looked up on disk instead, which
 /// also follows any link among its folders, and the file is saved there.
-fn allowed_target(path: &Path, is_allowed: impl Fn(&Path) -> bool) -> Result<PathBuf, String> {
+pub(crate) fn allowed_target(
+    path: &Path,
+    is_allowed: impl Fn(&Path) -> bool,
+) -> Result<PathBuf, String> {
     let refused = || {
         format!(
             "Scrivon can only change files in a folder you opened: {}",

@@ -7,10 +7,10 @@ import { getBaseName, readStamp, readWorkspaceFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
-import { buildCommandRegistry, themeToggleTarget, type ThemeToggle } from '@/components/studio/command-palette/command-registry'
+import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
 import { foldText } from '@/components/studio/command-palette/fold-text'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
-import { matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
+import { isThemePick, matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import {
     createContentCache,
     DEBOUNCE_MS,
@@ -21,17 +21,8 @@ import {
 } from '@/components/studio/command-palette/search-content'
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
-import { useAppTheme } from '@/components/theme/app-theme-provider'
-import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
-import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import {
-    useCanvasFit,
-    useDocumentSave,
-    useDocumentTabs,
-    useStudioLayout,
-    useWorkspaceCoordinator,
-    useWorkspaceSession,
-} from '@/components/studio/workspace/workspace-provider'
+import { useCommands } from '@/components/studio/commands/command-registry'
+import { useDocumentTabs, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
     // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
@@ -66,6 +57,7 @@ export const MAX_MIXED_COMMANDS = 5
  * Only runnable commands whose name has every typed word, so a word typed to find a file or text
  * doesn't pull in a command that would run on Enter. Commands that can't run, examples, and (with
  * no folder open) recent folders are left to the '>' list, which shows why a command can't run.
+ * The themes show once something is typed, such as a theme's name.
  */
 function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, hasWorkspace: boolean): PaletteGroup | null {
     const items = searchActions(actions, query)
@@ -74,7 +66,7 @@ function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, has
                 !action.disabled &&
                 !action.value.startsWith('action:example:') &&
                 (hasWorkspace || !action.value.startsWith('action:recent-workspace:')) &&
-                (!query || matchesCommandName(action, query))
+                (query ? matchesCommandName(action, query) : !isThemePick(action))
         )
         .slice(0, MAX_MIXED_COMMANDS)
     if (items.length === 0) return null
@@ -82,16 +74,9 @@ function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, has
 }
 
 export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
-    const { isDesktop, workspaceRoot, tree, recentWorkspaces, pickAndOpenWorkspace, openWorkspace, closeWorkspace, refreshTree } =
-        useWorkspaceSession()
-    const { tabs, activeTabId, openFile, openExample, setActiveTab, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
-    const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
-    const { requestCanvasFit } = useCanvasFit()
-    const { canFitToView } = useCanvasControls()
-    const { themeId, isLight, setThemeId } = useAppTheme()
-    const { settings, openSettings } = useAppSettings()
-    const coordinator = useWorkspaceCoordinator()
+    const { workspaceRoot, tree, recentWorkspaces, openWorkspace } = useWorkspaceSession()
+    const { tabs, openFile, setActiveTab } = useDocumentTabs()
+    const { setEditorOpen } = useStudioLayout()
 
     const [query, setQuery] = useState('')
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
@@ -144,90 +129,9 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         setTextTruncatedFiles(0)
     }, [contentCache])
 
-    // Kept for the app session, so switching light/dark twice lands back on the user's theme.
-    const [lastThemeToggle, setLastThemeToggle] = useState<ThemeToggle | null>(null)
-    const toggleLightDark = useCallback(() => {
-        const target = themeToggleTarget(themeId, lastThemeToggle)
-        setLastThemeToggle({ from: themeId, to: target })
-        setThemeId(target)
-    }, [themeId, lastThemeToggle, setThemeId])
-
-    // As the explorer's Refresh button: the open files with no edits are read again too, for where the file
-    // watcher misses changes.
-    const refreshExplorer = useCallback(async () => {
-        const reloadTabs = coordinator.reloadChangedTabs
-            .current()
-            .catch((err: unknown) => console.warn("Couldn't check the open files for changes", err))
-        await Promise.all([refreshTree(), reloadTabs])
-    }, [refreshTree, coordinator])
-
-    const hasDirtyTabs = useMemo(() => tabs.some((t) => t.isDirty && !isExampleTabId(t.id)), [tabs])
-
-    const allActions = useMemo(
-        () =>
-            buildCommandRegistry({
-                isDesktop,
-                workspaceRoot,
-                recentWorkspaces,
-                activeTabId,
-                tabCount: tabs.length,
-                hasDirtyTabs,
-                autosaveEnabled,
-                explorerOpen: layout.explorerOpen,
-                editorOpen: layout.editorOpen,
-                canFitDiagram: canFitToView,
-                keybinds: settings.keybinds,
-                pickAndOpenWorkspace,
-                openWorkspace,
-                closeWorkspace,
-                refreshTree: refreshExplorer,
-                flushSave,
-                flushAllSaves,
-                setAutosaveEnabled,
-                setExplorerOpen,
-                setEditorOpen,
-                setPreviewOnly,
-                requestCanvasFit,
-                closeTab,
-                closeOtherTabs,
-                closeAllTabs,
-                openExample,
-                openSettings,
-                isLight,
-                toggleLightDark,
-            }),
-        [
-            isDesktop,
-            workspaceRoot,
-            recentWorkspaces,
-            activeTabId,
-            tabs.length,
-            hasDirtyTabs,
-            autosaveEnabled,
-            layout.explorerOpen,
-            layout.editorOpen,
-            canFitToView,
-            settings.keybinds,
-            pickAndOpenWorkspace,
-            openWorkspace,
-            closeWorkspace,
-            refreshExplorer,
-            flushSave,
-            flushAllSaves,
-            setAutosaveEnabled,
-            setExplorerOpen,
-            setEditorOpen,
-            setPreviewOnly,
-            requestCanvasFit,
-            closeTab,
-            closeOtherTabs,
-            closeAllTabs,
-            openExample,
-            openSettings,
-            isLight,
-            toggleLightDark,
-        ]
-    )
+    // Every app command, from the same list the menu bar reads.
+    const commands = useCommands()
+    const allActions = useMemo(() => commands.map(commandToPaletteItem), [commands])
 
     const filePaths = useMemo(() => (workspaceRoot ? flattenSupportedFilePaths(tree) : []), [workspaceRoot, tree])
     const liveRecentFiles = useMemo(() => resolveRecentFiles(recentFiles, filePaths), [recentFiles, filePaths])
