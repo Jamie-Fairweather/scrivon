@@ -57,11 +57,14 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 | Stable      | `main` | Recommended for everyday use; in-app updates enabled |
 | Pre-release | `rc`   | Test builds; install manually from Releases          |
 
+**Requirements:** Windows 10 version 1809 (build 17763) or later, or Windows 11, on an x64 or ARM64 PC. The installer stops on older versions of Windows.
+
 ## Getting started
 
 ### Use a release
 
-1. Download `Scrivon_<version>_x64-setup.exe` from the [latest release](https://github.com/Jamie-Fairweather/scrivon/releases/latest). It installs Scrivon for your Windows user only, so it needs no admin rights.
+1. Download the installer from the [latest release](https://github.com/Jamie-Fairweather/scrivon/releases/latest): `Scrivon_<version>_x64-setup.exe` for most PCs, or `Scrivon_<version>_arm64-setup.exe` for Windows on ARM PCs (such as Snapdragon laptops). It installs Scrivon for your Windows user only, so it needs no admin rights.
+    - Already using the x64 version on an ARM PC? Run the ARM64 installer over it. Your settings and recent folders stay.
     - The installers aren't code-signed yet, so Windows may show **Windows protected your PC** the first time. Click **More info**, then **Run anyway**. On PCs with Smart App Control turned on, Windows may block the installer completely.
     - Scrivon needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it. If it's missing, the installer adds it, which needs an internet connection. On a PC without internet access, or on Windows 10 LTSC or Windows Server, install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) ("Evergreen Standalone Installer") first.
 2. Launch Scrivon and choose **Open Folder**.
@@ -69,6 +72,21 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 4. Edit in the center pane; the preview updates as you type.
     - **Diagram files** — Preview renders on the canvas.
     - **Markdown files** — Preview shows rendered Markdown; use **Expand** on a `mermaid` block to open it on the canvas.
+
+### Where Scrivon keeps its data
+
+Your documents stay where you save them. Scrivon keeps its own data in your Windows user folders:
+
+| What                                                      | Where                                                                                 |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| The program                                               | `%LOCALAPPDATA%\Scrivon`, unless you chose another folder when installing             |
+| Recent folders, open tabs, and unsaved edits kept for you | `%APPDATA%\io.github.jamie-fairweather.scrivon`                                       |
+| Settings (theme, shortcuts, export profiles)              | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\EBWebView`                        |
+| Crash log                                                 | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                             |
+| Data from before version 1.4.1                            | `com.diagram.app` in `%APPDATA%` and `%LOCALAPPDATA%` (copied across once, then left) |
+| Downloaded updates                                        | `%TEMP%\Scrivon-<version>-updater-…`, removed the next time Scrivon starts            |
+
+To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings and crash log, and the old `com.diagram.app` folders. Your documents are never touched.
 
 ### Build from source
 

@@ -182,16 +182,24 @@ jobs:
               run: cargo test --locked
               working-directory: src-tauri
 
-    # Builds the installer the way release.yml does, without the updater files (they need the
+    # Builds the installers the way release.yml does, without the updater files (they need the
     # signing key). Nothing else builds windows/installer-hooks.nsh or a full release build, so
     # without this a break there only shows up after semantic-release has tagged a version.
     # It takes a while, so it runs on pushes (to dev, and release.yml's own run of this file
     # before it tags anything, unless dev's run already passed on the same files), not on every
-    # pull request.
+    # pull request. The ARM64 one is cross-compiled on the x64 runner, like the release's.
     bundle-windows:
-        name: Build Windows installer
+        name: Build Windows installer (${{ matrix.arch }})
         if: github.event_name == 'push'
         runs-on: windows-latest
+        # Keep the same as the release builds' matrix (release.yml, build-release.yml).
+        strategy:
+            matrix:
+                include:
+                    - arch: x64
+                      target: x86_64-pc-windows-msvc
+                    - arch: arm64
+                      target: aarch64-pc-windows-msvc
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,21 +213,22 @@ jobs:
               uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
               with:
                   toolchain: 1.97.1
+                  targets: ${{ matrix.target }}
 
             # Saved from dev only, like the Rust tests job's. The release builds (release.yml,
             # build-release.yml) read this same cache (shared-key), so they start with dev's compiled
             # crates instead of building all ~350 from scratch. Only works while they build the same
-            # way: same Rust, Cargo.lock, Cargo.toml and CARGO_* variables. Don't add CARGO_* env here.
+            # way: same Rust, Cargo.lock, Cargo.toml, target and CARGO_* variables. Don't add CARGO_* env here.
             - name: Rust cache
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
-                  shared-key: windows-release
+                  shared-key: windows-release-${{ matrix.arch }}
                   save-if: ${{ github.ref == 'refs/heads/dev' }}
 
             - name: Build the installer
               shell: bash
-              run: bun run tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+              run: bun run tauri build --target ${{ matrix.target }} --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
     # Catches Windows path handling (backslashes, drive letters) that POSIX-only runs miss.
     frontend-windows:
