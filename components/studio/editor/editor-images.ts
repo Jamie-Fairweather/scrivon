@@ -29,30 +29,32 @@ export function imageDocumentFor(tab: DocumentTab | null, workspaceRoot: string 
 
 const UNSUPPORTED_IMAGE = 'Only PNG, JPEG, GIF, WebP and SVG images can be added.'
 
-/** Monaco's TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges: typing next to the spot doesn't move it. */
-const STAYS_PUT = 1 as editor.TrackedRangeStickiness
+/** Monaco's TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges: the spot follows edits; typing at it puts the link after the typed text. */
+const FOLLOWS_EDITS = 1 as editor.TrackedRangeStickiness
 
 /**
- * Puts the links to `images` at `range` once they are ready. The spot follows edits made meanwhile. If another
- * file is showing by then, the link isn't added (that file's text would be out of step with its tab) and the user
- * is told.
+ * Puts the links to `images` at `range` once they are ready. The spot follows edits made meanwhile. If the file
+ * isn't showing by then (another one is, or its tab was closed), the link isn't added (that file's text would be out
+ * of step with its tab) and the user is told. Resolves when done, and never rejects: a failure is shown instead.
  */
-function insertImageLinks(editor: ImageEditor, range: IRange, document: ImageDocument, images: Promise<string[]>) {
-    const model = editor.getModel()
-    if (!model) return
-    const [mark] = model.deltaDecorations([], [{ range, options: { stickiness: STAYS_PUT } }])
+function insertImageLinks(editor: ImageEditor, range: IRange, doc: ImageDocument, images: Promise<string[]>): Promise<void> {
+    // The caller had a selection, so the editor has a model.
+    const model = editor.getModel()!
+    const [mark] = model.deltaDecorations([], [{ range, options: { stickiness: FOLLOWS_EDITS } }])
     const forget = () => {
         if (!model.isDisposed()) model.deltaDecorations([mark!], [])
     }
-    void images.then(
+    return images.then(
         (paths) => {
             const where = model.isDisposed() ? null : model.getDecorationRange(mark!)
             forget()
-            if (!where || paths.length === 0) return
-            const text = paths.map((path) => markdownImage(document.path, path)).join(' ')
-            if (editor.getModel() !== model) {
+            if (paths.length === 0) return
+            const text = paths.map((path) => markdownImage(doc.path, path)).join(' ')
+            if (!where || editor.getModel() !== model) {
                 const what = paths.length === 1 ? getBaseName(paths[0]!) : `${paths.length} images`
-                notifyInfo(`Saved ${what}`, { description: `Another file was showing by then, so no link was added. Link it with ${text}` })
+                notifyInfo(`Saved ${what}`, {
+                    description: `${getBaseName(doc.path)} wasn't showing any more, so no link was added. Link it with ${text}`,
+                })
                 return
             }
             const selection = editor.getSelection()
@@ -89,10 +91,10 @@ export function attachEditorImages(editor: ImageEditor, documentNow: () => Image
         const data = event.clipboardData
         // Text wins: copying from Word or a web page brings a picture of the text along too.
         if (!data || data.getData('text/plain') || !editor.hasTextFocus()) return
-        const document = documentNow()
+        const doc = documentNow()
         const selection = editor.getSelection()
         const files = [...data.files].filter((file) => file.type.startsWith('image/'))
-        if (!document || !selection || files.length === 0) return
+        if (!doc || !selection || files.length === 0) return
         // Before Monaco sees it, which would paste nothing.
         event.preventDefault()
         event.stopPropagation()
@@ -104,23 +106,24 @@ export function attachEditorImages(editor: ImageEditor, documentNow: () => Image
             notifyInfo(`Couldn't add ${what}`, { description: UNSUPPORTED_IMAGE })
         }
         const saves = named.flatMap(({ file, name }) =>
-            name ? [file.arrayBuffer().then((bytes) => saveImageInAssets(document.path, name, new Uint8Array(bytes)))] : []
+            name ? [file.arrayBuffer().then((bytes) => saveImageInAssets(doc.path, name, new Uint8Array(bytes)))] : []
         )
-        if (saves.length > 0) insertImageLinks(editor, selection, document, Promise.all(saves))
+        if (saves.length > 0) void insertImageLinks(editor, selection, doc, Promise.all(saves))
     }
     container.addEventListener('paste', onPaste, true)
 
-    const stopDrops = registerFileDropTarget(container, ({ paths, x, y }) => {
-        const document = documentNow()
+    const stopDrops = registerFileDropTarget(container, async ({ paths, x, y }) => {
+        const doc = documentNow()
         const images = paths.filter(isImageFile)
-        if (!document || images.length === 0) return paths
+        if (!doc || images.length === 0) return paths
         // On a line of text, they go where they were dropped; otherwise (a scrollbar, say) at the cursor.
         const point = editor.getTargetAtClientPoint(x, y)?.position
         if (point) editor.setPosition(point)
         const selection = editor.getSelection()
         if (!selection) return paths
         editor.focus()
-        insertImageLinks(editor, selection, document, Promise.all(images.map((image) => addDroppedImage(image, document))))
+        // The other files (a document to open) wait until the links are in, so this file is still showing.
+        await insertImageLinks(editor, selection, doc, Promise.all(images.map((image) => addDroppedImage(image, doc))))
         return paths.filter((path) => !isImageFile(path))
     })
 

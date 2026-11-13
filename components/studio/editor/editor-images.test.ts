@@ -15,7 +15,7 @@ vi.mock('@/lib/workspace/image-assets', async (importOriginal) => ({
 }))
 vi.mock('@/lib/notify', () => ({ notifyError: notify.error, notifyInfo: notify.info }))
 
-type DropListener = (event: { payload: { type: 'drop'; paths: string[]; position: { x: number; y: number } } }) => void
+type DropListener = (event: { payload: { type: 'drop'; paths: string[]; position: { x: number; y: number } } }) => void | Promise<void>
 const webview = vi.hoisted(() => ({ listener: null as DropListener | null }))
 vi.mock('@tauri-apps/api/webview', () => ({
     getCurrentWebview: () => ({
@@ -141,7 +141,7 @@ function paste(editor: FakeEditor, clipboard: { text?: string; files?: File[] })
 const screenshot = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'image.png', { type: 'image/png' })
 
 let editor: FakeEditor
-let document_: { path: string; workspaceRoot: string } | null
+let doc: { path: string; workspaceRoot: string } | null
 let detach: () => void
 
 beforeEach(() => {
@@ -150,8 +150,8 @@ beforeEach(() => {
     assets.save.mockImplementation(async (_doc, name) => `${ASSETS}\\${name}`)
     assets.add.mockImplementation(async (source) => (source.startsWith(ROOT) ? source : `${ASSETS}\\${source.replace(/^.*\\/, '')}`))
     editor = new FakeEditor(new FakeModel('# Setup\nSee: \nDone.'))
-    document_ = { path: DOC, workspaceRoot: ROOT }
-    const attached = attachEditorImages(editor as never, () => document_)
+    doc = { path: DOC, workspaceRoot: ROOT }
+    const attached = attachEditorImages(editor as never, () => doc)
     detach = () => attached.dispose()
 })
 
@@ -191,10 +191,10 @@ describe('pasting a picture', () => {
     })
 
     it('leaves the paste alone where pictures can’t go: a diagram, a read-only file, the find box', () => {
-        document_ = null
+        doc = null
         expect(paste(editor, { files: [screenshot()] }).defaultPrevented).toBe(false)
 
-        document_ = { path: DOC, workspaceRoot: ROOT }
+        doc = { path: DOC, workspaceRoot: ROOT }
         editor.textFocused = false
         expect(paste(editor, { files: [screenshot()] }).defaultPrevented).toBe(false)
 
@@ -232,23 +232,43 @@ describe('pasting a picture', () => {
         await vi.waitFor(() =>
             expect(notify.info).toHaveBeenCalledWith('Saved image-20261113-204512.png', {
                 description:
-                    'Another file was showing by then, so no link was added. Link it with ![image-20261113-204512](assets/image-20261113-204512.png)',
+                    "setup.md wasn't showing any more, so no link was added. Link it with ![image-20261113-204512](assets/image-20261113-204512.png)",
             })
         )
         expect(first.text).toBe('# Setup\nSee: \nDone.')
         expect(editor.model.text).toBe('Other file')
     })
+
+    it('says where the picture went when its tab was closed meanwhile', async () => {
+        let finish: (path: string) => void = () => {}
+        assets.save.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
+
+        paste(editor, { files: [screenshot()] })
+        editor.model!.disposed = true
+        editor.model = null
+        finish(`${ASSETS}\\image-20261113-204512.png`)
+
+        await vi.waitFor(() =>
+            expect(notify.info).toHaveBeenCalledWith('Saved image-20261113-204512.png', {
+                description:
+                    "setup.md wasn't showing any more, so no link was added. Link it with ![image-20261113-204512](assets/image-20261113-204512.png)",
+            })
+        )
+    })
 })
 
 describe('dropping files onto the editor', () => {
-    /** Files dropped from File Explorer onto the editor's text; returns what the window was left to deal with. */
-    async function drop(paths: string[]) {
-        const rest = vi.fn()
+    /**
+     * Files dropped from File Explorer onto the editor's text; resolves to what the window was left to deal with,
+     * once the editor is done. `onRest` is what the window does with them.
+     */
+    async function drop(paths: string[], onRest: () => void = () => {}) {
+        const rest = vi.fn<(drop: { paths: readonly string[] }) => void>(onRest)
         const stop = await listenForFileDrops(rest)
         const text = document.createElement('div')
         editor.container.append(text)
         document.elementFromPoint = vi.fn(() => text)
-        webview.listener!({ payload: { type: 'drop', paths, position: { x: 120, y: 80 } } })
+        await webview.listener!({ payload: { type: 'drop', paths, position: { x: 120, y: 80 } } })
         stop()
         return rest.mock.calls[0]?.[0]?.paths ?? []
     }
@@ -265,6 +285,18 @@ describe('dropping files onto the editor', () => {
         expect(editor.selection).toEqual(at(2, 53))
     })
 
+    it('links the images before the window opens a document dropped with them', async () => {
+        const first = editor.model!
+        editor.pointAt = { lineNumber: 2, column: 6 }
+
+        // Opening the dropped document shows it in the editor.
+        const rest = await drop(['D:\\Pictures\\cat.png', 'C:\\notes\\todo.md'], () => (editor.model = new FakeModel('todo')))
+
+        expect(rest).toEqual(['C:\\notes\\todo.md'])
+        expect(first.text).toBe('# Setup\nSee: ![cat](assets/cat.png)\nDone.')
+        expect(notify.info).not.toHaveBeenCalled()
+    })
+
     it('puts them at the cursor when the drop point isn’t on a line of text', async () => {
         editor.setSelection(at(3, 6))
 
@@ -274,7 +306,7 @@ describe('dropping files onto the editor', () => {
     })
 
     it('leaves every file to the window when the file showing can’t take images', async () => {
-        document_ = null
+        doc = null
 
         expect(await drop(['D:\\Pictures\\cat.png', 'D:\\notes\\todo.md'])).toEqual(['D:\\Pictures\\cat.png', 'D:\\notes\\todo.md'])
         expect(assets.add).not.toHaveBeenCalled()

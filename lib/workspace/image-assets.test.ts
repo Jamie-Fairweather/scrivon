@@ -134,6 +134,16 @@ describe('saveImageInAssets', () => {
         expect(disk.bytes('C:\\notes\\guides\\assets\\image 2.png')).toEqual(new Uint8Array([8]))
     })
 
+    it('uses an assets folder already there under its own letter case, so the link matches it', async () => {
+        disk.folder('C:\\notes\\guides\\Assets')
+
+        const path = await saveImageInAssets(DOC, 'image.png', PNG)
+
+        expect(path).toBe('C:\\notes\\guides\\Assets\\image.png')
+        expect(markdownImage(DOC, path)).toBe('![image](Assets/image.png)')
+        expect(disk.names('C:\\notes\\guides').sort()).toEqual(['Assets', 'setup.md'])
+    })
+
     it('picks another name when another app takes the free one first, keeping its file', async () => {
         const write = disk.fs.writeFile.getMockImplementation()!
         disk.fs.writeFile.mockImplementationOnce(async (path, bytes, options) => {
@@ -160,12 +170,12 @@ describe('saveImageInAssets', () => {
 })
 
 describe('addDroppedImage', () => {
-    const document = { path: DOC, workspaceRoot: 'C:\\notes' }
+    const doc = { path: DOC, workspaceRoot: 'C:\\notes' }
 
     it('copies an image from outside the open folder into assets, keeping its name', async () => {
         disk.file('D:\\Pictures\\cat.png', PNG)
 
-        const path = await addDroppedImage('D:\\Pictures\\cat.png', document)
+        const path = await addDroppedImage('D:\\Pictures\\cat.png', doc)
 
         expect(path).toBe('C:\\notes\\guides\\assets\\cat.png')
         expect(disk.bytes(path)).toEqual(PNG)
@@ -177,7 +187,7 @@ describe('addDroppedImage', () => {
         disk.file('C:\\notes\\guides\\assets\\cat.png', new Uint8Array([7]))
         disk.file('D:\\Pictures\\cat.png', PNG)
 
-        const path = await addDroppedImage('D:\\Pictures\\cat.png', document)
+        const path = await addDroppedImage('D:\\Pictures\\cat.png', doc)
 
         expect(path).toBe('C:\\notes\\guides\\assets\\cat 2.png')
         expect(disk.bytes(path)).toEqual(PNG)
@@ -187,7 +197,7 @@ describe('addDroppedImage', () => {
     it('uses an image already in the open folder where it is', async () => {
         disk.file('C:\\Notes\\img\\cat.png', PNG)
 
-        expect(await addDroppedImage('C:\\Notes\\img\\cat.png', document)).toBe('C:\\Notes\\img\\cat.png')
+        expect(await addDroppedImage('C:\\Notes\\img\\cat.png', doc)).toBe('C:\\Notes\\img\\cat.png')
         expect(disk.names('C:\\notes\\guides')).toEqual(['setup.md'])
     })
 })

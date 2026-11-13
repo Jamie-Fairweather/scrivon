@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DragDropEvent } from '@tauri-apps/api/webview'
 
-type DropListener = (event: { payload: DragDropEvent }) => void
+type DropListener = (event: { payload: DragDropEvent }) => void | Promise<void>
 
 const webview = vi.hoisted(() => ({
     listener: null as DropListener | null,
@@ -23,8 +23,8 @@ vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => inTauri }))
 const { listenForFileDrops, registerFileDropTarget } = await import('./file-drop')
 
 /** What Windows sends when files are dropped `at` (physical pixels) on the window. */
-function drop(paths: string[], at = { x: 0, y: 0 }) {
-    webview.listener?.({ payload: { type: 'drop', paths, position: { x: at.x, y: at.y } as never } })
+async function drop(paths: string[], at = { x: 0, y: 0 }) {
+    await webview.listener?.({ payload: { type: 'drop', paths, position: { x: at.x, y: at.y } as never } })
 }
 
 let hit: Element | null = null
@@ -49,7 +49,7 @@ describe('file drops', () => {
         stops.push(registerFileDropTarget(document.getElementById('editor')!, editor))
         stops.push(await listenForFileDrops(onRest))
 
-        drop(['D:\\cat.png', 'D:\\notes.md'])
+        await drop(['D:\\cat.png', 'D:\\notes.md'])
 
         expect(editor).toHaveBeenCalledWith(expect.objectContaining({ paths: ['D:\\cat.png', 'D:\\notes.md'] }))
         expect(onRest).toHaveBeenCalledWith(expect.objectContaining({ paths: ['D:\\notes.md'] }))
@@ -61,7 +61,7 @@ describe('file drops', () => {
         stops.push(await listenForFileDrops(vi.fn()))
         vi.stubGlobal('devicePixelRatio', 1.5)
 
-        drop(['D:\\cat.png'], { x: 300, y: 150 })
+        await drop(['D:\\cat.png'], { x: 300, y: 150 })
 
         vi.unstubAllGlobals()
         expect(document.elementFromPoint).toHaveBeenCalledWith(200, 100)
@@ -74,12 +74,12 @@ describe('file drops', () => {
         stops.push(await listenForFileDrops(onRest))
 
         hit = document.getElementById('layout')
-        drop(['D:\\a.md'])
+        await drop(['D:\\a.md'])
         expect(onRest).toHaveBeenCalledWith(expect.objectContaining({ paths: ['D:\\a.md'] }))
 
         onRest.mockClear()
         hit = document.getElementById('text')
-        drop(['D:\\a.md'])
+        await drop(['D:\\a.md'])
         expect(onRest).not.toHaveBeenCalled()
     })
 
@@ -99,9 +99,24 @@ describe('file drops', () => {
         )
         stops.push(await listenForFileDrops(vi.fn()))
 
-        drop(['a', 'b'])
+        await drop(['a', 'b'])
 
         expect(order).toEqual(['editor:a,b', 'layout:b'])
+    })
+
+    it('wait for a target to finish before passing on what it left', async () => {
+        const onRest = vi.fn()
+        let finish: (rest: string[]) => void = () => {}
+        stops.push(registerFileDropTarget(document.getElementById('editor')!, () => new Promise((resolve) => (finish = resolve))))
+        stops.push(await listenForFileDrops(onRest))
+
+        const dropped = drop(['D:\\cat.png', 'D:\\notes.md'])
+        await Promise.resolve()
+        expect(onRest).not.toHaveBeenCalled()
+
+        finish(['D:\\notes.md'])
+        await dropped
+        expect(onRest).toHaveBeenCalledWith(expect.objectContaining({ paths: ['D:\\notes.md'] }))
     })
 
     it('stop reaching a target once it is taken away', async () => {
@@ -110,7 +125,7 @@ describe('file drops', () => {
         registerFileDropTarget(document.getElementById('editor')!, editor)()
         stops.push(await listenForFileDrops(onRest))
 
-        drop(['D:\\cat.png'])
+        await drop(['D:\\cat.png'])
 
         expect(editor).not.toHaveBeenCalled()
         expect(onRest).toHaveBeenCalled()
@@ -123,7 +138,7 @@ describe('file drops', () => {
         webview.listener?.({ payload: { type: 'enter', paths: ['D:\\a.md'], position: { x: 0, y: 0 } as never } })
         webview.listener?.({ payload: { type: 'over', position: { x: 0, y: 0 } as never } })
         webview.listener?.({ payload: { type: 'leave' } })
-        drop([])
+        await drop([])
 
         expect(onRest).not.toHaveBeenCalled()
     })

@@ -80,16 +80,16 @@ describe('WindowFileDrop', () => {
         expect(session.openFile).not.toHaveBeenCalled()
     })
 
-    it('says where images go when they land outside the editor', async () => {
+    it('says where images go when nothing under them took them', async () => {
         render(<WindowFileDrop />)
 
         await drop(['D:\\Pictures\\cat.png'])
+        await drop(['D:\\Pictures\\a.png', 'D:\\Pictures\\b.jpg'])
 
-        await vi.waitFor(() =>
-            expect(notify.info).toHaveBeenCalledWith('Drop images into the editor', {
-                description: 'They are added to the Markdown file open there, where you drop them.',
-            })
-        )
+        const description = 'Images go into a Markdown file from the open folder. Drop them onto its text in the editor.'
+        await vi.waitFor(() => expect(notify.info).toHaveBeenCalledTimes(2))
+        expect(notify.info).toHaveBeenCalledWith("Can't add cat.png here", { description })
+        expect(notify.info).toHaveBeenCalledWith("Can't add 2 images here", { description })
     })
 
     it('says which files it opens when given another kind', async () => {

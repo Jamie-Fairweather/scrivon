@@ -72,9 +72,15 @@ const ASSETS_FOLDER = 'assets'
 /** Tries at a free name, should another app keep taking the one picked. */
 const MAX_NAME_TRIES = 5
 
-/** Makes the document's assets folder if it isn't there yet. Returns its path. */
+/**
+ * Makes the document's assets folder if it isn't there yet. Returns its path, spelt as on disk: an `Assets` folder
+ * already there is used as `Assets`, so links to it still work where letter case matters (GitHub).
+ */
 async function assetsFolderOf(documentPath: string): Promise<string> {
-    const folder = joinPath(getParentPath(documentPath), ASSETS_FOLDER)
+    const parent = getParentPath(documentPath)
+    const existing = (await listFolderNames(parent)).find((name) => name.toLowerCase() === ASSETS_FOLDER)
+    const folder = joinPath(parent, existing ?? ASSETS_FOLDER)
+    if (existing) return folder
     try {
         await createWorkspaceDirectory(folder)
     } catch (err) {
@@ -112,12 +118,12 @@ export async function saveImageInAssets(documentPath: string, name: string, byte
 export type ImageDocument = { path: string; workspaceRoot: string }
 
 /**
- * An image file dropped onto `document`. One already in the open folder is linked where it is; one from outside
- * is copied into the `assets` folder next to the document, under its own name or the next free one. Resolves to
- * the path to link.
+ * An image file dropped onto `doc`. One already in the open folder is linked where it is; one from outside is
+ * copied into the `assets` folder next to the document, under its own name or the next free one. Resolves to the
+ * path to link.
  */
-export async function addDroppedImage(sourcePath: string, document: ImageDocument): Promise<string> {
-    if (isPathInside(sourcePath, document.workspaceRoot)) return normalizePath(sourcePath)
-    const folder = await assetsFolderOf(document.path)
+export async function addDroppedImage(sourcePath: string, doc: ImageDocument): Promise<string> {
+    if (isPathInside(sourcePath, doc.workspaceRoot)) return normalizePath(sourcePath)
+    const folder = await assetsFolderOf(doc.path)
     return writeUnderFreeName(folder, getBaseName(sourcePath), (path) => duplicateWorkspaceFile(sourcePath, path))
 }

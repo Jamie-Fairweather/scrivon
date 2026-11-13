@@ -35,7 +35,10 @@ async function openDroppedFiles(paths: readonly string[], { workspaceRoot, openF
         })
     }
     if (images.length > 0) {
-        notifyInfo('Drop images into the editor', { description: 'They are added to the Markdown file open there, where you drop them.' })
+        // Also said when they were dropped on the editor while it showed a diagram, an example or a read-only file.
+        notifyInfo(`Can't add ${nameOf(images, 'images')} here`, {
+            description: 'Images go into a Markdown file from the open folder. Drop them onto its text in the editor.',
+        })
     }
     if (others.length > 0) {
         notifyInfo(`Can't open ${nameOf(others, 'files')}`, { description: `Scrivon opens ${supportedExtensionsLabel('and')} files.` })
