@@ -21,7 +21,7 @@ function headerFooterEntries(group: 'Header' | 'Footer'): SettingsSearchEntry[] 
     const row = (label: string, keywords?: string): SettingsSearchEntry => ({ section: 'pdf-export', group, label, keywords })
     return [
         row(`Show ${lower}`),
-        ...(group === 'Footer' ? [row('Page numbers', 'count custom text')] : []),
+        ...(group === 'Footer' ? [row('Page numbers', 'count custom text'), row('Number pages from the body', 'start first title contents')] : []),
         row('Left image', 'logo picture'),
         row('Left text', 'title author date'),
         row('Right image', 'logo picture'),
@@ -45,17 +45,17 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'general', label: 'Autosave', keywords: 'save automatically' },
     { section: 'general', label: 'Autosave delay (ms)', keywords: 'wait time' },
 
+    { section: 'appearance', label: 'Follow Windows', keywords: 'system light dark mode theme' },
+    // No group: the theme lists have different titles when Follow Windows is on.
     ...APP_DARK_THEME_IDS.map((id): SettingsSearchEntry => ({
         section: 'appearance',
-        group: 'Dark themes',
         label: APP_THEME_LABELS[id],
-        keywords: 'theme',
+        keywords: 'theme dark',
     })),
     ...APP_LIGHT_THEME_IDS.map((id): SettingsSearchEntry => ({
         section: 'appearance',
-        group: 'Light themes',
         label: APP_THEME_LABELS[id],
-        keywords: 'theme',
+        keywords: 'theme light',
     })),
 
     { section: 'editor', label: 'Font size', keywords: 'text zoom' },
@@ -65,7 +65,12 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'editor', label: 'Minimap', keywords: 'overview scroll' },
     { section: 'editor', label: 'Tab key moves focus', keywords: 'indent keyboard' },
     { section: 'editor', label: 'Status bar', keywords: 'line column word count' },
+    { section: 'editor', label: 'Scroll with the preview', keywords: 'sync together' },
+    { section: 'editor', label: 'Double-click the preview to jump to the editor', keywords: 'sync source line cursor' },
     { section: 'editor', label: 'Editor width', keywords: 'pane panel size reset' },
+    { section: 'editor', group: 'Spelling', label: 'Check spelling', keywords: 'spellcheck mistakes underline' },
+    { section: 'editor', group: 'Spelling', label: 'Spelling language', keywords: 'spellcheck dictionary english' },
+    { section: 'editor', group: 'Spelling', label: 'Your dictionary', keywords: 'spellcheck words added remove' },
 
     { section: 'pdf-export', label: 'Default export profile', keywords: 'pdf word new duplicate delete' },
     { section: 'pdf-export', label: 'Profile name', keywords: 'rename' },

@@ -38,9 +38,15 @@ describe('searchSettings', () => {
     it('finds keyboard shortcuts and themes', () => {
         expect(searchSettings('go to file', BROWSER)).toEqual([expect.objectContaining({ section: 'keyboard', label: 'Go to file' })])
         expect(searchSettings('nord', BROWSER)).toEqual([
-            expect.objectContaining({ section: 'appearance', label: 'Nord', group: 'Dark themes' }),
-            expect.objectContaining({ section: 'appearance', label: 'Nord Light', group: 'Light themes' }),
+            expect.objectContaining({ section: 'appearance', label: 'Nord' }),
+            expect.objectContaining({ section: 'appearance', label: 'Nord Light' }),
         ])
+    })
+
+    it('finds settings added to other sections', () => {
+        expect(searchSettings('windows', BROWSER)).toEqual([expect.objectContaining({ section: 'appearance', label: 'Follow Windows' })])
+        expect(searchSettings('spell', BROWSER).map((entry) => entry.label)).toEqual(['Spelling language', 'Check spelling', 'Your dictionary'])
+        expect(searchSettings('body', BROWSER).map((entry) => entry.label)).toContain('Number pages from the body')
     })
 
     it('lists settings whose name starts with the search first', () => {

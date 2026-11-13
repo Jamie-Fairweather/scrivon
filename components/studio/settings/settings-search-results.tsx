@@ -62,14 +62,15 @@ function flash(row: HTMLElement) {
 }
 
 /**
- * For a setting that's switched off: the nearest switch above it in its group (or section), which
- * most likely turns it on. Failing that, the group's first control.
+ * For a setting that's switched off: the switch that most likely turns it on. In a titled group that's
+ * the group's first switch (such as Show footer); otherwise the nearest switch above it. Failing that,
+ * the group's first control.
  */
-function controlForOffSetting(row: HTMLElement, scope: HTMLElement): HTMLElement | undefined {
+function controlForOffSetting(row: HTMLElement, scope: HTMLElement, inGroup: boolean): HTMLElement | undefined {
     const switchesAbove = Array.from(scope.querySelectorAll<HTMLElement>('[role="switch"]')).filter(
         (control) => canFocus(control) && Boolean(control.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING)
     )
-    return switchesAbove.at(-1) ?? firstFocusableControl(scope)
+    return (inGroup ? switchesAbove[0] : switchesAbove.at(-1)) ?? firstFocusableControl(scope)
 }
 
 /**
@@ -87,7 +88,7 @@ export function revealSetting(panel: HTMLElement, entry: SettingsSearchEntry): v
     flash(row)
     const control = firstFocusableControl(row)
     if (control) control.focus({ preventScroll: true })
-    else controlForOffSetting(row, scope)?.focus()
+    else controlForOffSetting(row, scope, Boolean(entry.group))?.focus()
 }
 
 /** What a search found, in words: shown above the results and read out by screen readers. */
