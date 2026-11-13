@@ -54,6 +54,18 @@ describe('EditorTabRowContextMenu', () => {
         expect(copyPath).toHaveBeenLastCalledWith('docs\\plan.md', 'relative')
     })
 
+    it('leaves the icons off, to line up with the Close items', async () => {
+        const path = `${ROOT}\\docs\\plan.md`
+        tabs = [tab(path)]
+        openMenuFor(path)
+
+        expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument()
+        for (const name of ['Reveal in File Explorer', 'Copy Path', 'Copy Relative Path']) {
+            expect(screen.getByRole('menuitem', { name }).querySelector('svg')).toBeNull()
+        }
+        expect(screen.queryByText('Not in the open folder')).not.toBeInTheDocument()
+    })
+
     it('has no path items for an example, which has no file', async () => {
         const example = tab('example:flowchart', { name: 'Flowchart.mmd', readOnly: true })
         tabs = [example]
@@ -73,5 +85,7 @@ describe('EditorTabRowContextMenu', () => {
         expect(await screen.findByRole('menuitem', { name: 'Reveal in File Explorer' })).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByRole('menuitem', { name: 'Copy Relative Path' })).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByRole('menuitem', { name: 'Copy Path' })).not.toHaveAttribute('aria-disabled')
+        // Says why the other two are greyed out.
+        expect(screen.getByText('Not in the open folder')).toBeInTheDocument()
     })
 })

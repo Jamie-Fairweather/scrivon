@@ -40,7 +40,8 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
                 {tab && !isExampleTabId(tab.id) && (
                     <>
                         <MenuSeparator />
-                        <PathMenuItems path={tab.path} />
+                        {/* The Close items have no icons, so leave them off here too. */}
+                        <PathMenuItems path={tab.path} icons={false} />
                     </>
                 )}
             </ContextMenuAtPoint>

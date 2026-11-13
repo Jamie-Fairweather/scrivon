@@ -80,7 +80,9 @@ describe('FileTreeContextMenu', () => {
         fireEvent.click(screen.getByLabelText('Actions for plan.md'))
         const menu = await screen.findByRole('menu')
         for (const name of ['Reveal in File Explorer', 'Copy Path', 'Copy Relative Path']) {
-            expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument()
+            // The other explorer items have icons, so these do too.
+            expect(within(menu).getByRole('menuitem', { name }).querySelector('svg')).not.toBeNull()
         }
+        expect(within(menu).queryByText('Not in the open folder')).not.toBeInTheDocument()
     })
 })
