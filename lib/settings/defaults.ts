@@ -1,6 +1,7 @@
-import { DEFAULT_APP_THEME, getSystemPreferredTheme, type AppThemeId } from '@/lib/theme/catalog'
+import { SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME } from '@/lib/theme/catalog'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
-import type { AppSettings, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import { FOLLOW_SYSTEM, type AppSettings, type KeybindBindings, type KeybindChord } from '@/lib/settings/types'
+import { createDefaultSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
 
 export const DEFAULT_EDITOR_WIDTH = 400
 export const DEFAULT_AUTOSAVE_DELAY_MS = 400
@@ -33,27 +34,17 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
     return bindings
 }
 
-/**
- * Scrivon Light or Dark, following the OS setting, which is also what the boot script paints
- * before React loads. A fixed dark default would flip a light-mode user to dark on first launch.
- */
-function systemPreferredTheme(): AppThemeId {
-    try {
-        return getSystemPreferredTheme()
-    } catch {
-        // No matchMedia to ask.
-        return DEFAULT_APP_THEME
-    }
-}
-
 export function createDefaultSettings(isMac = false): AppSettings {
     return {
         autosave: {
             enabled: true,
             delayMs: DEFAULT_AUTOSAVE_DELAY_MS,
         },
+        // Follows Windows light/dark. Settings saved before System mode keep their fixed theme (migrate.ts).
         theme: {
-            id: systemPreferredTheme(),
+            id: FOLLOW_SYSTEM,
+            light: SYSTEM_LIGHT_THEME,
+            dark: SYSTEM_DARK_THEME,
         },
         layout: {
             explorerOpen: true,
@@ -70,6 +61,8 @@ export function createDefaultSettings(isMac = false): AppSettings {
             lineNumbers: 'on',
             minimap: false,
             tabMovesFocus: false,
+            scrollSync: true,
+            jumpFromPreview: true,
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
@@ -82,6 +75,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             visible: true,
         },
         pdfExport: createDefaultPdfExportSettings(),
+        spellcheck: createDefaultSpellcheckSettings(),
         keybinds: createDefaultKeybinds(isMac),
     }
 }

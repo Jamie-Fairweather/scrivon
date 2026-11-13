@@ -1,5 +1,6 @@
 import type { AppThemeId } from '@/lib/theme/catalog'
 import type { PdfExportSettings } from '@/lib/settings/pdf-export-types'
+import type { SpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
 
 export type EditorWordWrap = 'on' | 'off' | 'wordWrapColumn'
 export type EditorLineNumbers = 'on' | 'off' | 'relative'
@@ -28,14 +29,26 @@ export type KeybindActionId =
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
+/** 'system' follows the Windows light/dark setting. */
+export const FOLLOW_SYSTEM = 'system'
+
+export type ThemeChoice = AppThemeId | typeof FOLLOW_SYSTEM
+
+export type ThemeSetting = {
+    /** A fixed theme, or 'system' to follow Windows. Older versions read 'system' as "follow the OS" too. */
+    id: ThemeChoice
+    /** The theme System mode uses when Windows is light. */
+    light: AppThemeId
+    /** The theme System mode uses when Windows is dark. */
+    dark: AppThemeId
+}
+
 export type AppSettings = {
     autosave: {
         enabled: boolean
         delayMs: number
     }
-    theme: {
-        id: AppThemeId
-    }
+    theme: ThemeSetting
     layout: {
         explorerOpen: boolean
         editorOpen: boolean
@@ -54,6 +67,10 @@ export type AppSettings = {
         minimap: boolean
         /** Tab and Shift+Tab move focus out of the editor instead of indenting (Monaco's tab focus mode). */
         tabMovesFocus: boolean
+        /** The editor and the Markdown preview scroll together. */
+        scrollSync: boolean
+        /** Double-clicking the Markdown preview moves the editor's cursor to that line. */
+        jumpFromPreview: boolean
     }
     workspace: {
         maxRecentFolders: number
@@ -67,6 +84,7 @@ export type AppSettings = {
         visible: boolean
     }
     pdfExport: PdfExportSettings
+    spellcheck: SpellcheckSettings
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }
 

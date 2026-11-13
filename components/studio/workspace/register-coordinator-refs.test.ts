@@ -43,6 +43,7 @@ describe('createWorkspaceCoordinatorRefs', () => {
         await expect(refs.confirmCloseTabs.current()).resolves.toBe(true)
         expect(() => refs.remapTabsAfterRename.current('/ws/old.mmd', '/ws/new.mmd', 'new.mmd')).not.toThrow()
         expect(() => refs.closeTabsForDelete.current('/ws/old.mmd', false)).not.toThrow()
+        expect(refs.findTabsToCloseOnDelete.current('/ws/old.mmd', false)).toEqual([])
         expect(() => refs.requestCanvasFit.current()).not.toThrow()
         expect(() => refs.clearTabs.current()).not.toThrow()
         expect(() => refs.setTabsFromWorkspace.current([], null)).not.toThrow()

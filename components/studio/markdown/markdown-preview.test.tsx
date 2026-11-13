@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { invoke } from '@tauri-apps/api/core'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MARKDOWN_SHOWCASE } from '@/lib/examples/markdown-showcase'
 import { isTauri } from '@/lib/tauri/platform'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { lastMermaidBlockSources } from './markdown-block-ordinals'
@@ -201,7 +202,8 @@ describe('MarkdownPreview', () => {
         )
         const [command, diagram, raw] = Array.from(container.querySelectorAll('li'))
         expect(command).toHaveAttribute('dir', 'rtl')
-        expect(command!.querySelector('div.overflow-x-auto')).toHaveAttribute('dir', 'ltr')
+        // The block's frame, with its Copy button.
+        expect(command!.querySelector('div.overflow-x-auto')?.parentElement).toHaveAttribute('dir', 'ltr')
         expect(diagram).toHaveAttribute('dir', 'rtl')
         expect(diagram!.querySelector('[data-mermaid-block-id]')).toHaveAttribute('dir', 'ltr')
         expect(raw!.querySelector('pre')).toHaveAttribute('dir', 'ltr')
@@ -583,5 +585,69 @@ describe('MarkdownPreview', () => {
         expect(container.querySelector('h2')).toBeNull()
         expect(container).not.toHaveTextContent('title:')
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Body')
+    })
+})
+
+describe('MarkdownPreview: GitHub alerts, math and quotes', () => {
+    it('shows an alert as a note with its title instead of the marker', () => {
+        preview('> [!WARNING]\n> Back up first.')
+        const note = screen.getByRole('note')
+        expect(note).toHaveTextContent(/^Warning\s*Back up first\.$/)
+        expect(note).toHaveClass('markdown-alert-warning')
+        expect(note.querySelector('svg')).not.toBeNull()
+    })
+
+    it('puts the bar of a right-to-left alert on the right', () => {
+        preview('> [!NOTE]\n> שלום')
+        expect(screen.getByRole('note')).toHaveAttribute('dir', 'rtl')
+    })
+
+    it('shows inline and block math as MathML', () => {
+        const { container } = preview('Inline $E = mc^2$ here.\n\n$$\n\\frac{1}{3}\n$$')
+        const maths = container.querySelectorAll('math')
+        expect(maths).toHaveLength(2)
+        expect(maths[0]!.querySelector('msup')).not.toBeNull()
+        expect(maths[1]!.namespaceURI).toBe('http://www.w3.org/1998/Math/MathML')
+        expect(maths[1]!.getAttribute('display')).toBe('block')
+        expect(container).not.toHaveTextContent('$')
+    })
+
+    it('leaves prices as text', () => {
+        const { container } = preview('It costs $5 and $10.')
+        expect(container.querySelector('math')).toBeNull()
+        expect(container).toHaveTextContent('It costs $5 and $10.')
+    })
+
+    it('keeps bold and links between two prices', () => {
+        const { container } = preview('Plans: $5 for **Basic**, $10 for [Pro](https://example.com).')
+        expect(container.querySelector('strong')).toHaveTextContent('Basic')
+        expect(screen.getByRole('link', { name: 'Pro' })).toBeInTheDocument()
+        expect(container).toHaveTextContent('Plans: $5 for Basic, $10 for Pro.')
+    })
+
+    it('gives block math the text size and space below of a paragraph', () => {
+        const { container } = preview('$$\nx^2\n$$\n\nNext.')
+        // Block math isn't in a paragraph, so the article styles it. happy-dom can't compute Tailwind styles.
+        expect(container.querySelector('math[display="block"]')!.closest('p')).toBeNull()
+        expect(container.querySelector('article')).toHaveClass('[&_math[display=block]]:mb-3', '[&_math[display=block]]:text-sm')
+    })
+
+    it('shows the bundled showcase’s math and alerts', () => {
+        const { container } = preview(MARKDOWN_SHOWCASE.source)
+        expect(container.querySelectorAll('math')).toHaveLength(2)
+        expect(screen.getAllByRole('note').map((note) => note.querySelector('p')?.textContent)).toEqual([
+            'Note',
+            'Tip',
+            'Important',
+            'Warning',
+            'Caution',
+        ])
+        expect(container).not.toHaveTextContent('[!NOTE]')
+    })
+
+    it('greys all of a quote, not just the quote itself', () => {
+        const { container } = preview('> Quoted words')
+        // The paragraph's own colour would win over the quote's, so the quote makes its paragraphs and lists use its own.
+        expect(container.querySelector('blockquote')).toHaveClass('text-muted-foreground', '[&_:is(p,ul,ol,td)]:text-inherit')
     })
 })

@@ -4,7 +4,6 @@ import {
     writeFile,
     writeTextFile,
     mkdir,
-    remove,
     stat,
     lstat,
     exists,
@@ -484,12 +483,13 @@ export async function renameWorkspacePath(oldPath: string, newPath: string): Pro
 }
 
 /**
- * Deletes a file, or a folder with `recursive` (everything inside it goes too). Without `recursive`
- * a folder that isn't empty is refused.
+ * Deletes a file or folder (with everything in it) by moving it to the Recycle Bin, so it can be put back.
+ * The app's command only takes what is inside an opened folder, and fails with a plain reason, such as
+ * the file being open in another program (src-tauri/src/workspace_trash.rs).
  */
-export async function removeWorkspacePath(path: string, { recursive = false }: { recursive?: boolean } = {}): Promise<void> {
+export async function trashWorkspacePath(path: string): Promise<void> {
     if (!isTauri()) return
-    await remove(path, { recursive })
+    await invoke('trash_workspace_path', { path: normalizePath(path) })
 }
 
 /**

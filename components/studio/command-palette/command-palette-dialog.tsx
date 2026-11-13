@@ -95,6 +95,12 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                         {item.disabledReason}
                     </span>
                 ) : null}
+                {/* An on/off setting, ticked in the menus: picking it switches it. */}
+                {item.checked !== undefined ? (
+                    <span className="ms-2 shrink-0 text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
+                        {item.checked ? 'On' : 'Off'}
+                    </span>
+                ) : null}
                 {item.shortcut ? <CommandShortcut>{item.shortcut}</CommandShortcut> : null}
             </CommandItem>
         )

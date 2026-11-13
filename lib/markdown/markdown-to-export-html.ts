@@ -4,10 +4,11 @@ import type { Code, Parent, Root, Text } from 'mdast'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
-import { SKIP, visit } from 'unist-util-visit'
+import { EXIT, SKIP, visit } from 'unist-util-visit'
 import { buildExportDocument, type BuildExportDocumentOptions, type ExportDocument } from '@/lib/markdown/export-document'
 import {
     buildPdfExportCss,
+    PDF_BODY_START_MARK,
     PDF_PAGE_NUMBER_MARK,
     PDF_STAMP_GLYPHS_CLASS,
     pdfChromeShown,
@@ -21,6 +22,7 @@ import {
 import { pdfPageNumberFormat, pdfPageNumberParts, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
+import { htmlAlertKind, isAlertTitle } from '@/lib/markdown/github-alerts'
 import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { blockDirection } from '@/lib/markdown/text-direction'
@@ -56,6 +58,18 @@ function normalizeShikiPre(html: string): string {
 }
 
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+/** Whether the page has math for KaTeX to draw (see mathRehypePlugins), which is only loaded when it does. */
+function hasMath(hast: HastRoot): boolean {
+    let found = false
+    visit(hast, 'element', (node: Element) => {
+        const classes = node.properties.className
+        if (node.tagName !== 'code' || !Array.isArray(classes) || !classes.includes('language-math')) return
+        found = true
+        return EXIT
+    })
+    return found
+}
 
 /** A page can't be clicked open, so every <details> prints open: what it holds would otherwise be missing from the PDF. */
 function openDetails(hast: HastRoot): void {
@@ -115,10 +129,10 @@ function handleWebImages(hast: HastRoot, allowRemoteImages: boolean): void {
     })
 }
 
-/** Hidden mark inside each TOC-listed heading so the PDF stamper can read which page it landed on. */
-function addHeadingMarks(hast: HastRoot, items: PdfExportOutlineItem[]): void {
-    if (items.length === 0) return
-    const markById = new Map(items.map((item, index) => [item.id, pdfTocMark(index, 'heading')]))
+/** Hidden mark inside each heading so the PDF stamper can read which page it landed on, for its bookmark and Contents row. */
+function addHeadingMarks(hast: HastRoot, outline: PdfExportOutlineItem[]): void {
+    if (outline.length === 0) return
+    const markById = new Map(outline.map((item, index) => [item.id, pdfTocMark(index, 'heading')]))
     visit(hast, 'element', (node: Element) => {
         if (!HEADING_TAGS.has(node.tagName)) return
         const mark = typeof node.properties.id === 'string' ? markById.get(node.properties.id) : undefined
@@ -152,10 +166,12 @@ function setTextDirection(hast: HastRoot, placeholderKeys: ReadonlySet<string>):
             node.properties.dir ??= 'ltr'
             return SKIP
         }
-        if (!AUTO_DIRECTION_TAGS.has(node.tagName) || node.properties.dir !== undefined) return
+        // An alert is a quote. Its English title follows the alert, so it sits on the same side as the bar.
+        const alert = htmlAlertKind(node) !== undefined
+        if ((!AUTO_DIRECTION_TAGS.has(node.tagName) && !alert) || isAlertTitle(node) || node.properties.dir !== undefined) return
         const only = node.children.length === 1 ? node.children[0] : undefined
         if (node.tagName === 'p' && only?.type === 'text' && placeholderKeys.has(only.value)) return
-        node.properties.dir = CONTAINER_DIRECTION_TAGS.has(node.tagName) ? blockDirection(node, placeholderKeys) : 'auto'
+        node.properties.dir = alert || CONTAINER_DIRECTION_TAGS.has(node.tagName) ? blockDirection(node, placeholderKeys) : 'auto'
     })
 }
 
@@ -294,6 +310,8 @@ async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promi
     const replacements: { parent: Parent; index: number; promise: Promise<string> }[] = []
 
     visit(tree, 'code', (node: Code, index, parent) => {
+        // Printed as math (see hasMath).
+        if (node.lang === 'math') return
         replacements.push({
             parent: parent as Parent,
             index: index as number,
@@ -331,15 +349,17 @@ function stampGlyphSample(format: string): string {
     return text ? `<span class="${PDF_STAMP_GLYPHS_CLASS}">${escapeHtml(text)}</span>` : ''
 }
 
-function renderToc(items: PdfExportOutlineItem[], stamped: boolean): string {
+/** `outline` is every heading: a row's mark carries its heading's place there, as the heading's own mark does. */
+function renderToc(items: PdfExportOutlineItem[], outline: PdfExportOutlineItem[], stamped: boolean): string {
     if (items.length === 0) return ''
     // Every TOC number is in the same font, so the first row's sample is enough for all of them.
     const sample = stamped ? stampGlyphSample('number') : ''
+    const indexById = new Map(outline.map((item, index) => [item.id, index]))
     const list = items
         .map((item, index) => {
             const level = Math.min(item.level, 4)
             // Only the stamper can fill in a TOC page number; without it the row is just the linked title.
-            const mark = `${index === 0 ? sample : ''}${pdfTocMark(index, 'slot')}`
+            const mark = `${index === 0 ? sample : ''}${pdfTocMark(indexById.get(item.id) ?? index, 'slot')}`
             const page = stamped
                 ? `<span class="pdf-toc-leader"></span><span class="pdf-toc-num"><span class="pdf-toc-mark">${mark}</span></span>`
                 : ''
@@ -495,21 +515,25 @@ export async function renderExportPdf(
     document: ExportDocument,
     { stamped = true, allowRemoteImages = false }: PdfRenderOptions = {}
 ): Promise<PdfExportDocument> {
-    const { profile, assets, metadata, lang, tree, toc: tocItems } = document
+    const { profile, assets, metadata, lang, tree, outline, toc: tocItems } = document
     const placeholders = await transformCodeBlocks(tree, profile)
 
     // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
-    const hast = unified()
+    let hast = unified()
         .use(remarkRehype, { allowDangerousHtml: true })
         .use(rehypeRawWhenNeeded)
         .use(rehypeSanitize, exportSanitizeSchema)
         .runSync(tree) as HastRoot
+    if (hasMath(hast)) {
+        const { mathRehypePlugins } = await import('@/lib/markdown/rehype-math')
+        hast = unified().use(mathRehypePlugins).runSync(hast) as HastRoot
+    }
     openDetails(hast)
     handleWebImages(hast, allowRemoteImages)
     resolveLinks(hast)
     markTables(hast, profile)
     setTextDirection(hast, new Set(placeholders.keys()))
-    if (stamped) addHeadingMarks(hast, tocItems)
+    if (stamped) addHeadingMarks(hast, outline)
     let bodyHtml = toHtml(hast, { allowDangerousHtml: false })
 
     for (const [key, html] of placeholders) {
@@ -517,8 +541,12 @@ export async function renderExportPdf(
         bodyHtml = bodyHtml.split(`<p>${key}</p>`).join(html).split(key).join(html)
     }
 
+    // Numbering from the body: the stamper starts at the page this mark lands on. It goes last, so it never becomes the
+    // body's first child, and CSS lifts it to the top of the body's first page.
+    if (stamped && profile.footer.numberFromBody) bodyHtml += `<span class="pdf-body-mark" dir="ltr">${PDF_BODY_START_MARK}</span>`
+
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
-    const toc = renderToc(tocItems, stamped)
+    const toc = renderToc(tocItems, outline, stamped)
     const baseCss = buildPdfExportCss(profile, metadata)
     const stylesheet = stamped ? baseCss : `${baseCss}\n  ${printDialogPageNumberCss(profile, metadata)}`
     // Backstop for any profile value written into the CSS raw: `</style` would end the stylesheet and start markup.
@@ -537,5 +565,7 @@ export async function renderExportPdf(
 </body>
 </html>`
 
-    return { html, metadata, print: resolvePdfPrintOptions(profile, metadata) }
+    // The stamper turns the headings it finds marked into the PDF's bookmarks.
+    const headings = stamped ? { headings: outline.map(({ level, text }) => ({ level, text })) } : {}
+    return { html, metadata, print: { ...resolvePdfPrintOptions(profile, metadata), ...headings } }
 }

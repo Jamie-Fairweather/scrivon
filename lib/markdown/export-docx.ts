@@ -80,6 +80,7 @@ import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
 import { resolveHeadingAnchor, safeExportHref } from '@/lib/markdown/export-links'
+import { GITHUB_ALERT_COLOURS, GITHUB_ALERT_TITLES, githubAlertKind } from '@/lib/markdown/github-alerts'
 import { exportSanitizeSchema } from '@/lib/markdown/html-sanitize-schema'
 import { PDF_KEEP_TOGETHER_MAX_CODE_LINES, PDF_KEEP_TOGETHER_MAX_TABLE_ROWS } from '@/lib/markdown/markdown-to-export-html'
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
@@ -110,6 +111,8 @@ type Marks = {
     link?: boolean
     /** Half-points. Set on heading runs so they don't inherit the body size. */
     headingSize?: number
+    /** A colour of its own, as hex, such as an alert title's. */
+    color?: string
 }
 
 const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-monospace', 'ui-serif', 'ui-sans-serif'])
@@ -492,7 +495,7 @@ function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
 function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
     const phrasing: PhrasingContent[] = []
     const key = ({ bold, italics, strike, href }: HtmlMarks) => JSON.stringify([bold, italics, strike, href])
-    for (let start = 0; start < leaves.length;) {
+    for (let start = 0; start < leaves.length; ) {
         const marks = leaves[start]!.marks
         let end = start
         const nodes: PhrasingContent[] = []
@@ -1040,6 +1043,10 @@ type RenderState = {
     extraLeft: number
     /** How many quotes the blocks being rendered sit inside. */
     quoteDepth: number
+    /** The colour of the innermost quote's bar: the accent, or an alert's own colour. */
+    quoteBar: string
+    /** Whether the innermost quote is an alert, whose text isn't grey and italic. */
+    inAlert: boolean
     /** Set while a footnote's text is rendered: smaller type, and no footnotes inside it. */
     inFootnote: boolean
     /** Text width, in pixels, of the table cell being rendered, so its pictures fit inside it. Null outside tables. */
@@ -1156,6 +1163,8 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
         pageWidthTwip: widthTwip,
         extraLeft: 0,
         quoteDepth: 0,
+        quoteBar: hexColor(profile.brand.accentColor, '262626'),
+        inAlert: false,
         inFootnote: false,
         cellPx: null,
         toc: tocEntries(document),
@@ -1196,12 +1205,16 @@ const QUOTE_BAR_INSET = QUOTE_BAR.space * 20 + (QUOTE_BAR.size * 20) / 8 / 2
 
 /** The quote's accent bar, on every block inside a quote. Word draws it `space` points left of the text, at the quote's edge. */
 function quoteBorder(state: RenderState) {
-    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, ...QUOTE_BAR, color: state.accent } } : undefined
+    return state.quoteDepth > 0 ? { left: { style: BorderStyle.SINGLE, ...QUOTE_BAR, color: state.quoteBar } } : undefined
 }
 
-/** Quote text is grey and italic, as in the PDF. */
+/** Whether text is in a quote's grey italic style, as in the PDF. An alert's text isn't. */
+function inQuoteText(state: RenderState): boolean {
+    return state.quoteDepth > 0 && !state.inAlert
+}
+
 function quoteMarks(state: RenderState): Marks {
-    return state.quoteDepth > 0 ? { quote: true } : {}
+    return inQuoteText(state) ? { quote: true } : {}
 }
 
 /** Runs `render` with the content `extraLeft` twips further in, as it is drawn there. */
@@ -1258,7 +1271,7 @@ function footnoteHalfPoints(state: RenderState): number {
 
 function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     const heading = marks.headingSize
-    const color = marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined
+    const color = marks.color ?? (marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined)
     const size = heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)
     return new TextRun({
         text,
@@ -1498,7 +1511,7 @@ function renderHeading(state: RenderState, node: Heading, isFirstBlock: boolean)
     const bookmark = state.bookmarks.get(headingId(node))
     // A heading in a quote keeps its colour and is italic, as in the PDF.
     const size = headingHalfPoints(state, depth)
-    const inlines = renderInlines(state, node.children, { headingSize: size, italics: state.quoteDepth > 0 || undefined })
+    const inlines = renderInlines(state, node.children, { headingSize: size, italics: inQuoteText(state) || undefined })
     const rtl = bidi(plainText(node))
     return new Paragraph({
         heading: HEADING_LEVELS[depth - 1],
@@ -1608,9 +1621,30 @@ async function renderListItem(state: RenderState, item: ListItem, reference: str
     return blocks
 }
 
-/** Everything inside a quote, not only its paragraphs, gets the bar, the indent, and the quote text style. */
+/**
+ * Everything inside a quote, not only its paragraphs, gets the bar, the indent, and the quote text style. An alert
+ * (see remarkGithubAlerts) gets a bar in its own colour, its title in bold in that colour, and plain text.
+ */
 async function renderBlockquote(state: RenderState, node: Blockquote): Promise<Block[]> {
-    return nested(state, QUOTE_STEP, true, () => renderBlocks(state, node.children))
+    const kind = githubAlertKind(node)
+    const saved = { quoteBar: state.quoteBar, inAlert: state.inAlert }
+    state.quoteBar = kind ? GITHUB_ALERT_COLOURS[kind] : state.accent
+    state.inAlert = kind !== undefined
+    try {
+        return await nested(state, QUOTE_STEP, true, async () => {
+            if (!kind) return renderBlocks(state, node.children)
+            const title = new Paragraph({
+                ...paragraphOptions(state),
+                spacing: { after: 60, ...bodyLineSpacing(state) },
+                keepNext: true,
+                children: [...takePendingAnchors(state), textRun(state, GITHUB_ALERT_TITLES[kind], { bold: true, color: state.quoteBar })],
+            })
+            // The first child is the title paragraph the alert was given.
+            return [title, ...(await renderBlocks(state, node.children.slice(1)))]
+        })
+    } finally {
+        Object.assign(state, saved)
+    }
 }
 
 /** The header's column count. Like the PDF, short rows are padded to it and extra cells are dropped. */
@@ -1757,7 +1791,7 @@ function renderTableCell(
                 top: GRID_BORDER,
                 bottom: GRID_BORDER,
                 // In a quote, the first column's edge is the quote bar, so the bar runs on past the table.
-                left: first && state.quoteDepth > 0 ? { style: BorderStyle.SINGLE, size: QUOTE_BAR.size, color: state.accent } : GRID_BORDER,
+                left: first && state.quoteDepth > 0 ? { style: BorderStyle.SINGLE, size: QUOTE_BAR.size, color: state.quoteBar } : GRID_BORDER,
                 right: GRID_BORDER,
             },
             children: [
@@ -1827,9 +1861,11 @@ function diagramDisplaySize(
 
 function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     if (prepared.kind === 'error') {
-        return [
-            new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), textRun(state, prepared.message, { code: true })] }),
-        ]
+        // Word doesn't break a line at '\n' in a run, so each line of the message gets a run, with a break between.
+        const runs = prepared.message
+            .split(/\r?\n/)
+            .flatMap((line, index) => [...(index > 0 ? [new TextRun({ break: 1 })] : []), textRun(state, line, { code: true })])
+        return [new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), ...runs] })]
     }
     if (prepared.kind === 'diagram') {
         const size = diagramDisplaySize(state, prepared)
@@ -1946,23 +1982,37 @@ function chromeHalfPoints(state: RenderState): number {
     return Math.round(state.bodyHalfPoints * 0.85)
 }
 
-function pageNumberRuns(state: RenderState, color: string): TextRun[] {
+/**
+ * How a section's footer counts pages: every page of the document, only the body's (a section of its own that starts
+ * at 1, when numbering from the body), or not at all (the title and contents pages before such a body).
+ */
+type PageNumbering = 'document' | 'body' | 'none'
+
+/** Whether the pages are numbered from the body: the setting is on and a title or contents page comes before it. */
+function numbersFromBody(state: RenderState): boolean {
+    const { profile } = state.document
+    return profile.footer.numberFromBody && (profile.frontMatter.titlePage || state.toc.length > 0)
+}
+
+function pageNumberRuns(state: RenderState, color: string, numbering: PageNumbering): TextRun[] {
     const { profile, metadata } = state.document
     const format = profile.footer.pageNumbers
+    const total = numbering === 'body' ? PageNumber.TOTAL_PAGES_IN_SECTION : PageNumber.TOTAL_PAGES
     const run = (text?: string, field?: (typeof PageNumber)[keyof typeof PageNumber]) =>
         new TextRun({ text, children: field ? [field] : undefined, font: state.bodyFont, size: chromeHalfPoints(state), color })
-    if (format === 'none') return []
+    const template = format === 'custom' ? pdfPageNumberTemplate(profile, metadata) : ''
+    if (format === 'custom' && !template) {
+        // Plain custom text, with no counter in it, shows on every page.
+        const text = resolvePdfChromeText(profile.footer.right.text, metadata)
+        return text ? [run(text)] : []
+    }
+    if (format === 'none' || numbering === 'none') return []
     if (format === 'page-n') return [run('Page '), run(undefined, PageNumber.CURRENT)]
-    if (format === 'n-of-total') return [run(undefined, PageNumber.CURRENT), run(' / '), run(undefined, PageNumber.TOTAL_PAGES)]
+    if (format === 'n-of-total') return [run(undefined, PageNumber.CURRENT), run(' / '), run(undefined, total)]
     if (format === 'custom') {
-        const template = pdfPageNumberTemplate(profile, metadata)
-        if (!template) {
-            const text = resolvePdfChromeText(profile.footer.right.text, metadata)
-            return text ? [run(text)] : []
-        }
         return template.split(/(\{\{\s*page\s*\}\}|\{\{\s*total\s*\}\})/g).flatMap((part) => {
             if (/\{\{\s*page\s*\}\}/.test(part)) return [run(undefined, PageNumber.CURRENT)]
-            if (/\{\{\s*total\s*\}\}/.test(part)) return [run(undefined, PageNumber.TOTAL_PAGES)]
+            if (/\{\{\s*total\s*\}\}/.test(part)) return [run(undefined, total)]
             return part ? [run(part)] : []
         })
     }
@@ -2002,7 +2052,12 @@ function chromeGap(mm: number): Paragraph {
  * The header or footer bar. The page keeps its real side margins, so a bar that ignores them is
  * pulled out to the paper edge with a negative indent. `zeroSides` is a page with no side margins at all (the edge-to-edge cover).
  */
-function chromeTable(state: RenderState, kind: 'header' | 'footer', zeroSides: boolean): (Paragraph | Table)[] {
+function chromeTable(
+    state: RenderState,
+    kind: 'header' | 'footer',
+    zeroSides: boolean,
+    numbering: PageNumbering = 'document'
+): (Paragraph | Table)[] {
     const { profile, metadata, assets } = state.document
     const layout = resolvePdfExportLayout(profile)
     const chrome = kind === 'header' ? profile.header : profile.footer
@@ -2016,7 +2071,8 @@ function chromeTable(state: RenderState, kind: 'header' | 'footer', zeroSides: b
     const leftImage = embeddedImage(decodeImage(state.images, images.left), 160, maxHeight, `${kind} left`)
     const rightImage = embeddedImage(decodeImage(state.images, images.right), 160, maxHeight, `${kind} right`)
     const leftText = resolvePdfChromeText(chrome.left.text, metadata)
-    const rightRuns = kind === 'footer' ? pageNumberRuns(state, color) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
+    const rightRuns =
+        kind === 'footer' ? pageNumberRuns(state, color, numbering) : textRuns(state, resolvePdfChromeText(chrome.right.text, metadata), color)
     const leftChildren = [...(leftImage ? [leftImage] : []), ...textRuns(state, leftText, color)]
     const rightChildren = [...rightRuns, ...(rightImage ? [rightImage] : [])]
     const width = bleeds ? state.pageWidthTwip : state.contentTwip
@@ -2407,7 +2463,10 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
     const prepared = state.prepared.get(node)
     const diagram = prepared?.kind === 'diagram' ? diagramDisplaySize(state, prepared, measuredPx(state, width)) : null
     if (diagram) return pxToTwip(diagram.height) + 120
-    if (prepared?.kind === 'error') return textBlockTwip(state, prepared.message, state.bodyHalfPoints, width, 0, 120)
+    if (prepared?.kind === 'error') {
+        // Each line of the message starts a new line, as renderPrepared writes it.
+        return prepared.message.split(/\r?\n/).reduce((height, line) => height + textBlockTwip(state, line, state.bodyHalfPoints, width, 0, 0), 120)
+    }
     const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
     // A code line is about 276 twips with the default 9pt code, and grows with it.
     return 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)
@@ -2528,7 +2587,8 @@ function headingPages(state: RenderState): Map<string, number> {
             used += height
         }
     }
-    const cursor = { page: page + 1, used: 0 }
+    // Numbered from the body, its first page is page 1.
+    const cursor = { page: numbersFromBody(state) ? 1 : page + 1, used: 0 }
     const pages = new Map<string, number>()
     measureFlow(state, tree.children, state.contentTwip, pages, cursor, pageContentTwip(state, 'body'), true)
     return pages
@@ -2614,7 +2674,13 @@ function isCoverEdge(state: RenderState, showHeader: boolean, titleOnly: boolean
     return titleOnly && logoHasBleed(state) && !showHeader
 }
 
-function sectionProperties(state: RenderState, showHeader: boolean, showFooter: boolean, titleOnly: boolean): ISectionOptions['properties'] {
+function sectionProperties(
+    state: RenderState,
+    showHeader: boolean,
+    showFooter: boolean,
+    titleOnly: boolean,
+    restartNumbers = false
+): ISectionOptions['properties'] {
     const { profile } = state.document
     const layout = resolvePdfExportLayout(profile)
     const portrait = pdfPageSizeMm(profile)
@@ -2648,13 +2714,16 @@ function sectionProperties(state: RenderState, showHeader: boolean, showFooter: 
                 header: edgeDistance(layout.headerBleeds && showHeader, margins.top),
                 footer: edgeDistance(layout.footerBleeds && showFooter, margins.bottom),
             },
+            ...(restartNumbers ? { pageNumbers: { start: 1 } } : {}),
         },
     }
 }
 
 function buildSections(state: RenderState, groups: { id: FrontGroup; children: Block[] }[], watermark: Picture | null): ISectionOptions[] {
     const { profile } = state.document
-    const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; children: Block[] }[] = []
+    // Numbered from the body, the body is a section of its own whose numbers start at 1.
+    const fromBody = numbersFromBody(state)
+    const merged: { key: string; showHeader: boolean; showFooter: boolean; titleOnly: boolean; body: boolean; children: Block[] }[] = []
     for (const group of groups) {
         const showHeader = pdfChromeShown(profile, 'header', group.id)
         const showFooter = pdfChromeShown(profile, 'footer', group.id)
@@ -2663,11 +2732,12 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         // A cover with no bleeding image is centred on its page, which only works in a section of its own.
         // A bleeding cover stays merged: its spacing assumes it shares the next page's margins.
         const keepTitleAlone = previous?.titleOnly === true && !logoHasBleed(state)
-        if (previous && previous.key === key && !keepTitleAlone) {
+        const ownSection = fromBody && group.id === 'body'
+        if (previous && previous.key === key && !keepTitleAlone && !ownSection) {
             previous.titleOnly = false
             previous.children.push(new Paragraph({ children: [new PageBreak()] }), ...group.children)
         } else {
-            merged.push({ key, showHeader, showFooter, titleOnly: group.id === 'title', children: [...group.children] })
+            merged.push({ key, showHeader, showFooter, titleOnly: group.id === 'title', body: group.id === 'body', children: [...group.children] })
         }
     }
 
@@ -2675,13 +2745,14 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
         const zeroSides = isCoverEdge(state, section.showHeader, section.titleOnly)
         const chrome = section.showHeader ? chromeTable(state, 'header', zeroSides) : []
         const headerChildren = [...chrome, ...watermarkBlocks(state, watermark)]
+        const numbering: PageNumbering = !fromBody ? 'document' : section.body ? 'body' : 'none'
         return {
             properties: {
-                ...sectionProperties(state, section.showHeader, section.showFooter, section.titleOnly),
+                ...sectionProperties(state, section.showHeader, section.showFooter, section.titleOnly, numbering === 'body'),
                 type: index === 0 ? undefined : SectionType.NEXT_PAGE,
             },
             headers: headerChildren.length > 0 ? { default: new Header({ children: headerChildren }) } : undefined,
-            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer', zeroSides) }) } : undefined,
+            footers: section.showFooter ? { default: new Footer({ children: chromeTable(state, 'footer', zeroSides, numbering) }) } : undefined,
             children: section.children,
         }
     })
@@ -2715,9 +2786,20 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     }
 }
 
+/** Word can't draw MathML, so math is written as its TeX source in the code font: a block as code, inline math as inline code. */
+function mathAsCode(tree: Root): void {
+    visit(tree, (node, index, parent) => {
+        if (!parent || index === undefined) return
+        const children = parent.children as RootContent[]
+        if (node.type === 'math') children[index] = { type: 'code', lang: 'latex', value: node.value }
+        else if (node.type === 'inlineMath') children[index] = { type: 'inlineCode', value: node.value }
+    })
+}
+
 /** Word renderer for an {@link ExportDocument}. */
 export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
     const document = xmlSafeDocument(source)
+    mathAsCode(document.tree)
     expandHtml(document.tree)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {

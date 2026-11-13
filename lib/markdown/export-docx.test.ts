@@ -8,6 +8,7 @@ const renderMermaidDiagramForExport = vi.hoisted(() =>
     vi.fn((source: string) => {
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
+        if (source.includes('throw-lines')) throw new Error('Pies are not drawn yet. Scrivon can draw:\n• Flowcharts\r\n• Sequence diagrams')
         // The size of the 1×1 PNG svgToPngBlob hands back.
         return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
@@ -538,6 +539,14 @@ describe('renderExportDocx', () => {
         expect(body).not.toContain('graph TD')
         expect(body).not.toContain('<w:drawing>')
         expect(svgToPngBlob).not.toHaveBeenCalled()
+    })
+
+    it('writes each line of a diagram error on a line of its own, as Word ignores line breaks inside a run', async () => {
+        const { parts } = await render(['Before.', '', fence('mermaid', 'throw-lines'), '', 'After.'].join('\n'))
+        const paragraph = blockWith(parts['word/document.xml']!, '• Sequence diagrams')
+        const texts = [...paragraph.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>|<w:br\/>/g)].map((match) => match[1] ?? 'BREAK')
+        expect(texts).toEqual(['Pies are not drawn yet. Scrivon can draw:', 'BREAK', '• Flowcharts', 'BREAK'])
+        expect(runWith(parts['word/document.xml']!, '• Flowcharts')).toContain('w:ascii="Consolas"')
     })
 
     it('gives each diagram its own alt text, and leaves a picture with none without a made-up one', async () => {
@@ -1795,6 +1804,50 @@ describe('renderExportDocx', () => {
         expect(emptyCustom.xml).not.toContain('Draft')
     })
 
+    it('numbers pages from the body: Word restarts at 1 there and counts only its pages (F48)', async () => {
+        const front = (fromBody: boolean) => (draft: PdfExportProfile) => {
+            draft.frontMatter.titlePage = true
+            draft.frontMatter.toc = true
+            draft.footer.pageNumbers = 'n-of-total'
+            // The footer shows on every page, so the title and contents pages have one too.
+            draft.footer.hideOnFirstPages = 'none'
+            draft.footer.numberFromBody = fromBody
+        }
+        const source = '# Report\n\n## Setup\n\nBody'
+        const footers = (parts: Record<string, string>) =>
+            Object.keys(parts)
+                .filter((name) => /^word\/footer\d+\.xml$/.test(name))
+                .map((name) => parts[name]!)
+        const sections = (xml: string) => [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].map((match) => match[0])
+
+        const fromBody = await render(source, front(true))
+        const body = fromBody.parts['word/document.xml']!
+        // Title, contents and body each get a section; only the body's restarts the numbers.
+        expect(sections(body)).toHaveLength(3)
+        expect(sections(body).map((section) => section.includes('<w:pgNumType w:start="1"/>'))).toEqual([false, false, true])
+        // The body's footer counts the body's pages; the front pages' footers show no number.
+        const numbered = footers(fromBody.parts).filter((footer) => footer.includes('>PAGE</w:instrText>'))
+        expect(numbered).toHaveLength(1)
+        expect(numbered[0]).toContain('>SECTIONPAGES</w:instrText>')
+        expect(numbered[0]).not.toContain('NUMPAGES')
+        // The contents row shows the heading's page counted from the body.
+        expect(tocPage(fromBody.xml, 'Setup')).toBe(1)
+
+        const counted = await render(source, front(false))
+        expect(counted.xml).not.toMatch(/<w:pgNumType[^>]*w:start=/)
+        expect(counted.xml).not.toContain('SECTIONPAGES')
+        expect(footers(counted.parts).every((footer) => footer.includes('>PAGE</w:instrText>'))).toBe(true)
+        expect(tocPage(counted.xml, 'Setup')).toBe(3)
+
+        // With no title or contents page, nothing comes before the body to skip.
+        const plain = await render(source, (draft) => {
+            draft.footer.pageNumbers = 'n-of-total'
+            draft.footer.numberFromBody = true
+        })
+        expect(plain.xml).not.toMatch(/<w:pgNumType[^>]*w:start=/)
+        expect(plain.parts['word/footer1.xml']).toContain('NUMPAGES')
+    })
+
     it('paints a watermark image when canvas can encode one', async () => {
         stubDocument('png')
         const { xml } = await render('# Hi', (draft) => {
@@ -2558,3 +2611,26 @@ function stubDocument(mode: 'png' | 'no-context' | 'no-blob') {
     })
     return canvases
 }
+
+describe('renderExportDocx: GitHub alerts and math', () => {
+    it('writes an alert with a bar and bold title in its colour, and plain text', async () => {
+        const { xml } = await render(['> [!TIP]', '> tip-text', '>', '> | tip-cell |', '> | --- |', '>', '> > inner-quote'].join('\n'))
+        const green = '<w:pBdr><w:left w:val="single" w:color="1A7F37" w:sz="12" w:space="11"/></w:pBdr>'
+        expect(blockWith(xml, 'Tip')).toContain(green)
+        expect(runWith(xml, 'Tip')).toContain('<w:b/>')
+        expect(runWith(xml, 'Tip')).toContain('<w:color w:val="1A7F37"/>')
+        expect(blockWith(xml, 'tip-text')).toContain(green)
+        expect(runWith(xml, 'tip-text')).not.toContain('<w:i/>')
+        expect(runWith(xml, 'tip-text')).not.toContain('<w:color')
+        expect(blockWith(xml, 'tip-cell', '<w:tc>')).toContain('<w:left w:val="single" w:color="1A7F37" w:sz="12"/>')
+        // A quote inside it is a quote again: grey italic text by the accent bar.
+        expect(blockWith(xml, 'inner-quote')).toContain('<w:left w:val="single" w:color="262626" w:sz="12" w:space="11"/>')
+        expect(runWith(xml, 'inner-quote')).toContain('<w:i/>')
+    })
+
+    it('writes math as its TeX source in the code font', async () => {
+        const { xml } = await render(['Inline $E = mc^2$ here.', '', '$$', '\\frac{1}{3}', '$$'].join('\n'))
+        expect(runWith(xml, 'E = mc^2')).toContain('w:ascii="Consolas"')
+        expect(runWith(xml, '\\frac{1}{3}')).toContain('w:ascii="Consolas"')
+    })
+})
