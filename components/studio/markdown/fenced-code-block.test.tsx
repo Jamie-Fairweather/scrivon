@@ -1,4 +1,5 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHighlightCache, FencedCodeBlock } from './fenced-code-block'
@@ -19,6 +20,9 @@ function shikiHtml(code: string, theme: string): string {
     return `<pre class="shiki" data-theme="${theme}"><code>${code}</code></pre>`
 }
 
+const notifyError = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/notify', () => ({ notifyError }))
+
 vi.mock('@/lib/markdown/shiki-highlighter', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/markdown/shiki-highlighter')>()),
     highlightFencedCodeNow: (code: string, _language: string | undefined, theme: string) =>
@@ -29,7 +33,7 @@ vi.mock('@/lib/markdown/shiki-highlighter', async (importOriginal) => ({
 
 /** What the block shows: its text, whether it's coloured, and in which theme. */
 function shown(container: HTMLElement) {
-    const block = container.firstElementChild as HTMLElement
+    const block = container.querySelector<HTMLElement>('[data-mode]')!
     return { text: block.textContent, mode: block.dataset.mode, theme: block.querySelector('pre')?.dataset.theme }
 }
 
@@ -276,5 +280,66 @@ describe('createHighlightCache (N71)', () => {
         cache.set('a', '1')
         cache.set('big', '123456789')
         expect([cache.has('a'), cache.has('big')]).toEqual([true, false])
+    })
+})
+
+describe('FencedCodeBlock: Copy button', () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+
+    function setClipboard(writeText: (text: string) => Promise<void>) {
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    }
+
+    beforeEach(() => {
+        shiki.readyThemes = new Set(['github-dark'])
+        notifyError.mockClear()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+        if (original) Object.defineProperty(navigator, 'clipboard', original)
+        else Reflect.deleteProperty(navigator, 'clipboard')
+    })
+
+    it('shows the language and copies the code, then says so for a moment', async () => {
+        vi.useFakeTimers()
+        const writeText = vi.fn(async () => {})
+        setClipboard(writeText)
+        render(<FencedCodeBlock code={'const a = 1\nconst b = 2'} language="ts" />)
+        expect(screen.getByText('ts')).toBeInTheDocument()
+
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Copy code' })))
+        expect(writeText).toHaveBeenCalledWith('const a = 1\nconst b = 2')
+        expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+
+        act(() => vi.advanceTimersByTime(2000))
+        expect(screen.getByRole('button', { name: 'Copy code' })).toBeInTheDocument()
+    })
+
+    it('can be reached and used with the keyboard', async () => {
+        const user = userEvent.setup()
+        // After setup, which puts in a clipboard of its own.
+        const writeText = vi.fn(async () => {})
+        setClipboard(writeText)
+        render(<FencedCodeBlock code="echo hi" language="sh" />)
+
+        await user.tab()
+        expect(screen.getByRole('button', { name: 'Copy code' })).toHaveFocus()
+        await user.keyboard('{Enter}')
+        expect(writeText).toHaveBeenCalledWith('echo hi')
+    })
+
+    it("says when the code couldn't be copied", async () => {
+        setClipboard(async () => Promise.reject(new Error('Not allowed')))
+        render(<FencedCodeBlock code="echo hi" />)
+
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Copy code' })))
+        expect(notifyError).toHaveBeenCalledWith("Couldn't copy the code", expect.any(Error))
+        expect(screen.getByRole('button', { name: 'Copy code' })).toBeInTheDocument()
+    })
+
+    it('shows no label for a block without a language', () => {
+        const { container } = render(<FencedCodeBlock code="plain" />)
+        expect(container.querySelector('[data-code-language]')).toBeNull()
     })
 })

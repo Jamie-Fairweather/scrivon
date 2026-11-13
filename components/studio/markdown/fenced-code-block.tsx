@@ -1,9 +1,11 @@
 'use client'
 
+import { Check, Copy } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import type { BundledTheme } from 'shiki'
 import { highlightFencedCode, highlightFencedCodeNow, previewCodeTheme } from '@/lib/markdown/shiki-highlighter'
+import { notifyError } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 
 const HIGHLIGHT_IDLE_MS = 400
@@ -12,7 +14,7 @@ const MAX_HIGHLIGHT_CACHE_ENTRIES = 200
 const MAX_HIGHLIGHT_CACHE_CHARS = 4_000_000
 
 const WRAPPER_CLASS =
-    'mb-4 overflow-x-auto rounded-lg border border-border bg-muted/40 text-xs [&_code]:font-mono [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:p-3'
+    'overflow-x-auto rounded-lg border border-border bg-muted/40 text-xs [&_code]:font-mono [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:p-3'
 const PLAIN_PRE_CLASS = 'm-0 bg-transparent p-3'
 const PLAIN_CODE_CLASS = 'font-mono text-xs text-foreground'
 
@@ -226,5 +228,60 @@ export function FencedCodeBlock({ code, language, className }: FencedCodeBlockPr
     }, [cacheKey, code, language, theme])
 
     // Code reads left to right, even in a right-to-left list item or quote.
-    return <div ref={containerRef} dir="ltr" className={cn(WRAPPER_CLASS, className)} />
+    return (
+        <div dir="ltr" className={cn('group/code relative mb-4', className)}>
+            <div ref={containerRef} className={WRAPPER_CLASS} />
+            <CodeBlockToolbar code={code} language={language} />
+        </div>
+    )
+}
+
+/** How long the Copy button says "Copied". */
+const COPIED_MS = 2000
+
+/** The block's language and a Copy button, in its top corner. They show while the block is pointed at or has focus. */
+function CodeBlockToolbar({ code, language }: { code: string; language?: string }) {
+    const [copied, setCopied] = useState(false)
+    const timerRef = useRef<number | undefined>(undefined)
+    useEffect(() => () => window.clearTimeout(timerRef.current), [])
+
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(code)
+        } catch (error) {
+            notifyError("Couldn't copy the code", error)
+            return
+        }
+        setCopied(true)
+        window.clearTimeout(timerRef.current)
+        timerRef.current = window.setTimeout(() => setCopied(false), COPIED_MS)
+    }
+
+    return (
+        <div
+            className="absolute top-1.5 right-1.5 flex items-center gap-1.5 rounded-md border border-border bg-background/90 ps-2 opacity-0
+                transition-opacity group-focus-within/code:opacity-100 group-hover/code:opacity-100"
+        >
+            {language && (
+                <span data-code-language className="font-mono text-[11px] text-muted-foreground">
+                    {language}
+                </span>
+            )}
+            <button
+                type="button"
+                aria-label={copied ? 'Copied' : 'Copy code'}
+                title={copied ? 'Copied' : 'Copy code'}
+                onClick={() => void copy()}
+                className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground outline-none hover:bg-muted
+                    hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+                {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+                {copied && 'Copied'}
+            </button>
+            {/* Read out by screen readers, which don't always say a button's new name. */}
+            <span role="status" className="sr-only">
+                {copied ? 'Copied' : ''}
+            </span>
+        </div>
+    )
 }
