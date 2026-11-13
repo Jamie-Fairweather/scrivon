@@ -33,6 +33,7 @@ import {
     MenuTrigger,
 } from '@/components/ui/menu'
 import { MenuBarUpdateButton } from '@/components/studio/shell/menu-bar-update-button'
+import { TitleBarDocumentName } from '@/components/studio/shell/title-bar-document-name'
 import { ThemeMenu } from '@/components/studio/theme/theme-menu'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
@@ -236,9 +237,13 @@ export function StudioMenuBar() {
 
             {isDesktop ? (
                 // Tauri's built-in drag script handles both dragging and double-click to maximise here.
-                <div className="min-h-0 min-w-0 flex-1 self-stretch" data-tauri-drag-region />
+                <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center self-stretch px-3" data-tauri-drag-region>
+                    <TitleBarDocumentName />
+                </div>
             ) : (
-                <div className="min-w-0 flex-1" />
+                <div className="flex min-w-0 flex-1 items-center justify-center px-3">
+                    <TitleBarDocumentName />
+                </div>
             )}
 
             {isDesktop && <WindowTitlebarControls />}
