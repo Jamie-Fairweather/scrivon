@@ -60,6 +60,17 @@ describe('diagram rendering', () => {
         }
     })
 
+    it.each([
+        ['a flag node', 'graph TD\n  A>x;y] --> B[End]'],
+        ['edge text', 'graph TD\n  A[Start] -- x;y --> B[End]'],
+        ['dotted edge text', 'graph TD\n  A[Start] -. x;y .-> B[End]'],
+        ['thick edge text', 'graph TD\n  A[Start] == x;y ==> B[End]'],
+    ])('draws a semicolon in %s as it did before the tidy-up', (_name, source) => {
+        const before = addMessageLabelHalo(stripRemoteFontImports(renderMermaidSVG(source, getMermaidRenderOptions('scrivon-light'))))
+        expect(before).toContain('>x;y</text>')
+        expect(renderMermaidDiagram(source, 'scrivon-light')).toBe(before)
+    })
+
     it('says a pie chart is not supported yet, for the preview and for exports', () => {
         const pie = 'pie title Pets\n  "Dogs" : 386'
         expect(() => renderMermaidDiagram(pie, 'scrivon-light')).toThrow(/^Pie charts aren't supported yet\. Scrivon can draw:\n• Flowcharts/)

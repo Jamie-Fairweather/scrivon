@@ -58,13 +58,26 @@ const FENCE = /^[ \t]*---[ \t]*\r?$/
 const FLOWCHART_HEADER = /^[ \t]*(?:graph|flowchart)\b[ \t]*([^\s;]*)/i
 const HEADER_WORD = /^[ \t]*([A-Za-z0-9]+)(?:-beta)?\b/
 
-/** Front matter (`---` … `---` at the top) holds settings and a title; the renderer would read it as the header. */
-function blankFrontMatter(lines: string[]): void {
+/** The first and last line of the front matter (`---` … `---` at the top), or null when there is none. */
+function frontMatterLines(lines: string[]): [start: number, end: number] | null {
     const start = lines.findIndex((line) => line.trim() !== '')
-    if (start === -1 || !FENCE.test(lines[start]!)) return
+    if (start === -1 || !FENCE.test(lines[start]!)) return null
     const end = lines.findIndex((line, i) => i > start && FENCE.test(line))
-    if (end === -1) return
-    for (let i = start; i <= end; i++) lines[i] = ''
+    return end === -1 ? null : [start, end]
+}
+
+/** Front matter holds settings and a title; the renderer would read it as the header. */
+function blankFrontMatter(lines: string[]): void {
+    const range = frontMatterLines(lines)
+    if (range) lines.fill('', range[0], range[1] + 1)
+}
+
+/** The `title:` in the diagram's front matter, which Mermaid shows above the diagram. */
+export function readFrontMatterTitle(source: string): string | null {
+    const lines = source.split('\n')
+    const range = frontMatterLines(lines)
+    const line = range ? lines.slice(range[0] + 1, range[1]).find((text) => text.startsWith('title:')) : undefined
+    return line?.slice('title:'.length).trim() || null
 }
 
 /** `%%` comments and `%%{init}%%` settings. The renderer skips them, but not when they come before the header. */
@@ -74,31 +87,64 @@ function blankComments(lines: string[]): void {
     }
 }
 
+/** Edge text written inline starts with `--`, `-.` or `==` and a space, as in `A -- yes --> B`. */
+const EDGE_TEXT_START = /(?<![-=.])(?:--|-\.|==)\s/y
+/** It ends at the next arrow with a space before it, as beautiful-mermaid reads it. */
+const EDGE_TEXT_END = /\s(?:-->|---|\.->|-\.-|==>|===)/g
+
+/** Where the inline edge text that starts at `i` ends, or -1 when no arrow closes it. */
+function edgeTextEnd(line: string, i: number): number {
+    let text = i + 2
+    while (text < line.length && /\s/.test(line[text]!)) text++
+    // The text is at least one character long.
+    EDGE_TEXT_END.lastIndex = text + 1
+    return EDGE_TEXT_END.exec(line) ? EDGE_TEXT_END.lastIndex : -1
+}
+
 /**
- * A flowchart line split at its semicolons (`A --> B; B --> C`), leaving those inside quotes,
- * node labels and `|edge text|` alone. Empty statements (a trailing `;`) are dropped.
+ * A flowchart line split at its semicolons (`A --> B; B --> C`), leaving those inside quotes, node
+ * labels (`A[a;b]`, the flag `A>a;b]`), `|edge text|` and inline edge text (`-- a;b -->`) alone.
+ * Empty statements (a trailing `;`) are dropped.
  */
 function flowchartStatements(line: string): string[] {
     const statements: string[] = []
     let depth = 0
     let quoted = false
     let piped = false
+    // Once edge text finds no arrow to close it, none later on the line can either.
+    let edgeTextCloses = true
     let start = 0
     for (let i = 0; i < line.length; i++) {
-        const char = line[i]
-        if (char === '"') quoted = !quoted
+        const char = line[i]!
+        if (piped) piped = char !== '|'
+        else if (char === '"') quoted = !quoted
         else if (quoted) continue
         else if (char === '[' || char === '(' || char === '{') depth++
-        else if ((char === ']' || char === ')' || char === '}') && depth > 0) depth--
-        else if (char === '|' && depth === 0) piped = !piped
-        else if (char === ';' && depth === 0 && !piped) {
+        else if (char === ']' || char === ')' || char === '}') depth = Math.max(0, depth - 1)
+        else if (depth > 0) continue
+        // A flag node opens with `>` straight after its id: `A>Flag]`. In an arrow it follows `-`, `=` or `.`.
+        else if (char === '>' && /\w/.test(line[i - 1] ?? '')) depth++
+        else if (char === '|') piped = true
+        else if (char === ';') {
             statements.push(line.slice(start, i))
             start = i + 1
+        } else if (edgeTextCloses && (char === '-' || char === '=')) {
+            EDGE_TEXT_START.lastIndex = i
+            if (!EDGE_TEXT_START.test(line)) continue
+            const end = edgeTextEnd(line, i)
+            if (end === -1) edgeTextCloses = false
+            else i = end - 1
         }
     }
     statements.push(line.slice(start))
     const [first, ...rest] = statements
     return [first!, ...rest.filter((statement) => statement.trim() !== '')]
+}
+
+/** A header line without its trailing `;` (`stateDiagram-v2;`). No regex, so a long run of spaces stays quick. */
+function withoutTrailingSemicolon(line: string): string {
+    const trimmed = line.trimEnd()
+    return trimmed.endsWith(';') ? trimmed.slice(0, -1).trimEnd() : line
 }
 
 /**
@@ -119,7 +165,7 @@ export function prepareMermaidSource(source: string): string {
 
     const flowchart = FLOWCHART_HEADER.exec(lines[headerIndex]!)
     if (!flowchart) {
-        lines[headerIndex] = lines[headerIndex]!.replace(/[ \t]*;[ \t]*(\r?)$/, '$1')
+        lines[headerIndex] = withoutTrailingSemicolon(lines[headerIndex]!)
         return lines.join('\n')
     }
 

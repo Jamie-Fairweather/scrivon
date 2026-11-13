@@ -1,3 +1,4 @@
+import { SnippetParser } from 'monaco-editor/editor/contrib/snippet/browser/snippetParser.js'
 import { language as markdownLanguage } from 'monaco-editor/languages/definitions/markdown/markdown.js'
 import { describe, expect, it, vi } from 'vitest'
 import { MERMAID_LANGUAGE_ID, mermaidLanguageConfiguration, mermaidMonarchLanguage, registerMermaidLanguage } from '@/lib/monaco/mermaid-language'
@@ -65,6 +66,7 @@ describe('Mermaid grammar', () => {
         ['{{hexagon}}', '{{', 'hexagon', '}}'],
         ['[/slant/]', '[/', 'slant', '/]'],
         ['(round)', '(', 'round', ')'],
+        ['>flag]', '>', 'flag', ']'],
     ])('colours the %s node shape', (shape, open, label, close) => {
         expect(colours(`A${shape}`)).toEqual([
             [
@@ -301,6 +303,54 @@ describe('Mermaid grammar', () => {
     })
 })
 
+/**
+ * The brackets the editor would mark as unmatched in `text`. Like Monaco, it pairs the configured brackets
+ * in every token except strings, comments and regexes, so arrows count too.
+ */
+function strayBrackets(text: string): string[] {
+    const closers = new Map((mermaidLanguageConfiguration.brackets ?? []).map(([open, close]) => [open, close]))
+    const closing = new Set(closers.values())
+    const open: string[] = []
+    const stray: string[] = []
+    for (const line of tokenizeLines(MERMAID_LANGUAGE_ID, text)) {
+        for (const [part, type] of line) {
+            if (/\b(?:comment|string|regexp?)\b/.test(type)) continue
+            for (const char of part) {
+                if (closers.has(char)) open.push(closers.get(char)!)
+                else if (closing.has(char) && open.at(-1) === char) open.pop()
+                else if (closing.has(char)) stray.push(char)
+            }
+        }
+    }
+    return [...stray, ...open]
+}
+
+describe('mermaidLanguageConfiguration', () => {
+    it.each([
+        ...MERMAID_SNIPPETS.map((snippet) => [snippet.label, new SnippetParser().parse(snippet.body).toString()]),
+        ['entity relationship ends', 'erDiagram\n  A ||--o{ B : has\n  B }|..|{ C : uses\n  C }o--o| D : maybe'],
+        ['async sequence arrows', 'sequenceDiagram\n  A-)B: go\n  A--)B: back'],
+        ['every node shape', 'graph TD\n  A[a] --> B(b) --> C{c} --> D((d)) --> E([e]) --> F[[f]] --> G[(g)] --> H{{h}} --> I>i]'],
+    ])('pairs no bracket that Mermaid leaves unpaired, so none shows as unmatched: %s', (_name, text) => {
+        expect(strayBrackets(text)).toEqual([])
+    })
+
+    it('pairs no brackets at all, so none is coloured by depth instead of by the theme', () => {
+        expect(mermaidLanguageConfiguration.brackets).toEqual([])
+        expect(mermaidLanguageConfiguration.colorizedBracketPairs).toBeUndefined()
+    })
+
+    it('indents a block in braces on Enter', () => {
+        const [between, after] = mermaidLanguageConfiguration.onEnterRules!
+        expect(between!.beforeText.test('  class Animal {') && between!.afterText!.test('}')).toBe(true)
+        expect(between!.action.indentAction).toBe(2) // IndentOutdent
+        expect(after!.beforeText.test('  CUSTOMER {')).toBe(true)
+        expect(after!.afterText).toBeUndefined()
+        expect(after!.action.indentAction).toBe(1) // Indent
+        expect(after!.beforeText.test('  A{Choice}')).toBe(false)
+    })
+})
+
 describe('registerMermaidLanguage', () => {
     function fakeMonaco() {
         return {
@@ -331,7 +381,7 @@ describe('registerMermaidLanguage', () => {
         const [language, provider] = monaco.languages.registerCompletionItemProvider.mock.calls[0]!
         expect(language).toBe('mermaid')
 
-        const model = { getWordUntilPosition: () => ({ word: 'seq', startColumn: 1, endColumn: 4 }) }
+        const model = { getLineContent: () => 'seq' }
         const { suggestions } = provider.provideCompletionItems(model, { lineNumber: 1, column: 4 })
         const range = { startLineNumber: 1, endLineNumber: 1, startColumn: 1, endColumn: 4 }
         expect(suggestions).toEqual(
@@ -344,5 +394,20 @@ describe('registerMermaidLanguage', () => {
                 range,
             }))
         )
+    })
+
+    it.each([
+        ['stateDiagram-', 14, 1],
+        ['  xychart-be', 13, 3],
+        ['%% x-axis', 10, 4],
+        ['A --> B', 8, 7],
+        ['stateDiagram-v2 more', 14, 1],
+        ['', 1, 1],
+    ])('replaces the whole header typed so far, dashes and all: %j at column %i', (line, column, startColumn) => {
+        const monaco = fakeMonaco()
+        registerMermaidLanguage(monaco as unknown as Parameters<typeof registerMermaidLanguage>[0])
+        const [, provider] = monaco.languages.registerCompletionItemProvider.mock.calls[0]!
+        const { suggestions } = provider.provideCompletionItems({ getLineContent: () => line }, { lineNumber: 3, column })
+        expect(suggestions[0].range).toEqual({ startLineNumber: 3, endLineNumber: 3, startColumn, endColumn: column })
     })
 })

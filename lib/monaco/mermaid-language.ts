@@ -3,18 +3,25 @@ import { MERMAID_SNIPPETS } from '@/lib/monaco/mermaid-snippets'
 
 /**
  * Mermaid for the editor: colours for .mmd and .mermaid files and for ```mermaid blocks in Markdown,
- * `%%` comments with Ctrl+/, and matching brackets. Node ids stay in the body text colour, so
+ * `%%` comments with Ctrl+/, and indented blocks in braces. Node ids stay in the body text colour, so
  * keywords, arrows and labels stand out.
  */
 
 export const MERMAID_LANGUAGE_ID = 'mermaid'
 
+/** Monaco's `IndentAction` values. Only the editor's types are loaded here, not its code. */
+const INDENT: languages.IndentAction = 1
+const INDENT_OUTDENT: languages.IndentAction = 2
+
 export const mermaidLanguageConfiguration: languages.LanguageConfiguration = {
     comments: { lineComment: '%%' },
-    brackets: [
-        ['[', ']'],
-        ['(', ')'],
-        ['{', '}'],
+    // Mermaid uses brackets unpaired, in arrows (`||--o{`, `-)`) and in the flag shape (`A>flag]`), and the
+    // editor would paint those red. So it pairs none, and brackets keep the theme's colour, not a rainbow.
+    brackets: [],
+    // Enter after `{` (a class, a state, an entity) indents the next line; between `{` and `}` it puts `}` on a line below.
+    onEnterRules: [
+        { beforeText: /\{\s*$/, afterText: /^\s*\}/, action: { indentAction: INDENT_OUTDENT } },
+        { beforeText: /\{\s*$/, action: { indentAction: INDENT } },
     ],
     autoClosingPairs: [
         { open: '[', close: ']' },
@@ -141,6 +148,8 @@ export const mermaidMonarchLanguage: languages.IMonarchLanguage = {
             [/\}/, 'delimiter.bracket'],
             // Node shapes: [box], (round), {choice}, ((circle)), [[sub]], [(database)], {{hexagon}} and more.
             [/\[\[|\[\(|\[\/|\[\\|\(\(\(|\(\(|\(\[|\{\{|[[({]/, { token: 'delimiter.bracket', next: '@label' }],
+            // The flag shape opens with `>` straight after the node id: A>flag]
+            [/(\w+)(>)/, ['', { token: 'delimiter.bracket', next: '@label' }]],
 
             [/\d+(?:\.\d+)?(?![\w])/, 'number'],
             [/[A-Za-z_À-￿][\wÀ-￿]*/, { cases: { '@keywords': 'keyword', '@directions': 'keyword', '@default': '' } }],
@@ -166,12 +175,15 @@ export function registerMermaidLanguage(monaco: Pick<typeof import('monaco-edito
     languages.setLanguageConfiguration(MERMAID_LANGUAGE_ID, mermaidLanguageConfiguration)
     languages.registerCompletionItemProvider(MERMAID_LANGUAGE_ID, {
         provideCompletionItems(model, position) {
-            const word = model.getWordUntilPosition(position)
+            // The header typed so far, dashes and all (`stateDiagram-`), so the starter replaces all of it.
+            const line = model.getLineContent(position.lineNumber)
+            let start = position.column - 1
+            while (start > 0 && /[\w-]/.test(line[start - 1]!)) start--
             const range = {
                 startLineNumber: position.lineNumber,
                 endLineNumber: position.lineNumber,
-                startColumn: word.startColumn,
-                endColumn: word.endColumn,
+                startColumn: start + 1,
+                endColumn: position.column,
             }
             return {
                 suggestions: MERMAID_SNIPPETS.map((snippet) => ({
