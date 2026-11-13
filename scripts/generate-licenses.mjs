@@ -13,8 +13,9 @@ const cargoManifest = join(root, 'src-tauri', 'Cargo.toml')
 const spdxTextDir = join(__dirname, 'data', 'licenses', 'spdx')
 const fontLicenseDir = join(__dirname, 'data', 'licenses', 'fonts')
 
-// Installers are only built for Windows, so list the crates linked into the Windows binary.
-const RUST_TARGET = 'x86_64-pc-windows-msvc'
+// Installers are only built for Windows, x64 and ARM64. Both apps ship this one list, so it names the
+// crates linked into either binary. Keep it the same as the installer builds' matrix (ci.yml).
+export const RUST_TARGETS = ['x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc']
 
 // Fonts that next/font/google bundles into the static export (app/layout.tsx).
 const BUNDLED_FONTS = [
@@ -308,11 +309,10 @@ function npmPackageEntry(name) {
 }
 
 /**
- * Crates compiled into the app from `cargo metadata` output: everything reachable from the root package
- * through normal dependencies (build and dev dependencies are not shipped). Versions of the same crate are
- * merged into one entry.
+ * The packages in one `cargo metadata` output that are compiled into the app: everything reachable from the
+ * root package through normal dependencies (build and dev dependencies are not shipped).
  */
-export function rustCratesFromMetadata(metadata) {
+function shippedPackages(metadata) {
     const packages = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]))
     const nodes = new Map(metadata.resolve.nodes.map((node) => [node.id, node]))
     const rootId = metadata.resolve.root
@@ -327,11 +327,22 @@ export function rustCratesFromMetadata(metadata) {
         }
     }
     seen.delete(rootId)
+    return [...seen].map((id) => packages.get(id)).filter(Boolean)
+}
+
+/**
+ * Crates compiled into the app, from one `cargo metadata` output per target: the crates any of them ships.
+ * Versions of the same crate are merged into one entry.
+ *
+ * One output per target, not one with several `--filter-platform` flags. With several, cargo keeps every
+ * dependency that matches any of them, so a crate only the ARM64 app uses also brings in its x64-only
+ * dependencies, which neither app ships.
+ */
+export function rustCratesFromMetadata(...metadatas) {
+    const shipped = new Map(metadatas.flatMap(shippedPackages).map((pkg) => [pkg.id, pkg]))
 
     const byName = new Map()
-    for (const id of seen) {
-        const pkg = packages.get(id)
-        if (!pkg) continue
+    for (const pkg of shipped.values()) {
         const crate = byName.get(pkg.name) ?? { name: pkg.name, versions: [], licenses: [], dirs: [], authors: [], repository: null }
         crate.versions.push(pkg.version)
         if (pkg.license && !crate.licenses.includes(pkg.license)) crate.licenses.push(pkg.license)
@@ -356,13 +367,14 @@ export function rustCratesFromMetadata(metadata) {
         })
 }
 
-function readCargoMetadata() {
+function readCargoMetadata(target) {
     try {
-        const json = execFileSync(
-            'cargo',
-            ['metadata', '--format-version', '1', '--filter-platform', RUST_TARGET, '--manifest-path', cargoManifest],
-            { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }
-        )
+        const json = execFileSync('cargo', ['metadata', '--format-version', '1', '--filter-platform', target, '--manifest-path', cargoManifest], {
+            cwd: root,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+            stdio: ['ignore', 'pipe', 'inherit'],
+        })
         return JSON.parse(json)
     } catch (err) {
         throw new Error(`Couldn't list the Rust crates with \`cargo metadata\`. Install Rust (https://rustup.rs) and try again.\n${err.message}`)
@@ -462,7 +474,7 @@ function main() {
 
     const shippedNames = [...collectShippedPackageNames()].sort(compareNames)
     const npmPackages = shippedNames.map(npmPackageEntry).filter(Boolean)
-    const rustCrates = rustCratesFromMetadata(readCargoMetadata())
+    const rustCrates = rustCratesFromMetadata(...RUST_TARGETS.map((target) => readCargoMetadata(target)))
     const entries = withUniqueNames([...npmPackages, ...fontEntries(), ...rustCrates])
 
     const missing = entries.filter((entry) => entry.licenseTexts.length === 0).map((entry) => entry.name)

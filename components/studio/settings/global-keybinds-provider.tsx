@@ -1,46 +1,30 @@
 'use client'
 
 import { useMemo, type ReactNode } from 'react'
-import { isExampleTabId } from '@/lib/examples/example-tab'
 import type { PaletteMode } from '@/components/studio/command-palette/types'
 import { useCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
-import { useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds'
+import { useCommands } from '@/components/studio/commands/command-registry'
+import { useGlobalKeybinds, type KeybindHandlers } from '@/components/studio/hooks/use-global-keybinds'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { useActiveTabId, useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 type GlobalKeybindsProviderProps = {
     children: ReactNode
 }
 
+/**
+ * Runs the app's shortcuts. Each runs the shared command that names it as its `keybind`, so the keys
+ * do what the menu item and the palette row do, and nothing while the command is greyed out there.
+ */
 export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps) {
     const { isDesktop, workspaceRoot } = useWorkspaceSession()
-    // Only the open tab's id, so typing in it doesn't draw this again and rebuild every handler.
-    const activeTabId = useActiveTabId()
-    const { flushSave, flushAllSaves } = useDocumentSave()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
-    const { requestCanvasFit } = useCanvasFit()
-    const { settings, settingsOpen, openSettings } = useAppSettings()
+    const { settings, settingsOpen } = useAppSettings()
     const { openMode } = useCommandPalette()
+    const commands = useCommands()
 
-    const hasWorkspace = Boolean(workspaceRoot)
-    const hasWorkspaceTab = Boolean(activeTabId && !isExampleTabId(activeTabId))
-
-    const handlers = useMemo(
-        () => ({
-            'document.save': () => {
-                if (!hasWorkspaceTab || !activeTabId) return false
-                void flushSave(activeTabId)
-                return true
-            },
-            'workspace.saveAll': () => {
-                if (!hasWorkspace) return false
-                void flushAllSaves()
-                return true
-            },
-            'settings.open': () => {
-                openSettings()
-                return true
-            },
+    const handlers = useMemo(() => {
+        // The palette's own keys: the palette isn't a command in itself.
+        const result: KeybindHandlers = {
             'palette.open': () => {
                 openMode('all' satisfies PaletteMode)
                 return true
@@ -53,46 +37,20 @@ export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps
                 openMode('files' satisfies PaletteMode)
                 return true
             },
-            'view.toggleExplorer': () => {
-                if (!hasWorkspace) return false
-                setExplorerOpen(!layout.explorerOpen)
+        }
+        for (const command of commands) {
+            if (!command.keybind || result[command.keybind]) continue
+            result[command.keybind] = () => {
+                if (!command.disabled) void command.run()
+                // Taken even while the command is off, so the keys never reach the web view (Ctrl+R reloads it).
                 return true
-            },
-            'view.toggleEditor': () => {
-                if (!hasWorkspace) return false
-                setEditorOpen(!layout.editorOpen)
-                return true
-            },
-            'view.previewOnly': () => {
-                if (!hasWorkspace) return false
-                setPreviewOnly()
-                return true
-            },
-            'view.fitDiagram': () => {
-                if (!hasWorkspace) return false
-                requestCanvasFit()
-                return true
-            },
-        }),
-        [
-            activeTabId,
-            flushAllSaves,
-            flushSave,
-            hasWorkspace,
-            hasWorkspaceTab,
-            layout.editorOpen,
-            layout.explorerOpen,
-            openMode,
-            openSettings,
-            requestCanvasFit,
-            setEditorOpen,
-            setExplorerOpen,
-            setPreviewOnly,
-        ]
-    )
+            }
+        }
+        return result
+    }, [commands, openMode])
 
     // Off while Settings is open, so recording a shortcut there never also runs the action it's bound to.
-    useGlobalKeybinds(settings.keybinds, handlers, { enabled: isDesktop && !settingsOpen, hasWorkspace })
+    useGlobalKeybinds(settings.keybinds, handlers, { enabled: isDesktop && !settingsOpen, hasWorkspace: Boolean(workspaceRoot) })
 
     return children
 }

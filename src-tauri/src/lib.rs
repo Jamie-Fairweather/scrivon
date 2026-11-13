@@ -3,13 +3,18 @@ mod close_watchdog;
 mod crash_report;
 mod launch_paths;
 mod legacy_profile;
+mod navigation_guard;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
+mod settings_file;
+mod snap_layouts;
 mod store_recovery;
 mod system_fonts;
 mod system_menu;
+mod update_downloads;
 mod updater;
+mod web_image;
 mod window_state;
 mod workspace_access;
 mod workspace_image;
@@ -64,6 +69,7 @@ fn open_stores(app: &tauri::AppHandle) {
 /// Builds the window from its entry in tauri.conf.json. That entry has
 /// `"create": false`, so Tauri doesn't build it before `setup` runs: the old
 /// profile has to be copied in before WebView2 opens it (see `legacy_profile`).
+/// The window only ever shows the app's own pages (see `navigation_guard`).
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let config = app
         .config()
@@ -73,7 +79,14 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .find(|window| window.label == "main")
         .ok_or(tauri::Error::WindowNotFound)?
         .clone();
-    tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .on_navigation(navigation_guard::guard(app, &config));
+    // Settings lost with the WebView2 profile come back from settings.json.
+    let data_dir = app.path().app_data_dir().ok();
+    if let Some(script) = settings_file::restore_script(data_dir.as_deref()) {
+        builder = builder.initialization_script(script);
+    }
+    builder.build()?;
     Ok(())
 }
 
@@ -314,6 +327,7 @@ pub fn run() {
             }
             open_main_window(app.handle())?;
             crash_report::mark_started();
+            update_downloads::remove_old_later(&app.package_info().name);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -341,15 +355,20 @@ pub fn run() {
             close_watchdog::close_ack,
             launch_paths::take_launch_paths,
             pdf_export::export_html_to_pdf,
+            pdf_export::preview::preview_html_pdf,
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
             pdf_export::adopt_export_images,
+            pdf_export::save_profile_image,
+            settings_file::save_settings_file,
+            snap_layouts::set_maximize_button_area,
             store_recovery::take_store_recovery,
             system_fonts::list_system_fonts,
             system_menu::show_system_menu,
             updater::check_for_app_update,
             updater::install_app_update,
             updater::take_update_attempt,
+            web_image::fetch_export_image,
             workspace_image::read_workspace_image,
             workspace_trash::trash_workspace_path,
         ])

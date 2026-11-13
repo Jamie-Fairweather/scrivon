@@ -14,6 +14,7 @@ import {
     keepUnchangedNodes,
     nameTakenMessage,
     replaceChildren,
+    safeFileStem,
     shortenPath,
     uniqueFileName,
     uniqueNewName,
@@ -75,6 +76,34 @@ describe('validateFileName', () => {
     it('accepts valid names', () => {
         expect(validateFileName('diagram.mmd')).toBeNull()
         expect(validateFileName('  notes.md  ')).toBeNull()
+    })
+})
+
+describe('safeFileStem', () => {
+    it.each([
+        ['flow', 'flow'],
+        ['v1.2 plan', 'v1.2 plan'],
+        ['CI/CD Pipeline', 'CI-CD Pipeline'],
+        ['a\\b', 'a-b'],
+        ['Inheritance (<|--)', 'Inheritance (-)'],
+        ['Direction: Left-Right (LR)', 'Direction- Left-Right (LR)'],
+        ['::: Class Shorthand', 'Class Shorthand'],
+        ['tab\there', 'tab-here'],
+        ['  lots   of   space  ', 'lots of space'],
+        ['Ends with a dot.', 'Ends with a dot'],
+        ['CON', 'CON_'],
+        ['com0', 'com0_'],
+        ['nul.backup', 'nul_.backup'],
+        ['console', 'console'],
+    ])('%s -> %s', (name, expected) => {
+        expect(safeFileStem(name, 'fallback')).toBe(expected)
+        expect(validateFileName(`${expected}.md`)).toBeNull()
+    })
+
+    it('gives the fallback when nothing usable is left', () => {
+        expect(safeFileStem(':::', 'diagram')).toBe('diagram')
+        expect(safeFileStem(' . ', 'diagram')).toBe('diagram')
+        expect(safeFileStem('', 'diagram')).toBe('diagram')
     })
 })
 

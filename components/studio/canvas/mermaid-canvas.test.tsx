@@ -84,6 +84,26 @@ describe('MermaidCanvas', () => {
         expect(message.closest('.origin-center')).toBeNull()
     })
 
+    it('lists the diagram types it can draw, and where to find a starter, when the file is empty', () => {
+        mockHook({})
+
+        render(<MermaidCanvas source="" />)
+
+        expect(
+            screen.getByText(
+                'Scrivon draws flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts. Press Ctrl+Space in the editor for a starter.'
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('does not list the types once there is text, even with nothing to draw yet', () => {
+        mockHook({ isEmpty: true })
+
+        render(<MermaidCanvas source="graph TD" />)
+
+        expect(screen.queryByText(/Scrivon draws/)).toBeNull()
+    })
+
     it('shows no banner when the diagram is fine', () => {
         mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
 

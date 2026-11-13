@@ -11,10 +11,12 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs: [tab], activeTabId: tab.id, activeTab: tab, updateTabContent: () => {} }),
     useDocumentTabActions: () => ({ makeTabEditable: vi.fn() }),
     useWorkspaceCoordinator: () => ({}),
+    useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ isLight: true, tokens: {} }) }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme: () => {} }))
+vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({ useEditorSpellcheck: () => () => ({ dispose: () => {} }) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false } } }),
 }))

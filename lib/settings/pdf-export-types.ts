@@ -44,6 +44,8 @@ export type PdfExportChrome = {
 export type PdfExportFooter = PdfExportChrome & {
     /** Owns the right-hand text slot: a preset counter, or `custom` to render `right.text`. */
     pageNumbers: PdfPageNumberFormat
+    /** Page 1 is the first body page: the title and contents pages aren't counted. Applies to the Contents page and Word too. */
+    numberFromBody: boolean
 }
 
 export type PdfExportProfile = {
@@ -139,6 +141,16 @@ export type PdfPrintOptions = {
     author?: string
     /** The subtitle, saved as the PDF's subject. Left out when empty. */
     subject?: string
+    /** Every heading in order, for the PDF's bookmarks; the heading at index `i` carries mark `SFH` + `i + 1`. Stamped exports only. */
+    headings?: PdfHeading[]
+    /** Page 1 is the first body page. Left out when off. */
+    numberFromBody?: boolean
+}
+
+/** A heading as the PDF stamper gets it, for its bookmark. */
+export type PdfHeading = {
+    level: number
+    text: string
 }
 
 /** The branded document plus what the printer needs to turn it into a PDF, produced by one call. */
