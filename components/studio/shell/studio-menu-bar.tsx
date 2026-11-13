@@ -130,6 +130,12 @@ export function StudioMenuBar() {
                 <Menubar ref={menubarRef} modal={false} className="flex items-center gap-0.5">
                     <MenuBarEntry label="File" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
+                            {item('new-diagram')}
+                            {item('new-document')}
+                            {item('new-folder')}
+                        </MenuGroup>
+                        <MenuSeparator />
+                        <MenuGroup>
                             {item('open-folder')}
                             {item('close-folder')}
                         </MenuGroup>

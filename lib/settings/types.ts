@@ -32,6 +32,9 @@ export type KeybindActionId =
     | 'view.focusNextPane'
     | 'view.focusPreviousPane'
     | 'workspace.saveAll'
+    | 'workspace.newDiagram'
+    | 'workspace.newDocument'
+    | 'workspace.newFolder'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 

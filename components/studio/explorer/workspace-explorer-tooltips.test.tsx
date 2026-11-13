@@ -1,5 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toggleButtonClassName } from '@/lib/ui/button-classes'
 import { WorkspaceExplorer } from './workspace-explorer'
@@ -10,6 +11,9 @@ vi.mock('@/components/studio/explorer/examples-explorer', () => ({ ExamplesExplo
 vi.mock('@/components/studio/explorer/file-tree-root-actions', () => ({ FileTreeRootActions: () => null }))
 vi.mock('@/components/studio/explorer/explorer-tree-buttons', () => ({ ExplorerTreeButtons: () => null }))
 vi.mock('@/components/studio/command-palette/command-palette-trigger-button', () => ({ CommandPaletteTriggerButton: () => null }))
+vi.mock('@/components/studio/explorer/explorer-background-menu', () => ({
+    ExplorerBackgroundMenu: ({ children }: { children: ReactNode }) => children,
+}))
 
 afterEach(() => {
     // The chosen panel is kept for the session.

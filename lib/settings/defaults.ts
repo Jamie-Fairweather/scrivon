@@ -35,6 +35,9 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.focusNextPane': [chord('F6')],
         'view.focusPreviousPane': [chord('F6', { shift: true })],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
+        'workspace.newDiagram': [chord('n', { ...mod, alt: true })],
+        'workspace.newDocument': [chord('n', mod)],
+        'workspace.newFolder': [],
     }
 
     return bindings
