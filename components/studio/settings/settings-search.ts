@@ -100,6 +100,7 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     ...KEYBIND_ACTIONS.map((action): SettingsSearchEntry => ({ section: 'keyboard', label: action.label, keywords: 'shortcut keybinding key' })),
 
     { section: 'advanced', label: 'Recent folders limit', keywords: 'workspace history' },
+    { section: 'advanced', label: 'Reopen last folder on startup', keywords: 'workspace restore session files', desktopOnly: true },
     { section: 'advanced', label: 'Restore panel layout', keywords: 'explorer editor reopen' },
     { section: 'advanced', label: 'Check for updates on launch', keywords: 'startup', desktopOnly: true },
 ]

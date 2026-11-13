@@ -55,4 +55,15 @@ describe('searchSettings', () => {
             expect.objectContaining({ section: 'advanced', label: 'Check for updates on launch' }),
         ])
     })
+
+    it('only finds Reopen last folder in the desktop app, where it is shown', () => {
+        expect(searchSettings('last folder', { desktop: false })).toEqual([])
+        expect(searchSettings('last folder', { desktop: true })).toEqual([
+            expect.objectContaining({ section: 'advanced', label: 'Reopen last folder on startup' }),
+        ])
+    })
+
+    it('finds the status bar', () => {
+        expect(searchSettings('word count', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Status bar' })])
+    })
 })
