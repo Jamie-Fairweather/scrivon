@@ -24,9 +24,10 @@ const CHARACTER_REFERENCE = /&(?:#\d+|#x[\da-f]+|[a-z][a-z\d]*);/gi
 const ESCAPE = /\\(?=[!-/:-@[-`{-~])/g
 /**
  * The label of a reference link (`[text][label]`) or a footnote (`[^label]`). A block is read on its own,
- * so one whose definition is in another block shows up as text.
+ * so one whose definition is in another block shows up as text. A footnote label's length is capped, so a
+ * long run like [^[^[^ can't make the search slow.
  */
-const REFERENCE_LABEL = /(?<=\]\[)[^\]\n]*(?=\])|(?<=\[)\^[^\]\s]+(?=\])/g
+const REFERENCE_LABEL = /(?<=\]\[)[^\]\n]*(?=\])|(?<=\[)\^[^\]\s]{1,100}(?=\])/g
 const DIGIT = /\p{N}/u
 
 const blank = (text: string) => ' '.repeat(text.length)

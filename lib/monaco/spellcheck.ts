@@ -139,11 +139,12 @@ export function attachSpellcheck(
         if (!model) return
         const asked = config
         if (!asked || model.uri.toString() !== asked.modelUri) {
-            if (marks.has(model)) show(model, [])
+            // Not just when this session marked it: another editor, or one before it, may have.
+            show(model, [])
             return
         }
         const version = model.getVersionId()
-        client.check(model.getValue(), asked.language, asked.words).then(
+        client.check(model.getValue(), asked.language, asked.words, asked.modelUri).then(
             (misspellings) => {
                 // The text or the settings changed while it was checked: a newer check is on its way.
                 if (model.isDisposed() || model.getVersionId() !== version || config !== asked) return
@@ -161,6 +162,11 @@ export function attachSpellcheck(
 
     const subscriptions: IDisposable[] = [
         editorInstance.onDidChangeModelContent(() => schedule(SPELLCHECK_DELAY_MS)),
+        // Another tab: check it again, or clear its marks when spell check was turned off while it was hidden.
+        editorInstance.onDidChangeModel(() => {
+            updateMenu()
+            schedule(0)
+        }),
         editorInstance.onDidChangeCursorPosition(updateMenu),
         monaco.languages.registerCodeActionProvider('markdown', codeActions, { providedCodeActionKinds: ['quickfix'] }),
         monaco.editor.registerCommand(ADD_TO_DICTIONARY_COMMAND, (_accessor: unknown, word: string) => addToDictionary(word)),

@@ -104,6 +104,13 @@ describe('findProseWords', () => {
         expect(words(text)).toEqual(['linkk', 'and', 'note', 'More', 'shortcut', 'text', 'The', 'nnote'])
     })
 
+    it('reads a long run of [^ without slowing down', () => {
+        const start = performance.now()
+        expect(words(`A note[^nte] and ${'[^'.repeat(40_000)}`)).toEqual(['note', 'and'])
+        // About a third of a second; nine before the footnote label was capped.
+        expect(performance.now() - start).toBeLessThan(3000)
+    })
+
     it('finds the same words when one part of a long document changes', () => {
         const find = createProseWordFinder()
         const before = 'First paragrph.\n\nSecond paragrph.\n\nThird paragrph.'

@@ -10,7 +10,7 @@ export type DictionaryFiles = { aff: string; dic: string }
 export type Misspelling = { word: string; offset: number }
 
 export type SpellcheckRequest =
-    | { type: 'check'; id: number; language: SpellcheckLanguage; words: readonly string[]; text: string }
+    | { type: 'check'; id: number; language: SpellcheckLanguage; words: readonly string[]; text: string; document: string }
     | { type: 'suggest'; id: number; language: SpellcheckLanguage; words: readonly string[]; word: string }
 
 export type SpellcheckResponse =
@@ -25,6 +25,9 @@ type Checker = {
     /** Each word's answer, so the same word isn't looked up again on every check. */
     known: Map<string, boolean>
 }
+
+/** How many documents' blocks the worker remembers: enough for the tabs someone switches between. */
+const REMEMBERED_DOCUMENTS = 4
 
 /** A capital after the first letter: NASA, iPhone, McWibble. Names and acronyms, left alone as Word does. */
 const INNER_CAPITAL = /^.+\p{Lu}/u
@@ -82,8 +85,16 @@ function applyUserWords(checker: Checker, words: readonly string[]): void {
  * document never slows typing. Each language's dictionary is loaded the first time it is used.
  */
 export function createSpellcheckWorkerCore(loadDictionary: (language: SpellcheckLanguage) => DictionaryFiles | Promise<DictionaryFiles>) {
-    // Remembers the last document's blocks, so a check after an edit only reads the blocks that changed.
-    const findProseWords = createProseWordFinder()
+    // Each recent document's blocks, so a check after an edit, or on going back to a tab, only reads the
+    // blocks that changed. The document used longest ago is forgotten first.
+    const finders = new Map<string, ReturnType<typeof createProseWordFinder>>()
+    const findProseWords = (document: string, text: string) => {
+        const finder = finders.get(document) ?? createProseWordFinder()
+        finders.delete(document)
+        finders.set(document, finder)
+        if (finders.size > REMEMBERED_DOCUMENTS) finders.delete(finders.keys().next().value!)
+        return finder(text)
+    }
     const checkers = new Map<SpellcheckLanguage, Promise<Checker>>()
 
     const checkerFor = (language: SpellcheckLanguage) => {
@@ -104,7 +115,7 @@ export function createSpellcheckWorkerCore(loadDictionary: (language: Spellcheck
         const checker = await checkerFor(request.language)
         applyUserWords(checker, request.words)
         if (request.type === 'check') {
-            const misspellings = findProseWords(request.text).filter(({ word }) => !isKnown(checker, word))
+            const misspellings = findProseWords(request.document, request.text).filter(({ word }) => !isKnown(checker, word))
             return { type: 'checked', id: request.id, misspellings }
         }
         return {

@@ -3,16 +3,19 @@ import type { Misspelling, SpellcheckRequest, SpellcheckResponse } from '@/lib/s
 
 export type { Misspelling }
 
-/** Talks to the spell check worker. Its dictionary and the user's words go with every request. */
+/**
+ * Talks to the spell check worker. Its dictionary and the user's words go with every request. A check
+ * also says which document the text is (its model's URI), so the worker can remember what it read there.
+ */
 export type SpellcheckClient = {
-    check(text: string, language: SpellcheckLanguage, words: readonly string[]): Promise<Misspelling[]>
+    check(text: string, language: SpellcheckLanguage, words: readonly string[], document: string): Promise<Misspelling[]>
     suggest(word: string, language: SpellcheckLanguage, words: readonly string[]): Promise<string[]>
 }
 
 type Pending = { resolve: (response: SpellcheckResponse) => void; reject: (err: Error) => void }
 
 /** Some fields of a request: the rest are the same for every request. */
-type RequestBody = { type: 'check'; text: string } | { type: 'suggest'; word: string }
+type RequestBody = { type: 'check'; text: string; document: string } | { type: 'suggest'; word: string }
 
 /**
  * A client for a worker made by `createWorker`, started with the first request. A worker that fails
@@ -24,6 +27,15 @@ export function createSpellcheckClient(createWorker: () => Worker): SpellcheckCl
     let nextId = 1
     const pending = new Map<number, Pending>()
 
+    /** Stops using the worker. `cause` is logged with the warning, when there is one. */
+    const giveUp = (...cause: unknown[]): Error => {
+        broken = new Error("The spell check couldn't start.")
+        console.warn(broken.message, ...cause)
+        for (const waiting of pending.values()) waiting.reject(broken)
+        pending.clear()
+        return broken
+    }
+
     const start = (): Worker => {
         const started = createWorker()
         started.addEventListener('message', (event: MessageEvent<SpellcheckResponse>) => {
@@ -31,18 +43,18 @@ export function createSpellcheckClient(createWorker: () => Worker): SpellcheckCl
             pending.delete(event.data.id)
             waiting?.resolve(event.data)
         })
-        started.addEventListener('error', () => {
-            broken = new Error("The spell check couldn't start.")
-            console.warn(broken.message)
-            for (const waiting of pending.values()) waiting.reject(broken)
-            pending.clear()
-        })
+        started.addEventListener('error', () => giveUp())
         return started
     }
 
     const ask = (body: RequestBody, language: SpellcheckLanguage, words: readonly string[]): Promise<SpellcheckResponse> => {
         if (broken) return Promise.reject(broken)
-        worker ??= start()
+        try {
+            worker ??= start()
+        } catch (err) {
+            // Rejected, not thrown, so the check that asked still ends and the next one can run.
+            return Promise.reject(giveUp(err))
+        }
         const id = nextId++
         const request = { ...body, id, language, words: [...words] } as SpellcheckRequest
         return new Promise<SpellcheckResponse>((resolve, reject) => {
@@ -58,9 +70,9 @@ export function createSpellcheckClient(createWorker: () => Worker): SpellcheckCl
     let checking = false
     let waiting: { run: () => void; drop: () => void } | null = null
 
-    const checkNow = (text: string, language: SpellcheckLanguage, words: readonly string[]): Promise<Misspelling[]> => {
+    const checkNow = (text: string, language: SpellcheckLanguage, words: readonly string[], document: string): Promise<Misspelling[]> => {
         checking = true
-        return ask({ type: 'check', text }, language, words)
+        return ask({ type: 'check', text, document }, language, words)
             .then((r) => (r.type === 'checked' ? r.misspellings : []))
             .finally(() => {
                 checking = false
@@ -71,12 +83,12 @@ export function createSpellcheckClient(createWorker: () => Worker): SpellcheckCl
     }
 
     return {
-        check: (text, language, words) => {
-            if (!checking) return checkNow(text, language, words)
+        check: (text, language, words, document) => {
+            if (!checking) return checkNow(text, language, words, document)
             waiting?.drop()
             return new Promise<Misspelling[]>((resolve, reject) => {
                 waiting = {
-                    run: () => checkNow(text, language, words).then(resolve, reject),
+                    run: () => checkNow(text, language, words, document).then(resolve, reject),
                     drop: () => reject(new Error('A newer text replaced this check.')),
                 }
             })

@@ -1,7 +1,7 @@
 'use client'
 
 import { X } from 'lucide-react'
-import { useId } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Fieldset, FieldsetLegend } from '@/components/ui/fieldset'
@@ -21,6 +21,25 @@ export function SpellingSettings() {
     const setSpelling = (changes: Partial<SpellcheckSettings>) =>
         updateSettings((current) => ({ ...current, spellcheck: { ...current.spellcheck, ...changes } }))
     const words = [...spelling.words].sort((a, b) => a.localeCompare(b))
+
+    // Removing a word takes its button away with it, so focus moves to the next word's button (or the note
+    // that the list is empty) instead of falling out of the list. Undefined: nothing to move.
+    const removeButtons = useRef(new Map<string, HTMLButtonElement>())
+    const emptyNote = useRef<HTMLParagraphElement>(null)
+    const focusAfterRemove = useRef<string | null | undefined>(undefined)
+    useEffect(() => {
+        const target = focusAfterRemove.current
+        if (target === undefined) return
+        focusAfterRemove.current = undefined
+        if (target === null) emptyNote.current?.focus()
+        else removeButtons.current.get(target)?.focus()
+    }, [spelling.words])
+
+    const removeWord = (word: string) => {
+        const index = words.indexOf(word)
+        focusAfterRemove.current = words[index + 1] ?? words[index - 1] ?? null
+        setSpelling({ words: withoutDictionaryWord(spelling.words, word) })
+    }
 
     return (
         <Fieldset className="min-w-0 space-y-6 border-t border-border pt-6">
@@ -47,7 +66,9 @@ export function SpellingSettings() {
             <Field>
                 <FieldLabel id={dictionaryId}>Your dictionary</FieldLabel>
                 {words.length === 0 ? (
-                    <FieldDescription>No words yet. Right-click an underlined word and choose Add to Dictionary.</FieldDescription>
+                    <FieldDescription ref={emptyNote} tabIndex={-1} className="outline-none">
+                        No words yet. Right-click an underlined word and choose Add to Dictionary.
+                    </FieldDescription>
                 ) : (
                     <ul aria-labelledby={dictionaryId} className="flex max-h-48 w-full flex-wrap gap-1.5 overflow-y-auto">
                         {words.map((word) => (
@@ -58,7 +79,11 @@ export function SpellingSettings() {
                                     variant="ghost"
                                     size="icon-xs"
                                     aria-label={`Remove “${word}”`}
-                                    onClick={() => setSpelling({ words: withoutDictionaryWord(spelling.words, word) })}
+                                    ref={(button) => {
+                                        if (button) removeButtons.current.set(word, button)
+                                        else removeButtons.current.delete(word)
+                                    }}
+                                    onClick={() => removeWord(word)}
                                 >
                                     <X aria-hidden />
                                 </Button>

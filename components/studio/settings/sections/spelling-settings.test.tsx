@@ -63,6 +63,18 @@ describe('SpellingSettings', () => {
         expect(latest.current!.spellcheck.words).toEqual(['Scrivon'])
     })
 
+    it('keeps keyboard focus in the list when a word is removed', () => {
+        renderSettings({ words: ['Alpha', 'Beta', 'Gamma'] })
+        const remove = (word: string) => fireEvent.click(screen.getByRole('button', { name: `Remove “${word}”` }))
+
+        remove('Beta')
+        expect(screen.getByRole('button', { name: 'Remove “Gamma”' })).toHaveFocus()
+        remove('Gamma')
+        expect(screen.getByRole('button', { name: 'Remove “Alpha”' })).toHaveFocus()
+        remove('Alpha')
+        expect(screen.getByText(/No words yet/)).toHaveFocus()
+    })
+
     it('says how to add words while the dictionary is empty', () => {
         renderSettings({ words: [] })
         expect(screen.queryByRole('list', { name: 'Your dictionary' })).not.toBeInTheDocument()

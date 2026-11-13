@@ -181,7 +181,7 @@ describe('attachSpellcheck', () => {
     it('underlines misspelt words once the file opens, with the language and the user’s words', async () => {
         const { model, markers, client } = setup()
         await vi.runAllTimersAsync()
-        expect(client.check).toHaveBeenCalledWith('Hello wrold\nsecnod line', 'en-GB', ['Scrivon'])
+        expect(client.check).toHaveBeenCalledWith('Hello wrold\nsecnod line', 'en-GB', ['Scrivon'], URI)
         expect(underlined(markers, model)).toEqual(['wrold', 'secnod'])
         expect(markers.get(model)![1]).toMatchObject({ startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 7, severity: 2 })
         expect(markers.get(model)![0]!.message).toContain('wrold')
@@ -232,6 +232,33 @@ describe('attachSpellcheck', () => {
         expect(underlined(markers, other)).toEqual([])
         // Another file's marks wait until it shows again.
         expect(underlined(markers, model)).toEqual(['wrold', 'secnod'])
+    })
+
+    it('clears the marks of a file switched back to after spell check was turned off', async () => {
+        const { model, editorInstance, markers, session } = setup()
+        await vi.runAllTimersAsync()
+        const other = new FakeModel('A secnod file', 'inmemory://scrivon/document-2')
+        editorInstance.switchTo(other)
+        session.setConfig(null)
+        await vi.runAllTimersAsync()
+
+        // Spell check is off for every file now, so the config doesn't change on the way back.
+        editorInstance.switchTo(model)
+        editorInstance.moveCursor({ lineNumber: 2, column: 3 })
+        await vi.runAllTimersAsync()
+        expect(underlined(markers, model)).toEqual([])
+        expect(editorInstance.onMisspelling).toBe(false)
+    })
+
+    it('clears marks an earlier editor left on the file when spell check is off', async () => {
+        const { model, monaco, markers, client, session } = setup()
+        await vi.runAllTimersAsync()
+        session.dispose()
+
+        const next = new FakeEditor(model)
+        attachSpellcheck(next as unknown as editor.IStandaloneCodeEditor, monaco, { client, addWord: vi.fn() }, null)
+        await vi.runAllTimersAsync()
+        expect(underlined(markers, model)).toEqual([])
     })
 
     it('offers the suggestions and Add to Dictionary as quick fixes on a misspelt word only', async () => {

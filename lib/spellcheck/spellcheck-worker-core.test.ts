@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { SpellcheckLanguage } from './languages'
+import { createProseWordFinder } from './prose-words'
 import { createSpellcheckWorkerCore, type SpellcheckRequest } from './spellcheck-worker-core'
+
+// The real finder, counted: each one made is a document read from scratch.
+vi.mock('./prose-words', async (importOriginal) => {
+    const real = await importOriginal<typeof import('./prose-words')>()
+    return { ...real, createProseWordFinder: vi.fn(real.createProseWordFinder) }
+})
 
 const root = join(import.meta.dirname, '..', '..')
 
@@ -15,8 +22,8 @@ function readDictionary(language: SpellcheckLanguage) {
 const core = createSpellcheckWorkerCore(readDictionary)
 
 let nextId = 1
-function check(text: string, language: SpellcheckLanguage = 'en-US', words: string[] = []) {
-    return core.handle({ type: 'check', id: nextId++, text, language, words })
+function check(text: string, language: SpellcheckLanguage = 'en-US', words: string[] = [], document = 'inmemory://doc') {
+    return core.handle({ type: 'check', id: nextId++, text, document, language, words })
 }
 
 async function misspelt(text: string, language: SpellcheckLanguage = 'en-US', words: string[] = []) {
@@ -72,12 +79,32 @@ describe('spell check worker', () => {
         })
         load.mockImplementation(readDictionary)
         const worker = createSpellcheckWorkerCore(load)
-        const request: SpellcheckRequest = { type: 'check', id: 7, text: 'Helo', language: 'en-US', words: [] }
+        const request: SpellcheckRequest = { type: 'check', id: 7, text: 'Helo', document: 'inmemory://doc', language: 'en-US', words: [] }
 
         expect(await worker.handle(request)).toEqual({ type: 'failed', id: 7, message: 'missing file' })
         expect(await worker.handle(request)).toEqual({ type: 'checked', id: 7, misspellings: [{ word: 'Helo', offset: 0 }] })
         await worker.handle({ ...request, type: 'suggest', word: 'Helo' })
         expect(load).toHaveBeenCalledTimes(2)
+    })
+
+    it('remembers what it read in the last few documents, so going back to a tab is quick', async () => {
+        const worker = createSpellcheckWorkerCore(readDictionary)
+        const finders = vi.mocked(createProseWordFinder)
+        const checkIn = (document: string) => worker.handle({ type: 'check', id: nextId++, text: 'Helo', document, language: 'en-US', words: [] })
+        finders.mockClear()
+
+        await checkIn('a')
+        await checkIn('b')
+        await checkIn('a')
+        expect(finders).toHaveBeenCalledTimes(2)
+
+        // Three more documents push out the one used longest ago (b), but not a, used since.
+        for (const document of ['c', 'd', 'e']) await checkIn(document)
+        expect(finders).toHaveBeenCalledTimes(5)
+        await checkIn('a')
+        expect(finders).toHaveBeenCalledTimes(5)
+        await checkIn('b')
+        expect(finders).toHaveBeenCalledTimes(6)
     })
 
     it('keeps a dictionary word known after the user adds it and takes it away again', async () => {
