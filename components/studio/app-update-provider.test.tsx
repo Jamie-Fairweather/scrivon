@@ -9,7 +9,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useSharedUpdateCheck } from '@/components/studio/shared-update-check'
 import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
-import { notifyError, notifySuccess } from '@/lib/notify'
+import { dismissNotification, notifyError, notifyInfo, notifySuccess } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { dismissUpdateToast, showUpdateAvailableToast } from '@/lib/updater/update-toast'
@@ -24,7 +24,9 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyError: vi.fn(),
+    notifyInfo: vi.fn(),
     notifySuccess: vi.fn(),
+    dismissNotification: vi.fn(),
 }))
 vi.mock('@/lib/updater/release-notes', () => ({ fetchUpdateReleaseNotes: vi.fn(async () => null), fetchReleaseList: vi.fn(async () => null) }))
 vi.mock('@/lib/updater/update-toast', () => ({ showUpdateAvailableToast: vi.fn(), dismissUpdateToast: vi.fn() }))
@@ -63,6 +65,9 @@ function answerChecksWith(result: { version: string; notes: string | null } | nu
         return result
     })
 }
+
+/** The toast id a check the user asked for uses. */
+const CHECK_TOAST = 'app-update-check'
 
 function wrapper({ children }: { children: ReactNode }) {
     return <AppUpdateProvider>{children}</AppUpdateProvider>
@@ -432,8 +437,9 @@ describe('AppUpdateProvider checkForUpdates', () => {
         expect(result.current.update?.version).toBe('9.9.9')
         expect(result.current.dialogOpen).toBe(true)
         expect(closeSettings).toHaveBeenCalled()
-        // The dialog shows it, so no toast as well.
+        // The dialog shows it, so no toast as well, and the Checking toast goes.
         expect(showUpdateAvailableToast).not.toHaveBeenCalled()
+        expect(dismissNotification).toHaveBeenCalledWith(CHECK_TOAST)
     })
 
     it('says so when the app is up to date', async () => {
@@ -442,7 +448,9 @@ describe('AppUpdateProvider checkForUpdates', () => {
 
         await act(() => result.current.checkForUpdates())
 
-        expect(notifySuccess).toHaveBeenCalledWith("You're up to date", { description: 'Version 1.0.0 is the newest version.' })
+        // "Checking…" first, then the answer in its place.
+        expect(notifyInfo).toHaveBeenCalledWith('Checking for updates…', { id: CHECK_TOAST, timeout: 0 })
+        expect(notifySuccess).toHaveBeenCalledWith("You're up to date", { id: CHECK_TOAST, description: 'Version 1.0.0 is the newest version.' })
         expect(result.current.dialogOpen).toBe(false)
     })
 
@@ -452,7 +460,33 @@ describe('AppUpdateProvider checkForUpdates', () => {
 
         await act(() => result.current.checkForUpdates())
 
-        expect(notifyError).toHaveBeenCalledWith("Couldn't check for updates", "Couldn't reach the update server.")
+        expect(notifyError).toHaveBeenCalledWith("Couldn't check for updates", "Couldn't reach the update server.", { id: CHECK_TOAST })
+    })
+
+    it("tells an rc build it couldn't check when GitHub's release list can't be read", async () => {
+        answerChecksWith(null)
+        vi.mocked(getVersion).mockResolvedValue('1.6.0-rc.1')
+        const { result } = renderHook(() => useAppUpdate(), { wrapper })
+
+        await act(() => result.current.checkForUpdates())
+
+        // Only the stable channel could be asked, so a newer rc may be out there.
+        expect(invoke).toHaveBeenCalledWith('check_for_app_update', { releaseTag: null })
+        expect(notifyError).toHaveBeenCalledWith("Couldn't check for updates", "Couldn't get the newest pre-release from GitHub. Try again later.", {
+            id: CHECK_TOAST,
+        })
+        expect(notifySuccess).not.toHaveBeenCalled()
+    })
+
+    it('still offers a stable update to an rc build that could not read the release list', async () => {
+        answerChecksWith({ version: '1.6.0', notes: null })
+        vi.mocked(getVersion).mockResolvedValue('1.6.0-rc.1')
+        const { result } = renderHook(() => useAppUpdate(), { wrapper })
+
+        await act(() => result.current.checkForUpdates())
+
+        expect(result.current.dialogOpen).toBe(true)
+        expect(notifyError).not.toHaveBeenCalled()
     })
 
     it('shares the check with Settings, which sits outside the studio, while it is open', async () => {
@@ -497,6 +531,46 @@ describe('AppUpdateProvider checkForUpdates', () => {
 describe('AppUpdateProvider automatic checks', () => {
     const HOURS = 60 * 60 * 1000
 
+    it('does not show a check the user did not ask for', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        vi.mocked(isTauri).mockReturnValue(true)
+        let answer!: (update: null) => void
+        vi.mocked(invoke).mockImplementation((cmd: string) =>
+            cmd === 'check_for_app_update' ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(undefined)
+        )
+        const { result } = renderHook(() => useAppUpdate(), { wrapper })
+
+        await act(() => vi.advanceTimersByTimeAsync(4_000))
+        expect(checkCalls()).toBe(1)
+        expect(result.current.checking).toBe(false)
+
+        // Asking now joins the running check, and shows it.
+        let manual!: Promise<void>
+        act(() => {
+            manual = result.current.checkForUpdates()
+        })
+        expect(result.current.checking).toBe(true)
+        await act(async () => {
+            answer(null)
+            await manual
+        })
+        expect(checkCalls()).toBe(1)
+        expect(result.current.checking).toBe(false)
+        expect(notifySuccess).toHaveBeenCalledWith("You're up to date", expect.anything())
+    })
+
+    it('keeps quiet when an rc build could not read the release list', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        answerChecksWith(null)
+        vi.mocked(getVersion).mockResolvedValue('1.6.0-rc.1')
+        renderHook(() => useAppUpdate(), { wrapper })
+
+        await act(() => vi.advanceTimersByTimeAsync(4_000))
+
+        expect(checkCalls()).toBe(1)
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
     it('checks soon after launch, then again every 6 hours while automatic checks are on', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true })
         answerChecksWith(null)
@@ -512,6 +586,7 @@ describe('AppUpdateProvider automatic checks', () => {
         await act(() => vi.advanceTimersByTimeAsync(12 * HOURS))
         expect(checkCalls()).toBe(2)
         // Nothing to say about an automatic check that found nothing.
+        expect(notifyInfo).not.toHaveBeenCalled()
         expect(notifySuccess).not.toHaveBeenCalled()
     })
 

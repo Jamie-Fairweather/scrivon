@@ -13,7 +13,7 @@ import { isTauri } from '@/lib/tauri/platform'
 export function HelpCommands() {
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
-    const { checking, checkForUpdates } = useAppUpdate()
+    const { checkForUpdates } = useAppUpdate()
     // Only the desktop app updates itself.
     const desktop = isTauri()
 
@@ -32,14 +32,13 @@ export function HelpCommands() {
                           id: 'check-for-updates',
                           label: 'Check for Updates…',
                           keywords: 'update upgrade new version release help',
-                          disabled: checking,
-                          disabledReason: checking ? 'Already checking' : undefined,
+                          // Always on: a check run while another is going joins it and gets its answer.
                           run: checkForUpdates,
                       },
                   ]
                 : []),
         ],
-        [desktop, checking, checkForUpdates]
+        [desktop, checkForUpdates]
     )
     useRegisterCommands(commands)
 

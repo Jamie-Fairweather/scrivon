@@ -2,6 +2,8 @@ import { compareParsedVersions, parseVersion, type ParsedVersion } from '@/lib/u
 
 const GITHUB_REPO = 'Jamie-Fairweather/scrivon'
 const GITHUB_HEADERS = { Accept: 'application/vnd.github+json' }
+/** Gives up on GitHub after this long, so a stalled request can't hold up an update check for good. */
+export const GITHUB_TIMEOUT_MS = 15_000
 /** GitHub's maximum page size, so one request covers anyone who has skipped many releases. */
 const RELEASES_PER_PAGE = 100
 
@@ -59,6 +61,7 @@ export async function fetchReleaseNotes(version: string): Promise<string | null>
     try {
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${tag}`, {
             headers: GITHUB_HEADERS,
+            signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
         })
 
         if (!response.ok) return null
@@ -71,11 +74,12 @@ export async function fetchReleaseNotes(version: string): Promise<string | null>
     }
 }
 
-/** The published releases on GitHub, newest first; null when GitHub can't be reached. */
+/** The published releases on GitHub, newest first; null when GitHub can't be reached or takes too long. */
 export async function fetchReleaseList(): Promise<GitHubReleaseSummary[] | null> {
     try {
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=${RELEASES_PER_PAGE}`, {
             headers: GITHUB_HEADERS,
+            signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
         })
 
         if (!response.ok) return null

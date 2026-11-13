@@ -53,30 +53,23 @@ describe('HelpCommands', () => {
         expect(screen.getByRole('dialog', { name })).toBeInTheDocument()
     })
 
-    it('checks for updates from the desktop app, and not while a check is running', () => {
+    it('checks for updates from the desktop app, even while a check is running', () => {
         vi.mocked(isTauri).mockReturnValue(true)
         const checkForUpdates = vi.fn(async () => {})
-        mockUpdates({ checking: false, checkForUpdates })
-        const { rerender } = render(
-            <CommandRegistryProvider>
-                <HelpCommands />
-                <CommandsProbe />
-            </CommandRegistryProvider>
-        )
-        const command = () => shown.find((c) => c.id === 'check-for-updates')
-
-        expect(command()).toMatchObject({ label: 'Check for Updates…', disabled: false })
-        act(() => void command()!.run())
-        expect(checkForUpdates).toHaveBeenCalledTimes(1)
-
         mockUpdates({ checking: true, checkForUpdates })
-        rerender(
+        render(
             <CommandRegistryProvider>
                 <HelpCommands />
                 <CommandsProbe />
             </CommandRegistryProvider>
         )
-        expect(command()).toMatchObject({ disabled: true, disabledReason: 'Already checking' })
+        const command = shown.find((c) => c.id === 'check-for-updates')
+
+        // The running check may be a quiet automatic one; asking again joins it and shows its answer.
+        expect(command).toMatchObject({ label: 'Check for Updates…' })
+        expect(command?.disabled).toBeFalsy()
+        act(() => void command!.run())
+        expect(checkForUpdates).toHaveBeenCalledTimes(1)
     })
 
     it('has no update check in the browser, which has no updates', () => {

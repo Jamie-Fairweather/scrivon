@@ -18,16 +18,27 @@ export function newestReleaseTag(releases: readonly GitHubReleaseSummary[], curr
     return newest?.tag ?? null
 }
 
+/** What an update check found. */
+export type AppUpdateCheck = {
+    /** The newer version, or null when there is none. */
+    update: AppUpdateInfo | null
+    /** A pre-release (rc) build couldn't get the release list from GitHub, so only stable releases were checked. */
+    missedPrereleases: boolean
+}
+
 /**
  * Asks the app whether there is a newer version. The update channel only lists stable releases, so a
  * pre-release (rc) build also names the newest release on GitHub, which may be a newer rc. Throws when
  * the check fails.
  */
-export async function checkForAppUpdate(currentVersion: string | null): Promise<AppUpdateInfo | null> {
+export async function checkForAppUpdate(currentVersion: string | null): Promise<AppUpdateCheck> {
     let releaseTag: string | null = null
+    let missedPrereleases = false
     if (currentVersion && isPrereleaseVersion(currentVersion)) {
         const releases = await fetchReleaseList()
-        releaseTag = releases ? newestReleaseTag(releases, currentVersion) : null
+        if (releases) releaseTag = newestReleaseTag(releases, currentVersion)
+        else missedPrereleases = true
     }
-    return invoke<AppUpdateInfo | null>('check_for_app_update', { releaseTag })
+    const update = await invoke<AppUpdateInfo | null>('check_for_app_update', { releaseTag })
+    return { update, missedPrereleases }
 }

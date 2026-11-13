@@ -47,7 +47,7 @@ describe('checkForAppUpdate', () => {
         vi.stubGlobal('fetch', fetchMock)
         vi.mocked(invoke).mockResolvedValue({ version: '1.6.0', notes: null })
 
-        await expect(checkForAppUpdate('1.5.0')).resolves.toEqual({ version: '1.6.0', notes: null })
+        await expect(checkForAppUpdate('1.5.0')).resolves.toEqual({ update: { version: '1.6.0', notes: null }, missedPrereleases: false })
 
         expect(fetchMock).not.toHaveBeenCalled()
         expect(invoke).toHaveBeenCalledWith('check_for_app_update', { releaseTag: null })
@@ -60,12 +60,12 @@ describe('checkForAppUpdate', () => {
         )
         vi.mocked(invoke).mockResolvedValue(null)
 
-        await expect(checkForAppUpdate('1.6.0-rc.1')).resolves.toBeNull()
+        await expect(checkForAppUpdate('1.6.0-rc.1')).resolves.toEqual({ update: null, missedPrereleases: false })
 
         expect(invoke).toHaveBeenCalledWith('check_for_app_update', { releaseTag: 'v1.6.0-rc.2' })
     })
 
-    it('falls back to the stable channel when GitHub cannot be asked', async () => {
+    it('falls back to the stable channel when GitHub cannot be asked, and says it missed the pre-releases', async () => {
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => {
@@ -74,12 +74,12 @@ describe('checkForAppUpdate', () => {
         )
         vi.mocked(invoke).mockResolvedValue(null)
 
-        await checkForAppUpdate('1.6.0-rc.1')
+        await expect(checkForAppUpdate('1.6.0-rc.1')).resolves.toEqual({ update: null, missedPrereleases: true })
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => jsonResponse({ message: 'rate limited' }, false))
         )
-        await checkForAppUpdate('1.6.0-rc.1')
+        await expect(checkForAppUpdate('1.6.0-rc.1')).resolves.toEqual({ update: null, missedPrereleases: true })
 
         expect(vi.mocked(invoke).mock.calls).toEqual([
             ['check_for_app_update', { releaseTag: null }],

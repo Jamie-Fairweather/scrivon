@@ -10,7 +10,7 @@ import {
     type InstallPhase,
 } from '@/components/studio/dialogs/update-available-dialog'
 import { useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
-import { errorMessage, notifyError, notifySuccess } from '@/lib/notify'
+import { dismissNotification, errorMessage, notifyError, notifyInfo, notifySuccess } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { fetchUpdateReleaseNotes } from '@/lib/updater/release-notes'
 import { checkForAppUpdate } from '@/lib/updater/update-check'
@@ -28,16 +28,23 @@ const UPDATE_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 export type UpdateProgress =
     { event: 'started'; total: number | null } | { event: 'progress'; downloaded: number; total: number | null } | { event: 'installing' }
 
-/** What one update check found. `isNew` is false for the version an earlier check already found. */
+/** One toast for a check the user asked for: "Checking…", then the answer in its place. */
+const UPDATE_CHECK_TOAST_ID = 'app-update-check'
+const MISSED_PRERELEASES = "Couldn't get the newest pre-release from GitHub. Try again later."
+
+/**
+ * What one update check found. `isNew` is false for the version an earlier check already found.
+ * `missedPrereleases` means an rc build only checked stable releases (see checkForAppUpdate).
+ */
 type CheckOutcome =
     | { status: 'available'; update: AppUpdateInfo; isNew: boolean }
-    | { status: 'up-to-date'; currentVersion: string | null }
+    | { status: 'up-to-date'; currentVersion: string | null; missedPrereleases: boolean }
     | { status: 'failed'; error: unknown }
 
 type AppUpdateContextValue = {
     update: AppUpdateInfo | null
     notesLoading: boolean
-    /** True while an update check runs. */
+    /** True while a check the user asked for runs (not the quiet automatic ones). */
     checking: boolean
     /** Checks now, then opens the update dialog or says the app is up to date or couldn't check. */
     checkForUpdates: () => Promise<void>
@@ -87,11 +94,10 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     /** Runs one update check; a call while one runs gets that check's result. */
     const runCheck = useCallback((): Promise<CheckOutcome> => {
         runningCheck.current ??= (async (): Promise<CheckOutcome> => {
-            setChecking(true)
             try {
                 const currentVersion = await getVersion().catch(() => null)
-                const found = await checkForAppUpdate(currentVersion)
-                if (!found) return { status: 'up-to-date', currentVersion }
+                const { update: found, missedPrereleases } = await checkForAppUpdate(currentVersion)
+                if (!found) return { status: 'up-to-date', currentVersion, missedPrereleases }
                 if (found.version === foundVersion.current) return { status: 'available', update: found, isNew: false }
 
                 foundVersion.current = found.version
@@ -110,7 +116,6 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
                 return { status: 'failed', error }
             } finally {
                 runningCheck.current = null
-                setChecking(false)
             }
         })()
         return runningCheck.current
@@ -136,18 +141,30 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     }, [settings.updates.checkOnLaunch, runCheck])
 
     const checkForUpdates = useCallback(async () => {
-        const outcome = await runCheck()
-        if (outcome.status === 'available') {
-            // Settings (where the check may have come from) is a dialog of its own, so close it rather
-            // than open one dialog over another.
-            closeSettings()
-            setDialogOpen(true)
-        } else if (outcome.status === 'up-to-date') {
-            notifySuccess("You're up to date", {
-                description: outcome.currentVersion ? `Version ${outcome.currentVersion} is the newest version.` : undefined,
-            })
-        } else {
-            notifyError("Couldn't check for updates", outcome.error)
+        setChecking(true)
+        // The answer can take a while on a slow connection.
+        notifyInfo('Checking for updates…', { id: UPDATE_CHECK_TOAST_ID, timeout: 0 })
+        try {
+            const outcome = await runCheck()
+            if (outcome.status === 'available') {
+                dismissNotification(UPDATE_CHECK_TOAST_ID)
+                // Settings (where the check may have come from) is a dialog of its own, so close it rather
+                // than open one dialog over another.
+                closeSettings()
+                setDialogOpen(true)
+            } else if (outcome.status === 'failed') {
+                notifyError("Couldn't check for updates", outcome.error, { id: UPDATE_CHECK_TOAST_ID })
+            } else if (outcome.missedPrereleases) {
+                // Only stable releases were checked, so a newer rc may be out there.
+                notifyError("Couldn't check for updates", MISSED_PRERELEASES, { id: UPDATE_CHECK_TOAST_ID })
+            } else {
+                notifySuccess("You're up to date", {
+                    id: UPDATE_CHECK_TOAST_ID,
+                    description: outcome.currentVersion ? `Version ${outcome.currentVersion} is the newest version.` : undefined,
+                })
+            }
+        } finally {
+            setChecking(false)
         }
     }, [runCheck, closeSettings])
 
