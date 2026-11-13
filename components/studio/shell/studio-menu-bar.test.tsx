@@ -74,7 +74,10 @@ function mockContexts({
         openWorkspace: vi.fn(),
         closeWorkspace: vi.fn(),
         refreshTree: vi.fn(async () => {}),
-        tree: [{ kind: 'directory', name: 'docs', path: 'C:\\work\\docs', children: [{ kind: 'file', name: 'a.md', path: 'C:\\work\\docs\\a.md' }] }],
+        tree: [
+            { kind: 'directory', name: 'docs', path: 'C:\\work\\docs', children: [{ kind: 'file', name: 'a.md', path: 'C:\\work\\docs\\a.md' }] },
+            { kind: 'directory', name: 'drafts', path: 'C:\\work\\drafts', children: [] },
+        ],
         suggestName: (_folder: string, name: string) => name,
         getNameError: () => null,
         createFile: vi.fn(async () => {}),
@@ -342,6 +345,23 @@ describe('StudioMenuBar File menu', () => {
         await userEvent.setup().click(within(await openMenu('File')).getByRole('menuitem', { name: 'New Document… Ctrl+N' }))
 
         expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ kind: 'new-document', folder: 'C:\\work\\docs' }))
+    })
+
+    it('asks for a new document in the explorer row clicked before the menu', async () => {
+        mockContexts({ workspaceRoot: 'C:\\work', activeTabId: 'C:\\work\\docs\\a.md' })
+        render(
+            <Studio>
+                <div role="treeitem" aria-selected={false} tabIndex={0} data-path={'C:\\work\\drafts'}>
+                    drafts
+                </div>
+            </Studio>
+        )
+        const user = userEvent.setup()
+
+        await user.click(screen.getByRole('treeitem'))
+        await user.click(within(await openMenu('File')).getByRole('menuitem', { name: 'New Document… Ctrl+N' }))
+
+        expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ kind: 'new-document', folder: 'C:\\work\\drafts' }))
     })
 
     it('turns off the new items with no folder open', async () => {

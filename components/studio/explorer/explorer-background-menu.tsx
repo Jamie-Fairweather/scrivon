@@ -1,8 +1,8 @@
 'use client'
 
-import { Plus, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useCallback, type ReactNode } from 'react'
-import { useFileTreeActions } from '@/components/studio/explorer/use-file-tree-actions'
+import { NewItemMenuItems } from '@/components/studio/explorer/new-item-menu-items'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { useRefreshExplorer } from '@/components/studio/workspace/workspace-commands'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
@@ -14,7 +14,6 @@ import { MenuItem, MenuSeparator } from '@/components/ui/menu'
  */
 export function ExplorerBackgroundMenu({ children }: { children: ReactNode }) {
     const { workspaceRoot } = useWorkspaceSession()
-    const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(workspaceRoot)
     const refresh = useRefreshExplorer()
     const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
 
@@ -32,18 +31,7 @@ export function ExplorerBackgroundMenu({ children }: { children: ReactNode }) {
         <div onContextMenu={onContextMenu} className="flex min-h-0 flex-1 flex-col">
             {children}
             <ContextMenuAtPoint open={open} onOpenChange={onOpenChange} anchor={anchor} align="start" className="min-w-44">
-                <MenuItem onClick={() => void createMermaidFileInParent()}>
-                    <Plus />
-                    New Diagram (.mmd)
-                </MenuItem>
-                <MenuItem onClick={() => void createMarkdownFileInParent()}>
-                    <Plus />
-                    New Document (.md)
-                </MenuItem>
-                <MenuItem onClick={() => void createFolderInParent()}>
-                    <Plus />
-                    New Folder
-                </MenuItem>
+                <NewItemMenuItems folder={workspaceRoot} />
                 <MenuSeparator />
                 <MenuItem onClick={() => void refresh()}>
                     <RefreshCw />

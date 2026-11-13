@@ -19,9 +19,9 @@ const NEW_FILE = {
 
 /**
  * Asks for a name, then makes a new diagram, document or folder in the folder given. A new file opens in a tab,
- * and the editor takes the keyboard so the user can start typing.
+ * and the editor takes the keyboard so the user can start typing. Resolves to false when the prompt was cancelled.
  */
-export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promise<void> {
+export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promise<boolean> {
     const { promptName } = useNamePrompt()
     const { createFile, createFolder, suggestName, getNameError } = useWorkspaceSession()
 
@@ -34,8 +34,9 @@ export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promi
                     defaultValue: suggestName(folder, 'diagrams'),
                     validate: (value) => getNameError(folder, value, 'directory'),
                 })
-                if (name) await createFolder(folder, name)
-                return
+                if (!name) return false
+                await createFolder(folder, name)
+                return true
             }
             const { name: startName, extension } = NEW_FILE[kind]
             const name = await promptName({
@@ -45,11 +46,12 @@ export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promi
                 // A name typed without an extension gets the one for this kind.
                 validate: (value) => getNameError(folder, withDocumentExtension(value, extension), 'file'),
             })
-            if (!name) return
+            if (!name) return false
             const fileName = withDocumentExtension(name, extension)
             await createFile(folder, fileName)
             // If the file couldn't be made, its tab never shows and focus stays where it is.
             focusEditorFor(joinPath(folder, fileName))
+            return true
         },
         [promptName, createFile, createFolder, suggestName, getNameError]
     )

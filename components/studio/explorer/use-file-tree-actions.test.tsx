@@ -102,6 +102,18 @@ describe('useCreateNewItem', () => {
         expect(session.createFile).toHaveBeenNthCalledWith(2, '/ws', 'flow.mmd')
         expect(session.createFolder).toHaveBeenCalledWith('/ws/docs', 'drafts')
     })
+
+    it('resolves to whether a name was given', async () => {
+        promptName.mockResolvedValueOnce('drafts').mockResolvedValueOnce(null).mockResolvedValueOnce('plan').mockResolvedValueOnce(null)
+        const { result } = renderHook(() => useCreateNewItem())
+
+        await expect(result.current('new-folder', '/ws')).resolves.toBe(true)
+        await expect(result.current('new-folder', '/ws')).resolves.toBe(false)
+        await expect(result.current('new-document', '/ws')).resolves.toBe(true)
+        await expect(result.current('new-document', '/ws')).resolves.toBe(false)
+        expect(session.createFolder).toHaveBeenCalledTimes(1)
+        expect(session.createFile).toHaveBeenCalledTimes(1)
+    })
 })
 
 describe('useFileTreeEntryActions', () => {

@@ -65,8 +65,9 @@ export function buildWorkspaceCommands(ctx: WorkspaceCommandsContext): AppComman
 }
 
 /**
- * Reads the folder again, as the explorer's Refresh button does: the open files with no edits are read again
- * too, for where the file watcher misses changes.
+ * Reads the folder again, for every Refresh (the explorer's button and menu, the palette). The open files with no
+ * edits are read again too: where the file watcher misses changes (a network share, say), the new file list would
+ * otherwise sit beside old text.
  */
 export function useRefreshExplorer(): () => Promise<void> {
     const { refreshTree } = useWorkspaceSession()
