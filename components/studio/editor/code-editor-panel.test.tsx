@@ -1,6 +1,6 @@
 import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
-import { Suspense, lazy, type ComponentType } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Suspense, lazy, useEffect, type ComponentType } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 // --- A small stand-in for Monaco: one text buffer per URI, like the real thing. ---
@@ -152,6 +152,11 @@ class FakeEditor {
     }
     restoreViewState() {}
     addCommand() {}
+    /** Monaco actions run by id, as the Edit menu and the palette do. */
+    readonly triggered: string[] = []
+    trigger(_source: string, id: string) {
+        this.triggered.push(id)
+    }
     selection: FakeRange | null = null
     focused = false
     focus() {
@@ -347,6 +352,7 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
 const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
 const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
 const { useEditorCursor, useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
@@ -1342,5 +1348,71 @@ describe('CodeEditorPanel indentation', () => {
         view.rerender(<Panel />)
         expect(editor.options.tabSize).toBe(4)
         expect(editor.getModel()!.options).toEqual({ tabSize: 4, indentSize: 4, insertSpaces: false })
+    })
+})
+
+describe('CodeEditorPanel Edit commands', () => {
+    let shown: ReturnType<typeof useCommands> = []
+    function CommandsProbe() {
+        const commands = useCommands()
+        useEffect(() => {
+            shown = commands
+        }, [commands])
+        return null
+    }
+    function PanelWithCommands({ open = true }: { open?: boolean }) {
+        return (
+            <CommandRegistryProvider>
+                <Panel open={open} />
+                <CommandsProbe />
+            </CommandRegistryProvider>
+        )
+    }
+    const command = (id: string) => shown.find((c) => c.id === `edit.${id}`)
+
+    beforeEach(() => {
+        shown = []
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0)
+            return 0
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it('runs Find, Undo and the rest in the editor showing the file', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('find')?.disabled).toBe(false))
+        const editor = editors[0]!
+
+        act(() => void command('find')!.run())
+        act(() => void command('undo')!.run())
+
+        expect(editor.focused).toBe(true)
+        expect(editor.triggered).toEqual(['actions.find', 'undo'])
+    })
+
+    it('turns the commands off with no file open, or with the editor hidden', async () => {
+        const view = render(<PanelWithCommands />)
+        await waitFor(() => expect(command('find')).toMatchObject({ disabled: true, disabledReason: 'No file open' }))
+
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        view.rerender(<PanelWithCommands open={false} />)
+        await waitFor(() => expect(editors).toHaveLength(1))
+        await waitFor(() => expect(command('find')).toMatchObject({ disabled: true, disabledReason: 'The editor is hidden' }))
+
+        view.rerender(<PanelWithCommands />)
+        await waitFor(() => expect(command('find')?.disabled).toBe(false))
+    })
+
+    it('keeps the commands that would change a read-only file off', async () => {
+        tabsState = { tabs: [{ ...tab('/w/a.md', 'A'), readOnly: true }], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+
+        await waitFor(() => expect(command('copy')?.disabled).toBe(false))
+        expect(command('paste')).toMatchObject({ disabled: true, disabledReason: 'This file is read-only' })
     })
 })

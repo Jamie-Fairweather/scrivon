@@ -14,6 +14,7 @@ import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModel
 import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
@@ -169,6 +170,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const [rowWidth, setRowWidth] = useState(0)
     const monacoRef = useRef<Monaco | null>(null)
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+    // The same editor as editorRef, kept as state so the Edit menu and the palette follow it.
+    const [mountedEditor, setMountedEditor] = useState<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
     const activeTabRef = useRef<DocumentTab | null>(null)
     const suppressChangeRef = useRef(false)
@@ -389,6 +392,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
+    // The Edit menu and the palette's editor commands act on this editor while it shows a file.
+    useEditorCommands(editorPath ? mountedEditor : null, open, isReadOnly)
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
@@ -564,10 +569,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
             editorRef.current = editor
             monacoRef.current = monaco
+            setMountedEditor(editor)
             // Closing the last tab throws the editor away. Forget it, so a search hit picked
             // before the next one is ready waits for it instead of going to the old one.
             editor.onDidDispose(() => {
                 if (editorRef.current === editor) editorRef.current = null
+                setMountedEditor((current) => (current === editor ? null : current))
                 setEditorFocused(false)
             })
             editor.onDidFocusEditorText(() => {
