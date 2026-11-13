@@ -186,6 +186,8 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                     <span dir="auto" className="truncate">
                         {item.text}
                     </span>
+                    {/* The indent shows the level only to the eye. */}
+                    <span className="sr-only">, level {item.level}</span>
                 </span>
                 <span className="ms-2 shrink-0 text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">Line {item.line}</span>
             </CommandItem>

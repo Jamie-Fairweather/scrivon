@@ -837,6 +837,10 @@ describe('usePaletteSearch prefixes', () => {
         act(() => result.current.setQuery(':'))
         expect(result.current.groups).toEqual([])
         expect(result.current.emptyHint).toBe('Type a line number from 1 to 6. Add :5 to go to a column.')
+
+        // Not worked out while there is a row to show.
+        act(() => result.current.setQuery(':3'))
+        expect(result.current.emptyHint).toBeNull()
     })
 
     it('asks for a file before going to a line', () => {
@@ -858,6 +862,37 @@ describe('usePaletteSearch prefixes', () => {
 
         expect(setEditorOpen).toHaveBeenCalledWith(true)
         expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/guide.md', 3, 2)
+    })
+
+    it('opens a text hit in the editor, then selects the match', async () => {
+        const calls: string[] = []
+        const openFile = state.tabs.openFile
+        state.tabs.openFile = async () => void calls.push('open')
+        state.coordinator.revealInEditor.current.mockImplementationOnce(() => void calls.push('reveal'))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        await act(() =>
+            result.current.runItem({
+                kind: 'text',
+                value: 'text:/ws/notes.md:4:7',
+                searchText: 'notes.md',
+                path: '/ws/notes.md',
+                name: 'notes.md',
+                relativePath: 'notes.md',
+                documentKind: 'markdown',
+                line: 4,
+                column: 7,
+                length: 5,
+                preview: 'the oauth flow',
+                previewMatchStart: 4,
+                source: 'disk',
+            })
+        )
+        state.tabs.openFile = openFile
+
+        expect(setEditorOpen).toHaveBeenCalledWith(true)
+        expect(calls).toEqual(['open', 'reveal'])
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/notes.md', 4, 7, 5)
     })
 
     it("lists the Markdown file's headings after @", async () => {

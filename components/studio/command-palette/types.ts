@@ -97,8 +97,10 @@ export type HeadingPaletteItem = {
     /** The heading's id in the preview. */
     headingId: string
     text: string
+    /** 1 to 6, as in '#' to '######'. */
+    level: number
     line: number
-    /** How far in to draw it: 0 for the top level of the file's headings. */
+    /** How far in to draw it, as the Outline panel does: 0 at the top. */
     depth: number
 }
 

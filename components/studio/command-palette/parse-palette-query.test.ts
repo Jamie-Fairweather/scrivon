@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePaletteQuery, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
+import { parsePaletteQuery, queryForMode, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
 
 describe('parsePaletteQuery', () => {
     it('switches to commands when the query starts with >', () => {
@@ -12,7 +12,7 @@ describe('parsePaletteQuery', () => {
 
     it.each([
         [':120', 'line', '120'],
-        [' : 120:5 ', 'line', '120:5'],
+        [': 120:5 ', 'line', '120:5'],
         ['@install', 'heading', 'install'],
         ['@', 'heading', ''],
         ['?', 'help', ''],
@@ -30,6 +30,29 @@ describe('parsePaletteQuery', () => {
         expect(parsePaletteQuery(':root', 'text')).toEqual({ kind: 'search', query: ':root' })
         expect(parsePaletteQuery('?', 'text')).toEqual({ kind: 'search', query: '?' })
         expect(parsePaletteQuery('>save', 'text')).toEqual({ kind: 'commands', query: 'save' })
+    })
+
+    it('searches for :, @ and ? as text after a space, where > still switches', () => {
+        expect(parsePaletteQuery(' @media')).toEqual({ kind: 'search', query: '@media' })
+        expect(parsePaletteQuery(' :root', 'files')).toEqual({ kind: 'search', query: ':root' })
+        expect(parsePaletteQuery(' ?')).toEqual({ kind: 'search', query: '?' })
+        expect(parsePaletteQuery(' >save')).toEqual({ kind: 'commands', query: 'save' })
+    })
+})
+
+describe('queryForMode', () => {
+    it('keeps a Find in Workspace search for @, : or ? a search once the Text filter is removed', () => {
+        expect(queryForMode('@media', 'text', 'all')).toBe(' @media')
+        expect(queryForMode(':root', 'text', 'files')).toBe(' :root')
+        expect(parsePaletteQuery(queryForMode('?', 'text', 'all'))).toEqual({ kind: 'search', query: '?' })
+    })
+
+    it('leaves every other query as it is', () => {
+        expect(queryForMode('readme', 'text', 'all')).toBe('readme')
+        expect(queryForMode('>save', 'text', 'all')).toBe('>save')
+        expect(queryForMode('@install', 'all', 'files')).toBe('@install')
+        expect(queryForMode('@install', 'all', 'text')).toBe('@install')
+        expect(queryForMode(' @media', 'text', 'all')).toBe(' @media')
     })
 })
 

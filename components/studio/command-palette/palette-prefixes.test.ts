@@ -33,7 +33,14 @@ describe('goToLineItem', () => {
     it('counts lines in a file saved with Windows line endings without the hidden return', () => {
         const windows = { ...notes, content: 'ab\r\ncd\r\n' }
         expect(goToLineItem(windows, '1:9')).toMatchObject({ line: 1, column: 3 })
+        expect(goToLineItem(windows, '2:9')).toMatchObject({ line: 2, column: 3 })
         expect(goToLineItem(windows, '9')).toMatchObject({ line: 3 })
+        expect(goToLineItem(windows, '3:9')).toMatchObject({ line: 3, column: 1 })
+    })
+
+    it('reads the length of a line in the middle of the file', () => {
+        expect(goToLineItem(notes, '3:99')).toMatchObject({ line: 3, column: 15 })
+        expect(goToLineItem(notes, '2:9')).toMatchObject({ line: 2, column: 1 })
     })
 
     it('treats line 0 as the first line', () => {
@@ -57,7 +64,25 @@ describe('headingItems', () => {
             ['Mac', 1, 9],
             ['Use the app', 0, 12],
         ])
-        expect(items[1]).toMatchObject({ kind: 'heading', path: '/ws/guide.md', headingId: 'windows' })
+        expect(items[1]).toMatchObject({ kind: 'heading', path: '/ws/guide.md', headingId: 'windows', level: 3 })
+    })
+
+    it('sets headings in as the Outline panel does: one step under the closest heading above', () => {
+        const skipped = [heading(1, 'Guide', 1), heading(3, 'Details', 3), heading(2, 'Install', 5), heading(1, 'Notes', 7)]
+        expect(headingItems(skipped, '/ws/guide.md', '').map((item) => [item.text, item.depth])).toEqual([
+            ['Guide', 0],
+            ['Details', 1],
+            ['Install', 1],
+            ['Notes', 0],
+        ])
+    })
+
+    it('keeps a deeper heading at the top when nothing sits above it', () => {
+        const items = headingItems([heading(3, 'Intro', 1), heading(1, 'Guide', 3)], '/ws/guide.md', '')
+        expect(items.map((item) => [item.text, item.depth])).toEqual([
+            ['Intro', 0],
+            ['Guide', 0],
+        ])
     })
 
     it('puts the best match first while typing, without setting rows in', () => {

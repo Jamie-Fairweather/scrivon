@@ -438,13 +438,14 @@ describe('CommandPaletteDialog prefixes', () => {
         column: 5,
     }
 
-    const headingItem = (text: string, depth: number, line: number): PaletteItem => ({
+    const headingItem = (text: string, level: number, depth: number, line: number): PaletteItem => ({
         kind: 'heading',
         value: `heading:${line}`,
         searchText: text,
         path: '/ws/guide.md',
         headingId: text.toLowerCase(),
         text,
+        level,
         line,
         depth,
     })
@@ -460,13 +461,21 @@ describe('CommandPaletteDialog prefixes', () => {
     })
 
     it('sets headings in by level and shows their line', () => {
-        const items = [headingItem('Install', 0, 3), headingItem('Windows', 1, 5)]
+        const items = [headingItem('Install', 2, 0, 3), headingItem('Windows', 3, 1, 5)]
         renderDialog({ query: '@', groups: [{ id: 'headings', label: 'Headings', items }] })
 
-        const indent = (name: string) => parseFloat((screen.getByRole('option', { name }).firstElementChild as HTMLElement).style.paddingInlineStart)
-        expect(indent('Install Line 3')).toBe(0)
-        expect(indent('Windows Line 5')).toBe(12)
-        expect(within(screen.getByRole('option', { name: 'Windows Line 5' })).getByText('Windows')).toHaveAttribute('dir', 'auto')
+        const indent = (name: RegExp) => parseFloat((screen.getByRole('option', { name }).firstElementChild as HTMLElement).style.paddingInlineStart)
+        expect(indent(/^Install/)).toBe(0)
+        expect(indent(/^Windows/)).toBe(12)
+        expect(within(screen.getByRole('option', { name: /^Windows/ })).getByText('Windows')).toHaveAttribute('dir', 'auto')
+    })
+
+    it('tells screen readers the level that the indent shows', () => {
+        const items = [headingItem('Install', 2, 0, 3), headingItem('Windows', 3, 1, 5)]
+        renderDialog({ query: '@', groups: [{ id: 'headings', label: 'Headings', items }] })
+
+        expect(screen.getByRole('option', { name: 'Install , level 2 Line 3' })).toBeInTheDocument()
+        expect(screen.getByRole('option', { name: 'Windows , level 3 Line 5' })).toBeInTheDocument()
     })
 
     it('shows the hint for a prefix that lists nothing', () => {

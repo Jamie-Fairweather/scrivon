@@ -227,6 +227,36 @@ describe('CommandPaletteProvider prefixes', () => {
         fireEvent.change(screen.getByRole('combobox'), { target: { value: ':12' } })
         expect(screen.getByText(/^Open a file to go to a line in it\./)).toBeInTheDocument()
     })
+
+    it('keeps a Find in Workspace search for @media a search when the Text filter is removed', () => {
+        renderProvider(null)
+        act(() => palette.openMode('text'))
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: '@media' } })
+
+        fireEvent.click(screen.getByRole('button', { name: /show all results/i }))
+
+        expect(screen.getByPlaceholderText(/^Search files and text/)).toBeInTheDocument()
+        expect(screen.getByRole('combobox')).toHaveValue(' @media')
+    })
+
+    it('keeps it a search when F1 switches Find in Workspace to the full palette', () => {
+        renderProvider('@media')
+        focusEditor()
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('@media')
+
+        act(() => palette.openMode('all'))
+        expect(screen.getByRole('combobox')).toHaveValue(' @media')
+    })
+
+    it('leaves a heading jump alone when the palette opens Find in Workspace over it', () => {
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: '@install' } })
+
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('@install')
+    })
 })
 
 describe('CommandPaletteProvider when the palette fails to draw', () => {

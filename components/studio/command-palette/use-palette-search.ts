@@ -25,7 +25,7 @@ import {
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useCommands } from '@/components/studio/commands/command-registry'
-import { revealHeadingInPreview } from '@/components/studio/markdown/preview-heading'
+import { jumpToHeading } from '@/components/studio/outline/jump-to-heading'
 import { useMarkdownOutline } from '@/components/studio/outline/use-markdown-outline'
 import { useDocumentTabs, useStudioLayout, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
@@ -149,7 +149,6 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const isMarkdown = activeTab !== null && documentKind(activeTab.name) === 'markdown'
     const wantsHeadings = enabled && parsedQueryState.kind === 'heading' && isMarkdown
     const headings = useMarkdownOutline(wantsHeadings ? activeTab.id : null, wantsHeadings ? activeTab.content : null)
-    const emptyHint = prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings)
 
     // While a new search runs, the last hits stay in place (so the list doesn't jump on every key)
     // but can't be opened until the new hits replace them.
@@ -265,6 +264,9 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         mode,
     ])
 
+    // Only worked out when the list is empty: ':' counts the open file's lines for it.
+    const emptyHint = groups.length === 0 ? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings) : null
+
     useEffect(() => {
         if (!shouldSearchText) {
             abortRef.current?.abort()
@@ -334,18 +336,18 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 case 'workspace':
                     await openWorkspace(item.path)
                     break
+                // Text hits and lines show the editor and move it, which also puts the keyboard there.
                 case 'text':
                     setEditorOpen(true)
                     await openFile(item.path)
+                    coordinator.revealInEditor.current(item.path, item.line, item.column, item.length)
                     break
                 case 'line':
                     setEditorOpen(true)
                     coordinator.revealInEditor.current(item.path, item.line, item.column)
                     break
                 case 'heading':
-                    revealHeadingInPreview(item.headingId)
-                    // Like the Outline panel: a hidden editor would jump, and take the keyboard, whenever it is next shown.
-                    if (editorOpen) coordinator.revealInEditor.current(item.path, item.line, 1)
+                    jumpToHeading(coordinator, item.path, { id: item.headingId, line: item.line }, editorOpen)
                     break
             }
         },
