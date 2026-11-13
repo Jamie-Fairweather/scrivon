@@ -235,12 +235,26 @@ describe('app zoom shortcuts', () => {
         expect(matchKeybind(keyEvent('=', { ctrl: true }), bindings)).toBe('view.appZoomIn')
         // The number pad's plus, and the plus key on layouts that have one (German).
         expect(matchKeybind(keyEvent('+', { ctrl: true }), bindings)).toBe('view.appZoomIn')
+        // Plus is Shift+= on US and UK keyboards.
+        expect(matchKeybind(keyEvent('+', { ctrl: true, shift: true, code: 'Equal' }), bindings)).toBe('view.appZoomIn')
         expect(matchKeybind(keyEvent('-', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.appZoomOut')
         expect(matchKeybind(keyEvent('0', { ctrl: true }), bindings)).toBe('view.appZoomReset')
     })
 
     it('uses Cmd on macOS', () => {
         expect(matchKeybind(keyEvent('=', { meta: true }), createDefaultKeybinds(true))).toBe('view.appZoomIn')
+    })
+
+    it('leaves Ctrl+Shift+Plus to a shortcut the user bound to it', () => {
+        // Save All comes after Zoom In in the list, so this checks the exact chord wins, not the first action.
+        const custom = { ...bindings, 'workspace.saveAll': [{ key: '+', ctrl: true, shift: true }] }
+        const ctrlShiftPlus = keyEvent('+', { ctrl: true, shift: true, code: 'Equal' })
+        expect(matchKeybind(ctrlShiftPlus, custom, { hasWorkspace: true })).toBe('workspace.saveAll')
+    })
+
+    it('only lets Shift go with Plus', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true, shift: true, code: 'Equal' }), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('_', { ctrl: true, shift: true, code: 'Minus' }), bindings)).toBeNull()
     })
 
     it('works in text boxes and the editor too', () => {

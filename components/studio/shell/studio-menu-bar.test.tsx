@@ -440,7 +440,7 @@ describe('StudioMenuBar View menu', () => {
     })
 
     it('zooms the whole app in, out and back to 100%, with the zoom keys', async () => {
-        mockContexts({ workspaceRoot: 'C:/work', zoom: 1.25 })
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', zoom: 1.25 })
         render(<Studio />)
 
         const view = await openMenu('View')

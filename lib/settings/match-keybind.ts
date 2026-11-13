@@ -26,8 +26,8 @@ export function isInsideCodeEditor(target: EventTarget | null): boolean {
 }
 
 /**
- * The chords a key press can stand for: as typed, plus the physical key when the layout gets in
- * the way. A dead key or an unknown key only stands for its physical key, when it has one.
+ * The chords a key press can stand for, best match first: as typed, plus the physical key when the
+ * layout gets in the way. A dead key or an unknown key only stands for its physical key, when it has one.
  */
 function eventToChords(event: KeyboardEvent): KeybindChord[] {
     const pressed: KeybindChord = {
@@ -38,6 +38,8 @@ function eventToChords(event: KeyboardEvent): KeybindChord[] {
         alt: event.altKey || undefined,
     }
     const candidates = isUnnamedKey(pressed.key) ? [] : [pressed]
+    // Plus is Shift+= on US and UK keyboards, so Ctrl+Shift+= is Ctrl+Plus too, as in browsers.
+    if (pressed.key === '+' && pressed.shift) candidates.push({ ...pressed, shift: undefined })
     const fallback = physicalKeyFallback(event)
     return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
 }
@@ -72,20 +74,19 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
     const pressed = eventToChords(event)
     if (pressed.length === 0) return null
 
-    for (const [actionId, chords] of Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]) {
-        if (chords.length === 0) continue
-
+    const actions = (Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]).filter(([actionId, chords]) => {
+        if (chords.length === 0) return false
         // An action this build doesn't know is skipped, so it can't break every other shortcut.
         const meta = getKeybindActionMeta(actionId)
-        if (!meta) continue
-        if (meta.when === 'workspace' && !options.hasWorkspace) continue
-        if (shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)) continue
+        if (!meta) return false
+        if (meta.when === 'workspace' && !options.hasWorkspace) return false
+        return !shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)
+    })
 
-        for (const chord of chords) {
-            if (pressed.some((candidate) => chordsEqual(candidate, chord))) {
-                return actionId
-            }
-        }
+    // The key as typed wins, so a shortcut bound to it isn't taken by one that only matches a looser reading.
+    for (const candidate of pressed) {
+        const match = actions.find(([, chords]) => chords.some((chord) => chordsEqual(candidate, chord)))
+        if (match) return match[0]
     }
 
     return null

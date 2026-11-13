@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { buildAppZoomCommands } from '@/components/studio/zoom/app-zoom-commands'
 
-function commands(zoom: number) {
+function commands(zoom: number, isDesktop = true) {
     const setZoom = vi.fn()
-    const byId = new Map(buildAppZoomCommands({ zoom, setZoom }).map((command) => [command.id, command]))
+    const byId = new Map(buildAppZoomCommands({ zoom, setZoom, isDesktop }).map((command) => [command.id, command]))
     return { setZoom, byId }
 }
 
@@ -31,5 +31,12 @@ describe('buildAppZoomCommands', () => {
         expect(commands(2).byId.get('app-zoom-in')).toMatchObject({ disabled: true, disabledReason: 'Already at 200%' })
         expect(commands(0.5).byId.get('app-zoom-out')).toMatchObject({ disabled: true, disabledReason: 'Already at 50%' })
         expect(commands(1).byId.get('app-zoom-reset')).toMatchObject({ disabled: true, disabledReason: 'Already at 100%' })
+    })
+
+    it('is off in a browser, which has its own zoom', () => {
+        const { byId } = commands(1.25, false)
+        for (const id of ['app-zoom-in', 'app-zoom-out', 'app-zoom-reset']) {
+            expect(byId.get(id)).toMatchObject({ disabled: true, disabledReason: 'Desktop only' })
+        }
     })
 })

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppearanceSettings } from '@/components/studio/settings/sections/appearance-settings'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
 import { SETTINGS_STORAGE_KEY, type AppSettings, type ThemeSetting } from '@/lib/settings/types'
+import { isTauri } from '@/lib/tauri/platform'
 
 let store: Map<string, string>
 
@@ -45,6 +46,7 @@ describe('AppearanceSettings theme picker', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
         vi.restoreAllMocks()
+        vi.mocked(isTauri).mockReturnValue(false)
     })
 
     it('exposes the themes as one choice and announces the selected one', () => {
@@ -82,6 +84,7 @@ describe('AppearanceSettings theme picker', () => {
 
     describe('text size', () => {
         it('zooms the whole app from a list of steps', async () => {
+            vi.mocked(isTauri).mockReturnValue(true)
             renderAppearance({ id: 'scrivon-dark' })
             const user = userEvent.setup()
 
@@ -91,6 +94,13 @@ describe('AppearanceSettings theme picker', () => {
             await user.click(await screen.findByRole('option', { name: '125%' }))
 
             await waitFor(() => expect(savedAppearance().zoom).toBe(1.25))
+        })
+
+        it('leaves zoom to the browser outside the desktop app', () => {
+            renderAppearance({ id: 'scrivon-dark' })
+
+            expect(screen.queryByRole('combobox', { name: 'Zoom' })).not.toBeInTheDocument()
+            expect(screen.getByRole('textbox', { name: 'Preview text size' })).toBeInTheDocument()
         })
 
         it('makes the Markdown preview text bigger or smaller', async () => {

@@ -105,6 +105,20 @@ describe('AppZoom in the desktop app', () => {
         expect(ctrlWheel(getByTestId('diagram'), -100)).toBe(true)
         expect(savedZoom()).toBe(1)
     })
+
+    it("zooms the app over the diagram's error message, which the canvas leaves alone", async () => {
+        const { getByTestId } = renderAppZoom(
+            1,
+            <div data-own-zoom>
+                <div data-canvas-no-gestures>
+                    <pre data-testid="error" />
+                </div>
+            </div>
+        )
+
+        expect(ctrlWheel(getByTestId('error'), -100)).toBe(false)
+        await waitFor(() => expect(savedZoom()).toBe(1.1))
+    })
 })
 
 describe('AppZoom in a browser', () => {

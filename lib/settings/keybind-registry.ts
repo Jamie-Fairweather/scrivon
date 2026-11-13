@@ -10,16 +10,19 @@ export type KeybindActionMeta = {
     allowInNativeTextField?: boolean
     /** When true, shortcut still fires while the command palette is open, to switch what it shows. */
     allowInPalette?: boolean
+    /** When true, shortcut still fires behind an open dialog (but not Settings, which turns all shortcuts off). */
+    allowInModal?: boolean
     /** A CSS selector: inside a focused element that matches it, the keys are left to that element. */
     leaveInside?: string
 }
 
-/** App zoom works everywhere but the diagram canvas, whose own zoom wins while it has focus. */
+/** App zoom works everywhere, dialogs too, but the diagram canvas, whose own zoom wins while it has focus. */
 const APP_ZOOM_META = {
     category: 'View',
     when: 'global',
     allowInNativeTextField: true,
     allowInPalette: true,
+    allowInModal: true,
     leaveInside: OWN_ZOOM_SELECTOR,
 } as const
 

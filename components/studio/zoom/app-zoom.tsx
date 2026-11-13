@@ -2,9 +2,15 @@
 
 import { useEffect } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { NO_CANVAS_GESTURES_ATTRIBUTE } from '@/components/studio/canvas/use-pan-zoom'
 import { useAppZoom } from '@/components/studio/zoom/use-app-zoom'
 import { isTauri } from '@/lib/tauri/platform'
 import { createWheelZoom, OWN_ZOOM_SELECTOR, zoomInStep, zoomOutStep } from '@/lib/zoom/app-zoom'
+
+/** Whether the diagram canvas zooms the diagram for this Ctrl+wheel. It leaves its error messages alone. */
+function zoomedByCanvas(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest(OWN_ZOOM_SELECTOR) !== null && target.closest(`[${NO_CANVAS_GESTURES_ATTRIBUTE}]`) === null
+}
 
 /**
  * Zooms the whole window to the saved zoom, as a browser's Ctrl+= does, and lets Ctrl+wheel change it.
@@ -27,7 +33,7 @@ export function AppZoom() {
         const onWheel = (event: WheelEvent) => {
             // A touchpad pinch arrives as Ctrl+wheel too.
             if (!event.ctrlKey && !event.metaKey) return
-            if (event.target instanceof Element && event.target.closest(OWN_ZOOM_SELECTOR)) return
+            if (zoomedByCanvas(event.target)) return
             // Taken before the editor or a pane sees it, so they don't scroll as well.
             event.preventDefault()
             event.stopPropagation()

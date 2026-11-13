@@ -11,6 +11,7 @@ import { useAppZoom } from '@/components/studio/zoom/use-app-zoom'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 import { RadioGroupPrimitive, RadioPrimitive } from '@/components/ui/radio-group'
+import { isTauri } from '@/lib/tauri/platform'
 import { APP_ZOOM_LEVELS, formatZoomPercent } from '@/lib/zoom/app-zoom'
 import { MAX_PREVIEW_FONT_SIZE, MIN_PREVIEW_FONT_SIZE } from '@/lib/zoom/preview-text-size'
 
@@ -101,20 +102,28 @@ function ThemeRadioGroup({ value, onPick, children, ...props }: ThemeRadioGroupR
 
 const ZOOM_OPTIONS: SelectOption<string>[] = APP_ZOOM_LEVELS.map((level) => ({ label: formatZoomPercent(level), value: String(level) }))
 
-/** The app zoom and the preview's text size. */
+/** The app zoom (desktop app only: a browser has its own) and the preview's text size. */
 function TextSizeSettings() {
     const { settings, updateSettings } = useAppSettings()
     const { zoom, setZoom } = useAppZoom()
 
     return (
         <>
-            <Field>
-                <FieldLabel htmlFor="app-zoom">Zoom</FieldLabel>
-                <FieldDescription>
-                    Makes everything in the window bigger or smaller. Ctrl+mouse wheel and Zoom In and Zoom Out in the View menu change it too.
-                </FieldDescription>
-                <OptionSelect id="app-zoom" className="w-40" value={String(zoom)} options={ZOOM_OPTIONS} onChange={(next) => setZoom(Number(next))} />
-            </Field>
+            {isTauri() ? (
+                <Field>
+                    <FieldLabel htmlFor="app-zoom">Zoom</FieldLabel>
+                    <FieldDescription>
+                        Makes everything in the window bigger or smaller. Ctrl+mouse wheel and Zoom In and Zoom Out in the View menu change it too.
+                    </FieldDescription>
+                    <OptionSelect
+                        id="app-zoom"
+                        className="w-40"
+                        value={String(zoom)}
+                        options={ZOOM_OPTIONS}
+                        onChange={(next) => setZoom(Number(next))}
+                    />
+                </Field>
+            ) : null}
             <NumberSetting
                 id="preview-font-size"
                 label="Preview text size"
