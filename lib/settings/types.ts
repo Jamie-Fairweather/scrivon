@@ -1,5 +1,6 @@
 import type { AppThemeId } from '@/lib/theme/catalog'
 import type { PdfExportSettings } from '@/lib/settings/pdf-export-types'
+import type { SpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
 
 export type EditorWordWrap = 'on' | 'off' | 'wordWrapColumn'
 export type EditorLineNumbers = 'on' | 'off' | 'relative'
@@ -60,6 +61,7 @@ export type AppSettings = {
         checkOnLaunch: boolean
     }
     pdfExport: PdfExportSettings
+    spellcheck: SpellcheckSettings
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }
 

@@ -2,6 +2,7 @@ import { isAppThemeId } from '@/lib/theme/catalog'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
+import { normalizeSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
@@ -177,6 +178,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,
         },
         pdfExport: normalizePdfExportSettings(source.pdfExport),
+        spellcheck: normalizeSpellcheckSettings(source.spellcheck, defaults.spellcheck),
         keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds),
     }
 }

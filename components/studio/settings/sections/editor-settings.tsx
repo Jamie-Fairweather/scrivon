@@ -5,6 +5,7 @@ import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 import { Button } from '@/components/ui/button'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { SpellingSettings } from '@/components/studio/settings/sections/spelling-settings'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 import { tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -103,6 +104,8 @@ export function EditorSettings() {
                     Reset pane width
                 </Button>
             </Field>
+
+            <SpellingSettings />
         </div>
     )
 }

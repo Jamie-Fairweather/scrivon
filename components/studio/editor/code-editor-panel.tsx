@@ -17,6 +17,7 @@ import { registerCoordinatorRefs } from '@/components/studio/workspace/register-
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -393,6 +394,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
+    const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
@@ -580,6 +582,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            const spelling = attachEditorSpellcheck(editor, monaco)
+            editor.onDidDispose(() => spelling.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -595,7 +599,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
     )
 
     useEffect(() => {
