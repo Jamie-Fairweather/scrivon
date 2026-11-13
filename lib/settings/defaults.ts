@@ -76,6 +76,9 @@ export function createDefaultSettings(isMac = false): AppSettings {
         updates: {
             checkOnLaunch: true,
         },
+        statusBar: {
+            visible: true,
+        },
         pdfExport: createDefaultPdfExportSettings(),
         keybinds: createDefaultKeybinds(isMac),
     }
