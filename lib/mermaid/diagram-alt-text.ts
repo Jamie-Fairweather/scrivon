@@ -1,4 +1,5 @@
 import { readDiagramAccessibility, withoutAccessibilityLines } from '@/lib/mermaid/accessibility'
+import { prepareMermaidSource, readFrontMatterTitle } from '@/lib/mermaid/prepare-source'
 
 /** Alt text for an exported diagram. `name` is short, for lists of pictures; `description` is what a screen reader reads. */
 export type DiagramAltText = { name: string; description: string }
@@ -86,22 +87,33 @@ function joinLabels(labels: string[]): string {
     return more > 0 ? `${shown.join(', ')}, and ${more} more` : shown.join(', ')
 }
 
+/** The text the renderer reads: front matter and comments left out, one statement per line. */
+function renderedText(source: string): string {
+    try {
+        return prepareMermaidSource(source)
+    } catch {
+        // A diagram type Scrivon can't draw yet.
+        return withoutAccessibilityLines(source)
+    }
+}
+
 /**
  * Alt text for a Mermaid diagram, so each exported picture can be told apart. Uses the diagram's own
- * `accTitle` and `accDescr` when it has them, then a chart `title`, and otherwise says what kind of
- * diagram it is and names its first few nodes or participants.
+ * `accTitle` and `accDescr` when it has them, then a `title` in its front matter or the chart, and
+ * otherwise says what kind of diagram it is and names its first few nodes or participants.
  */
 export function diagramAltText(source: string): DiagramAltText {
-    // The same parser the renderer uses, so the alt text never reads a line the picture still draws.
+    // The same tidy-up the renderer uses, so the alt text never reads a line the picture still draws.
     const accessibility = readDiagramAccessibility(source)
-    const lines = withoutAccessibilityLines(source)
+    const lines = renderedText(source)
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line && !line.startsWith('%%'))
     const found = KINDS.find(([pattern]) => pattern.test(lines[0] ?? ''))
     const kind: Kind = found?.[1] ?? 'other'
     const kindLabel = found?.[2] ?? 'Diagram'
-    let title = accessibility.title ? cleanLabel(accessibility.title) : ''
+    const givenTitle = accessibility.title ?? readFrontMatterTitle(source)
+    let title = givenTitle ? cleanLabel(givenTitle) : ''
     const description = accessibility.description ? cleanLabel(accessibility.description) : ''
     const body: string[] = []
     for (const line of lines.slice(1)) {

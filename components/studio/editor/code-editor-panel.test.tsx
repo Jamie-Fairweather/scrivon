@@ -20,6 +20,8 @@ const EOL_SEQUENCE = { LF: 0, CRLF: 1 }
 
 class FakeModel {
     disposed = false
+    /** The language the buffer is coloured with. */
+    language = ''
     readonly listeners = new Set<Listener>()
     options: { tabSize?: number; indentSize?: number | 'tabSize'; insertSpaces?: boolean } = {}
     private lines: string[] = []
@@ -229,8 +231,9 @@ const fakeMonaco = {
             editors.push(editor)
             return editor
         },
-        createModel: (value: string, _language: string, uri: FakeUri) => {
+        createModel: (value: string, language: string, uri: FakeUri) => {
             const model = new FakeModel(value, uri)
+            model.language = language
             models.set(uri.toString(), model)
             return model
         },
@@ -238,7 +241,9 @@ const fakeMonaco = {
         getModels: () => [...models.values()],
         setTheme: () => {},
         defineTheme: () => {},
-        setModelLanguage: () => {},
+        setModelLanguage: (model: FakeModel, language: string) => {
+            model.language = language
+        },
         onDidChangeMarkers: () => ({ dispose: () => {} }),
         remeasureFonts: vi.fn(),
         /** Monaco's shared command registry; each call returns its own disposable, to check the panel lets go. */
@@ -828,6 +833,37 @@ describe('CodeEditorPanel suggestions', () => {
             suggestOnTriggerCharacters: false,
             acceptSuggestionOnEnter: 'off',
         })
+    })
+})
+
+describe('CodeEditorPanel languages', () => {
+    it('colours diagram files with the Mermaid grammar and Markdown files as Markdown, examples too', async () => {
+        const md = '/w/notes.md'
+        const mmd = '/w/flow.mmd'
+        const mermaid = '/w/flow.MERMAID'
+        const example: DocumentTab = { ...tab('example:flow', 'graph TD'), name: 'Flow.mmd', readOnly: true }
+        tabsState = { tabs: [tab(md, '# A'), tab(mmd, 'graph TD'), tab(mermaid, 'graph TD'), example], activeTabId: md }
+        const { view, editor } = await mountEditor()
+        expect(editor.getModel()!.language).toBe('markdown')
+
+        for (const activeTabId of [mmd, mermaid, example.id]) {
+            setTabs(view, { ...tabsState, activeTabId })
+            await waitFor(() => expect(editor.getModel()!.language).toBe('mermaid'))
+        }
+        setTabs(view, { ...tabsState, activeTabId: md })
+        await waitFor(() => expect(editor.getModel()!.language).toBe('markdown'))
+    })
+
+    it('offers the diagram starters in diagram files, where Enter picks one, and no suggestions in Markdown', async () => {
+        const md = '/w/notes.md'
+        const mmd = '/w/flow.mmd'
+        tabsState = { tabs: [tab(md, '# A'), tab(mmd, '')], activeTabId: md }
+        const { view, editor } = await mountEditor()
+        expect(editor.options).toMatchObject({ snippetSuggestions: 'none', acceptSuggestionOnEnter: 'off', quickSuggestions: false })
+
+        setTabs(view, { ...tabsState, activeTabId: mmd })
+        // Still nothing pops up while typing: Ctrl+Space shows the starters.
+        expect(editor.options).toMatchObject({ snippetSuggestions: 'inline', acceptSuggestionOnEnter: 'on', quickSuggestions: false })
     })
 })
 
