@@ -17,6 +17,7 @@ import { registerCoordinatorRefs } from '@/components/studio/workspace/register-
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -423,6 +424,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
+    // Read through a ref, so the link to the preview always sees the current setting.
+    const scrollSyncRef = useRef(settings.editor.scrollSync)
+    useEffect(() => {
+        scrollSyncRef.current = settings.editor.scrollSync
+    }, [settings.editor.scrollSync])
+
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
         tabSizeRef.current = settings.editor.tabSize
@@ -580,6 +587,13 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            // Scrolls the Markdown preview with the editor, and the other way round.
+            const scrollSync = bindEditorScrollSync(editor, {
+                tabId: () => activeTabIdRef.current,
+                enabled: () => scrollSyncRef.current,
+                canFocus: () => openRef.current,
+            })
+            editor.onDidDispose(() => scrollSync.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)

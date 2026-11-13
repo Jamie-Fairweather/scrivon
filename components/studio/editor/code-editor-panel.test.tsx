@@ -226,6 +226,10 @@ const fakeMonaco = {
 // Skip loading the real bundled Monaco; the fake above stands in for it.
 vi.mock('@/lib/monaco/setup-monaco', () => ({}))
 
+// The link to the preview has its own tests (editor-scroll-sync.test.tsx), with an editor that has its events.
+const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
+vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
+
 /** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
 const tabFocus = {
     mode: false,
@@ -298,6 +302,7 @@ const DEFAULT_EDITOR_SETTINGS = {
     lineNumbers: 'on',
     minimap: false,
     tabMovesFocus: false,
+    scrollSync: true,
 }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -309,6 +314,7 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
 const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
@@ -813,6 +819,27 @@ describe('CodeEditorPanel scrolling', () => {
         editorSettings = { ...editorSettings, wordWrapColumn: 100 }
         view.rerender(<Panel />)
         expect(editor.options.wordWrapColumn).toBe(100)
+    })
+})
+
+describe('CodeEditorPanel link to the preview', () => {
+    it('links the editor with its tab, the setting and whether it shows, until the editor is thrown away', async () => {
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, scrollSync: false }
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        const [linked, options] = vi.mocked(bindEditorScrollSync).mock.calls.at(-1)!
+        expect(linked).toBe(editor)
+        expect(options.tabId()).toBe('/w/a.md')
+        expect(options.enabled()).toBe(false)
+        expect(options.canFocus()).toBe(true)
+
+        editorSettings = { ...editorSettings, scrollSync: true }
+        view.rerender(<Panel open={false} />)
+        expect(options.enabled()).toBe(true)
+        expect(options.canFocus()).toBe(false)
+
+        act(() => editor.dispose())
+        expect(scrollSyncBinding.dispose).toHaveBeenCalled()
     })
 })
 

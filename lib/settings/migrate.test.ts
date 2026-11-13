@@ -100,6 +100,14 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
     })
 
+    it('links the editor and preview by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.scrollSync).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.scrollSync).toBe(true)
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.scrollSync).toBe(false)
+        expect(mergeStoredSettings({ editor: { scrollSync: 'no' } }, false).editor.scrollSync).toBe(true)
+    })
+
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
         expect(createDefaultSettings(false).editor.wordWrapColumn).toBe(80)
         // Settings saved before the option existed.

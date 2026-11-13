@@ -19,7 +19,8 @@ import {
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
 import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
-import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import { markdownBodyFirstLine, markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import { rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
@@ -239,7 +240,7 @@ const staticMarkdownComponents: Components = {
             />
         )
     },
-    hr: () => <hr className="my-6 border-border" />,
+    hr: (props) => <hr {...sourceLineProps(props)} className="my-6 border-border" />,
     // Raw HTML the sanitizer lets through (see previewSanitizeSchema).
     kbd: (props) => {
         const { className, ...rest } = withoutNode(props)
@@ -255,14 +256,18 @@ const staticMarkdownComponents: Components = {
         const { className, ...rest } = withoutNode(props)
         return <summary {...rest} className={cn('cursor-pointer font-medium text-foreground', className)} />
     },
-    table: ({ children }) => (
-        <div className="mb-4 overflow-x-auto rounded-lg border border-border">
-            <table className="w-full border-collapse text-sm">{children}</table>
+    table: (props) => (
+        <div {...sourceLineProps(props)} className="mb-4 overflow-x-auto rounded-lg border border-border">
+            <table className="w-full border-collapse text-sm">{props.children}</table>
         </div>
     ),
     thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
     tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
-    tr: ({ children }) => <tr className="border-border">{children}</tr>,
+    tr: (props) => (
+        <tr {...sourceLineProps(props)} className="border-border">
+            {props.children}
+        </tr>
+    ),
     // A raw-HTML table's colspan, rowspan and dir reach the cell. A column's alignment arrives as its text-align style.
     th: (props) => {
         const { className, ...rest } = withoutNode(props)
@@ -275,8 +280,11 @@ const staticMarkdownComponents: Components = {
     pre: (props) => {
         const { className, ...rest } = withoutNode(props)
         const first = props.node?.children[0]
-        // A fenced block draws its own frame (the code override), so its <pre> adds nothing.
-        if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) return <>{rest.children}</>
+        // A fenced block draws its own frame (the code override), so its <pre> adds only its source line, on a box
+        // with no size or spacing of its own.
+        if (first?.type === 'element' && (mermaidBlockOrdinal(first) !== null || fencedCodeBlockOrdinal(first) !== null)) {
+            return <div {...sourceLineProps(rest)}>{rest.children}</div>
+        }
         // A raw-HTML <pre> of plain text, such as ASCII art, keeps its spaces and line breaks, and reads left to
         // right unless the document says otherwise.
         return (
@@ -357,13 +365,14 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     }, [onExpandBlock, onLinkClick, tabId])
 
     const body = useMemo(() => markdownPreviewBody(source), [source])
+    const firstLine = useMemo(() => markdownBodyFirstLine(source, body), [source, body])
     // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
     const lang = useMemo(() => markdownPreviewLang(source), [source])
-    // Safe raw HTML first, then the numbering, so the sanitizer can't strip the blocks' data properties. Per
-    // document, so each block's id is matched against the blocks this document showed last time.
+    // Safe raw HTML first, then the numbering and source lines, so the sanitizer can't strip the blocks' data
+    // properties. Per document, so each block's id is matched against the blocks this document showed last time.
     const rehypePlugins = useMemo(
-        (): PluggableList => [...previewHtmlPlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')],
-        [tabId]
+        (): PluggableList => [...previewHtmlPlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? ''), rehypeSourceLines(firstLine)],
+        [tabId, firstLine]
     )
 
     // Kept as one element so that loading web images (a context change) redraws only the images, without parsing

@@ -96,6 +96,13 @@ export function EditorSettings() {
                 onChange={(tabMovesFocus) => setEditor({ tabMovesFocus })}
             />
 
+            <SwitchSetting
+                label="Scroll with the preview"
+                description="The editor and the Markdown preview scroll together. Double-click the preview to jump to that line in the editor."
+                checked={settings.editor.scrollSync}
+                onChange={(scrollSync) => setEditor({ scrollSync })}
+            />
+
             <Field>
                 <FieldLabel>Editor pane width</FieldLabel>
                 <FieldDescription>Reset the editor panel to the default width ({settings.layout.editorWidth}px currently).</FieldDescription>
