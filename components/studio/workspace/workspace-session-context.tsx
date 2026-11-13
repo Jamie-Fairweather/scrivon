@@ -34,12 +34,14 @@ import {
     addRecentWorkspace,
     clampRecentWorkspaceLimit,
     getFolderToggles,
+    getLastWorkspace,
     getRecentWorkspaces,
     getWorkspaceTabSession,
     removeRecentFiles,
     removeRecentWorkspace,
     renameRecentFiles,
     setFolderToggles,
+    setLastWorkspace,
 } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
@@ -188,6 +190,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     // A lower limit shows straight away. The saved list is cut to it on the next folder open, so typing
     // '15' into the setting, which passes through '1', can't wipe the list.
     const visibleRecentWorkspaces = useMemo(() => (recentWorkspaces ?? []).slice(0, maxRecentFolders), [recentWorkspaces, maxRecentFolders])
+    // Read once: turning the setting on later mustn't open a folder in the middle of a session.
+    const reopenAtStartup = useRef(settings.workspace.reopenLastFolder)
 
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
 
@@ -205,7 +209,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return open === null || root === null ? open === root : samePath(open, root)
     }, [])
 
-    const openWorkspaceRef = useRef<(path: string) => Promise<void>>(async () => {})
+    const openWorkspaceRef = useRef<(path: string, atStartup?: boolean) => Promise<void>>(async () => {})
 
     const [folderToggles, setFolderTogglesState] = useState<ReadonlyMap<string, boolean>>(() => new Map())
     // The ref is the latest value, so changes made one after another (a rename, then a click) build on each other.
@@ -239,29 +243,6 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             .then(setRecentWorkspaces)
             .catch(() => setRecentWorkspaces([]))
     }, [])
-
-    // After a crash or a forced restart, says which folder has unsaved changes waiting and offers to open it.
-    useEffect(() => {
-        if (!isDesktop) return
-        let cancelled = false
-        void listBackupsSafely().then((backups) => {
-            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
-            const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
-            const root = folderOf(backups[0]!)
-            const here = backups.filter((b) => samePath(folderOf(b), root))
-            const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
-            const elsewhere = here.length < backups.length ? ' Changes in other folders come back when you open them.' : ''
-            notifyWarning('Unsaved changes from last time', {
-                id: RECOVERED_CHANGES_NOTICE_ID,
-                description: `Scrivon closed before ${what} in ${getBaseName(root) || root} were saved. Open the folder to get them back.${elsewhere}`,
-                timeout: 0,
-                action: { label: 'Open Folder', onClick: () => void openWorkspaceRef.current(root) },
-            })
-        })
-        return () => {
-            cancelled = true
-        }
-    }, [isDesktop])
 
     // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown, and
     // an older one still running stops reading.
@@ -713,8 +694,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return { request: ++workspaceRequest.current, signal: controller.signal }
     }, [])
 
+    /** Opens a folder; `atStartup` when it is the one reopened as Scrivon starts. */
     const openWorkspace = useCallback(
-        async (requestedPath: string) => {
+        async (requestedPath: string, atStartup = false) => {
             if (!isDesktop) return
 
             const path = normalizePath(requestedPath)
@@ -761,7 +743,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     // A recent folder that was moved, deleted or is on a missing drive can be dropped from the list.
                     const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
                     const removeFromRecent = () => void removeRecent(path)
-                    notifyError(`Couldn't open ${name}`, err, isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {})
+                    notifyError(
+                        atStartup ? `Couldn't reopen ${name}` : `Couldn't open ${name}`,
+                        err,
+                        isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {}
+                    )
                     void offerKeptChanges(path)
                     return
                 }
@@ -791,6 +777,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                         if (isCurrent()) setRecentWorkspaces(recents)
                     })
                     .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
+                // Reopened at the next start, unless it is closed first.
+                void setLastWorkspace(path).catch((err: unknown) => console.warn("Couldn't remember the open folder", err))
 
                 try {
                     await restoreTabSession(path, isCurrent)
@@ -825,6 +813,36 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         openWorkspaceRef.current = openWorkspace
     }, [openWorkspace])
 
+    // At launch, reopens the folder that was open when Scrivon last closed (a setting). Then, after a crash or a
+    // forced restart, says which other folder has unsaved changes waiting and offers to open it.
+    useEffect(() => {
+        if (!isDesktop || !hydrated) return
+        let cancelled = false
+        void (async () => {
+            const last = reopenAtStartup.current ? await getLastWorkspace().catch(() => null) : null
+            if (cancelled) return
+            // Not once the user has opened or closed a folder. One that can't be opened says why, and the
+            // welcome screen stays.
+            if (last && workspaceRequest.current === 0) await openWorkspaceRef.current(last, true)
+            const backups = await listBackupsSafely()
+            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
+            const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
+            const root = folderOf(backups[0]!)
+            const here = backups.filter((b) => samePath(folderOf(b), root))
+            const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
+            const elsewhere = here.length < backups.length ? ' Changes in other folders come back when you open them.' : ''
+            notifyWarning('Unsaved changes from last time', {
+                id: RECOVERED_CHANGES_NOTICE_ID,
+                description: `Scrivon closed before ${what} in ${getBaseName(root) || root} were saved. Open the folder to get them back.${elsewhere}`,
+                timeout: 0,
+                action: { label: 'Open Folder', onClick: () => void openWorkspaceRef.current(root) },
+            })
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [isDesktop, hydrated])
+
     const pickAndOpenWorkspace = useCallback(async () => {
         let path: string | null
         try {
@@ -858,6 +876,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         await Promise.all([
             leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err)),
             settleUnsavedBackups(),
+            // No folder is reopened at the next start.
+            setLastWorkspace(null).catch((err: unknown) => console.warn("Couldn't forget the open folder", err)),
         ])
     }, [coordinator, updateFolderToggles, startWorkspaceRequest, startTreeRead])
 
