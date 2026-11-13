@@ -9,7 +9,9 @@ import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFile
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
+import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
+import { scrollViewport, usePreviewScrollSync } from '@/components/studio/markdown/use-preview-scroll-sync'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { Button } from '@/components/ui/button'
@@ -35,10 +37,6 @@ type MarkdownDocumentViewerProps = {
  */
 const LARGE_PREVIEW_CHARS = 10_000
 const LARGE_PREVIEW_DELAY_MS = 200
-
-function scrollViewport(root: HTMLElement | null): HTMLElement | null {
-    return root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null
-}
 
 /** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
 const DOCUMENT_ID_PREFIX = 'user-content-'
@@ -168,6 +166,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const { requestCanvasFit } = useCanvasFit()
     const { tabs, openFile } = useDocumentTabs()
     const { workspaceRoot, tree } = useWorkspaceSession()
+    const tab = tabs.find((t) => t.id === tabId)
+    /** The document's file, which its links and images are found from; an example has none. */
+    const documentPath = tab && !isExampleTabId(tab.id) ? tab.path : null
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const expandedKey = expanded?.canvasKey ?? null
     /** Kept by the provider, so they survive this viewer unmounting while a diagram tab is open. */
@@ -182,6 +183,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const overlayRef = useRef<HTMLDivElement>(null)
     /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
     const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
+    // Scrolls with the editor, and double-click jumps to the line in it (each when its setting is on).
+    usePreviewScrollSync(scrollAreaRef, tabId, previewSource)
 
     useEffect(() => {
         const viewport = scrollViewport(scrollAreaRef.current)
@@ -285,8 +288,6 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         }
 
         linkHandlerRef.current = (href) => {
-            const tab = tabs.find((t) => t.id === tabId)
-            const documentPath = tab && !isExampleTabId(tab.id) ? tab.path : null
             const target = resolveMarkdownLink(href, { documentPath, workspaceRoot })
 
             switch (target.kind) {
@@ -348,6 +349,23 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     })
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
+
+    // The Outline panel moves the preview to a heading. Focus stays where it is (the panel moves it to the editor).
+    useEffect(
+        () =>
+            registerPreviewHeadingReveal((id) => {
+                const target = findAnchorTarget(scrollAreaRef.current, id)
+                if (!target) return
+                target.scrollIntoView({ block: 'start' })
+                if (!expandedKey || !tabId) return
+                // An expanded diagram covers the preview, so it closes. Closing it puts back the place the preview
+                // had, so that becomes the heading's place.
+                const viewport = scrollViewport(scrollAreaRef.current)
+                if (viewport) scrollTopByTab.set(tabId, viewport.scrollTop)
+                setExpanded(null)
+            }),
+        [expandedKey, tabId, scrollTopByTab, setExpanded]
+    )
 
     useEffect(() => {
         if (!expandedKey) return
@@ -452,6 +470,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                                 onLinkClick={onLinkClick}
                                 loadRemoteImages={loadRemoteImages}
                                 onRemoteImageBlocked={onRemoteImageBlocked}
+                                documentPath={documentPath}
+                                workspaceRoot={workspaceRoot}
                             />
                         </PaneErrorBoundary>
                     )}

@@ -3,6 +3,8 @@ import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/f
 import type { FileNode } from '@/lib/workspace/types'
 
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
+/** Runs of characters a name can't hold: the invalid ones plus the path separators. */
+const UNSAFE_CHARS = new RegExp(`(?:${INVALID_CHARS.source}|[/\\\\])+`, 'g')
 /** Device names Windows won't use for a file or folder, with or without an extension (`con`, `nul.md`). */
 const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i
 const MAX_NAME_LENGTH = 255
@@ -20,6 +22,22 @@ export function validateFileName(name: string): string | null {
     if (WINDOWS_RESERVED_NAME.test(stem)) return `"${stem}" is a reserved name on Windows`
     if (trimmed.length > MAX_NAME_LENGTH) return `Name is too long (${MAX_NAME_LENGTH} characters at most)`
     return null
+}
+
+/**
+ * Turns a title or tab name into a file name (without extension) Windows accepts: 'CI/CD Pipeline' ->
+ * 'CI-CD Pipeline', 'Inheritance (<|--)' -> 'Inheritance (-)', 'CON' -> 'CON_'. `fallback` when nothing is left.
+ */
+export function safeFileStem(name: string, fallback: string): string {
+    const stem = name
+        .replace(UNSAFE_CHARS, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s.-]+|[\s.-]+$/g, '')
+    if (!stem) return fallback
+    // Windows reserves the part before the first dot ('nul.backup' too), so mark that part.
+    const head = stem.split('.')[0]!
+    return WINDOWS_RESERVED_NAME.test(head.trim()) ? `${head}_${stem.slice(head.length)}` : stem
 }
 
 /**

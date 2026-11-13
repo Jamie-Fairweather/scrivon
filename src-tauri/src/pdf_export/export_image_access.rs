@@ -128,6 +128,12 @@ impl ExportImageAccess {
         true
     }
 
+    /// Records an image Rust saved itself (one from an imported profile), so
+    /// the export can read it.
+    pub(super) fn remember_saved(&self, path: &str) {
+        self.remember_all(&[path]);
+    }
+
     /// Accepts `path` for reading when the user chose it: `in_scope` (the fs
     /// scope, which the open dialog adds the picked file to) allows it, or it
     /// was chosen in an earlier session. Newly allowed images are recorded so

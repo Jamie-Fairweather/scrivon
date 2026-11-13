@@ -326,6 +326,22 @@ describe('CommandPaletteDialog accessibility', () => {
         expect(screen.getByRole('option', { name: /Save All.*Nothing to save/ })).toBeInTheDocument()
     })
 
+    it('says whether an on/off command is on now, as the menus tick it', () => {
+        const toggle = (label: string, checked: boolean): ActionPaletteItem => ({
+            kind: 'action',
+            value: `action:${label}`,
+            searchText: '',
+            label,
+            checked,
+            shortcut: 'Ctrl+B',
+            run: () => {},
+        })
+        renderDialog({ query: '>', groups: [{ id: 'actions', label: 'Commands', items: [toggle('Explorer', true), toggle('Autosave', false)] }] })
+
+        expect(screen.getByRole('option', { name: 'Explorer On Ctrl+B' })).toBeInTheDocument()
+        expect(screen.getByRole('option', { name: 'Autosave Off Ctrl+B' })).toBeInTheDocument()
+    })
+
     it('tells screen readers which open tabs have unsaved changes', () => {
         renderDialog({ groups: [{ id: 'tabs', label: 'Open Editors', items: [dirtyTab] }] })
         // Real text, not an aria-label on a plain span (which screen readers often skip).
