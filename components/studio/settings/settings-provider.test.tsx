@@ -279,7 +279,7 @@ describe('SettingsProvider persistence', () => {
         expect(stored().theme).toEqual({ id: 'nord', light: 'solarized-light', dark: 'dracula' })
     })
 
-    it("turns System mode on and off without changing the theme on screen, and sets System mode's themes", () => {
+    it("turns System mode on and off, keeping the current theme, and sets System mode's themes", () => {
         const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'nord' } }))
         const { result } = renderSettings()

@@ -30,8 +30,9 @@ export function resolveThemeSetting(setting: ThemeSetting, systemIsDark: boolean
 }
 
 /**
- * Turns System mode on or off without changing the theme on screen. Turning it on keeps the
- * current theme as System mode's light or dark theme; turning it off keeps it as the fixed theme.
+ * Turns System mode on or off. Turning it on keeps the current theme as the pick for its kind
+ * (light or dark), so the screen only changes when Windows is the other kind. Turning it off keeps
+ * the theme on screen as the fixed theme.
  */
 export function withFollowSystem(setting: ThemeSetting, on: boolean, systemIsDark: boolean): ThemeSetting {
     if ((setting.id === FOLLOW_SYSTEM) === on) return setting

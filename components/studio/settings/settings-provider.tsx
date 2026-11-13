@@ -33,7 +33,7 @@ type AppSettingsContextValue = {
     updateSettings: (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => void
     /** Uses this theme all the time (leaves System mode). */
     setThemeId: (id: AppThemeId) => void
-    /** Turns following the Windows light/dark setting on or off, without changing the theme on screen. */
+    /** Turns following the Windows light/dark setting on or off. On keeps the current theme as the pick for its kind; off keeps the theme on screen. */
     setFollowSystem: (on: boolean) => void
     /** Sets the theme System mode uses when Windows is light (a light theme) or dark (a dark theme). */
     setSystemThemeId: (id: AppThemeId) => void

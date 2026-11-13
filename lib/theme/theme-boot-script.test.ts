@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mergeStoredSettings } from '@/lib/settings/migrate'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import { STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 import { SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME } from './catalog'
@@ -83,6 +84,24 @@ describe('getThemeBootScript at runtime', () => {
     it('in System mode, falls back to Scrivon Light or Dark for a theme it does not know, not to the old saved theme', () => {
         expect(runInSystemMode(true, { light: 'solarized-light', dark: 'future-theme' }, 'nord')).toBe(SYSTEM_DARK_THEME)
         expect(runInSystemMode(false, {}, 'nord')).toBe(SYSTEM_LIGHT_THEME)
+    })
+
+    it.each([
+        ['a fixed theme', { id: 'nord', light: 'solarized-light', dark: 'dracula' }],
+        ['System mode', { id: 'system', light: 'solarized-light', dark: 'dracula' }],
+        ['a theme from a newer version, with light and dark picks', { id: 'future-theme', light: 'solarized-light', dark: 'dracula' }],
+        ['a theme from a newer version, with no picks', { id: 'future-theme' }],
+        ['System mode with picks of the wrong kind', { id: 'system', light: 'dracula', dark: 'solarized-light' }],
+        ['System mode with picks that are not strings', { id: 'system', light: ['solarized-light'], dark: { id: 'dracula' } }],
+        ['an object key as the theme', { id: 'constructor', light: 'toString', dark: '__proto__' }],
+    ])('paints the same theme as React for %s', (_name, theme) => {
+        for (const windowsIsDark of [true, false]) {
+            vi.stubGlobal('matchMedia', () => ({ matches: windowsIsDark }))
+            runBootScript('', new Map([[SETTINGS_STORAGE_KEY, JSON.stringify({ theme })]]))
+
+            const react = resolveThemeSetting(mergeStoredSettings({ theme }).theme, windowsIsDark)
+            expect(document.documentElement.dataset.appTheme, `Windows ${windowsIsDark ? 'dark' : 'light'}`).toBe(react)
+        }
     })
 
     it('applies the saved dark theme with a dark colour scheme before React loads', () => {

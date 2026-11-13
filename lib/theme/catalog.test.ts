@@ -1,17 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { mergeStoredSettings } from '@/lib/settings/migrate'
-import {
-    APP_THEME_IDS,
-    DEFAULT_APP_THEME,
-    getDiagramColors,
-    getSystemPreferredTheme,
-    getTheme,
-    isAppThemeId,
-    isLightTheme,
-    parseStoredTheme,
-    SYSTEM_DARK_THEME,
-    SYSTEM_LIGHT_THEME,
-} from './catalog'
+import { APP_THEME_IDS, getDiagramColors, getTheme, isAppThemeId, isLightTheme } from './catalog'
 import { resolveThemeSetting } from './system-theme'
 
 describe('isAppThemeId', () => {
@@ -62,50 +51,5 @@ describe('isLightTheme', () => {
     it('reports light and dark themes correctly', () => {
         expect(isLightTheme('scrivon-light')).toBe(true)
         expect(isLightTheme('scrivon-dark')).toBe(false)
-    })
-})
-
-describe('getSystemPreferredTheme', () => {
-    afterEach(() => {
-        vi.unstubAllGlobals()
-    })
-
-    it('falls back when window is unavailable', () => {
-        expect(getSystemPreferredTheme()).toBe(DEFAULT_APP_THEME)
-    })
-
-    it('prefers dark when matchMedia reports dark mode', () => {
-        vi.stubGlobal('window', {
-            matchMedia: () => ({ matches: true }),
-        })
-
-        expect(getSystemPreferredTheme()).toBe(SYSTEM_DARK_THEME)
-    })
-
-    it('prefers light when matchMedia reports light mode', () => {
-        vi.stubGlobal('window', {
-            matchMedia: () => ({ matches: false }),
-        })
-
-        expect(getSystemPreferredTheme()).toBe(SYSTEM_LIGHT_THEME)
-    })
-})
-
-describe('parseStoredTheme', () => {
-    afterEach(() => {
-        vi.unstubAllGlobals()
-    })
-
-    it('returns stored theme when valid', () => {
-        expect(parseStoredTheme('tokyo-night')).toBe('tokyo-night')
-    })
-
-    it('falls back to system preference when stored value is missing or invalid', () => {
-        vi.stubGlobal('window', {
-            matchMedia: () => ({ matches: true }),
-        })
-
-        expect(parseStoredTheme(null)).toBe(SYSTEM_DARK_THEME)
-        expect(parseStoredTheme('invalid-theme')).toBe(SYSTEM_DARK_THEME)
     })
 })

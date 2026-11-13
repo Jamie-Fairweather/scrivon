@@ -70,6 +70,11 @@ describe('withFollowSystem', () => {
         expect(withFollowSystem(fixedLight, true, true)).toEqual({ id: 'system', light: 'github-light', dark: 'dracula' })
     })
 
+    it('turning it on shows the dark pick when the fixed theme is light and Windows is dark', () => {
+        const fixedLight = { id: 'github-light', light: 'solarized-light', dark: 'dracula' } as const
+        expect(resolveThemeSetting(withFollowSystem(fixedLight, true, true), true)).toBe('dracula')
+    })
+
     it('turning it off fixes the theme on screen', () => {
         const system = { id: 'system', light: 'solarized-light', dark: 'dracula' } as const
 

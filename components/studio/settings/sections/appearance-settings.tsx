@@ -3,7 +3,7 @@
 import { CheckIcon } from 'lucide-react'
 import { useId, type ReactNode } from 'react'
 import { APP_DARK_THEME_IDS, APP_LIGHT_THEME_IDS, APP_THEME_LABELS, getDiagramColors, isAppThemeId, type AppThemeId } from '@/lib/theme/catalog'
-import { FOLLOW_SYSTEM } from '@/lib/settings/types'
+import { FOLLOW_SYSTEM, type ThemeChoice } from '@/lib/settings/types'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 import { RadioGroupPrimitive, RadioPrimitive } from '@/components/ui/radio-group'
@@ -41,7 +41,7 @@ function ThemeOptions({ ids }: { ids: AppThemeId[] }) {
 }
 
 /** A titled list of themes. Given a choice, the list is a choice of its own; without one, it's part of an outer choice. */
-function ThemeGroup({ title, ids, choice }: { title: string; ids: AppThemeId[]; choice?: ThemeChoiceProps }) {
+function ThemeGroup({ title, ids, choice }: { title: string; ids: AppThemeId[]; choice?: ThemeRadioGroupProps }) {
     const headingId = useId()
     const content = (
         <>
@@ -60,18 +60,18 @@ function ThemeGroup({ title, ids, choice }: { title: string; ids: AppThemeId[]; 
         )
     }
     return (
-        <ThemeChoice aria-labelledby={headingId} className="space-y-2" {...choice}>
+        <ThemeRadioGroup aria-labelledby={headingId} className="space-y-2" {...choice}>
             {content}
-        </ThemeChoice>
+        </ThemeRadioGroup>
     )
 }
 
-type ThemeChoiceProps = {
-    value: AppThemeId | typeof FOLLOW_SYSTEM
+type ThemeRadioGroupProps = {
+    value: ThemeChoice
     onPick: (id: AppThemeId) => void
 }
 
-type ThemeChoiceRootProps = ThemeChoiceProps & {
+type ThemeRadioGroupRootProps = ThemeRadioGroupProps & {
     children: ReactNode
     className?: string
     'aria-label'?: string
@@ -79,7 +79,7 @@ type ThemeChoiceRootProps = ThemeChoiceProps & {
 }
 
 /** One choice of theme: a radio group over the theme options inside it. */
-function ThemeChoice({ value, onPick, children, ...props }: ThemeChoiceRootProps) {
+function ThemeRadioGroup({ value, onPick, children, ...props }: ThemeRadioGroupRootProps) {
     return (
         <RadioGroupPrimitive
             value={value}
@@ -114,10 +114,10 @@ export function AppearanceSettings() {
                 </>
             ) : (
                 // One choice across both lists, so screen readers announce which theme is selected.
-                <ThemeChoice aria-label="Theme" className="space-y-6" value={theme.id} onPick={setThemeId}>
+                <ThemeRadioGroup aria-label="Theme" className="space-y-6" value={theme.id} onPick={setThemeId}>
                     <ThemeGroup title="Dark themes" ids={APP_DARK_THEME_IDS} />
                     <ThemeGroup title="Light themes" ids={APP_LIGHT_THEME_IDS} />
-                </ThemeChoice>
+                </ThemeRadioGroup>
             )}
         </div>
     )
