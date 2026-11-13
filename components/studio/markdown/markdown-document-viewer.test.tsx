@@ -8,6 +8,7 @@ import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
 import { extractMermaidBlockSources } from './mermaid-block-sources'
+import { revealHeadingInPreview } from './preview-heading'
 
 const workspace = vi.hoisted(() => ({
     tabs: [] as DocumentTab[],
@@ -340,6 +341,41 @@ describe('MarkdownDocumentViewer', () => {
             rerender(viewer(DOC_A, withImages))
             expect(container.querySelector('img[src^="https:"]')).not.toBeNull()
             expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+        })
+    })
+
+    describe('Outline panel', () => {
+        const source = ['# Guide', '', 'Intro.', '', '```mermaid', 'flowchart TD', '  A --> B', '```', '', '## Install', '', 'Steps.'].join('\n')
+
+        it('scrolls to the heading picked in the Outline panel, without taking focus', () => {
+            const { container } = render(viewer(DOC_A, source))
+            const before = document.activeElement
+
+            act(() => revealHeadingInPreview('install'))
+
+            expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-install')])
+            expect(document.activeElement).toBe(before)
+        })
+
+        it('closes an expanded diagram so the heading shows', () => {
+            const { container } = render(viewer(DOC_A, source))
+            fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 1' }))
+            scrollIntoView.mockImplementation(() => {
+                viewport(container).scrollTop = 300
+            })
+
+            act(() => revealHeadingInPreview('install'))
+
+            expect(screen.queryByRole('region', { name: 'Expanded diagram' })).toBeNull()
+            expect(viewport(container).scrollTop).toBe(300)
+        })
+
+        it('does nothing for a heading the preview does not show yet, or once it has gone', () => {
+            const { unmount } = render(viewer(DOC_A, source))
+            act(() => revealHeadingInPreview('not-written-yet'))
+            unmount()
+            act(() => revealHeadingInPreview('install'))
+            expect(scrollIntoView).not.toHaveBeenCalled()
         })
     })
 

@@ -5,6 +5,7 @@ mod legacy_profile;
 mod page_numbers;
 mod pdf_export;
 mod prevent_browser_shortcuts;
+mod snap_layouts;
 mod store_recovery;
 mod system_fonts;
 mod system_menu;
@@ -12,6 +13,7 @@ mod updater;
 mod window_state;
 mod workspace_access;
 mod workspace_image;
+mod workspace_trash;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -302,6 +304,7 @@ pub fn run() {
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
             pdf_export::adopt_export_images,
+            snap_layouts::set_maximize_button_area,
             store_recovery::take_store_recovery,
             system_fonts::list_system_fonts,
             system_menu::show_system_menu,
@@ -309,6 +312,7 @@ pub fn run() {
             updater::install_app_update,
             updater::take_update_attempt,
             workspace_image::read_workspace_image,
+            workspace_trash::trash_workspace_path,
         ])
         .run(context);
     if let Err(err) = result {
@@ -350,6 +354,12 @@ mod config_tests {
         assert!(!permissions.iter().any(|p| p == "fs:default"));
         // Its block on the WebView2 profile folder stays.
         assert!(permissions.iter().any(|p| p == "fs:deny-default"));
+    }
+
+    #[test]
+    fn the_webview_cannot_erase_files_only_move_them_to_the_recycle_bin() {
+        // Deletes go through workspace_trash, so a mistake can be undone (F01).
+        assert!(!permissions().iter().any(|p| p == "fs:allow-remove"));
     }
 
     #[test]

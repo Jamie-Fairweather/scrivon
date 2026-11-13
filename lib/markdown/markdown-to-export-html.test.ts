@@ -121,8 +121,9 @@ SHIKI_FAIL
         expect(html).toContain('class="pdf-toc-l2"')
         expect(html).toContain('class="pdf-toc-leader"')
         expect(html).toContain('href="#section"')
-        expect(html).toContain('>SFT0001<')
-        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        // The marks number every heading (the H1 is SFH0001), so the one listed row carries the H2's number.
+        expect(html).toContain('>SFT0002<')
+        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0002</span>')
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
@@ -519,6 +520,70 @@ SHIKI_FAIL
         expect(html).toContain('<span class="pdf-toc-mark">SFT0003</span>')
         // Numbering is off, so the footer has no marker and no sample.
         expect(html.match(/class="pdf-stamp-glyphs"/g)).toHaveLength(1)
+    })
+
+    it('marks every heading for the PDF bookmarks and sends the headings with the print settings (F47)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+
+        const { html, print } = await markdownToExportHtml('# Report\n\n## Setup\n\n#### Deep\n\nBody', { profile, assets: EMPTY_ASSETS })
+        expect(print.headings).toEqual([
+            { level: 1, text: 'Report' },
+            { level: 2, text: 'Setup' },
+            { level: 4, text: 'Deep' },
+        ])
+        // Each mark is the heading's place in that list, whether or not the Contents lists it.
+        expect(html).toContain('<h1 id="report" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        expect(html).toContain('<h2 id="setup" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0002</span>')
+        expect(html).toContain('<h4 id="deep" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0003</span>')
+        // The Contents row for Setup (H1 and H4 are left out) carries the same number.
+        expect(html).toMatch(/<a href="#setup">.*SFT0002<\/span><\/span><\/a>/)
+        expect(html).not.toContain('SFT0001')
+        expect(html).not.toContain('SFT0003')
+    })
+
+    it('marks the headings even without a Contents page, but not for the print dialog (F47)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const stamped = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS })
+        expect(stamped.html).toContain('<span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        expect(stamped.print.headings).toEqual([{ level: 1, text: 'Only' }])
+
+        const printed = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS, stamped: false })
+        expect(printed.html).not.toContain('SFH0001')
+        expect(printed.print.headings).toBeUndefined()
+    })
+
+    it('marks where the body starts when numbering pages from the body (F48)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.footer.pageNumbers = 'n-of-total'
+        profile.footer.numberFromBody = true
+        const source = '# Report\n\n## Setup\n\nBody'
+
+        const numbered = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(numbered.print.numberFromBody).toBe(true)
+        // Last in the body, so first-child rules still see the first heading; CSS lifts it to the body's top.
+        expect(numbered.html).toContain('<span class="pdf-body-mark" dir="ltr">SFH0000</span></div>')
+        expect(numbered.html).toMatch(/\.pdf-body-mark \{[^}]*position: absolute;[^}]*top: 0;/)
+        // With line-height 0 the mark has no height, and Chromium prints it at the foot of the page before the body
+        // whenever no header or footer is drawn, so the numbers would start a page early. Seen with headless Chrome.
+        const css = numbered.html.replace(/\/\*[\s\S]*?\*\//g, '')
+        const bodyMarkLineHeights = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+            .filter(([, selectors]) => selectors!.split(',').some((selector) => selector.trim() === '.pdf-body-mark'))
+            .flatMap(([, , declarations]) => [...declarations!.matchAll(/line-height:\s*([^;]+);/g)].map(([, value]) => value!.trim()))
+        expect(bodyMarkLineHeights).toEqual(['1px'])
+
+        profile.footer.numberFromBody = false
+        const counted = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(counted.print.numberFromBody).toBeUndefined()
+        expect(counted.html).not.toContain('SFH0000')
+
+        profile.footer.numberFromBody = true
+        const printed = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(printed.html).not.toContain('SFH0000')
     })
 
     it('keeps an indented code block that opens the document, with or without front matter', async () => {
@@ -1090,7 +1155,51 @@ SHIKI_FAIL
             marginLeftMm: 10,
             pageNumberFormat: 'custom:Spec · {{page}}/{{total}}',
             pageNumberColor: '#ff0000',
+            headings: [{ level: 1, text: 'Hi' }],
         })
         expect(doc.html).toContain('SFPN')
+    })
+})
+
+describe('markdownToExportHtml: GitHub alerts and math', () => {
+    it('prints an alert as a coloured callout with its title', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('> [!WARNING]\n> Back up first.')
+        expect(html).toMatch(
+            /<div class="markdown-alert markdown-alert-warning" dir="auto">\s*<p class="markdown-alert-title">Warning<\/p>\s*<p dir="auto">Back up first.<\/p>/
+        )
+        expect(html).toContain('.markdown-alert-warning { border-inline-start-color: #9A6700; }')
+    })
+
+    it('keeps the bar of a right-to-left alert on the right', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('> [!NOTE]\n> שלום')
+        expect(html).toContain('<div class="markdown-alert markdown-alert-note" dir="rtl">')
+    })
+
+    it("doesn't let raw HTML add other classes", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('<div class="markdown-alert pdf-body">Hi</div>')
+        expect(html).toContain('<div class="markdown-alert">Hi</div>')
+    })
+
+    it('prints inline and block math as MathML', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('Inline $E = mc^2$ here.\n\n$$\n\\frac{1}{3}\n$$')
+        expect(html).toMatch(/<p dir="auto">Inline <span class="katex"><math[^>]*><semantics><mrow><mi>E<\/mi>/)
+        expect(html).toMatch(/<span class="katex"><math[^>]*display="block"[^>]*><semantics><mrow><mfrac>/)
+    })
+
+    it('prints a ```math block as math, as GitHub does', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('```math\nx^2\n```')
+        expect(html).toMatch(/<math[^>]*display="block"[^>]*><semantics><mrow><msup><mi>x<\/mi>/)
+        expect(html).not.toContain('class="code-block')
+    })
+
+    it('prints math it cannot read as its source, in red', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('Bad $\\frac{$ math')
+        expect(html).toMatch(/<span class="katex-error"[^>]*>\\frac\{<\/span>/)
     })
 })

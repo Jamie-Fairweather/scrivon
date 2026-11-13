@@ -106,3 +106,10 @@ const getServerCursor = () => null
 export function useEditorCursor(): EditorCursor | null {
     return useSyncExternalStore(subscribe, getCursor, getServerCursor)
 }
+
+const getCursorLine = () => current?.line ?? null
+
+/** Just the line the caret is on (null with no editor), for the Outline panel; it draws again only when the line changes. */
+export function useEditorCursorLine(): number | null {
+    return useSyncExternalStore(subscribe, getCursorLine, getServerCursor)
+}

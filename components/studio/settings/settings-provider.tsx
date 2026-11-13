@@ -12,6 +12,8 @@ import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { adoptExportImages } from '@/lib/tauri/export-image-access'
+import type { AppThemeId } from '@/lib/theme/catalog'
+import { systemPrefersDark, withFollowSystem, withSystemTheme } from '@/lib/theme/system-theme'
 
 /** Why a shortcut change was refused. */
 export type KeybindRefusal = {
@@ -51,7 +53,12 @@ type AppSettingsContextValue = {
     openSettings: (section?: SettingsSection) => void
     closeSettings: () => void
     updateSettings: (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => void
-    setThemeId: (id: AppSettings['theme']['id']) => void
+    /** Uses this theme all the time (leaves System mode). */
+    setThemeId: (id: AppThemeId) => void
+    /** Turns following the Windows light/dark setting on or off. On keeps the current theme as the pick for its kind; off keeps the theme on screen. */
+    setFollowSystem: (on: boolean) => void
+    /** Sets the theme System mode uses when Windows is light (a light theme) or dark (a dark theme). */
+    setSystemThemeId: (id: AppThemeId) => void
     setAutosaveEnabled: (enabled: boolean) => void
     setAutosaveDelayMs: (delayMs: number) => void
     setLayoutExplorerOpen: (open: boolean) => void
@@ -96,11 +103,11 @@ function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
-/** With Restore panel layout off, every start shows the explorer and editor, as on a first launch. */
+/** With Restore panel layout off, every start shows the panels as on a first launch: explorer and editor, no outline. */
 function withStartupLayout(settings: AppSettings): AppSettings {
     if (settings.layout.restorePanelsOnOpen) return settings
-    const { explorerOpen, editorOpen } = createDefaultSettings(isMacPlatform()).layout
-    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen } }
+    const { explorerOpen, editorOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
+    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, outlineOpen } }
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -201,8 +208,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }, [flushPendingSettings])
 
     const setThemeId = useCallback(
-        (id: AppSettings['theme']['id']) => {
-            updateSettings((current) => ({ ...current, theme: { id } }))
+        (id: AppThemeId) => {
+            updateSettings((current) => ({ ...current, theme: { ...current.theme, id } }))
+        },
+        [updateSettings]
+    )
+
+    const setFollowSystem = useCallback(
+        (on: boolean) => {
+            updateSettings((current) => ({ ...current, theme: withFollowSystem(current.theme, on, systemPrefersDark()) }))
+        },
+        [updateSettings]
+    )
+
+    const setSystemThemeId = useCallback(
+        (id: AppThemeId) => {
+            updateSettings((current) => ({ ...current, theme: withSystemTheme(current.theme, id) }))
         },
         [updateSettings]
     )
@@ -331,9 +352,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }))
     }, [updateSettings])
 
-    // Export profiles are the user's own work (logos, headers, fonts), not preferences, so they're kept.
+    // Export profiles (logos, headers, fonts) and the words added to the dictionary are the user's own
+    // work, not preferences, so they're kept.
     const resetAllSettings = useCallback(() => {
-        updateSettings((current) => ({ ...createDefaultSettings(isMacPlatform()), pdfExport: current.pdfExport }))
+        updateSettings((current) => {
+            const defaults = createDefaultSettings(isMacPlatform())
+            return { ...defaults, pdfExport: current.pdfExport, spellcheck: { ...defaults.spellcheck, words: current.spellcheck.words } }
+        })
         flushPendingSettings()
     }, [updateSettings, flushPendingSettings])
 
@@ -347,6 +372,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             closeSettings,
             updateSettings,
             setThemeId,
+            setFollowSystem,
+            setSystemThemeId,
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
@@ -369,6 +396,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             closeSettings,
             updateSettings,
             setThemeId,
+            setFollowSystem,
+            setSystemThemeId,
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,

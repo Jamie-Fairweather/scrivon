@@ -13,9 +13,9 @@
 const SC_SIZE: u32 = 0xF000;
 const SC_MOVE: u32 = 0xF010;
 const SC_MINIMIZE: u32 = 0xF020;
-const SC_MAXIMIZE: u32 = 0xF030;
+pub(crate) const SC_MAXIMIZE: u32 = 0xF030;
 const SC_CLOSE: u32 = 0xF060;
-const SC_RESTORE: u32 = 0xF120;
+pub(crate) const SC_RESTORE: u32 = 0xF120;
 
 /// Which items can be chosen. Windows does this itself for a title bar it
 /// draws, but not for a menu shown like this: Restore only when maximized;

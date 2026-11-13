@@ -79,6 +79,12 @@ describe('normalizePdfExportSettings', () => {
         expect(custom.brand.logoIgnoreMargins).toBe(true)
     })
 
+    it('counts every page unless a profile numbers its pages from the body', () => {
+        expect(normalizePdfExportProfile({ footer: { pageNumbers: 'number' } }).footer.numberFromBody).toBe(false)
+        expect(normalizePdfExportProfile({ footer: { numberFromBody: 'yes' } }).footer.numberFromBody).toBe(false)
+        expect(normalizePdfExportProfile({ footer: { numberFromBody: true } }).footer.numberFromBody).toBe(true)
+    })
+
     it('moves single-sided legacy chrome to the left and accepts two-sided chrome', () => {
         const legacy = normalizePdfExportProfile({
             header: { text: 'Acme', imagePath: 'C:/logo.png' },

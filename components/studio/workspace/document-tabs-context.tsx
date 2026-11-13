@@ -360,6 +360,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 }
                 void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
             },
+            findTabsToCloseOnDelete: (path, isDirectory) => tabsToCloseOnDelete(tabsRef.current, path, isDirectory),
             clearTabs: () => {
                 releaseTabs(tabsRef.current)
                 tabsGeneration.current += 1

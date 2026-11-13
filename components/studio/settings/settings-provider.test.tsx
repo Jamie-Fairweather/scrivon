@@ -285,8 +285,22 @@ describe('SettingsProvider persistence', () => {
         expect(stored().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
     })
 
-    it('restores the theme that matches the OS light or dark setting', () => {
-        const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+    it('keeps the user’s dictionary when restoring defaults', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.updateSettings((current) => ({ ...current, spellcheck: { ...current.spellcheck, enabled: false, words: ['Scrivon'] } }))
+        })
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(result.current.settings.spellcheck.enabled).toBe(true)
+        expect(result.current.settings.spellcheck.words).toEqual(['Scrivon'])
+        expect(stored().spellcheck.words).toEqual(['Scrivon'])
+    })
+
+    it('goes back to following Windows light/dark when everything is reset', () => {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'tokyo-night' } }))
         const { result } = renderSettings()
         expect(result.current.settings.theme.id).toBe('tokyo-night')
@@ -295,7 +309,40 @@ describe('SettingsProvider persistence', () => {
             result.current.resetAllSettings()
         })
 
-        expect(result.current.settings.theme.id).toBe('scrivon-light')
+        expect(result.current.settings.theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it("keeps System mode's light and dark themes when a fixed theme is picked", () => {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'system', light: 'solarized-light', dark: 'dracula' } }))
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.setThemeId('nord')
+        })
+
+        expect(stored().theme).toEqual({ id: 'nord', light: 'solarized-light', dark: 'dracula' })
+    })
+
+    it("turns System mode on and off, keeping the current theme, and sets System mode's themes", () => {
+        const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'nord' } }))
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.setFollowSystem(true)
+        })
+        expect(stored().theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'nord' })
+
+        act(() => {
+            result.current.setSystemThemeId('github-light')
+            result.current.setSystemThemeId('dracula')
+        })
+        expect(result.current.settings.theme).toEqual({ id: 'system', light: 'github-light', dark: 'dracula' })
+
+        act(() => {
+            result.current.setFollowSystem(false)
+        })
+        expect(result.current.settings.theme).toEqual({ id: 'dracula', light: 'github-light', dark: 'dracula' })
         matchMedia.mockRestore()
     })
 
@@ -497,10 +544,13 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
     })
 
-    it('starts with the explorer and editor shown while Restore panel layout is off', () => {
+    it('starts with the explorer and editor shown, and the outline hidden, while Restore panel layout is off', () => {
         const first = renderSettings()
         act(() => {
-            first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, restorePanelsOnOpen: false } }))
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, outlineOpen: true },
+            }))
             first.result.current.setLayoutExplorerOpen(false)
             first.result.current.setLayoutEditorOpen(false)
             first.result.current.setEditorWidth(600)
@@ -508,7 +558,13 @@ describe('SettingsProvider persistence', () => {
         first.unmount()
 
         const { result } = renderSettings()
-        expect(result.current.settings.layout).toEqual({ explorerOpen: true, editorOpen: true, editorWidth: 600, restorePanelsOnOpen: false })
+        expect(result.current.settings.layout).toEqual({
+            explorerOpen: true,
+            editorOpen: true,
+            editorWidth: 600,
+            restorePanelsOnOpen: false,
+            outlineOpen: false,
+        })
         // Hiding a panel still works, and is still saved.
         act(() => result.current.setLayoutEditorOpen(false))
         waitForSave()
