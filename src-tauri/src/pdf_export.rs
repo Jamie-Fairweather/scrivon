@@ -10,6 +10,7 @@ use tauri_plugin_fs::FsExt;
 use crate::page_numbers::Stamped;
 
 mod export_image_access;
+pub mod preview;
 
 /// Print-engine settings that accompany the export HTML. Mirrors
 /// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
@@ -181,6 +182,8 @@ async fn export_html_to_pdf_impl(
         ),
     )
     .visible(false)
+    // A preview prints while the user types in the export dialog: don't take the keyboard.
+    .focused(false)
     .inner_size(794.0, 1123.0)
     .build()
     .map_err(|e| e.to_string())?;

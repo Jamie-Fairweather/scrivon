@@ -289,6 +289,7 @@ pub fn run() {
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
             pdf_export::export_html_to_pdf,
+            pdf_export::preview::preview_html_pdf,
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
             pdf_export::adopt_export_images,
