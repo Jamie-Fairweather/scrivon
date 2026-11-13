@@ -107,6 +107,22 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
     })
 
+    it('links the editor and preview by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.scrollSync).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.scrollSync).toBe(true)
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.scrollSync).toBe(false)
+        expect(mergeStoredSettings({ editor: { scrollSync: 'no' } }, false).editor.scrollSync).toBe(true)
+    })
+
+    it('jumps from the preview to the editor on double-click by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.jumpFromPreview).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.jumpFromPreview).toBe(true)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: false } }, false).editor.jumpFromPreview).toBe(false)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: 1 } }, false).editor.jumpFromPreview).toBe(true)
+    })
+
     it('reopens the last folder by default, and reads a saved choice', () => {
         expect(createDefaultSettings(false).workspace.reopenLastFolder).toBe(true)
         // Settings saved before the option existed.

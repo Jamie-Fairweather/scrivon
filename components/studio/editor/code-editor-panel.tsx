@@ -18,6 +18,7 @@ import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { lineEndingsOf } from '@/lib/workspace/text-stats'
@@ -415,6 +416,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
+    // Read through a ref, so the link to the preview always sees the current settings.
+    const previewLinkRef = useRef({ scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview })
+    useEffect(() => {
+        previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
+    }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
+
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
         tabSizeRef.current = settings.editor.tabSize
@@ -577,6 +584,14 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            // Scrolls the Markdown preview with the editor, and the other way round.
+            const scrollSync = bindEditorScrollSync(editor, {
+                tabId: () => activeTabIdRef.current,
+                scrollEnabled: () => previewLinkRef.current.scroll,
+                jumpEnabled: () => previewLinkRef.current.jump,
+                canFocus: () => openRef.current,
+            })
+            editor.onDidDispose(() => scrollSync.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)

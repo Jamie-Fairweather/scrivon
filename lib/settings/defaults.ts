@@ -70,6 +70,8 @@ export function createDefaultSettings(isMac = false): AppSettings {
             lineNumbers: 'on',
             minimap: false,
             tabMovesFocus: false,
+            scrollSync: true,
+            jumpFromPreview: true,
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,

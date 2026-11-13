@@ -171,6 +171,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             lineNumbers: normalizeLineNumbers(source.editor?.lineNumbers),
             minimap: typeof source.editor?.minimap === 'boolean' ? source.editor.minimap : defaults.editor.minimap,
             tabMovesFocus: typeof source.editor?.tabMovesFocus === 'boolean' ? source.editor.tabMovesFocus : defaults.editor.tabMovesFocus,
+            scrollSync: typeof source.editor?.scrollSync === 'boolean' ? source.editor.scrollSync : defaults.editor.scrollSync,
+            jumpFromPreview: typeof source.editor?.jumpFromPreview === 'boolean' ? source.editor.jumpFromPreview : defaults.editor.jumpFromPreview,
         },
         workspace: {
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
