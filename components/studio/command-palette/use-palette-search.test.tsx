@@ -1,5 +1,6 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook as renderHookAlone, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
@@ -11,6 +12,10 @@ import type { FileNode } from '@/lib/workspace/types'
 import { searchWorkspaceContent } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
+import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
+import { HelpCommands } from '@/components/studio/dialogs/help-commands'
+import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { StudioCommands } from '@/components/studio/shell/studio-commands'
 
 /** Files are read as bytes and decoded, so text has to come back encoded. */
 const utf8 = (text: string) => new TextEncoder().encode(text)
@@ -41,7 +46,7 @@ const state = vi.hoisted(() => ({
     canvas: { requestCanvasFit: () => {} },
     canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
-    settings: { settings: null as unknown, openSettings: () => {} },
+    settings: { settings: null as unknown, openSettings: () => {}, flushPendingSettings: () => {} },
     coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) } },
 }))
 
@@ -79,6 +84,19 @@ vi.mock('@/components/studio/command-palette/search-content', async (importOrigi
     const actual = await importOriginal<typeof import('@/components/studio/command-palette/search-content')>()
     return { ...actual, searchWorkspaceContent: vi.fn(actual.searchWorkspaceContent) }
 })
+
+/** The app's commands, registered as in the studio, so the palette lists the same ones the menu bar shows. */
+function WithCommands({ children }: { children: ReactNode }) {
+    return (
+        <CommandRegistryProvider>
+            <StudioCommands />
+            <HelpCommands />
+            {children}
+        </CommandRegistryProvider>
+    )
+}
+
+const renderHook = <Result,>(hook: () => Result) => renderHookAlone(hook, { wrapper: WithCommands })
 
 function file(path: string): FileNode {
     return { kind: 'file', name: path.split('/').pop()!, path }
@@ -353,6 +371,15 @@ describe('usePaletteSearch commands in the default results', () => {
         expect(commands.length).toBeLessThanOrEqual(5)
     })
 
+    it('keeps the theme list out of the first suggestions until something is typed', () => {
+        state.session.workspaceRoot = null
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        expect(groupPaths(result.current.groups, 'actions').some((value) => value.startsWith('action:theme:'))).toBe(false)
+        act(() => result.current.setQuery('nord'))
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:theme:nord')
+    })
+
     it('lists commands first on a fresh start with no recent folders', () => {
         state.session.workspaceRoot = null
         const { result } = renderHook(() => usePaletteSearch('all', true))
@@ -389,8 +416,24 @@ describe('usePaletteSearch commands in the default results', () => {
     it('finds a command by name without the > prefix', () => {
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
-        act(() => result.current.setQuery('theme'))
+        act(() => result.current.setQuery('switch theme'))
         expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
+    })
+
+    it.each([
+        ['dracula', 'action:theme:dracula'],
+        ['about', 'action:about'],
+        ['licences', 'action:licences'],
+        ['refresh', 'action:refresh-explorer'],
+        ['preview only', 'action:preview-only'],
+        ['editor and preview', 'action:layout-editor-preview'],
+        ['all panels', 'action:layout-all-panels'],
+        ['exit', 'action:exit'],
+    ])('finds %s by name', (query, value) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')).toContain(value)
     })
 
     it('lists commands after matching files while typing', () => {
@@ -453,7 +496,7 @@ describe('usePaletteSearch commands next to text hits', () => {
         act(() => result.current.setQuery('theme'))
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(result.current.groups.map((group) => group.id)).toEqual(['files', 'text', 'actions'])
-        expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
+        expect(groupPaths(result.current.groups, 'actions').every((value) => value.startsWith('action:theme:'))).toBe(true)
     })
 })
 
@@ -631,5 +674,53 @@ describe('usePaletteSearch Fit Diagram and Close Other Tabs', () => {
 
         expect(command(result, 'action:fit-diagram').disabled).toBe(false)
         expect(command(result, 'action:close-other-tabs').disabled).toBe(false)
+    })
+})
+
+describe("usePaletteSearch the editor's commands", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(false)
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0)
+            return 0
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
+        ['find', 'actions.find'],
+        ['replace', 'editor.action.startFindReplaceAction'],
+        ['go to line', 'editor.action.gotoLine'],
+        ['undo', 'undo'],
+    ])('runs %s in the editor', (query, monacoAction) => {
+        const editor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
+        function Editor() {
+            useEditorCommands(editor as never, true, false)
+            return null
+        }
+        const { result } = renderHookAlone(() => usePaletteSearch('all', true), {
+            wrapper: ({ children }) => (
+                <WithCommands>
+                    <Editor />
+                    {children}
+                </WithCommands>
+            ),
+        })
+
+        act(() => result.current.setQuery(query))
+        const [first] = result.current.groups.find((group) => group.id === 'actions')?.items ?? []
+        if (first?.kind !== 'action') throw new Error(`no command for ${query}`)
+        act(() => void first.run())
+
+        expect(editor.focus).toHaveBeenCalled()
+        expect(editor.trigger).toHaveBeenCalledWith('scrivon', monacoAction, null)
     })
 })
