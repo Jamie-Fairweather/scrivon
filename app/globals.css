@@ -375,3 +375,17 @@ body:has(.monaco-editor .find-widget.visible)
     align-items: center !important;
     white-space: nowrap !important;
 }
+
+/* A setting that Settings search jumped to lights up for a moment (settings-search-results.tsx).
+   A fade, so it stays when Windows animation effects are off. */
+[data-settings-search-hit] {
+    border-radius: var(--radius-md);
+    animation: settings-search-hit 1.6s ease-out;
+}
+
+@keyframes settings-search-hit {
+    from {
+        background-color: color-mix(in srgb, var(--ring) 24%, transparent);
+        box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--ring) 24%, transparent);
+    }
+}
