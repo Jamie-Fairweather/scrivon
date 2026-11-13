@@ -2799,14 +2799,34 @@ describe('reopening the last folder at startup', () => {
         expect(notifyWarning).not.toHaveBeenCalledWith('Unsaved changes from last time', expect.anything())
     })
 
+    it('only asks once about unsaved changes kept for a folder that is gone', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\gone')
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            { path: 'C:\\gone\\a.md', root: 'C:\\gone', content: 'typed before the crash', stamp: { mtimeMs: 1, size: 1 }, savedAt: 1 },
+        ])
+        renderHook(useHarness, { wrapper: createWrapper() })
+
+        await waitFor(() => expect(confirmKeptChangesWithoutFolder).toHaveBeenCalledWith('gone', ['a.md']))
+        await settle()
+        expect(notifyWarning).not.toHaveBeenCalledWith('Unsaved changes from last time', expect.anything())
+    })
+
     it('still mentions unsaved changes kept for another folder', async () => {
         vi.mocked(getLastWorkspace).mockResolvedValue('C:\\gone')
         vi.mocked(listUnsavedBackups).mockResolvedValue([
+            { path: 'C:\\gone\\a.md', root: 'C:\\gone', content: 'asked about in its own dialog', stamp: { mtimeMs: 1, size: 1 }, savedAt: 2 },
             { path: 'D:\\else\\x.md', root: 'D:\\else', content: 'typed before the crash', stamp: { mtimeMs: 1, size: 1 }, savedAt: 1 },
         ])
         renderHook(useHarness, { wrapper: createWrapper() })
 
         await waitFor(() => expect(notifyError).toHaveBeenCalledWith("Couldn't reopen gone", expect.anything(), expect.anything()))
-        await waitFor(() => expect(notifyWarning).toHaveBeenCalledWith('Unsaved changes from last time', expect.anything()))
+        await waitFor(() =>
+            expect(notifyWarning).toHaveBeenCalledWith('Unsaved changes from last time', {
+                id: expect.any(String),
+                description: 'Scrivon closed before your changes to x.md in else were saved. Open the folder to get them back.',
+                timeout: 0,
+                action: { label: 'Open Folder', onClick: expect.any(Function) },
+            })
+        )
     })
 })

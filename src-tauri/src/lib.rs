@@ -284,6 +284,9 @@ pub fn run() {
                     window_state::save(window);
                     close_watchdog::on_close_requested(window);
                 }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    window_state::save_soon(window);
+                }
                 tauri::WindowEvent::Destroyed => MAIN_CLOSED.store(true, Ordering::SeqCst),
                 _ => {}
             }

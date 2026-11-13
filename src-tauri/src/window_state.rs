@@ -1,19 +1,26 @@
 //! Remembers the main window's size, place and whether it was maximised (F19).
 //!
-//! They are saved to `window-state.json` in the app data folder as the window
-//! closes, and put back when it is built, before the page shows it. A place
-//! that no screen shows in full any more (a screen was unplugged, or its
-//! resolution lowered) is moved, and shrunk if need be, onto the screen that
-//! shows most of it. When no screen shows any of it, the window opens at its
-//! default size in the middle of the screen. A window closed while maximised
-//! opens maximised, and goes back to its saved size when restored.
+//! They are saved to `window-state.json` in the app data folder a moment after
+//! the window stops moving or changing size, and as it closes. They are put
+//! back when it is built, before the page shows it. A place that no screen
+//! shows in full any more (a screen was unplugged, or its resolution lowered)
+//! is moved, and shrunk if need be, onto the screen that shows most of it.
+//! When no screen shows any of it, the window opens at its default size in
+//! the middle of the screen. A window closed while maximised opens maximised,
+//! and goes back to its saved size when restored.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 const STATE_FILE: &str = "window-state.json";
+
+/// How long the window must stay still before its size and place are saved.
+const SAVE_DELAY: Duration = Duration::from_millis(500);
 
 /// A rectangle on the desktop in physical pixels: a window's top-left corner
 /// and size, or a screen's work area (the screen less the taskbar).
@@ -45,7 +52,8 @@ impl Bounds {
 /// The window as it was when it closed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedWindow {
-    /// Where it is when it isn't maximised.
+    /// Where it is when it isn't maximised: its outer edges, which include
+    /// the hidden resize borders around a window without a title bar.
     pub bounds: Bounds,
     pub maximized: bool,
 }
@@ -74,6 +82,25 @@ pub fn fit_on_screen(saved: Bounds, screens: &[Bounds]) -> Option<Bounds> {
     })
 }
 
+/// The size to pass to `set_size` so the window's outer size becomes `bounds`'
+/// size. `set_size` sets the size inside the window's borders and adds them
+/// back on, and the borders are the gap between the window's `outer` and
+/// `inner` size now.
+fn inner_size_for(
+    bounds: Bounds,
+    outer: PhysicalSize<u32>,
+    inner: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    PhysicalSize::new(
+        bounds
+            .width
+            .saturating_sub(outer.width.saturating_sub(inner.width)),
+        bounds
+            .height
+            .saturating_sub(outer.height.saturating_sub(inner.height)),
+    )
+}
+
 /// Where the window's size and place are kept; None without an app data folder.
 pub struct WindowStateFile(Option<PathBuf>);
 
@@ -88,6 +115,11 @@ fn read_state(file: &Path) -> Option<SavedWindow> {
 }
 
 fn write_state(file: &Path, saved: &SavedWindow) -> std::io::Result<()> {
+    // A save after a move and the one as the window closes can overlap.
+    static WRITING: Mutex<()> = Mutex::new(());
+    let _one_at_a_time = WRITING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -130,7 +162,10 @@ pub fn restore(app: &tauri::AppHandle) {
     if let Some(bounds) = fit_on_screen(saved.bounds, &screens) {
         // The place first: moving onto a screen with another scale changes the size.
         let _ = window.set_position(PhysicalPosition::new(bounds.x, bounds.y));
-        let _ = window.set_size(PhysicalSize::new(bounds.width, bounds.height));
+        // The borders are measured once it is there, and before it is maximised.
+        if let (Ok(outer), Ok(inner)) = (window.outer_size(), window.inner_size()) {
+            let _ = window.set_size(inner_size_for(bounds, outer, inner));
+        }
     }
     if saved.maximized {
         // A hidden window is only marked as maximised, and fills the screen once shown.
@@ -138,8 +173,43 @@ pub fn restore(app: &tauri::AppHandle) {
     }
 }
 
-/// Saves the main window's size and place for the next start. Call as it closes.
+/// Counts the window's moves and size changes, so only the last one is saved.
+struct Changes(AtomicU64);
+
+impl Changes {
+    fn next(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    fn is_latest(&self, change: u64) -> bool {
+        self.0.load(Ordering::SeqCst) == change
+    }
+}
+
+/// Saves the main window's size and place once it has stayed still for a
+/// moment. Call each time it moves or changes size. Closing saves too, but a
+/// Windows shutdown or sign-out, or the restart after an update, ends Scrivon
+/// without a close.
+pub fn save_soon(window: &tauri::Window) {
+    static CHANGES: Changes = Changes(AtomicU64::new(0));
+    let change = CHANGES.next();
+    let window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(SAVE_DELAY).await;
+        if CHANGES.is_latest(change) {
+            let _ = tauri::async_runtime::spawn_blocking(move || save(&window)).await;
+        }
+    });
+}
+
+/// Saves the main window's size and place for the next start, now. Call as it
+/// closes.
 pub fn save(window: &tauri::Window) {
+    // Not while hidden: at start it is still being put in place, and it reads
+    // as not maximised until it is shown.
+    if !window.is_visible().unwrap_or(false) {
+        return;
+    }
     let Some(file) = window
         .try_state::<WindowStateFile>()
         .and_then(|file| file.0.clone())
@@ -154,8 +224,8 @@ pub fn save(window: &tauri::Window) {
     }
 }
 
-/// The window's size and place. When it is maximised or minimised, Windows
-/// still knows where it goes back to, which is what is saved.
+/// The window's outer size and place. When it is maximised or minimised,
+/// Windows still knows where it goes back to, which is what is saved.
 #[cfg(windows)]
 fn current(window: &tauri::Window) -> Option<SavedWindow> {
     let placement = window_placement(window.hwnd().ok()?.0)?;
@@ -164,7 +234,19 @@ fn current(window: &tauri::Window) -> Option<SavedWindow> {
         monitor.work_area().position.x - monitor.position().x,
         monitor.work_area().position.y - monitor.position().y,
     );
-    saved_from_placement(&placement, offset)
+    saved_from_placement(&placement, offset, outer_bounds(window)?)
+}
+
+/// Where the window's outer edges are now.
+fn outer_bounds(window: &tauri::Window) -> Option<Bounds> {
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    Some(Bounds {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
 }
 
 /// Elsewhere, only a window that isn't maximised or minimised is saved.
@@ -173,15 +255,8 @@ fn current(window: &tauri::Window) -> Option<SavedWindow> {
     if window.is_maximized().ok()? || window.is_minimized().ok()? {
         return None;
     }
-    let position = window.outer_position().ok()?;
-    let size = window.inner_size().ok()?;
     Some(SavedWindow {
-        bounds: Bounds {
-            x: position.x,
-            y: position.y,
-            width: size.width,
-            height: size.height,
-        },
+        bounds: outer_bounds(window)?,
         maximized: false,
     })
 }
@@ -248,32 +323,37 @@ fn window_placement(hwnd: *mut std::ffi::c_void) -> Option<WindowPlacement> {
     (ok != 0).then_some(placement)
 }
 
-/// The window's normal place from its placement, which Windows counts from the
-/// top-left of the screen's work area (`work_offset` from the screen's), and
-/// whether it is maximised, or comes back maximised from the taskbar.
+/// The window's outer size and place, and whether it is maximised, or comes
+/// back maximised from the taskbar. A normal window is saved where it is
+/// (`now`): one snapped to a side of the screen is normal too, but its
+/// placement holds where it was before it was snapped. A maximised or
+/// minimised window is saved with its placement's normal place, which Windows
+/// counts from the top-left of the screen's work area (`work_offset` from the
+/// screen's).
 #[cfg(windows)]
 fn saved_from_placement(
     placement: &WindowPlacement,
     work_offset: (i32, i32),
+    now: Bounds,
 ) -> Option<SavedWindow> {
-    let rect = &placement.normal_position;
-    let width = u32::try_from(rect.right.checked_sub(rect.left)?).ok()?;
-    let height = u32::try_from(rect.bottom.checked_sub(rect.top)?).ok()?;
-    if width == 0 || height == 0 {
+    let bounds = if placement.show_cmd == SW_SHOWNORMAL {
+        now
+    } else {
+        let rect = &placement.normal_position;
+        Bounds {
+            x: rect.left.checked_add(work_offset.0)?,
+            y: rect.top.checked_add(work_offset.1)?,
+            width: u32::try_from(rect.right.checked_sub(rect.left)?).ok()?,
+            height: u32::try_from(rect.bottom.checked_sub(rect.top)?).ok()?,
+        }
+    };
+    if bounds.width == 0 || bounds.height == 0 {
         return None;
     }
     let maximized = placement.show_cmd == SW_SHOWMAXIMIZED
         || (placement.show_cmd == SW_SHOWMINIMIZED
             && placement.flags & WPF_RESTORETOMAXIMIZED != 0);
-    Some(SavedWindow {
-        bounds: Bounds {
-            x: rect.left.checked_add(work_offset.0)?,
-            y: rect.top.checked_add(work_offset.1)?,
-            width,
-            height,
-        },
-        maximized,
-    })
+    Some(SavedWindow { bounds, maximized })
 }
 
 #[cfg(test)]
@@ -373,6 +453,66 @@ mod tests {
         assert_eq!(WindowStateFile::new(None).0, None);
     }
 
+    /// A window without a title bar, as tao builds it on Windows: hidden
+    /// resize borders 8 px left, right and bottom and 1 px at the top.
+    struct Borderless {
+        outer: PhysicalSize<u32>,
+    }
+
+    impl Borderless {
+        const BORDER: (u32, u32) = (16, 9);
+
+        fn inner(&self) -> PhysicalSize<u32> {
+            PhysicalSize::new(
+                self.outer.width - Self::BORDER.0,
+                self.outer.height - Self::BORDER.1,
+            )
+        }
+
+        /// What Tauri's `set_size` does: sets the inside, then adds the borders.
+        fn set_size(&mut self, size: PhysicalSize<u32>) {
+            self.outer =
+                PhysicalSize::new(size.width + Self::BORDER.0, size.height + Self::BORDER.1);
+        }
+    }
+
+    #[test]
+    fn the_window_comes_back_the_same_size_however_often_it_starts() {
+        let mut saved = at(100, 50, 1200, 800);
+        for _ in 0..5 {
+            // Each start builds the window at its default size, then puts it back.
+            let mut window = Borderless {
+                outer: PhysicalSize::new(1456, 819),
+            };
+            let size = inner_size_for(saved, window.outer, window.inner());
+            window.set_size(size);
+            assert_eq!(window.outer, PhysicalSize::new(1200, 800));
+            // Each close saves its outer size again.
+            saved = at(saved.x, saved.y, window.outer.width, window.outer.height);
+        }
+        assert_eq!(saved, at(100, 50, 1200, 800));
+    }
+
+    #[test]
+    fn a_saved_size_smaller_than_the_borders_asks_for_nothing_inside() {
+        let size = inner_size_for(
+            at(0, 0, 10, 5),
+            PhysicalSize::new(1456, 819),
+            PhysicalSize::new(1440, 810),
+        );
+        assert_eq!(size, PhysicalSize::new(0, 0));
+    }
+
+    #[test]
+    fn only_the_last_move_in_a_row_is_saved() {
+        let changes = Changes(AtomicU64::new(0));
+        let first = changes.next();
+        assert!(changes.is_latest(first));
+        let second = changes.next();
+        assert!(!changes.is_latest(first));
+        assert!(changes.is_latest(second));
+    }
+
     #[cfg(windows)]
     mod placement {
         use super::super::*;
@@ -395,44 +535,74 @@ mod tests {
             bottom: 850,
         };
 
+        /// Where the window is on screen now (the left half of a 1920 px screen).
+        const NOW: Bounds = Bounds {
+            x: -8,
+            y: 0,
+            width: 976,
+            height: 1048,
+        };
+
         #[test]
         fn a_normal_window_is_saved_where_it_is() {
+            // Already counted from the screen, not from the work area.
+            let here = Bounds {
+                x: 148,
+                y: 50,
+                width: 1200,
+                height: 800,
+            };
             assert_eq!(
-                saved_from_placement(&placement(SW_SHOWNORMAL, 0, NORMAL), (0, 0)),
+                saved_from_placement(&placement(SW_SHOWNORMAL, 0, NORMAL), (48, 0), here),
                 Some(SavedWindow {
-                    bounds: Bounds {
-                        x: 100,
-                        y: 50,
-                        width: 1200,
-                        height: 800
-                    },
+                    bounds: here,
                     maximized: false
                 })
             );
         }
 
         #[test]
+        fn a_snapped_window_is_saved_where_it_is_snapped_not_where_it_was_before() {
+            // Snapped to the left half: Windows still shows it as normal, and
+            // its placement holds the place it had before.
+            let saved =
+                saved_from_placement(&placement(SW_SHOWNORMAL, 0, NORMAL), (0, 0), NOW).unwrap();
+            assert_eq!(saved.bounds, NOW);
+        }
+
+        #[test]
         fn a_maximised_window_is_saved_with_the_size_it_goes_back_to() {
             let saved =
-                saved_from_placement(&placement(SW_SHOWMAXIMIZED, 0, NORMAL), (0, 0)).unwrap();
+                saved_from_placement(&placement(SW_SHOWMAXIMIZED, 0, NORMAL), (0, 0), NOW).unwrap();
             assert!(saved.maximized);
-            assert_eq!((saved.bounds.width, saved.bounds.height), (1200, 800));
+            assert_eq!(
+                saved.bounds,
+                Bounds {
+                    x: 100,
+                    y: 50,
+                    width: 1200,
+                    height: 800
+                }
+            );
         }
 
         #[test]
         fn a_window_minimised_from_maximised_is_saved_as_maximised() {
             let minimised = |flags| {
-                saved_from_placement(&placement(SW_SHOWMINIMIZED, flags, NORMAL), (0, 0)).unwrap()
+                saved_from_placement(&placement(SW_SHOWMINIMIZED, flags, NORMAL), (0, 0), NOW)
+                    .unwrap()
             };
             assert!(minimised(WPF_RESTORETOMAXIMIZED).maximized);
             assert!(!minimised(0).maximized);
+            // Not where it is while minimised, which is off the screen.
+            assert_eq!(minimised(0).bounds.width, 1200);
         }
 
         #[test]
         fn the_place_is_moved_from_the_work_area_onto_the_screen() {
             // A taskbar on the left: Windows counts from the right of it.
-            let saved =
-                saved_from_placement(&placement(SW_SHOWNORMAL, 0, NORMAL), (48, 0)).unwrap();
+            let saved = saved_from_placement(&placement(SW_SHOWMAXIMIZED, 0, NORMAL), (48, 0), NOW)
+                .unwrap();
             assert_eq!((saved.bounds.x, saved.bounds.y), (148, 50));
         }
 
@@ -445,7 +615,12 @@ mod tests {
                 bottom: 400,
             };
             assert_eq!(
-                saved_from_placement(&placement(SW_SHOWNORMAL, 0, empty), (0, 0)),
+                saved_from_placement(&placement(SW_SHOWMAXIMIZED, 0, empty), (0, 0), NOW),
+                None
+            );
+            let nothing = Bounds { width: 0, ..NOW };
+            assert_eq!(
+                saved_from_placement(&placement(SW_SHOWNORMAL, 0, NORMAL), (0, 0), nothing),
                 None
             );
         }

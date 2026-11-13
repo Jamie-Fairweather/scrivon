@@ -823,10 +823,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (cancelled) return
             // Not once the user has opened or closed a folder. One that can't be opened says why, and the
             // welcome screen stays.
-            if (last && workspaceRequest.current === 0) await openWorkspaceRef.current(last, true)
-            const backups = await listBackupsSafely()
-            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
+            const tried = last && workspaceRequest.current === 0 ? last : null
+            if (tried) await openWorkspaceRef.current(tried, true)
             const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
+            // A folder that couldn't be reopened has already offered its kept changes (offerKeptChanges).
+            const backups = (await listBackupsSafely()).filter((b) => !tried || !samePath(folderOf(b), tried))
+            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
             const root = folderOf(backups[0]!)
             const here = backups.filter((b) => samePath(folderOf(b), root))
             const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
