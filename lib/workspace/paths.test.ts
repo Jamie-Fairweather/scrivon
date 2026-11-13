@@ -345,7 +345,7 @@ describe('entryNameError', () => {
 
     it('checks the characters, then the file extension, then the siblings', () => {
         expect(entryNameError('my:flow.mmd', 'file', docs)).toBe('Name contains invalid characters')
-        expect(entryNameError('notes.txt', 'file', docs)).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(entryNameError('notes.txt', 'file', docs)).toBe('File name must end with .md, .markdown, .mmd or .mermaid.')
         expect(entryNameError('notes.txt', 'directory', docs)).toBeNull()
         expect(entryNameError('flow.mermaid', 'file', docs)).toBeNull()
         expect(entryNameError('Diagram.MMD', 'file', docs)).toBe('A file named "diagram.mmd" already exists here.')
@@ -358,6 +358,6 @@ describe('entryNameError', () => {
     it('lets a file Scrivon does not open be renamed to any name, but keeps a document a document', () => {
         expect(entryNameError('logo.png', 'file', docs, '/ws/docs/logo.PNG')).toBeNull()
         expect(entryNameError('logo-dark.png', 'file', docs, '/ws/docs/logo.png')).toBeNull()
-        expect(entryNameError('diagram.txt', 'file', docs, '/ws/docs/diagram.mmd')).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(entryNameError('diagram.txt', 'file', docs, '/ws/docs/diagram.mmd')).toBe('File name must end with .md, .markdown, .mmd or .mermaid.')
     })
 })

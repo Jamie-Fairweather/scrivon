@@ -56,7 +56,19 @@
         "copyright": "Copyright (c) 2026 Jamie Fairweather",
         "homepage": "https://github.com/Jamie-Fairweather/scrivon",
         "shortDescription": "Local-first editor for Mermaid diagrams and Markdown",
-        "longDescription": "Scrivon is a desktop editor for Mermaid diagrams and Markdown documents. Open a folder on disk, edit .md, .mmd and .mermaid files, and preview diagrams or rendered Markdown live.",
+        "longDescription": "Scrivon is a desktop editor for Mermaid diagrams and Markdown documents. Open a folder on disk, edit .md, .markdown, .mmd and .mermaid files, and preview diagrams or rendered Markdown live.",
+        "fileAssociations": [
+            {
+                "ext": ["md", "markdown"],
+                "name": "Scrivon.Markdown",
+                "description": "Markdown document"
+            },
+            {
+                "ext": ["mmd", "mermaid"],
+                "name": "Scrivon.Mermaid",
+                "description": "Mermaid diagram"
+            }
+        ],
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",

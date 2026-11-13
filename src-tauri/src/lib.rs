@@ -1,6 +1,7 @@
 mod atomic_write;
 mod close_watchdog;
 mod crash_report;
+mod launch_paths;
 mod legacy_profile;
 mod page_numbers;
 mod pdf_export;
@@ -15,14 +16,16 @@ mod workspace_image;
 mod workspace_trash;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_fs::FsExt;
 
 use close_watchdog::CloseWatchdog;
+use launch_paths::{LaunchPath, LaunchPaths};
 use store_recovery::StoreRecovery;
 use updater::PendingUpdate;
 use window_state::WindowStateFile;
@@ -186,6 +189,17 @@ fn focus_once_shown(app: &tauri::AppHandle) {
     }
 }
 
+/// Queues the files and folders a launch asked Scrivon to open, for the page to
+/// open (see `launch_paths`). True when there were any.
+fn receive_launch_paths(app: &tauri::AppHandle, paths: Vec<LaunchPath>) -> bool {
+    let scope = app.fs_scope();
+    app.state::<LaunchPaths>().add(paths, |folder| {
+        scope
+            .allow_directory(folder, true)
+            .map_err(|e| e.to_string())
+    })
+}
+
 /// Grants the frontend recursive access to a workspace folder, but only one the
 /// user chose (see `workspace_access`). Checking the folder touches the disk
 /// (slow on a network drive), so this runs off the window's main thread.
@@ -248,10 +262,21 @@ pub fn run() {
         // Keep this the first plugin: a second launch must quit before anything
         // else starts, and before setup opens the store files. Two copies would
         // overwrite each other's recent folders, tabs and kept unsaved edits.
-        // A second launch focuses the window that is already open instead.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // A second launch focuses the window that is already open instead, and
+        // hands it the files it was asked to open.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // Looking at the paths touches the disk (slow on a network drive),
+            // so it runs off the main thread. argv[0] is the program.
+            let handle = app.clone();
+            std::thread::spawn(move || {
+                let paths = launch_paths::parse_args(argv.iter().skip(1), Path::new(&cwd));
+                if receive_launch_paths(&handle, paths) {
+                    let _ = handle.emit(launch_paths::EVENT, ());
+                }
+            });
             on_second_launch(app)
         }))
+        .manage(LaunchPaths::default())
         .manage(PendingUpdate(Mutex::new(None)))
         .manage(CloseWatchdog::default())
         .plugin(tauri_plugin_process::init())
@@ -272,6 +297,10 @@ pub fn run() {
             open_stores(app.handle());
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             app.manage(WindowStateFile::new(data_dir.as_deref()));
+            // Waits for the page, which takes them as it starts.
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let paths = launch_paths::parse_args(std::env::args_os().skip(1), &cwd);
+            receive_launch_paths(app.handle(), paths);
             open_main_window(app.handle())?;
             crash_report::mark_started();
             Ok(())
@@ -299,6 +328,7 @@ pub fn run() {
             atomic_write::rename_workspace_path,
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
+            launch_paths::take_launch_paths,
             pdf_export::export_html_to_pdf,
             pdf_export::read_export_image,
             pdf_export::remember_export_image,
@@ -358,6 +388,24 @@ mod config_tests {
     fn the_webview_cannot_erase_files_only_move_them_to_the_recycle_bin() {
         // Deletes go through workspace_trash, so a mistake can be undone (F01).
         assert!(!permissions().iter().any(|p| p == "fs:allow-remove"));
+    }
+
+    #[test]
+    fn the_installer_opens_every_kind_of_document_with_scrivon() {
+        // Double-clicking one in File Explorer then opens it (launch_paths).
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mut registered: Vec<&str> = config["bundle"]["fileAssociations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|association| association["ext"].as_array().unwrap())
+            .map(|ext| ext.as_str().unwrap())
+            .collect();
+        registered.sort_unstable();
+        let mut opened = super::launch_paths::DOCUMENT_EXTENSIONS;
+        opened.sort_unstable();
+        assert_eq!(registered, opened);
     }
 
     #[test]

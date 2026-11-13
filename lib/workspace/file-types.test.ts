@@ -11,17 +11,19 @@ import {
 } from './file-types'
 
 describe('supportedExtensionsLabel', () => {
-    it('lists every extension Scrivon opens, .mermaid included', () => {
-        expect(supportedExtensionsLabel('and')).toBe('.md, .mmd and .mermaid')
-        expect(supportedExtensionsLabel('or')).toBe('.md, .mmd or .mermaid')
-        for (const ext of ['.md', '.mmd', '.mermaid']) expect(isSupportedDocument(`file${ext}`)).toBe(true)
+    it('lists every extension Scrivon opens, .markdown and .mermaid included', () => {
+        expect(supportedExtensionsLabel('and')).toBe('.md, .markdown, .mmd and .mermaid')
+        expect(supportedExtensionsLabel('or')).toBe('.md, .markdown, .mmd or .mermaid')
+        for (const ext of ['.md', '.markdown', '.mmd', '.mermaid']) expect(isSupportedDocument(`file${ext}`)).toBe(true)
     })
 })
 
 describe('isMarkdownFile', () => {
-    it('matches .md case-insensitively', () => {
+    it('matches .md and .markdown case-insensitively', () => {
         expect(isMarkdownFile('notes.md')).toBe(true)
         expect(isMarkdownFile('NOTES.MD')).toBe(true)
+        expect(isMarkdownFile('notes.markdown')).toBe(true)
+        expect(isMarkdownFile('Notes.Markdown')).toBe(true)
         expect(isMarkdownFile('notes.mmd')).toBe(false)
     })
 })
@@ -46,6 +48,7 @@ describe('isSupportedDocument', () => {
 describe('documentKind', () => {
     it('returns the document kind or null', () => {
         expect(documentKind('readme.md')).toBe('markdown')
+        expect(documentKind('readme.markdown')).toBe('markdown')
         expect(documentKind('flow.mmd')).toBe('mermaid')
         expect(documentKind('flow.mermaid')).toBe('mermaid')
         expect(documentKind('image.png')).toBeNull()
@@ -55,6 +58,7 @@ describe('documentKind', () => {
 describe('documentExtension', () => {
     it('returns the supported extension as written, or null', () => {
         expect(documentExtension('notes.md')).toBe('.md')
+        expect(documentExtension('notes.Markdown')).toBe('.Markdown')
         expect(documentExtension('Flow.MMD')).toBe('.MMD')
         expect(documentExtension('flow.mermaid')).toBe('.mermaid')
         expect(documentExtension('image.png')).toBeNull()
