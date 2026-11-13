@@ -59,6 +59,9 @@ export type AppSettings = {
     updates: {
         checkOnLaunch: boolean
     }
+    statusBar: {
+        visible: boolean
+    }
     pdfExport: PdfExportSettings
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }
