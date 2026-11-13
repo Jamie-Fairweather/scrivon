@@ -10,10 +10,12 @@ export type LayoutCommandsContext = {
     hasWorkspace: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    outlineOpen: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setOutlineOpen: (open: boolean) => void
     setPreviewOnly: () => void
     requestCanvasFit: () => void
 }
@@ -55,6 +57,15 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             disabledReason: NO_FOLDER,
             run: () => ctx.setEditorOpen(!ctx.editorOpen),
         },
+        {
+            id: 'toggle-outline',
+            label: 'Outline',
+            keywords: 'outline headings contents',
+            checked: ctx.outlineOpen,
+            disabled: off,
+            disabledReason: NO_FOLDER,
+            run: () => ctx.setOutlineOpen(!ctx.outlineOpen),
+        },
         layout('layout-all-panels', 'Show All Panels', true, true),
         layout('layout-editor-preview', 'Editor and Preview', false, true),
         {
@@ -80,7 +91,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
 
 export function useLayoutCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
     const { canFitToView } = useCanvasControls()
@@ -92,13 +103,26 @@ export function useLayoutCommands(): void {
                 hasWorkspace,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                outlineOpen: layout.outlineOpen,
                 canFitDiagram: canFitToView,
                 setExplorerOpen,
                 setEditorOpen,
+                setOutlineOpen,
                 setPreviewOnly,
                 requestCanvasFit,
             }),
-        [hasWorkspace, layout.explorerOpen, layout.editorOpen, canFitToView, setExplorerOpen, setEditorOpen, setPreviewOnly, requestCanvasFit]
+        [
+            hasWorkspace,
+            layout.explorerOpen,
+            layout.editorOpen,
+            layout.outlineOpen,
+            canFitToView,
+            setExplorerOpen,
+            setEditorOpen,
+            setOutlineOpen,
+            setPreviewOnly,
+            requestCanvasFit,
+        ]
     )
     useRegisterCommands(commands)
 }

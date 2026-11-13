@@ -212,6 +212,7 @@ describe('SettingsDialog when a section fails to draw', () => {
         advanced.broken = false
         fireEvent.click(screen.getByRole('button', { name: 'Restore defaults' }))
         const confirm = await screen.findByRole('alertdialog')
+        expect(confirm).toHaveTextContent('Your export profiles and the words you added to the dictionary are kept.')
         fireEvent.click(within(confirm).getByRole('button', { name: 'Restore defaults' }))
 
         await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())

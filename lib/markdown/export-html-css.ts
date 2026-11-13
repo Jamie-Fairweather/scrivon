@@ -1,4 +1,5 @@
 import { pdfPageNumberFormat, pdfPageNumberTemplate } from '@/lib/markdown/export-metadata'
+import { GITHUB_ALERT_COLOURS, GITHUB_ALERT_KINDS } from '@/lib/markdown/github-alerts'
 import type { PdfExportMetadata, PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { getDiagramColors } from '@/lib/theme/catalog'
 
@@ -401,6 +402,14 @@ const MERMAID_BOX_MM = 8
 
 const NO_METADATA: PdfExportMetadata = { title: '', subtitle: '', author: '', date: '' }
 
+/** Each alert kind's bar and title colour. */
+function alertCss(): string {
+    return GITHUB_ALERT_KINDS.map((kind) => {
+        const colour = `#${GITHUB_ALERT_COLOURS[kind]}`
+        return `.markdown-alert-${kind} { border-inline-start-color: ${colour}; }\n  .markdown-alert-${kind} > .markdown-alert-title { color: ${colour}; }`
+    }).join('\n  ')
+}
+
 /** The export stylesheet. `metadata` fills the placeholders the page-number slot is sized for. */
 export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExportMetadata = NO_METADATA): string {
     const mermaidBg = getDiagramColors(profile.content.mermaidThemeId).bg
@@ -491,6 +500,18 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     color: #525252;
     font-style: italic;
   }
+  /* GitHub's alerts: a bar and title in the kind's colour, with plain text. */
+  .markdown-alert {
+    margin: 0 0 0.75rem;
+    padding: 0.25rem 0;
+    padding-inline-start: 1rem;
+    border-inline-start: 3px solid #e5e5e5;
+  }
+  .markdown-alert > :last-child { margin-bottom: 0; }
+  .markdown-alert-title { margin-bottom: 0.25rem; font-weight: 600; }
+  ${alertCss()}
+  /* Block math sits on its own line, centred. */
+  math[display="block"] { margin: 0 0 0.75rem; }
   /* max-width: a raw <hr width="3000"> can't widen the page either. */
   hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; max-width: 100%; }
   /*

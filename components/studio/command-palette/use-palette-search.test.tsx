@@ -42,7 +42,13 @@ const state = vi.hoisted(() => ({
         closeAllTabs: async () => {},
     },
     save: { autosaveEnabled: true, setAutosaveEnabled: () => {}, flushSave: async () => true, flushAllSaves: async () => true },
-    layout: { layout: { explorerOpen: true, editorOpen: true }, setExplorerOpen: () => {}, setEditorOpen: () => {}, setPreviewOnly: () => {} },
+    layout: {
+        layout: { explorerOpen: true, editorOpen: true, outlineOpen: false },
+        setExplorerOpen: () => {},
+        setEditorOpen: () => {},
+        setOutlineOpen: () => {},
+        setPreviewOnly: () => {},
+    },
     canvas: { requestCanvasFit: () => {} },
     canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
@@ -483,12 +489,12 @@ describe('usePaletteSearch on/off commands', () => {
         state.tabs.tabs = []
         state.tabs.activeTabId = null
         // The explorer shows, the editor is hidden, autosave is on.
-        state.layout.layout = { explorerOpen: true, editorOpen: false }
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false }
         vi.mocked(isTauri).mockReturnValue(false)
     })
 
     afterEach(() => {
-        state.layout.layout = { explorerOpen: true, editorOpen: true }
+        state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
     })
 
     it.each([

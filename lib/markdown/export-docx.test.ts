@@ -2558,3 +2558,26 @@ function stubDocument(mode: 'png' | 'no-context' | 'no-blob') {
     })
     return canvases
 }
+
+describe('renderExportDocx: GitHub alerts and math', () => {
+    it('writes an alert with a bar and bold title in its colour, and plain text', async () => {
+        const { xml } = await render(['> [!TIP]', '> tip-text', '>', '> | tip-cell |', '> | --- |', '>', '> > inner-quote'].join('\n'))
+        const green = '<w:pBdr><w:left w:val="single" w:color="1A7F37" w:sz="12" w:space="11"/></w:pBdr>'
+        expect(blockWith(xml, 'Tip')).toContain(green)
+        expect(runWith(xml, 'Tip')).toContain('<w:b/>')
+        expect(runWith(xml, 'Tip')).toContain('<w:color w:val="1A7F37"/>')
+        expect(blockWith(xml, 'tip-text')).toContain(green)
+        expect(runWith(xml, 'tip-text')).not.toContain('<w:i/>')
+        expect(runWith(xml, 'tip-text')).not.toContain('<w:color')
+        expect(blockWith(xml, 'tip-cell', '<w:tc>')).toContain('<w:left w:val="single" w:color="1A7F37" w:sz="12"/>')
+        // A quote inside it is a quote again: grey italic text by the accent bar.
+        expect(blockWith(xml, 'inner-quote')).toContain('<w:left w:val="single" w:color="262626" w:sz="12" w:space="11"/>')
+        expect(runWith(xml, 'inner-quote')).toContain('<w:i/>')
+    })
+
+    it('writes math as its TeX source in the code font', async () => {
+        const { xml } = await render(['Inline $E = mc^2$ here.', '', '$$', '\\frac{1}{3}', '$$'].join('\n'))
+        expect(runWith(xml, 'E = mc^2')).toContain('w:ascii="Consolas"')
+        expect(runWith(xml, '\\frac{1}{3}')).toContain('w:ascii="Consolas"')
+    })
+})

@@ -15,6 +15,7 @@ function context(overrides: Partial<DocumentCommandsContext> = {}): DocumentComm
         closeOtherTabs: vi.fn(async () => {}),
         closeAllTabs: vi.fn(async () => {}),
         openExample: vi.fn(),
+        saveExampleCopy: vi.fn(async () => {}),
         ...overrides,
     }
 }
@@ -88,6 +89,22 @@ describe('buildDocumentCommands examples', () => {
 
         list[0]!.run()
         expect(ctx.openExample).toHaveBeenCalledWith(list[0]!.id.slice('example:'.length))
+    })
+
+    it('saves a copy of the example in the active tab', () => {
+        const ctx = context({ activeTabId: 'example:sample-1' })
+        const saveCopy = find(ctx, 'save-example-copy')
+        expect(saveCopy).toMatchObject({ label: 'Save Copy to Workspace', disabled: false })
+        void saveCopy!.run()
+        expect(ctx.saveExampleCopy).toHaveBeenCalledWith('sample-1')
+    })
+
+    it('turns off Save Copy to Workspace unless an example is open, and says why', () => {
+        expect(find(context(), 'save-example-copy')).toMatchObject({ disabled: true, disabledReason: 'No example open' })
+        expect(find(context({ hasWorkspace: false, activeTabId: 'example:sample-1' }), 'save-example-copy')).toMatchObject({
+            disabled: true,
+            disabledReason: 'Open a folder first',
+        })
     })
 
     it('says why examples are off with no folder open', () => {

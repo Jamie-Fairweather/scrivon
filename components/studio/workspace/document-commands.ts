@@ -3,9 +3,10 @@
 import { useMemo } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
+import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-example-copy'
 import { useDocumentSave, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
-import { isExampleTabId } from '@/lib/examples/example-tab'
+import { exampleIdFromTabId, isExampleTabId } from '@/lib/examples/example-tab'
 
 export type DocumentCommandsContext = {
     hasWorkspace: boolean
@@ -21,6 +22,7 @@ export type DocumentCommandsContext = {
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
     openExample: (exampleId: string) => void
+    saveExampleCopy: (exampleId: string) => Promise<void>
 }
 
 /** Saving, autosave, closing tabs and opening the examples. */
@@ -29,6 +31,7 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
     // Tabs are only on screen while a folder is open, so tab commands need both.
     const hasActiveTab = activeTabId !== null && hasWorkspace
     const hasWorkspaceTab = hasActiveTab && !isExampleTabId(activeTabId)
+    const activeExampleId = hasActiveTab ? exampleIdFromTabId(activeTabId) : null
 
     const commands: AppCommand[] = [
         {
@@ -50,6 +53,16 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
             disabled: !hasWorkspace || !ctx.hasDirtyTabs,
             disabledReason: 'Nothing to save',
             run: () => void ctx.flushAllSaves(),
+        },
+        {
+            id: 'save-example-copy',
+            label: 'Save Copy to Workspace',
+            keywords: 'save copy example workspace folder',
+            disabled: activeExampleId === null,
+            disabledReason: hasWorkspace ? 'No example open' : 'Open a folder first',
+            run: () => {
+                if (activeExampleId) void ctx.saveExampleCopy(activeExampleId)
+            },
         },
         {
             id: 'toggle-autosave',
@@ -107,6 +120,7 @@ export function useDocumentCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
     const { tabs, activeTabId, openExample, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
+    const saveExampleCopy = useSaveExampleCopy()
 
     // Only what the commands show, so typing in a tab doesn't rebuild them.
     const hasWorkspace = Boolean(workspaceRoot)
@@ -128,6 +142,7 @@ export function useDocumentCommands(): void {
                 closeOtherTabs,
                 closeAllTabs,
                 openExample,
+                saveExampleCopy,
             }),
         [
             hasWorkspace,
@@ -142,6 +157,7 @@ export function useDocumentCommands(): void {
             closeOtherTabs,
             closeAllTabs,
             openExample,
+            saveExampleCopy,
         ]
     )
     useRegisterCommands(commands)

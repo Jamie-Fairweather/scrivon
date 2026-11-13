@@ -6,9 +6,11 @@ function context(overrides: Partial<LayoutCommandsContext> = {}): LayoutCommands
         hasWorkspace: true,
         explorerOpen: true,
         editorOpen: true,
+        outlineOpen: false,
         canFitDiagram: true,
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
         requestCanvasFit: vi.fn(),
         ...overrides,
@@ -27,6 +29,18 @@ describe('buildLayoutCommands panes', () => {
         void find(ctx, 'toggle-editor')!.run()
         expect(ctx.setExplorerOpen).toHaveBeenCalledWith(false)
         expect(ctx.setEditorOpen).toHaveBeenCalledWith(true)
+    })
+
+    it('shows and hides the Outline panel', () => {
+        const closed = context({ outlineOpen: false })
+        expect(find(closed, 'toggle-outline')).toMatchObject({ label: 'Outline', checked: false, disabled: false })
+        void find(closed, 'toggle-outline')!.run()
+        expect(closed.setOutlineOpen).toHaveBeenCalledWith(true)
+
+        const open = context({ outlineOpen: true })
+        expect(find(open, 'toggle-outline')?.checked).toBe(true)
+        void find(open, 'toggle-outline')!.run()
+        expect(open.setOutlineOpen).toHaveBeenCalledWith(false)
     })
 })
 
@@ -55,7 +69,7 @@ describe('buildLayoutCommands layout modes', () => {
 
     it('turns the layout commands off with no folder open, and says why', () => {
         const ctx = context({ hasWorkspace: false })
-        for (const id of ['toggle-explorer', 'toggle-editor', 'layout-all-panels', 'layout-editor-preview', 'preview-only']) {
+        for (const id of ['toggle-explorer', 'toggle-editor', 'toggle-outline', 'layout-all-panels', 'layout-editor-preview', 'preview-only']) {
             expect(find(ctx, id)).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
         }
     })

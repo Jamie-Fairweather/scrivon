@@ -57,6 +57,7 @@ function mockContexts({
     canFitToView = true,
     activeTabId = null as string | null,
     dirty = false,
+    outlineOpen = false,
     activeTab = null as { name: string; isDirty: boolean } | null,
 } = {}) {
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
@@ -83,9 +84,10 @@ function mockContexts({
         closeAllTabs: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
-        layout: { explorerOpen: true, editorOpen: true },
+        layout: { explorerOpen: true, editorOpen: true, outlineOpen },
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
     } as unknown as ReturnType<typeof useStudioLayout>)
     vi.mocked(useDocumentSave).mockReturnValue({
@@ -392,7 +394,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(25)
+        expect(compared).toBe(26)
     })
 })
 
@@ -422,6 +424,17 @@ describe('StudioMenuBar View menu', () => {
         await userEvent.setup().click(within(await openMenu('View')).getByRole('menuitemcheckbox', { name: /^Explorer/ }))
 
         expect(vi.mocked(useStudioLayout)().setExplorerOpen).toHaveBeenCalledWith(false)
+    })
+
+    it('shows and hides the Outline panel', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', outlineOpen: false })
+        render(<Studio />)
+
+        const outline = within(await openMenu('View')).getByRole('menuitemcheckbox', { name: 'Outline' })
+        expect(outline).toHaveAttribute('aria-checked', 'false')
+        await userEvent.setup().click(outline)
+
+        expect(vi.mocked(useStudioLayout)().setOutlineOpen).toHaveBeenCalledWith(true)
     })
 })
 

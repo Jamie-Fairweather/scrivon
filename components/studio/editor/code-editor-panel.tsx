@@ -19,6 +19,8 @@ import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
+import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { lineEndingsOf } from '@/lib/workspace/text-stats'
@@ -388,6 +390,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
+    const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
     useEditorCommands(editorPath ? mountedEditor : null, open, isReadOnly)
@@ -419,6 +422,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         }),
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
+
+    // Read through a ref, so the link to the preview always sees the current settings.
+    const previewLinkRef = useRef({ scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview })
+    useEffect(() => {
+        previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
+    }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
 
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
@@ -573,7 +582,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 showHintAgain()
             })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
-            // For the status bar; it stops by itself when the editor is thrown away.
+            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away.
             trackEditorCursor(editor)
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
@@ -584,6 +593,16 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            const spelling = attachEditorSpellcheck(editor, monaco)
+            editor.onDidDispose(() => spelling.dispose())
+            // Scrolls the Markdown preview with the editor, and the other way round.
+            const scrollSync = bindEditorScrollSync(editor, {
+                tabId: () => activeTabIdRef.current,
+                scrollEnabled: () => previewLinkRef.current.scroll,
+                jumpEnabled: () => previewLinkRef.current.jump,
+                canFocus: () => openRef.current,
+            })
+            editor.onDidDispose(() => scrollSync.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -599,7 +618,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
     )
 
     useEffect(() => {

@@ -6,11 +6,13 @@ import { EditorTabRowContextMenu } from './editor-tab-context-menu'
 
 const ROOT = 'C:\\Work\\notes'
 let tabs: DocumentTab[] = []
+const saveExampleCopy = vi.hoisted(() => vi.fn<(exampleId: string) => Promise<void>>(async () => undefined))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs, closeTab: vi.fn(), closeOtherTabs: vi.fn(), closeAllTabs: vi.fn() }),
     useWorkspaceSession: () => ({ workspaceRoot: ROOT }),
 }))
+vi.mock('@/components/studio/workspace/use-save-example-copy', () => ({ useSaveExampleCopy: () => saveExampleCopy }))
 vi.mock('@/lib/workspace/path-actions', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/workspace/path-actions')>()),
     revealInFileExplorer: vi.fn(async () => undefined),
@@ -75,6 +77,24 @@ describe('EditorTabRowContextMenu', () => {
         expect(screen.queryByRole('menuitem', { name: 'Reveal in File Explorer' })).not.toBeInTheDocument()
         expect(screen.queryByRole('menuitem', { name: 'Copy Path' })).not.toBeInTheDocument()
         expect(screen.queryByRole('menuitem', { name: 'Copy Relative Path' })).not.toBeInTheDocument()
+    })
+
+    it('saves a copy of an example into the folder', async () => {
+        const example = tab('example:sample-1', { name: 'Simple Flow.mmd', readOnly: true })
+        tabs = [example]
+        openMenuFor(example.id)
+
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Save Copy to Workspace' }))
+        expect(saveExampleCopy).toHaveBeenCalledWith('sample-1')
+    })
+
+    it('offers Save Copy to Workspace only for examples', async () => {
+        const path = `${ROOT}\\docs\\plan.md`
+        tabs = [tab(path)]
+        openMenuFor(path)
+
+        expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument()
+        expect(screen.queryByRole('menuitem', { name: 'Save Copy to Workspace' })).not.toBeInTheDocument()
     })
 
     it('only copies the full path of a file outside the open folder', async () => {
