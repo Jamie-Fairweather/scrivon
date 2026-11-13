@@ -265,6 +265,7 @@ const T: string[] = [
     "Copyright (c) 2019 Tower Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2019-2021 Tower Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2019 Tokio Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
+    "Copyright 2019 Artúr Barnabás Kovács\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and\nassociated documentation files (the \"Software\"), to deal in the Software without restriction,\nincluding without limitation the rights to use, copy, modify, merge, publish, distribute,\nsublicense, and/or sell copies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or\nsubstantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT\nNOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,\nDAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT\nOF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "SPDXVersion: SPDX-2.1\nDataLicense: CC0-1.0\nPackageName: tray-icon\nDataFormat: SPDXRef-1\nPackageSupplier: Organization: The Tauri Programme in the Commons Conservancy\nPackageHomePage: https://tauri.app\nPackageLicenseDeclared: Apache-2.0\nPackageLicenseDeclared: MIT\nPackageCopyrightText: 2020-2022, The Tauri Programme in the Commons Conservancy\nPackageSummary: <text>Create tray icons for desktop applications.\n                </text>\nPackageComment: <text>The package includes the following libraries; see\nRelationship information.\n                </text>\nCreated: 2022-12-05T09:00:00Z\nPackageDownloadLocation: git://github.com/tauri-apps/tray-icon\nPackageDownloadLocation: git+https://github.com/tauri-apps/tray-icon.git\nPackageDownloadLocation: git+ssh://github.com/tauri-apps/tray-icon.git\nCreator: Person: Daniel Thompson-Yvetot",
     "Copyright (c) 2018-2023 Sean McArthur\nCopyright (c) 2016 Alex Crichton\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "MIT OR Apache-2.0",
@@ -3512,12 +3513,20 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[251]
     },
     {
+        "name": "trash",
+        "version": "5.3.0",
+        "license": "MIT",
+        "repository": "https://github.com/ArturKovacs/trash",
+        "ecosystem": "rust",
+        "licenseText": T[252]
+    },
+    {
         "name": "tray-icon",
         "version": "0.25.1",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/tauri-apps/tray-icon",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[178] + SEP + T[252]
+        "licenseText": T[74] + SEP + T[178] + SEP + T[253]
     },
     {
         "name": "try-lock",
@@ -3525,7 +3534,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/seanmonstar/try-lock",
         "ecosystem": "rust",
-        "licenseText": T[253]
+        "licenseText": T[254]
     },
     {
         "name": "typed-path",
@@ -3549,7 +3558,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/paholg/typenum",
         "ecosystem": "rust",
-        "licenseText": T[254] + SEP + T[255] + SEP + T[256]
+        "licenseText": T[255] + SEP + T[256] + SEP + T[257]
     },
     {
         "name": "unicode-bidi",
@@ -3557,7 +3566,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/unicode-bidi",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[142] + SEP + T[257]
+        "licenseText": T[74] + SEP + T[142] + SEP + T[258]
     },
     {
         "name": "unicode-ident",
@@ -3565,7 +3574,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/dtolnay/unicode-ident",
         "ecosystem": "rust",
-        "licenseText": T[73] + SEP + T[64] + SEP + T[258]
+        "licenseText": T[73] + SEP + T[64] + SEP + T[259]
     },
     {
         "name": "unicode-normalization",
@@ -3573,7 +3582,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/unicode-rs/unicode-normalization",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[142] + SEP + T[258] + SEP + T[259]
+        "licenseText": T[74] + SEP + T[142] + SEP + T[259] + SEP + T[260]
     },
     {
         "name": "unicode-properties",
@@ -3581,7 +3590,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/unicode-rs/unicode-properties",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[142] + SEP + T[260] + SEP + T[259]
+        "licenseText": T[74] + SEP + T[142] + SEP + T[261] + SEP + T[260]
     },
     {
         "name": "unicode-segmentation",
@@ -3589,7 +3598,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/unicode-rs/unicode-segmentation",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[142] + SEP + T[259]
+        "licenseText": T[74] + SEP + T[142] + SEP + T[260]
     },
     {
         "name": "untrusted",
@@ -3597,7 +3606,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "ISC",
         "repository": "https://github.com/briansmith/untrusted",
         "ecosystem": "rust",
-        "licenseText": T[261]
+        "licenseText": T[262]
     },
     {
         "name": "url",
@@ -3613,7 +3622,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/denoland/rust-urlpattern",
         "ecosystem": "rust",
-        "licenseText": T[262]
+        "licenseText": T[263]
     },
     {
         "name": "utf8_iter",
@@ -3621,7 +3630,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/utf8_iter",
         "ecosystem": "rust",
-        "licenseText": T[121] + SEP + T[122] + SEP + T[263]
+        "licenseText": T[121] + SEP + T[122] + SEP + T[264]
     },
     {
         "name": "utf_types",
@@ -3629,7 +3638,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/utf_types",
         "ecosystem": "rust",
-        "licenseText": T[121] + SEP + T[122] + SEP + T[264]
+        "licenseText": T[121] + SEP + T[122] + SEP + T[265]
     },
     {
         "name": "uuid",
@@ -3637,7 +3646,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/uuid-rs/uuid",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[265]
+        "licenseText": T[74] + SEP + T[266]
     },
     {
         "name": "walkdir",
@@ -3653,7 +3662,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/seanmonstar/want",
         "ecosystem": "rust",
-        "licenseText": T[266]
+        "licenseText": T[267]
     },
     {
         "name": "web-time",
@@ -3661,7 +3670,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/daxpedda/web-time",
         "ecosystem": "rust",
-        "licenseText": T[267] + SEP + T[268]
+        "licenseText": T[268] + SEP + T[269]
     },
     {
         "name": "web_atoms",
@@ -3677,7 +3686,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[269] + SEP + T[12]
+        "licenseText": T[270] + SEP + T[12]
     },
     {
         "name": "webview2-com-macros",
@@ -3685,7 +3694,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[270] + SEP + T[12]
+        "licenseText": T[271] + SEP + T[12]
     },
     {
         "name": "webview2-com-sys",
@@ -3693,7 +3702,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[271] + SEP + T[12]
+        "licenseText": T[272] + SEP + T[12]
     },
     {
         "name": "weezl",
@@ -3701,7 +3710,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/weezl",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[272]
+        "licenseText": T[74] + SEP + T[273]
     },
     {
         "name": "winapi",
@@ -3709,7 +3718,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/retep998/winapi-rs",
         "ecosystem": "rust",
-        "licenseText": T[97] + SEP + T[273]
+        "licenseText": T[97] + SEP + T[274]
     },
     {
         "name": "winapi-util",
@@ -3725,7 +3734,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/tauri-plugin-vibrancy",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[274] + SEP + T[275]
+        "licenseText": T[74] + SEP + T[275] + SEP + T[276]
     },
     {
         "name": "windows",
@@ -3733,7 +3742,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-collections",
@@ -3741,7 +3750,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-core",
@@ -3749,7 +3758,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-future",
@@ -3757,7 +3766,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-implement",
@@ -3765,7 +3774,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-interface",
@@ -3773,7 +3782,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-link",
@@ -3781,7 +3790,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-numerics",
@@ -3789,7 +3798,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-registry",
@@ -3797,7 +3806,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-result",
@@ -3805,7 +3814,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-strings",
@@ -3813,7 +3822,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-sys",
@@ -3821,7 +3830,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-targets",
@@ -3829,7 +3838,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-threading",
@@ -3837,7 +3846,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows-version",
@@ -3845,7 +3854,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "windows_x86_64_msvc",
@@ -3853,7 +3862,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[276] + SEP + T[277]
+        "licenseText": T[277] + SEP + T[278]
     },
     {
         "name": "winnow",
@@ -3861,7 +3870,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/winnow-rs/winnow",
         "ecosystem": "rust",
-        "licenseText": T[278]
+        "licenseText": T[279]
     },
     {
         "name": "wio",
@@ -3869,7 +3878,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/retep998/wio-rs",
         "ecosystem": "rust",
-        "licenseText": T[97] + SEP + T[279]
+        "licenseText": T[97] + SEP + T[280]
     },
     {
         "name": "writeable",
@@ -3885,7 +3894,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/wry",
         "ecosystem": "rust",
-        "licenseText": T[74] + SEP + T[280] + SEP + T[281]
+        "licenseText": T[74] + SEP + T[281] + SEP + T[282]
     },
     {
         "name": "yoke",
@@ -3925,7 +3934,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[121] + SEP + T[282]
+        "licenseText": T[121] + SEP + T[283]
     },
     {
         "name": "zerotrie",
@@ -3957,7 +3966,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/zip-rs/zip2",
         "ecosystem": "rust",
-        "licenseText": T[283]
+        "licenseText": T[284]
     },
     {
         "name": "zlib-rs",
@@ -3965,7 +3974,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Zlib",
         "repository": "https://github.com/trifectatechfoundation/zlib-rs",
         "ecosystem": "rust",
-        "licenseText": T[284]
+        "licenseText": T[285]
     },
     {
         "name": "zmij",
