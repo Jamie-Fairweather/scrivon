@@ -49,6 +49,13 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('workspace.saveAll')
     })
 
+    it('matches Ctrl+Shift+E for document.export, also in the editor, when a workspace is open', () => {
+        const inEditor = { closest: (selector: string) => (selector === '.monaco-editor' ? {} : null), tagName: 'DIV' } as unknown as EventTarget
+        expect(matchKeybind(keyEvent('E', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('document.export')
+        expect(matchKeybind(keyEvent('E', { ctrl: true, shift: true }, inEditor), bindings, { hasWorkspace: true })).toBe('document.export')
+        expect(matchKeybind(keyEvent('E', { ctrl: true, shift: true }), bindings, { hasWorkspace: false })).toBeNull()
+    })
+
     it('matches Ctrl+B for view.toggleExplorer when workspace is open', () => {
         expect(matchKeybind(keyEvent('b', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
     })

@@ -34,7 +34,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
-- **PDF and Word export** — Save the rendered document as PDF (native export on Windows via WebView2) or Word (.docx), styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**
+- **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+E**
 
 ### General
 

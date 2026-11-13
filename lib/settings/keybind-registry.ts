@@ -18,6 +18,7 @@ export type KeybindActionMeta = {
 const KEYBIND_ACTION_META = {
     'document.save': { label: 'Save active document', category: 'Document', when: 'global' },
     'workspace.saveAll': { label: 'Save all documents', category: 'Document', when: 'workspace' },
+    'document.export': { label: 'Export document', category: 'Document', when: 'workspace' },
     'settings.open': { label: 'Open settings', category: 'Navigation', when: 'global' },
     'palette.open': { label: 'Open command palette', category: 'Navigation', when: 'global', allowInNativeTextField: true, allowInPalette: true },
     'palette.openText': { label: 'Find in workspace', category: 'Navigation', when: 'global', allowInPalette: true },

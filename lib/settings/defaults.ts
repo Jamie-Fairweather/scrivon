@@ -20,6 +20,7 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
 
     const bindings: KeybindBindings = {
         'document.save': [chord('s', mod)],
+        'document.export': [chord('e', { ...mod, shift: true })],
         'settings.open': [chord(',', mod)],
         'palette.open': [chord('F1')],
         'palette.openText': [chord('f', { ...mod, shift: true })],

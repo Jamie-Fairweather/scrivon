@@ -1,9 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { buildExportDocument, type ExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
 import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
-import { errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
+import { errorMessage, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
+import { downloadBlob } from '@/lib/download'
+import { saveExportHtml } from '@/lib/markdown/export-html'
+import { SAVED_NOTICE_MS, showInFolderAction } from '@/lib/saved-file-notice'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
@@ -13,8 +15,6 @@ import { savePathBesideDocument } from '@/lib/tauri/save-path'
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const DOCX_FILTERS = [{ name: 'Word document', extensions: ['docx'] }]
-/** Long enough to reach the toast's Show in folder button. */
-const SAVED_NOTICE_MS = 8_000
 /** How long the print path waits for `afterprint` once print() has returned. */
 const AFTER_PRINT_GRACE_MS = 1_500
 
@@ -115,18 +115,6 @@ async function savePdfWithWebView2(html: string, outputPath: string, options: Pd
     return pageNumberProblem || undefined
 }
 
-function triggerBrowserDownload(blob: Blob, filename: string): void {
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = filename
-    anchor.rel = 'noopener'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
-}
-
 async function saveDocx(bytes: Uint8Array, filename: string, documentPath: string | undefined): Promise<ExportResult> {
     if (isTauri()) {
         const path = await pickSavePath({
@@ -141,7 +129,7 @@ async function saveDocx(bytes: Uint8Array, filename: string, documentPath: strin
 
     const copy = new Uint8Array(bytes.byteLength)
     copy.set(bytes)
-    triggerBrowserDownload(new Blob([copy], { type: DOCX_MIME }), filename)
+    downloadBlob(new Blob([copy], { type: DOCX_MIME }), filename)
     return { status: 'saved' }
 }
 
@@ -169,6 +157,12 @@ async function renderAndSaveDocument(
         const { renderExportDocx } = await import('@/lib/markdown/export-docx')
         const bytes = await renderExportDocx(exportDocument)
         return saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, documentPath)
+    }
+    if (options.format === 'html') {
+        return saveExportHtml(exportDocument, markdownExportBaseName(tabName), {
+            documentPath,
+            allowRemoteImages: options.allowRemoteImages === true,
+        })
     }
 
     // Only the Windows exporter stamps page numbers; the system print dialog gets CSS page counters instead.
@@ -232,12 +226,7 @@ export function notifyExportSaved({ path, missingImages = [], pageNumberWarning,
         else if (toc) notifyInfo('No contents page was added', { description: toc })
         return
     }
-    const action = {
-        label: 'Show in folder',
-        onClick: () => {
-            revealItemInDir(path).catch((err: unknown) => notifyError('Could not show the file', err))
-        },
-    }
+    const action = showInFolderAction(path)
     const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : ''].filter(Boolean)
     if (leftOut.length > 0) {
         const description = joinSentences([pageNumberWarning, images, toc])

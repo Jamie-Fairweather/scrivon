@@ -17,6 +17,7 @@ export type KeybindChord = {
 
 export type KeybindActionId =
     | 'document.save'
+    | 'document.export'
     | 'settings.open'
     | 'palette.open'
     | 'palette.openText'

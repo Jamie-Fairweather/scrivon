@@ -48,6 +48,9 @@ vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({
     },
 }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
+vi.mock('@/components/studio/editor/document-export-provider', () => ({
+    DocumentExportProvider: ({ children }: { children: ReactNode }) => children,
+}))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
 vi.mock('@/components/studio/editor/use-editor-panel-layout', () => ({
