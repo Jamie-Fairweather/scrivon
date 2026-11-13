@@ -1,5 +1,6 @@
 'use client'
 
+import { useNewItemCommands } from '@/components/studio/explorer/new-item-commands'
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
 import { useThemeCommands } from '@/components/studio/theme/theme-commands'
 import { useDocumentCommands } from '@/components/studio/workspace/document-commands'
@@ -18,6 +19,7 @@ import { useWorkspaceCommands } from '@/components/studio/workspace/workspace-co
 export function StudioCommands() {
     useSettingsCommand()
     useWorkspaceCommands()
+    useNewItemCommands()
     useDocumentCommands()
     useLayoutCommands()
     useThemeCommands()

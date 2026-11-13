@@ -11,6 +11,7 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import {
+    useActiveTabId,
     useCanvasFit,
     useDocumentSave,
     useDocumentTabs,
@@ -25,7 +26,10 @@ import { StudioMenuBar } from './studio-menu-bar'
 vi.mock('next/image', () => ({
     default: (props: { alt: string }) => <span data-alt={props.alt} />,
 }))
+const promptName = vi.hoisted(() => vi.fn(async () => null))
+vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
+    useActiveTabId: vi.fn(),
     useCanvasFit: vi.fn(),
     useDocumentSave: vi.fn(),
     useDocumentTabs: vi.fn(),
@@ -70,7 +74,13 @@ function mockContexts({
         openWorkspace: vi.fn(),
         closeWorkspace: vi.fn(),
         refreshTree: vi.fn(async () => {}),
+        tree: [{ kind: 'directory', name: 'docs', path: 'C:\\work\\docs', children: [{ kind: 'file', name: 'a.md', path: 'C:\\work\\docs\\a.md' }] }],
+        suggestName: (_folder: string, name: string) => name,
+        getNameError: () => null,
+        createFile: vi.fn(async () => {}),
+        createFolder: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useWorkspaceSession>)
+    vi.mocked(useActiveTabId).mockReturnValue(activeTabId)
     vi.mocked(useWorkspaceCoordinator).mockReturnValue({ reloadChangedTabs: { current: vi.fn(async () => {}) } } as unknown as ReturnType<
         typeof useWorkspaceCoordinator
     >)
@@ -301,9 +311,45 @@ describe('StudioMenuBar File menu', () => {
         render(<Studio />)
 
         const file = await openMenu('File')
-        expect(menuLabels(file)).toEqual(['Open Folder…', 'Close Folder', 'SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Close Tab', 'ExitAlt+F4'])
-        for (const name of ['Save Ctrl+S', 'Save All Ctrl+Shift+S', 'Close Tab', 'Exit Alt+F4']) {
+        expect(menuLabels(file)).toEqual([
+            'New Diagram…Ctrl+Alt+N',
+            'New Document…Ctrl+N',
+            'New Folder…',
+            'Open Folder…',
+            'Close Folder',
+            'SaveCtrl+S',
+            'Save AllCtrl+Shift+S',
+            'Close Tab',
+            'ExitAlt+F4',
+        ])
+        for (const name of [
+            'New Diagram… Ctrl+Alt+N',
+            'New Document… Ctrl+N',
+            'New Folder…',
+            'Save Ctrl+S',
+            'Save All Ctrl+Shift+S',
+            'Close Tab',
+            'Exit Alt+F4',
+        ]) {
             expect(within(file).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true')
+        }
+    })
+
+    it('asks for a new document in the open file’s folder', async () => {
+        mockContexts({ workspaceRoot: 'C:\\work', activeTabId: 'C:\\work\\docs\\a.md' })
+        render(<Studio />)
+
+        await userEvent.setup().click(within(await openMenu('File')).getByRole('menuitem', { name: 'New Document… Ctrl+N' }))
+
+        expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ kind: 'new-document', folder: 'C:\\work\\docs' }))
+    })
+
+    it('turns off the new items with no folder open', async () => {
+        render(<Studio />)
+
+        const file = await openMenu('File')
+        for (const name of [/^New Diagram/, /^New Document/, /^New Folder/]) {
+            expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
     })
 
@@ -394,7 +440,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(26)
+        expect(compared).toBe(29)
     })
 })
 

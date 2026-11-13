@@ -29,6 +29,9 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
+        'workspace.newDiagram': [chord('n', { ...mod, alt: true })],
+        'workspace.newDocument': [chord('n', mod)],
+        'workspace.newFolder': [],
     }
 
     return bindings

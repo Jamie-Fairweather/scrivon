@@ -56,8 +56,11 @@ const state = vi.hoisted(() => ({
     coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) } },
 }))
 
+vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn(async () => null) }) }))
+
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
+    useActiveTabId: () => state.tabs.activeTabId,
     useDocumentTabs: () => state.tabs,
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,

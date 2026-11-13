@@ -256,9 +256,8 @@ describe('FileTree', () => {
         press('flow.mmd', 'F2')
         expect(promptName).toHaveBeenCalledWith(
             expect.objectContaining({
-                title: 'Rename "flow.mmd"',
-                description: 'Choose a new name for this file.',
-                submitLabel: 'Rename',
+                kind: 'rename',
+                entry: expect.objectContaining({ name: 'flow.mmd', kind: 'file' }),
                 defaultValue: 'flow.mmd',
             })
         )

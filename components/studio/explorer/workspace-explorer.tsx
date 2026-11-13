@@ -3,6 +3,7 @@
 import { memo, useSyncExternalStore } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
+import { ExplorerBackgroundMenu } from '@/components/studio/explorer/explorer-background-menu'
 import { FileTree } from '@/components/studio/explorer/file-tree'
 import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root-actions'
 import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
@@ -93,14 +94,16 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
 
             <div className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>
                 {panel === 'files' ? (
-                    // The tree is a Tab stop of its own, and a focused row scrolls into view, so the scroll box isn't one.
-                    <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
-                        {tree.length === 0 ? (
-                            <p className="px-3 py-2 text-xs text-muted-foreground">No files in this folder.</p>
-                        ) : (
-                            <FileTree tree={tree} />
-                        )}
-                    </ScrollArea>
+                    <ExplorerBackgroundMenu>
+                        {/* The tree is a Tab stop of its own, and a focused row scrolls into view, so the scroll box isn't one. */}
+                        <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
+                            {tree.length === 0 ? (
+                                <p className="px-3 py-2 text-xs text-muted-foreground">No files in this folder.</p>
+                            ) : (
+                                <FileTree tree={tree} />
+                            )}
+                        </ScrollArea>
+                    </ExplorerBackgroundMenu>
                 ) : (
                     <ExamplesExplorer />
                 )}

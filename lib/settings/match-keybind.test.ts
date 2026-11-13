@@ -53,6 +53,15 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('b', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
     })
 
+    it('matches Ctrl+N for a new document and Ctrl+Alt+N for a new diagram, also in the editor, only with a folder open', () => {
+        const inEditor = { tagName: 'DIV', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
+        expect(matchKeybind(keyEvent('n', { ctrl: true }, inEditor), bindings, { hasWorkspace: true })).toBe('workspace.newDocument')
+        expect(matchKeybind(keyEvent('n', { ctrl: true, alt: true }), bindings, { hasWorkspace: true })).toBe('workspace.newDiagram')
+        expect(matchKeybind(keyEvent('n', { ctrl: true }), bindings)).toBeNull()
+        // New Folder has no keys until the user picks some.
+        expect(bindings['workspace.newFolder']).toEqual([])
+    })
+
     it('matches Cmd+S on mac defaults', () => {
         const macBindings = createDefaultKeybinds(true)
         expect(matchKeybind(keyEvent('s', { meta: true }), macBindings)).toBe('document.save')

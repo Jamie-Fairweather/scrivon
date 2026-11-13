@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NamePromptOptions } from '@/components/studio/dialogs/name-prompt-provider'
 import type { FileNode } from '@/lib/workspace/types'
-import { useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
+import { useCreateNewItem, useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
 
 const { promptName, session } = vi.hoisted(() => ({
     promptName: vi.fn<(options: NamePromptOptions) => Promise<string | null>>(),
@@ -34,7 +34,7 @@ describe('useFileTreeActions', () => {
         })
 
         const options = promptName.mock.calls[0]![0]
-        expect(options).toMatchObject({ defaultValue: 'diagram.mmd', placeholder: 'diagram.mmd', description: 'Creates the diagram in "ws".' })
+        expect(options).toMatchObject({ kind: 'new-diagram', folder: '/ws', defaultValue: 'diagram.mmd' })
         options.validate!('login flow')
         expect(session.getNameError).toHaveBeenLastCalledWith('/ws', 'login flow.mmd', 'file')
         expect(session.createFile).toHaveBeenCalledWith('/ws', 'login flow.mmd')
@@ -51,6 +51,7 @@ describe('useFileTreeActions', () => {
             await result.current.createMarkdownFileInParent()
         })
 
+        expect(promptName.mock.calls[0]![0]).toMatchObject({ kind: 'new-document', folder: '/ws', defaultValue: 'document.md' })
         expect(session.createFile).toHaveBeenNthCalledWith(1, '/ws', 'meeting.md')
         expect(session.createFile).toHaveBeenNthCalledWith(2, '/ws', 'flow.mermaid')
     })
@@ -63,8 +64,43 @@ describe('useFileTreeActions', () => {
             await result.current.createFolderInParent()
         })
 
-        expect(promptName.mock.calls[0]![0]).toMatchObject({ description: 'Creates the folder in "ws".', placeholder: 'Folder name' })
+        const options = promptName.mock.calls[0]![0]
+        expect(options).toMatchObject({ kind: 'new-folder', folder: '/ws' })
+        options.validate!('drafts')
+        expect(session.getNameError).toHaveBeenLastCalledWith('/ws', 'drafts', 'directory')
         expect(session.createFolder).toHaveBeenCalledWith('/ws', 'drafts')
+    })
+
+    it('does nothing without a folder to create in', async () => {
+        const { result } = renderHook(() => useFileTreeActions(null))
+
+        await act(async () => {
+            await result.current.createMermaidFileInParent()
+        })
+
+        expect(promptName).not.toHaveBeenCalled()
+    })
+})
+
+describe('useCreateNewItem', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('asks for a name of the given kind and creates it in the folder it is given', async () => {
+        promptName.mockResolvedValueOnce('plan').mockResolvedValueOnce('flow').mockResolvedValueOnce('drafts')
+        const { result } = renderHook(() => useCreateNewItem())
+
+        await act(async () => {
+            await result.current('new-document', '/ws/docs')
+            await result.current('new-diagram', '/ws')
+            await result.current('new-folder', '/ws/docs')
+        })
+
+        expect(promptName.mock.calls.map(([options]) => options.kind)).toEqual(['new-document', 'new-diagram', 'new-folder'])
+        expect(session.createFile).toHaveBeenNthCalledWith(1, '/ws/docs', 'plan.md')
+        expect(session.createFile).toHaveBeenNthCalledWith(2, '/ws', 'flow.mmd')
+        expect(session.createFolder).toHaveBeenCalledWith('/ws/docs', 'drafts')
     })
 })
 
@@ -80,6 +116,7 @@ describe('useFileTreeEntryActions', () => {
 
         // Typed without an extension: the file keeps its own.
         await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/docs/meeting.md')
+        expect(promptName.mock.calls[0]![0]).toMatchObject({ kind: 'rename', entry: node, defaultValue: 'notes.md' })
         expect(session.renameEntry).toHaveBeenCalledWith('/ws/docs/notes.md', 'meeting.md', false)
         // Same name: nothing to do, and the entry keeps its path.
         await expect(result.current.renameWithPrompt(node)).resolves.toBe('/ws/docs/notes.md')

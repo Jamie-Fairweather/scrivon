@@ -26,6 +26,9 @@ export type KeybindActionId =
     | 'view.previewOnly'
     | 'view.fitDiagram'
     | 'workspace.saveAll'
+    | 'workspace.newDiagram'
+    | 'workspace.newDocument'
+    | 'workspace.newFolder'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
