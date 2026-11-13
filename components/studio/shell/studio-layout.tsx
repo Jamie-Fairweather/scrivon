@@ -14,6 +14,7 @@ import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-clos
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { StudioStatusBar } from '@/components/studio/shell/studio-status-bar'
 import { documentKind } from '@/lib/workspace/file-types'
+import type { StudioLayoutState } from '@/lib/workspace/types'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 
 const TAB_BAR = '[data-slot="editor-tab-bar"]'
@@ -30,7 +31,7 @@ function cannotHoldFocus(el: Element | null, editorHidden: boolean): boolean {
  * drops focus to the page body. When that happens, focus moves to the active document tab, or to
  * the start of the tab bar when no tab is open.
  */
-function useKeepFocusInStudio(tabIds: string, explorerOpen: boolean, editorOpen: boolean, outlineOpen: boolean) {
+function useKeepFocusInStudio(tabIds: string, { explorerOpen, editorOpen, previewOpen, outlineOpen }: StudioLayoutState) {
     const rootRef = useRef<HTMLDivElement>(null)
     const lastFocusedRef = useRef<Element | null>(null)
 
@@ -47,7 +48,7 @@ function useKeepFocusInStudio(tabIds: string, explorerOpen: boolean, editorOpen:
             target?.focus()
         })
         return () => cancelAnimationFrame(frame)
-    }, [tabIds, explorerOpen, editorOpen, outlineOpen])
+    }, [tabIds, explorerOpen, editorOpen, previewOpen, outlineOpen])
 
     // React focus events bubble through portals, so this also sees focus in a tab's context menu.
     const onFocus = (e: FocusEvent) => {
@@ -72,7 +73,7 @@ export function StudioLayout() {
     const { tabs, activeTab, activeTabId } = useDocumentTabs()
     const { layout } = useStudioLayout()
     const editorLayout = useEditorPanelLayout()
-    const { rootRef, onFocus } = useKeepFocusInStudio(tabs.map((t) => t.id).join('\n'), layout.explorerOpen, layout.editorOpen, layout.outlineOpen)
+    const { rootRef, onFocus } = useKeepFocusInStudio(tabs.map((t) => t.id).join('\n'), layout)
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
     // Kept here because the canvas below unmounts while a Markdown tab shows.
     const canvasViews = usePanZoomMemory(openTabIds)
@@ -99,20 +100,24 @@ export function StudioLayout() {
                             {editorLayout.hydrated && (
                                 <CodeEditorPanel
                                     open={layout.editorOpen}
+                                    fill={!layout.previewOpen}
                                     width={editorLayout.width}
                                     onWidthChange={editorLayout.onWidthChange}
                                     onResetWidth={editorLayout.resetEditorWidth}
                                 />
                             )}
 
-                            {/* A view that breaks takes only itself down; the editor and tabs stay usable. */}
-                            <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
-                                {viewerKind === 'markdown' ? (
-                                    <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
-                                ) : (
-                                    <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
-                                )}
-                            </PaneErrorBoundary>
+                            {/* A view that breaks takes only itself down; the editor and tabs stay usable.
+                                Unmounted while hidden, so it doesn't draw on every keystroke. */}
+                            {layout.previewOpen && (
+                                <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
+                                    {viewerKind === 'markdown' ? (
+                                        <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
+                                    ) : (
+                                        <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
+                                    )}
+                                </PaneErrorBoundary>
+                            )}
                         </div>
                     </div>
                 </MarkdownExpandProvider>

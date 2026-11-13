@@ -16,9 +16,6 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
         setLayoutExplorerOpen: (open: boolean) => {
             app.settings = { ...app.settings, layout: { ...app.settings.layout, explorerOpen: open } }
         },
-        setLayoutEditorOpen: (open: boolean) => {
-            app.settings = { ...app.settings, layout: { ...app.settings.layout, editorOpen: open } }
-        },
     }),
 }))
 
@@ -38,6 +35,47 @@ describe('StudioLayoutProvider', () => {
 
         expect(app.settings.layout.outlineOpen).toBe(true)
         expect(result.current.layout.outlineOpen).toBe(true)
+    })
+
+    it('hides and shows the preview, and keeps the choice in settings', () => {
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+        expect(result.current.layout.previewOpen).toBe(true)
+
+        act(() => result.current.setPreviewOpen(false))
+        rerender()
+
+        expect(app.settings.layout.previewOpen).toBe(false)
+        expect(result.current.layout).toMatchObject({ editorOpen: true, previewOpen: false })
+    })
+
+    it('shows the editor when the preview is hidden while the editor is hidden, and the other way round', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, editorOpen: false, previewOpen: true } }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setPreviewOpen(false))
+        rerender()
+        expect(app.settings.layout).toMatchObject({ editorOpen: true, previewOpen: false })
+
+        act(() => result.current.setEditorOpen(false))
+        rerender()
+        expect(app.settings.layout).toMatchObject({ editorOpen: false, previewOpen: true })
+        expect(result.current.layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
+    it('never says both the editor and the preview are hidden', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, editorOpen: false, previewOpen: false } }
+        const { result } = renderHook(() => useStudioLayout(), { wrapper })
+
+        expect(result.current.layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
+    it('shows the preview for Preview Only, also when it was hidden', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, previewOpen: false } }
+        const { result } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setPreviewOnly())
+
+        expect(app.settings.layout).toMatchObject({ editorOpen: false, previewOpen: true })
     })
 
     it('hides the Outline panel too for Preview Only', () => {

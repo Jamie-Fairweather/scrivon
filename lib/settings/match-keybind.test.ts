@@ -53,6 +53,12 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('b', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
     })
 
+    it('matches Ctrl+Alt+P for view.togglePreview when workspace is open, also on a layout with AltGr', () => {
+        expect(matchKeybind(keyEvent('p', { ctrl: true, alt: true }), bindings, { hasWorkspace: true })).toBe('view.togglePreview')
+        const german = keyEvent('p', { ctrl: true, alt: true, altGraph: true, code: 'KeyP' })
+        expect(matchKeybind(german, bindings, { hasWorkspace: true })).toBe('view.togglePreview')
+    })
+
     it('matches Cmd+S on mac defaults', () => {
         const macBindings = createDefaultKeybinds(true)
         expect(matchKeybind(keyEvent('s', { meta: true }), macBindings)).toBe('document.save')

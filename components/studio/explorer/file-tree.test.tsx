@@ -101,7 +101,7 @@ describe('FileTree', () => {
 
         // It can still be renamed, duplicated and deleted, so screen readers must not call it disabled.
         expect(item('photo.png')).not.toHaveAttribute('aria-disabled')
-        expect(item('photo.png')).toHaveAccessibleDescription('Scrivon supports .md, .mmd and .mermaid files only')
+        expect(item('photo.png')).toHaveAccessibleDescription('Scrivon supports .md, .markdown, .mmd and .mermaid files only')
         expect(item('flow.mmd')).not.toHaveAttribute('aria-describedby')
     })
 
@@ -109,7 +109,7 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         expect(item('flow.mmd')).toHaveAttribute('title', 'flow.mmd')
-        expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .mmd and .mermaid files only')
+        expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .markdown, .mmd and .mermaid files only')
     })
 
     it('marks a folder that could not be read, and says why on hover and to screen readers', () => {

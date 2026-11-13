@@ -16,6 +16,7 @@ const MOCKED_MODULES = [
     '@tauri-apps/api/core',
     '@/lib/tauri/platform',
     '@/lib/tauri/store',
+    '@/lib/tauri/launch',
 ]
 
 function appSourceFiles(dir: string): string[] {

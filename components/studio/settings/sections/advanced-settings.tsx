@@ -2,6 +2,7 @@
 
 import { isTauri } from '@/lib/tauri/platform'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
+import { SettingsBackup } from '@/components/studio/settings/settings-backup'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 
@@ -43,7 +44,7 @@ export function AdvancedSettings() {
 
             <SwitchSetting
                 label="Restore panel layout"
-                description="Remember explorer and editor visibility when reopening the app."
+                description="Remember which panels are shown when reopening the app."
                 checked={settings.layout.restorePanelsOnOpen}
                 onChange={(restorePanelsOnOpen) =>
                     updateSettings((current) => ({
@@ -66,6 +67,8 @@ export function AdvancedSettings() {
                     }
                 />
             ) : null}
+
+            <SettingsBackup />
         </div>
     )
 }

@@ -90,9 +90,10 @@ function mockContexts({
         closeAllTabs: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
-        layout: { explorerOpen: true, editorOpen: true, outlineOpen },
+        layout: { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen },
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setPreviewOpen: vi.fn(),
         setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
     } as unknown as ReturnType<typeof useStudioLayout>)
@@ -400,7 +401,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(26)
+        expect(compared).toBe(27)
     })
 })
 
@@ -430,6 +431,17 @@ describe('StudioMenuBar View menu', () => {
         await userEvent.setup().click(within(await openMenu('View')).getByRole('menuitemcheckbox', { name: /^Explorer/ }))
 
         expect(vi.mocked(useStudioLayout)().setExplorerOpen).toHaveBeenCalledWith(false)
+    })
+
+    it('hides the preview from its tick box', async () => {
+        mockContexts({ workspaceRoot: 'C:/work' })
+        render(<Studio />)
+
+        const preview = within(await openMenu('View')).getByRole('menuitemcheckbox', { name: 'Preview Ctrl+Alt+P' })
+        expect(preview).toHaveAttribute('aria-checked', 'true')
+        await userEvent.setup().click(preview)
+
+        expect(vi.mocked(useStudioLayout)().setPreviewOpen).toHaveBeenCalledWith(false)
     })
 
     it('shows and hides the Outline panel', async () => {

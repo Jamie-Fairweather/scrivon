@@ -27,6 +27,7 @@ import {
     watchWorkspace,
     type WorkspaceChange,
 } from '@/lib/tauri/fs'
+import { onLaunchPaths, takeLaunchPaths, type LaunchPath } from '@/lib/tauri/launch'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath, forgetWorkspacePath } from '@/lib/tauri/scope'
 import { deleteUnsavedBackup, listUnsavedBackups, settleUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
@@ -47,6 +48,7 @@ import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
+import { planLaunchOpen } from '@/lib/workspace/launch-open'
 import {
     canReplaceChildren,
     changeAltersTree,
@@ -121,6 +123,16 @@ async function listBackupsSafely(): Promise<UnsavedBackup[]> {
         return await listUnsavedBackups()
     } catch (err) {
         console.warn("Couldn't read the copies of unsaved changes", err)
+        return []
+    }
+}
+
+/** What Scrivon was asked to open from File Explorer or the command line; nothing when that can't be read. */
+async function takeLaunchPathsSafely(): Promise<LaunchPath[]> {
+    try {
+        return await takeLaunchPaths()
+    } catch (err) {
+        console.warn("Couldn't get the files Scrivon was asked to open", err)
         return []
     }
 }
@@ -833,18 +845,54 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         openWorkspaceRef.current = openWorkspace
     }, [openWorkspace])
 
-    // At launch, reopens the folder that was open when Scrivon last closed (a setting). Then, after a crash or a
-    // forced restart, says which other folder has unsaved changes waiting and offers to open it.
+    /**
+     * Opens what Scrivon was asked to open from File Explorer or the command line (see planLaunchOpen).
+     * Resolves to the folder it opened, or tried to, or null when it stayed in the open one.
+     */
+    const openLaunchPaths = useCallback(
+        async (paths: readonly LaunchPath[]) => {
+            const { folder, files, skipped } = planLaunchOpen(paths, workspaceRootRef.current)
+            if (folder) {
+                await openWorkspaceRef.current(folder)
+                // It couldn't be opened (that says why), or the user kept the open folder's unsaved changes.
+                if (!isOpenFolder(folder)) return folder
+            }
+            for (const file of files) await coordinator.openFile.current(file)
+            if (skipped.length > 0) {
+                const one = skipped.length === 1
+                notifyWarning(one ? `${getBaseName(skipped[0]!)} wasn't opened` : `${skipped.length} files weren't opened`, {
+                    description: `${one ? "It's in another folder" : "They're in other folders"}. Scrivon opens one folder at a time.`,
+                })
+            }
+            return folder
+        },
+        [isOpenFolder, coordinator]
+    )
+
+    // Taken once, even when React runs the effect below twice (it does in development).
+    const launchedAtStartup = useRef<Promise<LaunchPath[]> | null>(null)
+    // Set once the launch's own file or folder (or the last folder) is open: files handed over later wait for it.
+    const [startupOpened, setStartupOpened] = useState(false)
+
+    // At launch, opens the file or folder Scrivon was started with from File Explorer or the command line, or
+    // else reopens the folder that was open when it last closed (a setting). Then, after a crash or a forced
+    // restart, says which other folder has unsaved changes waiting and offers to open it.
     useEffect(() => {
         if (!isDesktop || !hydrated) return
         let cancelled = false
         void (async () => {
-            const last = reopenAtStartup.current ? await getLastWorkspace().catch(() => null) : null
+            const launched = await (launchedAtStartup.current ??= takeLaunchPathsSafely())
+            const last = launched.length === 0 && reopenAtStartup.current ? await getLastWorkspace().catch(() => null) : null
             if (cancelled) return
+            let tried: string | null = null
+            if (launched.length > 0) tried = await openLaunchPaths(launched)
             // Not once the user has opened or closed a folder. One that can't be opened says why, and the
             // welcome screen stays.
-            const tried = last && workspaceRequest.current === 0 ? last : null
-            if (tried) await openWorkspaceRef.current(tried, true)
+            else if (last && workspaceRequest.current === 0) {
+                tried = last
+                await openWorkspaceRef.current(last, true)
+            }
+            setStartupOpened(true)
             const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
             // A folder that couldn't be reopened has already offered its kept changes (offerKeptChanges).
             const backups = (await listBackupsSafely()).filter((b) => !tried || !samePath(folderOf(b), tried))
@@ -863,7 +911,36 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return () => {
             cancelled = true
         }
-    }, [isDesktop, hydrated])
+    }, [isDesktop, hydrated, openLaunchPaths])
+
+    // Files opened from File Explorer while Scrivon runs: that launch hands them to this window. One handover at a
+    // time, so the second waits until the first one's folder is open.
+    useEffect(() => {
+        if (!startupOpened) return
+        let disposed = false
+        let unlisten: (() => void) | undefined
+        let queue = Promise.resolve()
+        const openWaiting = () => {
+            queue = queue.then(async () => {
+                if (disposed) return
+                // Once taken they can't be taken again, so they are opened whatever happens to this effect.
+                const paths = await takeLaunchPathsSafely()
+                if (paths.length > 0) await openLaunchPaths(paths)
+            })
+        }
+        void onLaunchPaths(openWaiting)
+            .then((stop) => {
+                if (disposed) stop()
+                else unlisten = stop
+            })
+            .catch((err: unknown) => console.warn("Can't open files from File Explorer while Scrivon runs", err))
+            // Any handed over before this listened.
+            .then(openWaiting)
+        return () => {
+            disposed = true
+            unlisten?.()
+        }
+    }, [startupOpened, openLaunchPaths])
 
     const pickAndOpenWorkspace = useCallback(async () => {
         let path: string | null

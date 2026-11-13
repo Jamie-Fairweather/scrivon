@@ -97,8 +97,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        count_other_instances, install_error_message, install_pending, install_with_record,
-        is_prerelease_build, take_attempt, ProgressThrottle, UpdateAttempt, UpdateProgress,
+        attempt_waiting, count_other_instances, install_error_message, install_pending,
+        install_with_record, is_prerelease_build, take_attempt, ProgressThrottle, UpdateAttempt,
+        UpdateProgress,
     };
 
     #[test]
@@ -197,6 +198,20 @@ mod tests {
                 installed: true,
             })
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_launch_after_an_update_knows_it_until_the_page_takes_the_record() {
+        // So it doesn't reopen the files the installer passes back (see setup in lib.rs).
+        let dir = temp_data_dir();
+        assert!(!attempt_waiting(&dir));
+
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+        assert!(attempt_waiting(&dir));
+
+        take_attempt(&dir, "1.5.0");
+        assert!(!attempt_waiting(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -553,6 +568,13 @@ fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
         },
         installed,
     })
+}
+
+/// True while the record of an in-app update is waiting for the page to take it
+/// (`take_update_attempt`). Then this launch is most likely the installer
+/// restarting Scrivon after the update.
+pub fn attempt_waiting(dir: &Path) -> bool {
+    dir.join(ATTEMPT_FILE).is_file()
 }
 
 /// Downloads and installs the pending update, telling `on_progress` how the
