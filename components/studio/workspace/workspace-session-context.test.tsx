@@ -16,6 +16,7 @@ import {
     writeTextFile,
     type WatchEvent,
 } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
 import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import {
     confirmCloseAfterSaveFailure,
@@ -944,6 +945,33 @@ describe('file system errors', () => {
 
         expect(confirmDeleteHiddenFolders).not.toHaveBeenCalled()
         expect(await disk.exists('C:\\ws\\sub')).toBe(false)
+    })
+
+    it('moves what it deletes to the Recycle Bin instead of erasing it', async () => {
+        await disk.write('C:\\ws\\sub\\b.mmd', 'graph LR')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub\\a.mmd', false)
+        })
+
+        expect(invoke).toHaveBeenCalledWith('trash_workspace_path', { path: 'C:\\ws\\sub\\a.mmd' })
+        expect(await disk.exists('C:\\ws\\sub\\a.mmd')).toBe(false)
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('says in plain words why the Recycle Bin would not take it', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await openWorkspace(result)
+        vi.mocked(invoke).mockRejectedValueOnce('It is open in another program. Close it there and try again.')
+
+        await act(async () => {
+            await result.current.session.deleteEntry('C:\\ws\\sub\\a.mmd', false)
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't delete a.mmd", 'It is open in another program. Close it there and try again.')
+        expect(await disk.exists('C:\\ws\\sub\\a.mmd')).toBe(true)
     })
 
     it('says why a delete failed and keeps the tabs of what is still there', async () => {

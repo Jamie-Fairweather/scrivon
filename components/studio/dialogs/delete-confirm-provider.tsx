@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -11,9 +11,14 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { describeDelete, type DeleteSummary } from '@/lib/workspace/delete-summary'
+import { displayPath } from '@/lib/workspace/display-path'
+import type { FileNode } from '@/lib/workspace/types'
 
 type DeleteConfirmContextValue = {
-    confirmDelete: (itemName: string, isDirectory?: boolean) => Promise<boolean>
+    /** Asks before deleting `node`, saying what goes and which open tabs close. Resolves true for Delete. */
+    confirmDelete: (node: FileNode) => Promise<boolean>
 }
 
 const DeleteConfirmContext = createContext<DeleteConfirmContextValue | null>(null)
@@ -28,10 +33,11 @@ export function useDeleteConfirm(): DeleteConfirmContextValue {
 
 export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
     const pendingRef = useRef<((confirmed: boolean) => void) | null>(null)
+    const coordinator = useWorkspaceCoordinator()
+    const { workspaceRoot } = useWorkspaceSession()
 
     const [open, setOpen] = useState(false)
-    const [itemName, setItemName] = useState('')
-    const [isDirectory, setIsDirectory] = useState(false)
+    const [summary, setSummary] = useState<DeleteSummary | null>(null)
 
     const finish = useCallback((confirmed: boolean) => {
         pendingRef.current?.(confirmed)
@@ -39,17 +45,20 @@ export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
         setOpen(false)
     }, [])
 
-    const confirmDelete = useCallback((name: string, directory = false) => {
-        return new Promise<boolean>((resolve) => {
-            if (pendingRef.current) {
-                pendingRef.current(false)
-            }
-            pendingRef.current = resolve
-            setItemName(name)
-            setIsDirectory(directory)
-            setOpen(true)
-        })
-    }, [])
+    const confirmDelete = useCallback(
+        (node: FileNode) => {
+            return new Promise<boolean>((resolve) => {
+                if (pendingRef.current) {
+                    pendingRef.current(false)
+                }
+                pendingRef.current = resolve
+                const isDirectory = node.kind === 'directory'
+                setSummary(describeDelete(node, workspaceRoot, coordinator.findTabsToCloseOnDelete.current(node.path, isDirectory)))
+                setOpen(true)
+            })
+        },
+        [coordinator, workspaceRoot]
+    )
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -59,20 +68,27 @@ export function DeleteConfirmProvider({ children }: { children: ReactNode }) {
         [finish]
     )
 
+    const value = useMemo(() => ({ confirmDelete }), [confirmDelete])
+
     return (
-        <DeleteConfirmContext.Provider value={{ confirmDelete }}>
+        <DeleteConfirmContext.Provider value={value}>
             {children}
             <AlertDialog onOpenChange={handleOpenChange} open={open}>
                 <AlertDialogPopup>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Delete {isDirectory ? 'folder' : 'file'}?</AlertDialogTitle>
+                        <AlertDialogTitle>{summary?.title}</AlertDialogTitle>
                         {/* Long names with no spaces (snake_case, dotted) break anywhere instead of running past the dialog. */}
                         <AlertDialogDescription className="wrap-anywhere">
-                            {/* The name stands out, so it's clear at a glance what is about to go. */}
-                            {isDirectory ? 'Delete folder ' : 'Delete '}
-                            <span className="font-medium text-foreground">&quot;{itemName}&quot;</span>
-                            {isDirectory ? ' and its contents?' : '?'} This cannot be undone.
+                            {/* The path stands out, so it's clear at a glance what is about to go. */}
+                            Moves <span className="font-medium text-foreground">{displayPath(summary?.path ?? '')}</span>
+                            {summary?.isDirectory ? ' and everything in it' : ''} to the Recycle Bin. {summary?.contents}
                         </AlertDialogDescription>
+                        {(summary?.closingTabs || summary?.unsaved) && (
+                            <ul className="flex flex-col gap-1 text-sm wrap-anywhere text-muted-foreground">
+                                {summary.closingTabs && <li>{summary.closingTabs}</li>}
+                                {summary.unsaved && <li className="font-medium text-destructive-foreground">{summary.unsaved}</li>}
+                            </ul>
+                        )}
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogClose render={<Button type="button" variant="ghost" />} onClick={() => finish(false)}>

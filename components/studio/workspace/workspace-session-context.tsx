@@ -21,9 +21,9 @@ import {
     MAX_TREE_ENTRIES,
     normalizePath,
     readWorkspaceTextFile,
-    removeWorkspacePath,
     renameWorkspacePath,
     samePath,
+    trashWorkspacePath,
     watchWorkspace,
     type WorkspaceChange,
 } from '@/lib/tauri/fs'
@@ -990,8 +990,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             const release = await coordinator.holdSaves.current(path, isDirectory)
             let whereNow = (id: string): string | null => id
             try {
-                // The user confirmed deleting the folder and everything in it; without recursive a folder that isn't empty is refused.
-                await removeWorkspacePath(path, { recursive: isDirectory })
+                // To the Recycle Bin, so a mistake can be undone; a folder goes with everything in it.
+                await trashWorkspacePath(path)
                 coordinator.closeTabsForDelete.current(path, isDirectory)
                 whereNow = () => null
                 if (root) void removeRecentFiles(root, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
