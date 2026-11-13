@@ -48,6 +48,24 @@ describe('diagram rendering', () => {
         expect(addMessageLabelHalo(svg)).toBe(svg)
     })
 
+    it.each([
+        ['front matter', '---\ntitle: Order flow\n---\ngraph TD\n  A[Start] --> B[End]'],
+        ['a semicolon after the header', 'graph TD;\n  A[Start] --> B[End];'],
+        ['a bare graph header', 'graph\n  A[Start] --> B[End]'],
+        ['statements on one line', 'graph LR; A[Start] --> B[End]'],
+    ])('draws a flowchart written with %s', (_name, source) => {
+        for (const svg of [renderMermaidDiagram(source, 'scrivon-light'), renderMermaidDiagramForExport(source, 'scrivon-light')]) {
+            expect(svg).toContain('>Start</text>')
+            expect(svg).toContain('>End</text>')
+        }
+    })
+
+    it('says a pie chart is not supported yet, for the preview and for exports', () => {
+        const pie = 'pie title Pets\n  "Dogs" : 386'
+        expect(() => renderMermaidDiagram(pie, 'scrivon-light')).toThrow(/^Pie charts aren't supported yet\. Scrivon can draw:\n• Flowcharts/)
+        expect(() => renderMermaidDiagramForExport(pie, 'scrivon-light')).toThrow(/^Pie charts aren't supported yet/)
+    })
+
     it('only edits style blocks, never diagram text', () => {
         const label = "@import url('https://fonts.googleapis.com/x');"
         const svg = `<svg><style>\n  @import url('https://fonts.googleapis.com/css2?family=Inter&amp;display=swap');\n  text { fill: red; }\n</style><text>${label}</text></svg>`

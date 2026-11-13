@@ -124,3 +124,46 @@ declare module 'monaco-editor/platform/keybinding/common/keybindingResolver.js' 
         lookupPrimaryKeybinding(commandId: string, context: unknown): ResolvedKeybindingItem | null
     }
 }
+
+// Monaco's Monarch lexer, used by vitest/monarch.ts to check the Mermaid grammar the way the editor colours it.
+declare module 'monaco-editor/editor/standalone/common/monarch/monarchCompile.js' {
+    import type { languages } from 'monaco-editor'
+    export type CompiledLexer = { readonly languageId: string }
+    export function compile(languageId: string, json: languages.IMonarchLanguage): CompiledLexer
+}
+
+declare module 'monaco-editor/editor/standalone/common/monarch/monarchLexer.js' {
+    import type { languages } from 'monaco-editor'
+    import type { CompiledLexer } from 'monaco-editor/editor/standalone/common/monarch/monarchCompile.js'
+    export class MonarchTokenizer {
+        constructor(
+            languageService: unknown,
+            standaloneThemeService: unknown,
+            languageId: string,
+            lexer: CompiledLexer,
+            configurationService: unknown
+        )
+        getInitialState(): languages.IState
+        tokenize(line: string, hasEOL: boolean, state: languages.IState): { tokens: { offset: number; type: string }[]; endState: languages.IState }
+    }
+}
+
+declare module 'monaco-editor/editor/common/languages.js' {
+    import type { IDisposable } from 'monaco-editor'
+    export const TokenizationRegistry: {
+        register(languageId: string, support: unknown): IDisposable
+    }
+}
+
+// Monaco's Markdown grammar, used by lib/monaco/mermaid-language.test.ts to check ```mermaid blocks.
+declare module 'monaco-editor/languages/definitions/markdown/markdown.js' {
+    import type { languages } from 'monaco-editor'
+    export const language: languages.IMonarchLanguage
+}
+
+// Monaco's snippet parser, used by lib/monaco/mermaid-snippets.test.ts to expand snippets as the editor does.
+declare module 'monaco-editor/editor/contrib/snippet/browser/snippetParser.js' {
+    export class SnippetParser {
+        parse(value: string): { toString(): string }
+    }
+}
