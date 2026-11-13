@@ -33,6 +33,11 @@ function renderSettings() {
     return rendered
 }
 
+/** Hides the editor in the settings. */
+function hideEditor(current: AppSettings): AppSettings {
+    return { ...current, layout: { ...current.layout, editorOpen: false } }
+}
+
 /** Settings are written a moment after the last change. */
 function waitForSave() {
     act(() => {
@@ -68,7 +73,7 @@ describe('SettingsProvider persistence', () => {
 
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         waitForSave()
 
@@ -523,7 +528,7 @@ describe('SettingsProvider persistence', () => {
         })
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         unmount()
 
@@ -536,7 +541,7 @@ describe('SettingsProvider persistence', () => {
         const first = renderSettings()
         act(() => {
             first.result.current.setLayoutExplorerOpen(false)
-            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.updateSettings(hideEditor)
         })
         first.unmount()
 
@@ -575,7 +580,7 @@ describe('SettingsProvider persistence', () => {
                 layout: { ...current.layout, restorePanelsOnOpen: false, outlineOpen: true },
             }))
             first.result.current.setLayoutExplorerOpen(false)
-            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.updateSettings(hideEditor)
             first.result.current.setEditorWidth(600)
         })
         first.unmount()
@@ -590,7 +595,7 @@ describe('SettingsProvider persistence', () => {
             outlineOpen: false,
         })
         // Hiding a panel still works, and is still saved.
-        act(() => result.current.setLayoutEditorOpen(false))
+        act(() => result.current.updateSettings(hideEditor))
         waitForSave()
         expect(stored().layout.editorOpen).toBe(false)
     })

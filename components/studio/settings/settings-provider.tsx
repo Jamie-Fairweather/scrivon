@@ -62,7 +62,6 @@ type AppSettingsContextValue = {
     setAutosaveEnabled: (enabled: boolean) => void
     setAutosaveDelayMs: (delayMs: number) => void
     setLayoutExplorerOpen: (open: boolean) => void
-    setLayoutEditorOpen: (open: boolean) => void
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
     setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
@@ -252,13 +251,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         [updateSettings]
     )
 
-    const setLayoutEditorOpen = useCallback(
-        (open: boolean) => {
-            updateSettings((current) => ({ ...current, layout: { ...current.layout, editorOpen: open } }))
-        },
-        [updateSettings]
-    )
-
     const setEditorWidth = useCallback(
         (width: number) => {
             updateSettings((current) => ({
@@ -377,7 +369,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,
@@ -401,7 +392,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,

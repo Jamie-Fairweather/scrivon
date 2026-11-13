@@ -69,6 +69,10 @@ describe('searchSettings', () => {
         ])
     })
 
+    it('finds Restore panel layout by the panels it remembers', () => {
+        expect(searchSettings('preview', BROWSER).map((entry) => entry.label)).toContain('Restore panel layout')
+    })
+
     it('finds the status bar', () => {
         expect(searchSettings('word count', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Status bar' })])
     })
