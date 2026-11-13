@@ -47,16 +47,20 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
 
     { section: 'appearance', label: 'Follow Windows', keywords: 'system light dark mode theme' },
     // No group: the theme lists have different titles when Follow Windows is on.
-    ...APP_DARK_THEME_IDS.map((id): SettingsSearchEntry => ({
-        section: 'appearance',
-        label: APP_THEME_LABELS[id],
-        keywords: 'theme dark',
-    })),
-    ...APP_LIGHT_THEME_IDS.map((id): SettingsSearchEntry => ({
-        section: 'appearance',
-        label: APP_THEME_LABELS[id],
-        keywords: 'theme light',
-    })),
+    ...APP_DARK_THEME_IDS.map(
+        (id): SettingsSearchEntry => ({
+            section: 'appearance',
+            label: APP_THEME_LABELS[id],
+            keywords: 'theme dark',
+        })
+    ),
+    ...APP_LIGHT_THEME_IDS.map(
+        (id): SettingsSearchEntry => ({
+            section: 'appearance',
+            label: APP_THEME_LABELS[id],
+            keywords: 'theme light',
+        })
+    ),
 
     { section: 'editor', label: 'Font size', keywords: 'text zoom' },
     { section: 'editor', label: 'Tab size', keywords: 'indent spaces' },
@@ -76,11 +80,13 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'pdf-export', label: 'Profile name', keywords: 'rename' },
     { section: 'pdf-export', group: 'Page', label: 'Page size', keywords: 'a4 letter paper' },
     { section: 'pdf-export', group: 'Page', label: 'Orientation', keywords: 'portrait landscape' },
-    ...(['top', 'right', 'bottom', 'left'] as const).map((side): SettingsSearchEntry => ({
-        section: 'pdf-export',
-        group: 'Page',
-        label: `Margin ${side} (mm)`,
-    })),
+    ...(['top', 'right', 'bottom', 'left'] as const).map(
+        (side): SettingsSearchEntry => ({
+            section: 'pdf-export',
+            group: 'Page',
+            label: `Margin ${side} (mm)`,
+        })
+    ),
     { section: 'pdf-export', group: 'Text', label: 'Heading font', keywords: 'typeface' },
     { section: 'pdf-export', group: 'Text', label: 'Body font', keywords: 'typeface' },
     { section: 'pdf-export', group: 'Text', label: 'Monospace font', keywords: 'code typeface' },

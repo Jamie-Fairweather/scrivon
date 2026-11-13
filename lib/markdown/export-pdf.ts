@@ -10,6 +10,7 @@ import type { PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } fr
 import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
+import { withoutDocumentExtension } from '@/lib/workspace/file-types'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -49,7 +50,7 @@ export type ExportResult = SavedExport | { status: 'cancelled' } | { status: 'fa
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
-    const base = tabName.replace(/\.md$/i, '')
+    const base = withoutDocumentExtension(tabName)
     return base || 'document'
 }
 

@@ -12,7 +12,8 @@
 ; files, and removes the folder only if it is then empty.
 ;
 ; It also puts the app's taskbar ID on the shortcuts that open it (see
-; SCRIVON_TAG_SHORTCUT), stops on a PC this copy can't run on, and lets
+; SCRIVON_TAG_SHORTCUT), stops on a PC this copy can't run on, keeps the app
+; each file type opened with before (see SCRIVON_FILE_TYPES), and lets
 ; "Delete the application data" remove the data folders from before 1.4.1.
 ;
 ; This file is included before the template defines PRODUCTNAME and friends,
@@ -83,6 +84,45 @@ FunctionEnd
     RMDir "$INSTDIR"
     Abort
   ${EndIf}
+  ; Before the template registers the file types.
+  !insertmacro SCRIVON_FILE_TYPES SCRIVON_READ_ASSOC_BACKUP
+!macroend
+
+; Runs `do` for each file type Scrivon opens (bundle > fileAssociations in
+; tauri.conf.json), with its extension, its class and a variable to keep the
+; old backup in.
+;
+; Every install, updates too, the template's APP_ASSOCIATE saves the class
+; that opened .<ext> before as <class>_backup, for the uninstaller to put back.
+; From the second install on, that class is Scrivon's own. Then the app the
+; user had before is lost, and uninstalling leaves the files pointing at the
+; class it removes. So NSIS_HOOK_PREINSTALL reads each backup first, and
+; NSIS_HOOK_POSTINSTALL puts it back if the install overwrote it.
+!macro SCRIVON_FILE_TYPES do
+  !insertmacro ${do} "md" "Scrivon.Markdown" $ScrivonMdBackup
+  !insertmacro ${do} "markdown" "Scrivon.Markdown" $ScrivonMarkdownBackup
+  !insertmacro ${do} "mmd" "Scrivon.Mermaid" $ScrivonMmdBackup
+  !insertmacro ${do} "mermaid" "Scrivon.Mermaid" $ScrivonMermaidBackup
+!macroend
+Var ScrivonMdBackup
+Var ScrivonMarkdownBackup
+Var ScrivonMmdBackup
+Var ScrivonMermaidBackup
+
+; Keeps the class .<ext> opened with before Scrivon in `var`, or "" if none.
+!macro SCRIVON_READ_ASSOC_BACKUP ext class var
+  ReadRegStr ${var} SHCTX "Software\Classes\.${ext}" "${class}_backup"
+  ${If} ${var} == "${class}"
+    StrCpy ${var} ""
+  ${EndIf}
+!macroend
+
+; Puts `var` back as the backup if this install saved Scrivon's own class there.
+!macro SCRIVON_KEEP_ASSOC_BACKUP ext class var
+  ReadRegStr $R7 SHCTX "Software\Classes\.${ext}" "${class}_backup"
+  ${If} $R7 == "${class}"
+    WriteRegStr SHCTX "Software\Classes\.${ext}" "${class}_backup" ${var}
+  ${EndIf}
 !macroend
 
 ; Points `lnk` at the installed program if it currently opens `oldTarget`.
@@ -145,12 +185,19 @@ FunctionEnd
   !insertmacro SCRIVON_TAG_SHORTCUT "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   !insertmacro SCRIVON_TAG_SHORTCUT "$DESKTOP\${PRODUCTNAME}.lnk"
   !insertmacro SCRIVON_TAG_SHORTCUT "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\${PRODUCTNAME}.lnk"
+
+  !insertmacro SCRIVON_FILE_TYPES SCRIVON_KEEP_ASSOC_BACKUP
+  ; Tells File Explorer the file types changed, so it shows the new icons now.
+  !insertmacro UPDATEFILEASSOC
 !macroend
 
-; The template's "Delete the application data" removes the data folders named
-; after the current identifier. This also removes the ones from before 1.4.1,
-; which the app only copied from and left in place. Never during an update.
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; The template has removed the file types by now.
+  !insertmacro UPDATEFILEASSOC
+
+  ; The template's "Delete the application data" removes the data folders named
+  ; after the current identifier. This also removes the ones from before 1.4.1,
+  ; which the app only copied from and left in place. Never during an update.
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1
     SetShellVarContext current
