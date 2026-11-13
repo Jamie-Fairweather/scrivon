@@ -16,12 +16,10 @@
 // The overlay exists on Windows only; elsewhere the logic is only tested.
 #![cfg_attr(not(windows), allow(dead_code))]
 
+use crate::system_menu::{SC_MAXIMIZE, SC_RESTORE};
+
 /// Sent to the page when the pointer moves onto (true) or off (false) the button.
 const HOVER_EVENT: &str = "maximize-button-hover";
-
-// Window commands (WM_SYSCOMMAND values).
-const SC_MAXIMIZE: u32 = 0xF030;
-const SC_RESTORE: u32 = 0xF120;
 
 /// Where the page's maximise button is, in physical pixels from the top-left
 /// of the page (which fills the window).
@@ -51,6 +49,16 @@ fn toggle_command(maximized: bool) -> u32 {
         SC_RESTORE
     } else {
         SC_MAXIMIZE
+    }
+}
+
+/// The button's name for screen readers, the same as the page's button and
+/// Windows' own.
+fn button_name(maximized: bool) -> &'static str {
+    if maximized {
+        "Restore"
+    } else {
+        "Maximize"
     }
 }
 
@@ -129,19 +137,19 @@ mod native {
     use std::rc::Rc;
     use std::sync::Once;
 
-    use super::{toggle_command, ButtonArea, Pointer};
+    use super::{button_name, toggle_command, ButtonArea, Pointer};
 
     pub type Hwnd = *mut c_void;
 
     const WM_NCDESTROY: u32 = 0x0082;
-    const WM_NCHITTEST: u32 = 0x0084;
-    const WM_NCMOUSEMOVE: u32 = 0x00A0;
-    const WM_NCLBUTTONDOWN: u32 = 0x00A1;
-    const WM_NCLBUTTONUP: u32 = 0x00A2;
+    pub(super) const WM_NCHITTEST: u32 = 0x0084;
+    pub(super) const WM_NCMOUSEMOVE: u32 = 0x00A0;
+    pub(super) const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+    pub(super) const WM_NCLBUTTONUP: u32 = 0x00A2;
     const WM_NCLBUTTONDBLCLK: u32 = 0x00A3;
-    const WM_SYSCOMMAND: u32 = 0x0112;
-    const WM_NCMOUSELEAVE: u32 = 0x02A2;
-    const HTMAXBUTTON: isize = 9;
+    pub(super) const WM_SYSCOMMAND: u32 = 0x0112;
+    pub(super) const WM_NCMOUSELEAVE: u32 = 0x02A2;
+    pub(super) const HTMAXBUTTON: isize = 9;
     const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
     const WS_CHILD: u32 = 0x4000_0000;
     const SWP_NOACTIVATE: u32 = 0x0010;
@@ -212,6 +220,7 @@ mod native {
         ) -> Hwnd;
         fn DestroyWindow(hwnd: Hwnd) -> i32;
         fn DefWindowProcW(hwnd: Hwnd, msg: u32, wparam: usize, lparam: isize) -> isize;
+        fn SetWindowTextW(hwnd: Hwnd, text: *const u16) -> i32;
         fn SetWindowPos(
             hwnd: Hwnd,
             insert_after: Hwnd,
@@ -317,8 +326,13 @@ mod native {
         };
         let resize_borders = wide(RESIZE_BORDERS_CLASS);
         // SAFETY: `hwnd` is the overlay and `parent` its window, both owned by
-        // this thread. The class name outlives the call.
+        // this thread. The class name and window name outlive the calls.
         unsafe {
+            // Screen readers name the button by the window's text. The page
+            // moves the overlay when the window is maximized or restored,
+            // because the button moves, so this keeps up.
+            let name = wide(button_name(IsZoomed(parent) != 0));
+            SetWindowTextW(hwnd, name.as_ptr());
             // Just under Tauri's resize window, or on top when there's none
             // (a null handle is HWND_TOP): over the page either way.
             let under = FindWindowExW(parent, null_mut(), resize_borders.as_ptr(), null());
@@ -500,6 +514,12 @@ mod tests {
     }
 
     #[test]
+    fn screen_readers_hear_what_a_click_will_do() {
+        assert_eq!(button_name(false), "Maximize");
+        assert_eq!(button_name(true), "Restore");
+    }
+
+    #[test]
     fn an_empty_area_has_no_button_to_cover() {
         let area = |width, height| ButtonArea {
             x: 10,
@@ -519,17 +539,15 @@ mod native_tests {
     use std::ffi::c_void;
     use std::rc::Rc;
 
-    use super::native::{self, Hwnd};
+    use super::native::{
+        self, Hwnd, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
+        WM_NCMOUSEMOVE, WM_SYSCOMMAND,
+    };
     use super::ButtonArea;
 
     const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
-    const WM_NCHITTEST: u32 = 0x0084;
-    const WM_NCMOUSEMOVE: u32 = 0x00A0;
-    const WM_NCLBUTTONDOWN: u32 = 0x00A1;
-    const WM_NCLBUTTONUP: u32 = 0x00A2;
-    const WM_NCMOUSELEAVE: u32 = 0x02A2;
-    const WM_SYSCOMMAND: u32 = 0x0112;
-    const HTMAXBUTTON: usize = 9;
+    /// Which part of the window the pointer is on, as the mouse messages say.
+    const HTMAXBUTTON: usize = native::HTMAXBUTTON as usize;
     const PM_REMOVE: u32 = 0x0001;
 
     #[repr(C)]
@@ -573,6 +591,7 @@ mod native_tests {
         fn IsWindow(hwnd: Hwnd) -> i32;
         fn SendMessageW(hwnd: Hwnd, msg: u32, wparam: usize, lparam: isize) -> isize;
         fn GetWindowRect(hwnd: Hwnd, rect: *mut Rect) -> i32;
+        fn GetWindowTextW(hwnd: Hwnd, text: *mut u16, max: i32) -> i32;
         fn MapWindowPoints(from: Hwnd, to: Hwnd, points: *mut Rect, count: u32) -> i32;
         fn PeekMessageW(msg: *mut Msg, hwnd: Hwnd, min: u32, max: u32, remove: u32) -> i32;
     }
@@ -650,7 +669,19 @@ mod native_tests {
         );
         // SAFETY: a live window of this thread.
         let hit = unsafe { SendMessageW(overlay, WM_NCHITTEST, 0, 0) };
-        assert_eq!(hit as usize, HTMAXBUTTON);
+        assert_eq!(hit, 9, "HTMAXBUTTON");
+    }
+
+    #[test]
+    fn screen_readers_can_name_the_overlay() {
+        let parent = Parent::new();
+        place(&parent, Some(AREA));
+        let overlay = native::overlay().unwrap();
+
+        let mut text = [0u16; 32];
+        // SAFETY: a live window of this thread; `text` holds `text.len()` characters.
+        let len = unsafe { GetWindowTextW(overlay, text.as_mut_ptr(), text.len() as i32) };
+        assert_eq!(String::from_utf16_lossy(&text[..len as usize]), "Maximize");
     }
 
     #[test]

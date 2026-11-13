@@ -41,7 +41,7 @@ describe('WindowTitlebarControls', () => {
         expect(calls).toEqual(['flushPendingSettings', 'close'])
     })
 
-    it('maximises and restores from the keyboard or a click that reaches the page', async () => {
+    it("the page's own button still toggles maximise", async () => {
         render(<WindowTitlebarControls />)
         await waitFor(() => expect(isMaximized).toHaveBeenCalled())
 
