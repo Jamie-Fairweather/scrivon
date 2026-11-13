@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { Profiler } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { requestRevealActiveFile } from '@/components/studio/explorer/explorer-view'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
@@ -14,6 +15,12 @@ const { tabs, tabContent, folders, session, confirmDelete, promptName } = vi.hoi
     session: {
         setFolderExpanded: vi.fn((path: string, expanded: boolean) => {
             folders.toggles = new Map(folders.toggles).set(path, expanded)
+            folders.listeners.forEach((l) => l())
+        }),
+        setFoldersExpanded: vi.fn((paths: readonly string[], expanded: boolean) => {
+            const next = new Map(folders.toggles)
+            for (const path of paths) next.set(path, expanded)
+            folders.toggles = next
             folders.listeners.forEach((l) => l())
         }),
         openFile: vi.fn(async () => undefined),
@@ -94,7 +101,7 @@ describe('FileTree', () => {
 
         // It can still be renamed, duplicated and deleted, so screen readers must not call it disabled.
         expect(item('photo.png')).not.toHaveAttribute('aria-disabled')
-        expect(item('photo.png')).toHaveAccessibleDescription('Scrivon supports .md, .mmd and .mermaid files only')
+        expect(item('photo.png')).toHaveAccessibleDescription('Scrivon supports .md, .markdown, .mmd and .mermaid files only')
         expect(item('flow.mmd')).not.toHaveAttribute('aria-describedby')
     })
 
@@ -102,7 +109,7 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         expect(item('flow.mmd')).toHaveAttribute('title', 'flow.mmd')
-        expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .mmd and .mermaid files only')
+        expect(item('photo.png')).toHaveAttribute('title', 'photo.png\nScrivon supports .md, .markdown, .mmd and .mermaid files only')
     })
 
     it('marks a folder that could not be read, and says why on hover and to screen readers', () => {
@@ -266,6 +273,24 @@ describe('FileTree', () => {
         expect(confirmDelete).toHaveBeenCalledWith(tree[0])
     })
 
+    it('leaves F2 and Delete alone away from a row: in its open menu, on the tree itself, or with Ctrl, Alt or Shift', async () => {
+        render(<FileTree tree={tree} />)
+        press('docs', 'ContextMenu')
+        const rename = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Rename' })
+
+        fireEvent.keyDown(rename, { key: 'F2' })
+        fireEvent.keyDown(rename, { key: 'Delete' })
+        fireEvent.keyDown(screen.getByRole('tree'), { key: 'F2' })
+        fireEvent.keyDown(screen.getByRole('tree'), { key: 'Delete' })
+        press('flow.mmd', 'F2', { ctrlKey: true })
+        press('flow.mmd', 'F2', { altKey: true })
+        press('flow.mmd', 'Delete', { shiftKey: true })
+        press('flow.mmd', 'Delete', { ctrlKey: true })
+
+        expect(promptName).not.toHaveBeenCalled()
+        expect(confirmDelete).not.toHaveBeenCalled()
+    })
+
     it('opens the row menu with Shift+F10 or the menu key', async () => {
         render(<FileTree tree={tree} />)
 
@@ -349,5 +374,127 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         expect(item('flow.mmd')).not.toContainElement(screen.getByLabelText('Actions for flow.mmd'))
+    })
+})
+
+describe('FileTree shows the open file', () => {
+    let scrollIntoView: Mock
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        tabs.activeTabId = null
+        folders.toggles = new Map()
+        // The test page lays nothing out, so it has no scrollIntoView of its own.
+        scrollIntoView = vi.fn()
+        Element.prototype.scrollIntoView = scrollIntoView
+    })
+
+    afterEach(() => {
+        Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    })
+
+    it('opens the folders that hold the open file, then scrolls to it and marks it', () => {
+        folders.toggles = new Map([['/ws/docs', false]])
+        tabs.activeTabId = '/ws/docs/notes.md'
+        render(<FileTree tree={tree} />)
+
+        expect(session.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs'], true)
+        expect(item('notes.md')).toHaveAttribute('aria-selected', 'true')
+        expect(scrollIntoView.mock.contexts).toEqual([item('notes.md')])
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    })
+
+    it('scrolls to each file as it is opened, without moving focus', () => {
+        const { rerender } = render(<FileTree tree={tree} />)
+        expect(scrollIntoView).not.toHaveBeenCalled()
+
+        tabs.activeTabId = '/ws/flow.mmd'
+        rerender(<FileTree tree={tree} />)
+
+        expect(scrollIntoView.mock.contexts).toEqual([item('flow.mmd')])
+        expect(item('flow.mmd')).not.toHaveFocus()
+    })
+
+    it('leaves a folder the user closes closed, also when the folder is read again', () => {
+        tabs.activeTabId = '/ws/docs/notes.md'
+        const { rerender } = render(<FileTree tree={tree} />)
+
+        press('docs', 'ArrowLeft')
+        rerender(<FileTree tree={[...tree]} />)
+
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
+        expect(session.setFoldersExpanded).not.toHaveBeenCalled()
+    })
+
+    it('shows a new file once the tree has it', () => {
+        tabs.activeTabId = '/ws/drafts/2026/nov/idea.md'
+        const { rerender } = render(<FileTree tree={tree} />)
+        expect(scrollIntoView).not.toHaveBeenCalled()
+
+        const drafts: FileNode = {
+            kind: 'directory',
+            name: 'drafts',
+            path: '/ws/drafts',
+            children: [
+                {
+                    kind: 'directory',
+                    name: '2026',
+                    path: '/ws/drafts/2026',
+                    children: [
+                        {
+                            kind: 'directory',
+                            name: 'nov',
+                            path: '/ws/drafts/2026/nov',
+                            children: [{ kind: 'file', name: 'idea.md', path: '/ws/drafts/2026/nov/idea.md' }],
+                        },
+                    ],
+                },
+            ],
+        }
+        rerender(<FileTree tree={[...tree, drafts]} />)
+
+        // Third-level folders start closed.
+        expect(session.setFoldersExpanded).toHaveBeenCalledWith(['/ws/drafts/2026/nov'], true)
+        expect(scrollIntoView.mock.contexts).toEqual([item('idea.md')])
+    })
+
+    it('shows the open file again when asked, after its folder was closed', () => {
+        tabs.activeTabId = '/ws/docs/notes.md'
+        render(<FileTree tree={tree} />)
+        press('docs', 'ArrowLeft')
+        scrollIntoView.mockClear()
+
+        act(() => requestRevealActiveFile())
+
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'true')
+        expect(scrollIntoView.mock.contexts).toEqual([item('notes.md')])
+    })
+
+    it('makes the open file the Tab stop when asked, but not when a file is just opened', () => {
+        tabs.activeTabId = '/ws/docs/notes.md'
+        const { rerender } = render(<FileTree tree={tree} />)
+        act(() => item('docs').focus())
+        expect(item('docs').tabIndex).toBe(0)
+
+        // Opening another file leaves the Tab stop where the user was.
+        tabs.activeTabId = '/ws/flow.mmd'
+        rerender(<FileTree tree={tree} />)
+        expect(item('docs').tabIndex).toBe(0)
+        expect(item('flow.mmd').tabIndex).toBe(-1)
+
+        act(() => requestRevealActiveFile())
+        expect(item('flow.mmd').tabIndex).toBe(0)
+        expect(item('docs').tabIndex).toBe(-1)
+        // Still not focused: the user may be in the palette or the editor.
+        expect(item('flow.mmd')).not.toHaveFocus()
+    })
+
+    it('does nothing for a tab that is not a file in the folder', () => {
+        tabs.activeTabId = 'example:flowchart'
+        render(<FileTree tree={tree} />)
+        act(() => requestRevealActiveFile())
+
+        expect(session.setFoldersExpanded).not.toHaveBeenCalled()
+        expect(scrollIntoView).not.toHaveBeenCalled()
     })
 })

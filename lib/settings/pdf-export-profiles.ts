@@ -78,6 +78,20 @@ export function duplicatePdfExportProfile(settings: PdfExportSettings, profileId
     }
 }
 
+/** The name a profile from a file is added under: its own, unless another profile has it. */
+export function importedProfileName(profiles: readonly Pick<PdfExportProfile, 'name'>[], name: string): string {
+    return uniqueProfileName(profiles, name.trim() || 'Imported profile')
+}
+
+/** Adds a profile from a file under a new id, renamed when another profile has its name, and picks it. */
+export function importPdfExportProfile(settings: PdfExportSettings, imported: PdfExportProfile): PdfExportSettings {
+    const profile = cloneProfile(imported, newProfileId(), importedProfileName(settings.profiles, imported.name))
+    return {
+        profiles: [...settings.profiles, profile],
+        activeProfileId: profile.id,
+    }
+}
+
 export function renamePdfExportProfile(settings: PdfExportSettings, profileId: string, name: string): PdfExportSettings {
     const trimmed = name.trim()
     if (!trimmed) return settings

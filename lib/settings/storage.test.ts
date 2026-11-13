@@ -13,6 +13,9 @@ import {
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
+const mirrorSettingsFile = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/settings/settings-file', () => ({ mirrorSettingsFile }))
+
 describe('loadSettings', () => {
     it('returns defaults when window is unavailable', () => {
         expect(loadSettings()).toEqual(createDefaultSettings(false))
@@ -266,6 +269,47 @@ describe('loadSettings and saveSettings with localStorage', () => {
             store.set(SETTINGS_STORAGE_KEY, JSON.stringify(older))
 
             expect(loadSettings().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
+        })
+    })
+
+    describe('the copy in settings.json', () => {
+        beforeEach(() => {
+            mirrorSettingsFile.mockReset()
+        })
+
+        it('gets what is saved', () => {
+            const settings = createDefaultSettings(false)
+            settings.editor.fontSize = 19
+
+            saveSettings(settings)
+
+            expect(mirrorSettingsFile).toHaveBeenCalledTimes(1)
+            expect(mirrorSettingsFile).toHaveBeenCalledWith(JSON.parse(store.get(SETTINGS_STORAGE_KEY)!))
+        })
+
+        it('is written at startup too, so there is one before the first change', () => {
+            const settings = createDefaultSettings(false)
+            settings.pdfExport = createPdfExportProfile(settings.pdfExport, 'Company report')
+            saveSettings(settings)
+            const text = store.get(SETTINGS_STORAGE_KEY)!
+            mirrorSettingsFile.mockReset()
+
+            loadSettingsWithRecovery()
+
+            expect(mirrorSettingsFile).toHaveBeenCalledWith(JSON.parse(text))
+        })
+
+        it('is left alone when the settings could not be saved', () => {
+            vi.stubGlobal('localStorage', {
+                getItem: (key: string) => store.get(key) ?? null,
+                setItem: () => {
+                    throw new Error('QuotaExceededError')
+                },
+            })
+
+            saveSettings(createDefaultSettings(false))
+
+            expect(mirrorSettingsFile).not.toHaveBeenCalled()
         })
     })
 

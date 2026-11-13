@@ -6,7 +6,7 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import type { PngExportScale } from '@/lib/mermaid/export'
 import { notifyError } from '@/lib/notify'
@@ -48,8 +48,10 @@ function exportOffReason({ tabKind, exporting, hasMarkdown, hasDiagramSource, di
 
 export function DocumentExportMenu() {
     const { activeTab, activeTabId } = useDocumentTabs()
+    // The export embeds images inside the open folder, as the preview shows them.
+    const { workspaceRoot } = useWorkspaceSession()
     const { expanded } = useMarkdownExpand()
-    // Web images the user chose to load in this tab's preview print in its PDF too.
+    // Web images the user chose to load in this tab's preview go in its export too.
     const { remoteImageTabs } = useMarkdownPreviewMemory()
     const { themeId } = useAppTheme()
 
@@ -198,6 +200,7 @@ export function DocumentExportMenu() {
                     source={markdownSource}
                     tabName={tabName}
                     tabPath={activeTab?.path}
+                    workspaceRoot={workspaceRoot}
                     format={exportFormat}
                     allowRemoteImages={activeTabId ? remoteImageTabs.has(activeTabId) : false}
                     exporting={exporting}

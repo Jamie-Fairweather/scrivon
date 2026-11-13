@@ -27,8 +27,15 @@ const KEYBIND_ACTION_META = {
     'palette.openFiles': { label: 'Go to file', category: 'Navigation', when: 'global', allowInPalette: true },
     'view.toggleExplorer': { label: 'Toggle explorer', category: 'View', when: 'workspace' },
     'view.toggleEditor': { label: 'Toggle editor', category: 'View', when: 'workspace' },
+    'view.togglePreview': { label: 'Toggle preview', category: 'View', when: 'workspace' },
     'view.previewOnly': { label: 'Preview only layout', category: 'View', when: 'workspace' },
     'view.fitDiagram': { label: 'Fit diagram to screen', category: 'View', when: 'workspace' },
+    'view.focusExplorer': { label: 'Focus explorer', category: 'Navigation', when: 'workspace' },
+    'view.focusEditor': { label: 'Focus editor', category: 'Navigation', when: 'workspace' },
+    'view.focusPreview': { label: 'Focus preview', category: 'Navigation', when: 'workspace' },
+    // F6 never types anything, so it also gets out of a text box.
+    'view.focusNextPane': { label: 'Focus next pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
+    'view.focusPreviousPane': { label: 'Focus previous pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
 
 export const KEYBIND_ACTIONS: KeybindActionMeta[] = (Object.keys(KEYBIND_ACTION_META) as KeybindActionId[]).map((id) => ({

@@ -21,6 +21,7 @@ import {
 } from '@/components/studio/workspace/workspace-provider'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
+import { isTauri } from '@/lib/tauri/platform'
 import { StudioMenuBar } from './studio-menu-bar'
 
 vi.mock('next/image', () => ({
@@ -43,6 +44,8 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanva
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
 vi.mock('@/components/studio/dialogs/open-source-licenses-dialog', () => ({ OpenSourceLicensesDialog: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
+const { checkForUpdates } = vi.hoisted(() => ({ checkForUpdates: vi.fn(async () => {}) }))
+vi.mock('@/components/studio/app-update-provider', () => ({ useAppUpdate: () => ({ checking: false, checkForUpdates }) }))
 vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/components/studio/shell/window-titlebar-controls')>()),
     WindowTitlebarControls: () => null,
@@ -82,11 +85,14 @@ function mockContexts({
         getNameError: () => null,
         createFile: vi.fn(async () => {}),
         createFolder: vi.fn(async () => {}),
+        folderToggles: new Map(),
+        setFoldersExpanded: vi.fn(),
     } as unknown as ReturnType<typeof useWorkspaceSession>)
     vi.mocked(useActiveTabId).mockReturnValue(activeTabId)
     vi.mocked(useWorkspaceCoordinator).mockReturnValue({ reloadChangedTabs: { current: vi.fn(async () => {}) } } as unknown as ReturnType<
         typeof useWorkspaceCoordinator
     >)
+    vi.mocked(useActiveTabId).mockReturnValue(activeTabId)
     vi.mocked(useDocumentTabs).mockReturnValue({
         tabs: activeTabId ? [{ id: activeTabId, path: activeTabId, name: 'a.md', content: '', isDirty: dirty }] : [],
         activeTabId,
@@ -97,9 +103,10 @@ function mockContexts({
         closeAllTabs: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
-        layout: { explorerOpen: true, editorOpen: true, outlineOpen },
+        layout: { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen },
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setPreviewOpen: vi.fn(),
         setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
     } as unknown as ReturnType<typeof useStudioLayout>)
@@ -161,6 +168,7 @@ const menuLabels = (menu: HTMLElement) => menuItems(menu).map((item) => item.tex
 
 beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(isTauri).mockReturnValue(false)
     mockContexts()
     paletteRows = []
 })
@@ -237,6 +245,20 @@ describe('StudioMenuBar', () => {
         const menu = await openMenu('Help')
         expect(within(menu).getByRole('menuitem', { name: 'About Scrivon…' })).toBeInTheDocument()
         expect(within(menu).getByRole('menuitem', { name: 'Licences…' })).toBeInTheDocument()
+        // The browser build has no updates to check for.
+        expect(menuLabels(menu)).toEqual(['About Scrivon…', 'Licences…'])
+        expect(menu.querySelector('[role="separator"]')).toBeNull()
+    })
+
+    it('checks for updates from the Help menu of the desktop app', async () => {
+        vi.mocked(isTauri).mockReturnValue(true)
+        render(<Studio />)
+
+        const menu = await openMenu('Help')
+        expect(menuLabels(menu)).toEqual(['Check for Updates…', 'About Scrivon…', 'Licences…'])
+        await userEvent.setup().click(within(menu).getByRole('menuitem', { name: 'Check for Updates…' }))
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1)
     })
 
     it("shows each item's keyboard shortcut", async () => {
@@ -460,7 +482,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(29)
+        expect(compared).toBe(30)
     })
 })
 
@@ -490,6 +512,17 @@ describe('StudioMenuBar View menu', () => {
         await userEvent.setup().click(within(await openMenu('View')).getByRole('menuitemcheckbox', { name: /^Explorer/ }))
 
         expect(vi.mocked(useStudioLayout)().setExplorerOpen).toHaveBeenCalledWith(false)
+    })
+
+    it('hides the preview from its tick box', async () => {
+        mockContexts({ workspaceRoot: 'C:/work' })
+        render(<Studio />)
+
+        const preview = within(await openMenu('View')).getByRole('menuitemcheckbox', { name: 'Preview Ctrl+Alt+P' })
+        expect(preview).toHaveAttribute('aria-checked', 'true')
+        await userEvent.setup().click(preview)
+
+        expect(vi.mocked(useStudioLayout)().setPreviewOpen).toHaveBeenCalledWith(false)
     })
 
     it('shows and hides the Outline panel', async () => {
