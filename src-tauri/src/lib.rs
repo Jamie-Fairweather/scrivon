@@ -10,6 +10,7 @@ mod system_fonts;
 mod system_menu;
 mod updater;
 mod workspace_access;
+mod workspace_image;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -298,6 +299,7 @@ pub fn run() {
             updater::check_for_app_update,
             updater::install_app_update,
             updater::take_update_attempt,
+            workspace_image::read_workspace_image,
         ])
         .run(context);
     if let Err(err) = result {

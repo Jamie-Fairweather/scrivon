@@ -18,13 +18,15 @@ import {
     rehypeFencedBlockOrdinals,
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
-import { markdownUrlTransform } from '@/components/studio/markdown/markdown-links'
+import { decode, markdownUrlTransform, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
 import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { blockDirection } from '@/lib/markdown/text-direction'
 import { isWebImageUrl } from '@/lib/markdown/web-images'
+import { resolveDocumentImage } from '@/lib/workspace/workspace-images'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +40,10 @@ type MarkdownPreviewProps = {
     loadRemoteImages: boolean
     /** Called when a blocked web image appears; the function it returns is called when that image goes away. */
     onRemoteImageBlocked: () => () => void
+    /** The document's file, which its images are found from; null when it isn't on disk. */
+    documentPath?: string | null
+    /** The open folder. Only images inside it are read. */
+    workspaceRoot?: string | null
     className?: string
 }
 
@@ -127,15 +133,10 @@ function imageHeightLength(height: unknown): string | undefined {
     return /^\d+(\.\d+)?%$/.test(value) ? value : undefined
 }
 
-/**
- * A document's image. It reads the web-image choice from context rather than props, so the preview's components
- * stay the same when the choice changes, and diagrams and code blocks aren't rebuilt.
- */
-function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
-    const { load, onBlocked } = useContext(RemoteImagesContext)
-    const { src, alt, ...rest } = withoutNode(props)
-    const remote = isRemoteImage(src)
-    if (remote && !load) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onBlocked} />
+type ImageElementProps = ComponentProps<'img'> & { remote?: boolean }
+
+/** The `<img>` itself, with the document's own size and attributes. */
+function ImageElement({ src, alt, remote = false, ...rest }: ImageElementProps) {
     // Tailwind's base styles give every image `height: auto`, which beats an HTML height attribute, so a logo sized
     // only by its height would show at full size. Only an inline style outranks it; the width then follows the
     // picture's shape. (The sanitizer drops a document's own style attributes.)
@@ -153,6 +154,72 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
             className={cn('inline-block h-auto max-w-full align-middle', height && 'object-contain', rest.className)}
         />
     )
+}
+
+type MissingImageProps = {
+    src: string
+    alt?: string
+    reason: string
+    /** The file it was looked for at, when there is one. */
+    path?: string
+}
+
+/** Stands in for an image that can't be shown, naming its path and saying why. */
+function MissingImage({ src, alt, reason, path }: MissingImageProps) {
+    // As the document wrote it: the Markdown parser percent-encodes spaces, `\` and accents.
+    const address = decode(src).trim()
+    const ownAlt = alt?.trim()
+    const label = address || ownAlt || 'Image'
+    // The writer's alt text is said too, so a screen reader hears what the picture was meant to show.
+    const spoken = ownAlt && address ? `${ownAlt} (${address})` : label
+    return (
+        <span
+            role="img"
+            // As for a blocked web image: English when only Scrivon's words and the path are said, otherwise the
+            // document's language for its alt text.
+            lang={ownAlt ? undefined : 'en'}
+            aria-label={`Image not shown: ${spoken}. ${reason}`}
+            title={path ? `${path}\n${reason}` : reason}
+            className="inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-md border border-dashed border-border px-1.5 py-0.5 align-middle
+                text-xs text-muted-foreground"
+        >
+            <ImageOff className="size-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 truncate font-medium">{label}</span>
+            <span lang="en">{reason}</span>
+        </span>
+    )
+}
+
+type FolderImageProps = Omit<ImageElementProps, 'src'> & { src: string; path: string; workspaceRoot: string }
+
+/** An image file inside the open folder, read through the app. */
+function FolderImage({ src, path, workspaceRoot, ...rest }: FolderImageProps) {
+    const image = useWorkspaceImage(path, workspaceRoot)
+    if (image.status === 'failed') return <MissingImage src={src} alt={rest.alt} reason={image.reason} path={path} />
+    return <ImageElement {...rest} src={image.status === 'loaded' ? image.url : undefined} />
+}
+
+/** Where the document is, so its images can be found from it. */
+const DocumentFolderContext = createContext<MarkdownLinkContext>({ documentPath: null, workspaceRoot: null })
+
+/**
+ * A document's image. It reads the web-image choice and the document's folder from context rather than props, so
+ * the preview's components stay the same when they change, and diagrams and code blocks aren't rebuilt.
+ */
+function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
+    const { load, onBlocked } = useContext(RemoteImagesContext)
+    const folder = useContext(DocumentFolderContext)
+    const { src, alt, ...rest } = withoutNode(props)
+    const remote = isRemoteImage(src)
+    if (remote && !load) return <BlockedRemoteImage src={src} alt={alt} onBlocked={onBlocked} />
+    if (remote) return <ImageElement {...rest} src={src} alt={alt} remote />
+
+    // The sanitizer drops an unsafe address (`javascript:`), so the image has none.
+    const address = typeof src === 'string' ? src : ''
+    const source = resolveDocumentImage(address, folder)
+    if (source.kind === 'blocked') return <MissingImage src={address} alt={alt} reason={source.reason} />
+    if (source.kind === 'url') return <ImageElement {...rest} src={address} alt={alt} />
+    return <FolderImage {...rest} src={address} alt={alt} path={source.path} workspaceRoot={folder.workspaceRoot!} />
 }
 
 /** A diagram's block id: its tab, and the lasting id rehypeMermaidBlockIds gave it, which moves with the block. */
@@ -302,6 +369,8 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     onLinkClick,
     loadRemoteImages,
     onRemoteImageBlocked,
+    documentPath = null,
+    workspaceRoot = null,
     className,
 }: MarkdownPreviewProps) {
     const components = useMemo((): Components => {
@@ -384,12 +453,15 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     )
 
     const remoteImages = useMemo(() => ({ load: loadRemoteImages, onBlocked: onRemoteImageBlocked }), [loadRemoteImages, onRemoteImageBlocked])
+    const folder = useMemo(() => ({ documentPath, workspaceRoot }), [documentPath, workspaceRoot])
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
             <article lang={lang} className="w-full max-w-3xl min-w-0 break-words">
-                <RemoteImagesContext.Provider value={remoteImages}>{markdown}</RemoteImagesContext.Provider>
+                <RemoteImagesContext.Provider value={remoteImages}>
+                    <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
+                </RemoteImagesContext.Provider>
             </article>
         </div>
     )

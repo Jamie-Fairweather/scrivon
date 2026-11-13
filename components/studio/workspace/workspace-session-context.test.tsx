@@ -41,6 +41,7 @@ import {
     setFolderToggles,
 } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
+import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
@@ -66,6 +67,8 @@ vi.mock('@/lib/tauri/store', () => ({
     getFolderToggles: vi.fn(async () => []),
     setFolderToggles: vi.fn(async () => undefined),
 }))
+
+vi.mock('@/lib/workspace/workspace-images', () => ({ forgetWorkspaceImages: vi.fn() }))
 
 vi.mock('@/lib/tauri/backups', () => ({
     saveUnsavedBackup: vi.fn(async () => undefined),
@@ -1534,6 +1537,59 @@ describe('changes made outside Scrivon', () => {
 
             await waitFor(() => expect(result.current.tabs.tabs[0]).toMatchObject({ content: 'saved by another editor', isDirty: false }))
             expect(readDir).toHaveBeenCalledTimes(readsBefore + 1)
+        })
+
+        it('tells the preview which images another app changed, so it shows them again (F02)', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+
+            await act(async () => {
+                report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\img\\chart.png'], attrs: null })
+            })
+
+            await waitFor(() => expect(forgetWorkspaceImages).toHaveBeenCalledWith(expect.arrayContaining(['C:\\ws\\img\\chart.png'])))
+            // Coming back to the window doesn't read them all again while the watcher is on.
+            vi.mocked(forgetWorkspaceImages).mockClear()
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+            expect(forgetWorkspaceImages).not.toHaveBeenCalled()
+        })
+
+        it('reads a folder’s images again when it is opened again, as nothing watched them while it was closed (F02)', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            await act(async () => {
+                await result.current.session.closeWorkspace()
+            })
+            expect(unwatch).toHaveBeenCalled()
+            vi.mocked(forgetWorkspaceImages).mockClear()
+
+            await openWatched(result)
+
+            expect(forgetWorkspaceImages).toHaveBeenCalledWith(['C:\\ws'])
+        })
+
+        it('shows images again on focus where the folder cannot be watched, at most every few seconds (F02)', async () => {
+            vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\ws')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            vi.mocked(forgetWorkspaceImages).mockClear()
+
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+            expect(forgetWorkspaceImages).toHaveBeenCalledExactlyOnceWith(['C:\\ws'])
+
+            // Back again straight away (alt-tab, or a dialog closing): a network drive isn't asked for every image again.
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            })
+            expect(forgetWorkspaceImages).toHaveBeenCalledOnce()
         })
 
         it('still reads the folder on focus where it cannot be watched', async () => {
