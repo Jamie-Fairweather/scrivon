@@ -70,6 +70,9 @@ function mockContexts({
         openWorkspace: vi.fn(),
         closeWorkspace: vi.fn(),
         refreshTree: vi.fn(async () => {}),
+        tree: [],
+        folderToggles: new Map(),
+        setFoldersExpanded: vi.fn(),
     } as unknown as ReturnType<typeof useWorkspaceSession>)
     vi.mocked(useWorkspaceCoordinator).mockReturnValue({ reloadChangedTabs: { current: vi.fn(async () => {}) } } as unknown as ReturnType<
         typeof useWorkspaceCoordinator

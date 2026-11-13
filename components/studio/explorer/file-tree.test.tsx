@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { Profiler } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { requestRevealActiveFile } from '@/components/studio/explorer/explorer-view'
 import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
@@ -14,6 +15,12 @@ const { tabs, tabContent, folders, session, confirmDelete, promptName } = vi.hoi
     session: {
         setFolderExpanded: vi.fn((path: string, expanded: boolean) => {
             folders.toggles = new Map(folders.toggles).set(path, expanded)
+            folders.listeners.forEach((l) => l())
+        }),
+        setFoldersExpanded: vi.fn((paths: readonly string[], expanded: boolean) => {
+            const next = new Map(folders.toggles)
+            for (const path of paths) next.set(path, expanded)
+            folders.toggles = next
             folders.listeners.forEach((l) => l())
         }),
         openFile: vi.fn(async () => undefined),
@@ -350,5 +357,108 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         expect(item('flow.mmd')).not.toContainElement(screen.getByLabelText('Actions for flow.mmd'))
+    })
+})
+
+describe('FileTree shows the open file', () => {
+    let scrollIntoView: Mock
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        tabs.activeTabId = null
+        folders.toggles = new Map()
+        // The test page lays nothing out, so it has no scrollIntoView of its own.
+        scrollIntoView = vi.fn()
+        Element.prototype.scrollIntoView = scrollIntoView
+    })
+
+    afterEach(() => {
+        Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    })
+
+    it('opens the folders that hold the open file, then scrolls to it and marks it', () => {
+        folders.toggles = new Map([['/ws/docs', false]])
+        tabs.activeTabId = '/ws/docs/notes.md'
+        render(<FileTree tree={tree} />)
+
+        expect(session.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs'], true)
+        expect(item('notes.md')).toHaveAttribute('aria-selected', 'true')
+        expect(scrollIntoView.mock.contexts).toEqual([item('notes.md')])
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    })
+
+    it('scrolls to each file as it is opened, without moving focus', () => {
+        const { rerender } = render(<FileTree tree={tree} />)
+        expect(scrollIntoView).not.toHaveBeenCalled()
+
+        tabs.activeTabId = '/ws/flow.mmd'
+        rerender(<FileTree tree={tree} />)
+
+        expect(scrollIntoView.mock.contexts).toEqual([item('flow.mmd')])
+        expect(item('flow.mmd')).not.toHaveFocus()
+    })
+
+    it('leaves a folder the user closes closed, also when the folder is read again', () => {
+        tabs.activeTabId = '/ws/docs/notes.md'
+        const { rerender } = render(<FileTree tree={tree} />)
+
+        press('docs', 'ArrowLeft')
+        rerender(<FileTree tree={[...tree]} />)
+
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
+        expect(session.setFoldersExpanded).not.toHaveBeenCalled()
+    })
+
+    it('shows a new file once the tree has it', () => {
+        tabs.activeTabId = '/ws/drafts/2026/nov/idea.md'
+        const { rerender } = render(<FileTree tree={tree} />)
+        expect(scrollIntoView).not.toHaveBeenCalled()
+
+        const drafts: FileNode = {
+            kind: 'directory',
+            name: 'drafts',
+            path: '/ws/drafts',
+            children: [
+                {
+                    kind: 'directory',
+                    name: '2026',
+                    path: '/ws/drafts/2026',
+                    children: [
+                        {
+                            kind: 'directory',
+                            name: 'nov',
+                            path: '/ws/drafts/2026/nov',
+                            children: [{ kind: 'file', name: 'idea.md', path: '/ws/drafts/2026/nov/idea.md' }],
+                        },
+                    ],
+                },
+            ],
+        }
+        rerender(<FileTree tree={[...tree, drafts]} />)
+
+        // Third-level folders start closed.
+        expect(session.setFoldersExpanded).toHaveBeenCalledWith(['/ws/drafts/2026/nov'], true)
+        expect(scrollIntoView.mock.contexts).toEqual([item('idea.md')])
+    })
+
+    it('shows the open file again when asked, after its folder was closed', () => {
+        tabs.activeTabId = '/ws/docs/notes.md'
+        render(<FileTree tree={tree} />)
+        press('docs', 'ArrowLeft')
+        scrollIntoView.mockClear()
+
+        act(() => requestRevealActiveFile())
+
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'true')
+        expect(scrollIntoView.mock.contexts).toEqual([item('notes.md')])
+    })
+
+    it('does nothing for a tab that is not a file in the folder', () => {
+        tabs.activeTabId = 'example:flowchart'
+        render(<FileTree tree={tree} />)
+        act(() => requestRevealActiveFile())
+
+        expect(session.setFoldersExpanded).not.toHaveBeenCalled()
+        expect(scrollIntoView).not.toHaveBeenCalled()
     })
 })

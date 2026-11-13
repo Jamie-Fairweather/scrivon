@@ -1,15 +1,14 @@
 'use client'
 
 import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useRevealActiveFileRequests } from '@/components/studio/explorer/explorer-view'
 import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
 import { TreeEntryActionsProvider, useFileTreeEntryActions, type FileTreeEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useActiveTabId, useDocumentTabActions, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { isSupportedDocument, normalizePath } from '@/lib/tauri/fs'
+import { isSupportedDocument, samePath } from '@/lib/tauri/fs'
 import { focusTargetAfterChange, treeKeyAction, typeAheadMatch, visibleTreeRows } from '@/lib/workspace/flatten-file-tree'
+import { closedFoldersAbove, isFolderOpen } from '@/lib/workspace/folder-toggles'
 import type { FileNode } from '@/lib/workspace/types'
-
-/** Folders in the first two levels start open. */
-const openByDefault = (level: number) => level <= 2
 
 /** A pause this long (ms) between letters starts a new type-ahead search. */
 const TYPE_AHEAD_PAUSE_MS = 500
@@ -46,17 +45,44 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
     const { openFile } = useDocumentTabActions()
     const entryActions = useFileTreeEntryActions()
     const treeRef = useRef<HTMLDivElement>(null)
-    // Folders the user opened or closed; the rest follow openByDefault. Kept by the session (by normalised path), so
-    // they survive hiding the explorer, switching to Examples, a rename and reopening the folder. setExpanded never
-    // changes, so the memoized rows stay put.
-    const { folderToggles: toggled, setFolderExpanded: setExpanded } = useWorkspaceSession()
+    // Folders the user opened or closed; the rest follow isFolderOpen's default. Kept by the session (by normalised
+    // path), so they survive hiding the explorer, switching to Examples, a rename and reopening the folder.
+    // setExpanded never changes, so the memoized rows stay put.
+    const { folderToggles: toggled, setFolderExpanded: setExpanded, setFoldersExpanded } = useWorkspaceSession()
     const [focusedPath, setFocusedPath] = useState<string | null>(null)
 
-    const rows = useMemo(() => visibleTreeRows(tree, (path, level) => toggled.get(normalizePath(path)) ?? openByDefault(level)), [tree, toggled])
+    const rows = useMemo(() => visibleTreeRows(tree, (path, level) => isFolderOpen(toggled, path, level)), [tree, toggled])
     const rowsRef = useRef(rows)
     useLayoutEffect(() => {
         rowsRef.current = rows
     }, [rows])
+
+    // The open file to show: its folders open and its row scrolled into view. Asked for when the tree first shows,
+    // when another file is opened and from Reveal Active File; done once the tree has the file (a new one can come
+    // later). Only then, so a folder the user closes stays closed.
+    const revealRequests = useRevealActiveFileRequests()
+    const revealRef = useRef<{ path: string; opened: boolean } | null>(null)
+    useLayoutEffect(() => {
+        revealRef.current = activeTabId ? { path: activeTabId, opened: false } : null
+    }, [activeTabId, revealRequests])
+
+    useLayoutEffect(() => {
+        const reveal = revealRef.current
+        if (!reveal) return
+        const closed = closedFoldersAbove(tree, toggled, reveal.path)
+        if (closed === null) return
+        if (closed.length > 0 && !reveal.opened) {
+            // This runs again once the session has opened them, and the row is there to scroll to.
+            reveal.opened = true
+            setFoldersExpanded(closed, true)
+            return
+        }
+        revealRef.current = null
+        const items = treeRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []
+        const row = [...items].find((item) => item.dataset.path !== undefined && samePath(item.dataset.path, reveal.path))
+        // Not focused: the user is still typing in the editor, or choosing in the palette.
+        row?.scrollIntoView?.({ block: 'nearest' })
+    }, [tree, toggled, activeTabId, revealRequests, setFoldersExpanded])
 
     // Tab lands on the row last focused, else the open file, else the first row.
     const tabStopPath =

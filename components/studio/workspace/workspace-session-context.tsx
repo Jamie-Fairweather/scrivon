@@ -80,6 +80,8 @@ type WorkspaceSessionContextValue = {
     folderToggles: ReadonlyMap<string, boolean>
     /** Opens or closes a folder in the file tree, and remembers the choice. Stays the same function throughout. */
     setFolderExpanded: (path: string, expanded: boolean) => void
+    /** Opens or closes several folders at once, saved once. Stays the same function throughout. */
+    setFoldersExpanded: (paths: readonly string[], expanded: boolean) => void
     recentWorkspaces: string[]
     pickAndOpenWorkspace: () => Promise<void>
     openWorkspace: (path: string) => Promise<void>
@@ -225,19 +227,25 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         if (root) void setFolderToggles(root, next).catch((err: unknown) => console.warn("Couldn't remember which folders are open", err))
     }, [])
 
-    const setFolderExpanded = useCallback(
-        (path: string, expanded: boolean) => {
-            const key = normalizePath(path)
+    const setFoldersExpanded = useCallback(
+        (paths: readonly string[], expanded: boolean) => {
             updateFolderToggles(workspaceRootRef.current, (prev) => {
-                if (prev.get(key) === expanded) return prev
-                const next = new Map(prev)
-                // The latest choice goes last, so the newest are the ones kept if the list is ever cut.
-                next.delete(key)
-                return next.set(key, expanded)
+                let next: Map<string, boolean> | null = null
+                for (const path of paths) {
+                    const key = normalizePath(path)
+                    if ((next ?? prev).get(key) === expanded) continue
+                    next ??= new Map(prev)
+                    // The latest choice goes last, so the newest are the ones kept if the list is ever cut.
+                    next.delete(key)
+                    next.set(key, expanded)
+                }
+                return next ?? prev
             })
         },
         [updateFolderToggles]
     )
+
+    const setFolderExpanded = useCallback((path: string, expanded: boolean) => setFoldersExpanded([path], expanded), [setFoldersExpanded])
 
     useEffect(() => {
         void getRecentWorkspaces()
@@ -1080,6 +1088,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             tree,
             folderToggles,
             setFolderExpanded,
+            setFoldersExpanded,
             recentWorkspaces: visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,
@@ -1104,6 +1113,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             tree,
             folderToggles,
             setFolderExpanded,
+            setFoldersExpanded,
             visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,

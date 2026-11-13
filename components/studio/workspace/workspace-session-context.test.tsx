@@ -2751,6 +2751,26 @@ describe('folders opened and closed in the file tree', () => {
         expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({ 'C:\\ws\\manual': true, 'C:\\ws\\manual\\deep': false })
     })
 
+    it('opens or closes several folders at once, and remembers them with one save', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\notes', false))
+        vi.mocked(setFolderToggles).mockClear()
+
+        act(() => result.current.session.setFoldersExpanded(['C:/ws/docs', 'C:\\ws\\docs\\deep', 'C:\\ws\\notes'], true))
+
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({
+            'C:\\ws\\docs': true,
+            'C:\\ws\\docs\\deep': true,
+            'C:\\ws\\notes': true,
+        })
+        expect(setFolderToggles).toHaveBeenCalledTimes(1)
+
+        // Nothing to change: nothing saved.
+        act(() => result.current.session.setFoldersExpanded(['C:\\ws\\docs', 'C:\\ws\\notes'], true))
+        expect(setFolderToggles).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the same function to call, so tree rows that use it are not drawn again', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         const first = result.current.session.setFolderExpanded
