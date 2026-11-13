@@ -48,6 +48,8 @@ describe('keybind registry', () => {
         expect(tabActions.map((action) => action.label)).toEqual(['Close tab', 'Next tab', 'Previous tab', 'Reopen closed tab'])
         // Tabs only show while a folder is open.
         expect(tabActions.every((action) => action.when === 'workspace')).toBe(true)
+        // Holding the keys keeps moving through the tabs; nothing else repeats, so Ctrl+W closes one tab at a time.
+        expect(KEYBIND_ACTIONS.filter((action) => action.allowRepeat).map((action) => action.id)).toEqual(['tabs.next', 'tabs.previous'])
     })
 
     it('gives no two actions the same default shortcut', () => {

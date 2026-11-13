@@ -60,7 +60,7 @@ export type MatchKeybindOptions = {
 
 export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
     // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
-    if (event.repeat || isModifierKey(event.key)) return null
+    if (isModifierKey(event.key)) return null
     // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
     if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return null
 
@@ -78,7 +78,8 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
 
         for (const chord of chords) {
             if (pressed.some((candidate) => chordsEqual(candidate, chord))) {
-                return actionId
+                // Holding the keys down fires only the shortcuts that are meant to repeat.
+                return event.repeat && !meta.allowRepeat ? null : actionId
             }
         }
     }

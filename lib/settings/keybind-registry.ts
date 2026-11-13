@@ -9,6 +9,8 @@ export type KeybindActionMeta = {
     allowInNativeTextField?: boolean
     /** When true, shortcut still fires while the command palette is open, to switch what it shows. */
     allowInPalette?: boolean
+    /** When true, holding the keys down fires the shortcut again and again (e.g. moving through tabs). */
+    allowRepeat?: boolean
 }
 
 /**
@@ -23,8 +25,8 @@ const KEYBIND_ACTION_META = {
     'palette.openText': { label: 'Find in workspace', category: 'Navigation', when: 'global', allowInPalette: true },
     'palette.openFiles': { label: 'Go to file', category: 'Navigation', when: 'global', allowInPalette: true },
     'tabs.close': { label: 'Close tab', category: 'Tabs', when: 'workspace' },
-    'tabs.next': { label: 'Next tab', category: 'Tabs', when: 'workspace' },
-    'tabs.previous': { label: 'Previous tab', category: 'Tabs', when: 'workspace' },
+    'tabs.next': { label: 'Next tab', category: 'Tabs', when: 'workspace', allowRepeat: true },
+    'tabs.previous': { label: 'Previous tab', category: 'Tabs', when: 'workspace', allowRepeat: true },
     'tabs.reopenClosed': { label: 'Reopen closed tab', category: 'Tabs', when: 'workspace' },
     'view.toggleExplorer': { label: 'Toggle explorer', category: 'View', when: 'workspace' },
     'view.toggleEditor': { label: 'Toggle editor', category: 'View', when: 'workspace' },

@@ -167,6 +167,43 @@ describe('EditorTabBar', () => {
         expect(screen.getByRole('textbox', { name: 'editor' })).toHaveFocus()
     })
 
+    it('keeps the keyboard in the strip when the focused tab is closed', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md')]
+        activeTabId = '/w/b.md'
+        const { rerender } = render(<EditorTabBar />)
+        screen.getByRole('tab', { name: 'b.md' }).focus()
+
+        // Ctrl+W or Delete closed it: its button goes, and the next tab is shown.
+        tabs = [tab('/w/a.md'), tab('/w/c.md')]
+        activeTabId = '/w/c.md'
+        rerender(<EditorTabBar />)
+
+        expect(screen.getByRole('tab', { name: 'c.md' })).toHaveFocus()
+    })
+
+    it('does not pull the keyboard back to the strip once it has gone elsewhere', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const view = (
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+        const { rerender } = render(view)
+        screen.getByRole('tab', { name: 'a.md' }).focus()
+        const editor = screen.getByRole('textbox', { name: 'editor' })
+        editor.focus()
+        editor.blur()
+        expect(document.body).toHaveFocus()
+
+        tabs = [tab('/w/b.md')]
+        activeTabId = '/w/b.md'
+        rerender(view)
+
+        expect(document.body).toHaveFocus()
+    })
+
     it('moves between tabs with the arrow, Home and End keys', () => {
         tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md')]
         activeTabId = '/w/a.md'

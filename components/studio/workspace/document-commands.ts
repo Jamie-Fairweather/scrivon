@@ -7,6 +7,7 @@ import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-examp
 import { useDocumentSave, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { exampleIdFromTabId, isExampleTabId } from '@/lib/examples/example-tab'
+import { anySavedTabs, anyTabsToRight } from '@/lib/workspace/document-tab'
 
 export type DocumentCommandsContext = {
     hasWorkspace: boolean
@@ -207,9 +208,8 @@ export function useDocumentCommands(): void {
     const hasWorkspace = Boolean(workspaceRoot)
     const tabCount = tabs.length
     const hasDirtyTabs = tabs.some((t) => t.isDirty && !isExampleTabId(t.id))
-    const hasSavedTabs = tabs.some((t) => !t.isDirty)
-    const activeIndex = tabs.findIndex((t) => t.id === activeTabId)
-    const hasTabsToRight = activeIndex !== -1 && activeIndex < tabs.length - 1
+    const hasSavedTabs = anySavedTabs(tabs)
+    const hasTabsToRight = anyTabsToRight(tabs, activeTabId)
 
     const commands = useMemo(
         () =>

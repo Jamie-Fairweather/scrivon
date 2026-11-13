@@ -7,6 +7,7 @@ import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
 import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-example-copy'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { exampleIdFromTabId } from '@/lib/examples/example-tab'
+import { anySavedTabs, anyTabsToRight } from '@/lib/workspace/document-tab'
 
 /** Its own component, so only an example tab's menu reads the folder it saves into. */
 function SaveExampleCopyItem({ exampleId }: { exampleId: string }) {
@@ -29,10 +30,9 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
     )
 
     const canCloseOthers = tabs.length > 1
-    const index = tabs.findIndex((t) => t.id === tabId)
-    const tab = tabs[index]
-    const hasTabsToRight = index !== -1 && index < tabs.length - 1
-    const hasSavedTabs = tabs.some((t) => !t.isDirty)
+    const tab = tabs.find((t) => t.id === tabId)
+    const hasTabsToRight = anyTabsToRight(tabs, tabId)
+    const hasSavedTabs = anySavedTabs(tabs)
     const exampleId = exampleIdFromTabId(tabId)
 
     return (
