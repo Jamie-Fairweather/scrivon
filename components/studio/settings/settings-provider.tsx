@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isSettingsSection } from '@/components/studio/settings/settings-nav'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
@@ -22,6 +23,27 @@ export type KeybindRefusal = {
 }
 
 export type SettingsSection = 'general' | 'appearance' | 'editor' | 'pdf-export' | 'keyboard' | 'advanced'
+
+/** Where the section Settings last showed is kept, so it opens there again after a restart. Not a setting, so not reset or exported. */
+export const SETTINGS_SECTION_STORAGE_KEY = 'scrivon-settings-section'
+
+function loadLastSection(): SettingsSection {
+    try {
+        const saved = localStorage.getItem(SETTINGS_SECTION_STORAGE_KEY)
+        if (saved && isSettingsSection(saved)) return saved
+    } catch {
+        // storage blocked
+    }
+    return 'general'
+}
+
+function saveLastSection(section: SettingsSection): void {
+    try {
+        localStorage.setItem(SETTINGS_SECTION_STORAGE_KEY, section)
+    } catch {
+        // storage blocked or full; it only matters until the app closes
+    }
+}
 
 type AppSettingsContextValue = {
     settings: AppSettings
@@ -92,7 +114,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const [loaded] = useState(loadSettingsWithRecovery)
     const [settings, setSettingsState] = useState<AppSettings>(() => withStartupLayout(loaded.settings))
     const [settingsOpen, setSettingsOpen] = useState(false)
-    const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+    const [activeSection, setActiveSectionState] = useState<SettingsSection>(loadLastSection)
     // Latest settings, updated straight away so back-to-back updates build on each other.
     // React may defer a state updater until render, so the next value is never read out of one.
     const settingsRef = useRef(settings)
@@ -165,11 +187,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         void adoptExportImages(loaded.settings.pdfExport)
     }, [loaded])
 
-    // Without a section, reopen on the one last used rather than jumping back to General.
-    const openSettings = useCallback((section?: SettingsSection) => {
-        if (section) setActiveSection(section)
-        setSettingsOpen(true)
+    const setActiveSection = useCallback((section: SettingsSection) => {
+        setActiveSectionState(section)
+        saveLastSection(section)
     }, [])
+
+    // Without a section, reopen on the one last used (even after a restart) rather than jumping back to General.
+    const openSettings = useCallback(
+        (section?: SettingsSection) => {
+            if (section) setActiveSection(section)
+            setSettingsOpen(true)
+        },
+        [setActiveSection]
+    )
 
     // Changes made in Settings are written as it closes, not a moment later.
     const closeSettings = useCallback(() => {
@@ -361,6 +391,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             settings,
             settingsOpen,
             activeSection,
+            setActiveSection,
             openSettings,
             closeSettings,
             updateSettings,
