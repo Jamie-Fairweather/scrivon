@@ -306,6 +306,9 @@ describe('confirmDeleteHiddenFolders', () => {
         await expect(confirmDeleteHiddenFolders('proj', ['.git', 'site\node_modules'])).resolves.toBe(true)
         const [body, options] = messageMock.mock.calls[0]!
         expect(body).toContain("proj also has .git and site\node_modules in it, which Scrivon doesn't show in the file list.")
+        // They go to the Recycle Bin with it, so it doesn't claim they are gone for good.
+        expect(body).toContain('Deleting proj moves them to the Recycle Bin too.')
+        expect(body).not.toContain("can't be undone")
         expect(options).toMatchObject({ title: 'Delete hidden folders too?', buttons: { yes: 'Keep Folder', no: 'Delete All', cancel: 'Cancel' } })
 
         // Enter on the first button, and Esc or closing it (which answers with the last), keep the folder.

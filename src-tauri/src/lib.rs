@@ -13,6 +13,7 @@ mod web_image;
 mod window_state;
 mod workspace_access;
 mod workspace_image;
+mod workspace_trash;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -311,6 +312,7 @@ pub fn run() {
             updater::take_update_attempt,
             web_image::fetch_export_image,
             workspace_image::read_workspace_image,
+            workspace_trash::trash_workspace_path,
         ])
         .run(context);
     if let Err(err) = result {
@@ -352,6 +354,12 @@ mod config_tests {
         assert!(!permissions.iter().any(|p| p == "fs:default"));
         // Its block on the WebView2 profile folder stays.
         assert!(permissions.iter().any(|p| p == "fs:deny-default"));
+    }
+
+    #[test]
+    fn the_webview_cannot_erase_files_only_move_them_to_the_recycle_bin() {
+        // Deletes go through workspace_trash, so a mistake can be undone (F01).
+        assert!(!permissions().iter().any(|p| p == "fs:allow-remove"));
     }
 
     #[test]

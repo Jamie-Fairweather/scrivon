@@ -701,6 +701,29 @@ describe('DocumentTabsProvider', () => {
         expect(cancelScheduledSave).toHaveBeenCalledWith('/ws/docs/readme.md')
     })
 
+    it('tells which tabs a delete would close, with their unsaved changes, before it happens', async () => {
+        const initial = {
+            tabs: [tab('/ws/docs/readme.md', 'readme.md'), tab('/ws/docs/guide/intro.md', 'intro.md'), tab('/ws/other.mmd', 'other.mmd')],
+            activeTabId: '/ws/docs/readme.md',
+        }
+        const coordinator = createWorkspaceCoordinatorRefs()
+        coordinator.getAutosaveEnabled.current = () => false
+        const { result } = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial, coordinator, workspaceRoot: '/ws' }),
+        })
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        act(() => result.current.updateTabContent('/ws/docs/guide/intro.md', 'edited'))
+
+        expect(coordinator.findTabsToCloseOnDelete.current('/ws/docs', true)).toEqual([
+            expect.objectContaining({ path: '/ws/docs/readme.md', isDirty: false }),
+            expect.objectContaining({ path: '/ws/docs/guide/intro.md', isDirty: true }),
+        ])
+        expect(coordinator.findTabsToCloseOnDelete.current('/ws/other.mmd', false)).toEqual([expect.objectContaining({ path: '/ws/other.mmd' })])
+        // Nothing closed yet.
+        expect(result.current.tabs).toHaveLength(3)
+    })
+
     it('cancels scheduled saves when autosave is disabled', async () => {
         const initial = {
             tabs: [tab('/ws/a.mmd', 'a.mmd'), tab('/ws/b.mmd', 'b.mmd')],

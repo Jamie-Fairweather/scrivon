@@ -1,8 +1,16 @@
 'use client'
 
-import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type MouseEvent } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 import type { Element } from 'hast'
-import { ImageOff } from 'lucide-react'
+import {
+    ImageOff,
+    Info,
+    Lightbulb,
+    MessageSquareExclamationPoint,
+    OctagonExclamationPoint,
+    TriangleExclamationPoint,
+    type LucideIcon,
+} from 'lucide-react'
 import type { Root } from 'mdast'
 import type { Components, ExtraProps } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
@@ -22,7 +30,9 @@ import { decode, markdownUrlTransform, type MarkdownLinkContext } from '@/compon
 import { markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
 import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
+import { htmlAlertKind, type GithubAlertKind } from '@/lib/markdown/github-alerts'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { mathRehypePlugins } from '@/lib/markdown/rehype-math'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { blockDirection } from '@/lib/markdown/text-direction'
 import { isWebImageUrl } from '@/lib/markdown/web-images'
@@ -156,6 +166,30 @@ function ImageElement({ src, alt, remote = false, ...rest }: ImageElementProps) 
     )
 }
 
+/** Each GitHub alert kind's bar, title colour and icon, as on GitHub. */
+const ALERT_STYLES: Record<GithubAlertKind, { border: string; title: string; Icon: LucideIcon }> = {
+    note: { border: 'border-blue-500', title: 'text-blue-600 dark:text-blue-400', Icon: Info },
+    tip: { border: 'border-green-600', title: 'text-green-700 dark:text-green-400', Icon: Lightbulb },
+    important: { border: 'border-violet-500', title: 'text-violet-600 dark:text-violet-400', Icon: MessageSquareExclamationPoint },
+    warning: { border: 'border-amber-500', title: 'text-amber-700 dark:text-amber-400', Icon: TriangleExclamationPoint },
+    caution: { border: 'border-red-500', title: 'text-red-600 dark:text-red-400', Icon: OctagonExclamationPoint },
+}
+
+/** The kind of alert being drawn, for its title's colour and icon. */
+const AlertKindContext = createContext<GithubAlertKind | null>(null)
+
+/** An alert's title: Scrivon's English word for its kind, with its icon. It follows the alert's direction. */
+function AlertTitle({ children }: { children?: ReactNode }) {
+    const kind = useContext(AlertKindContext)
+    const style = kind ? ALERT_STYLES[kind] : null
+    return (
+        <p lang="en" className={cn('mb-2 flex items-center gap-2 text-sm font-semibold', style?.title)}>
+            {style && <style.Icon className="size-4 shrink-0" aria-hidden />}
+            {children}
+        </p>
+    )
+}
+
 type MissingImageProps = {
     src: string
     alt?: string
@@ -262,6 +296,7 @@ const staticMarkdownComponents: Components = {
     },
     p: (props) => {
         const { className, ...rest } = withoutNode(props)
+        if (hasClass(className, 'markdown-alert-title')) return <AlertTitle>{rest.children}</AlertTitle>
         return <p dir="auto" {...rest} className={cn('mb-3 text-sm leading-relaxed text-foreground/90', className)} />
     },
     ul: (props) => {
@@ -296,14 +331,31 @@ const staticMarkdownComponents: Components = {
             />
         )
     },
+    // A paragraph or list sets its own colour, which would win over the quote's grey, so in a quote they take the quote's.
     blockquote: (props) => {
         const { className, ...rest } = withoutNode(props)
         return (
             <blockquote
                 dir={props.node ? blockDirection(props.node) : 'auto'}
                 {...rest}
-                className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic', className)}
+                className={cn('mb-3 border-s-2 border-border ps-4 text-sm text-muted-foreground italic [&_:is(p,ul,ol,td)]:text-inherit', className)}
             />
+        )
+    },
+    // A GitHub alert (remarkGithubAlerts) is a note in its kind's colour. Any other <div> is as the HTML wrote it.
+    div: (props) => {
+        const { className, ...rest } = withoutNode(props)
+        const kind = props.node ? htmlAlertKind(props.node) : undefined
+        if (!kind) return <div {...rest} className={className} />
+        return (
+            <AlertKindContext.Provider value={kind}>
+                <div
+                    role="note"
+                    dir={blockDirection(props.node!)}
+                    {...rest}
+                    className={cn('mb-3 border-s-4 py-1 ps-4 text-sm [&>:last-child]:mb-0', ALERT_STYLES[kind].border, className)}
+                />
+            </AlertKindContext.Provider>
         )
     },
     hr: () => <hr className="my-6 border-border" />,
@@ -428,10 +480,11 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     const body = useMemo(() => markdownPreviewBody(source), [source])
     // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
     const lang = useMemo(() => markdownPreviewLang(source), [source])
-    // Safe raw HTML first, then the numbering, so the sanitizer can't strip the blocks' data properties. Per
-    // document, so each block's id is matched against the blocks this document showed last time.
+    // Safe raw HTML first, then math (which the sanitizer would strip), then the numbering, so the sanitizer can't
+    // strip the blocks' data properties. Per document, so each block's id is matched against the blocks this document
+    // showed last time.
     const rehypePlugins = useMemo(
-        (): PluggableList => [...previewHtmlPlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')],
+        (): PluggableList => [...previewHtmlPlugins, ...mathRehypePlugins, rehypeFencedBlockOrdinals, rehypeMermaidBlockIds(tabId ?? '')],
         [tabId]
     )
 
@@ -457,8 +510,9 @@ export const MarkdownPreview = memo(function MarkdownPreview({
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
-            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. */}
-            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words">
+            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. Block math
+                isn't in a paragraph, so it gets the paragraphs' text size and space below here. */}
+            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm">
                 <RemoteImagesContext.Provider value={remoteImages}>
                     <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
                 </RemoteImagesContext.Provider>
