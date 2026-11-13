@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setEditorCursorLine } from '@/components/studio/editor/editor-cursor'
+import { trackEditorCursor, type CursorSource } from '@/components/studio/editor/editor-cursor'
 import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { OutlinePanel } from './outline-panel'
@@ -27,6 +27,26 @@ function tab(name: string, content: string): DocumentTab {
 }
 
 const GUIDE = ['# Guide', '', '## Install', '', '### Windows', '', '## Use', ''].join('\n')
+
+let stopEditorCursor: (() => void) | undefined
+/** Puts the code editor's caret on a line, or takes the editor away (null), as the editor panel does. */
+function setEditorCursorLine(line: number | null) {
+    stopEditorCursor?.()
+    stopEditorCursor = undefined
+    if (line === null) return
+    const noEvents = () => ({ dispose() {} })
+    const model = { getLineContent: () => '', getOptions: () => ({ tabSize: 4 }), getValueInRange: () => '' }
+    stopEditorCursor = trackEditorCursor({
+        getModel: () => model,
+        getPosition: () => ({ lineNumber: line, column: 1 }),
+        getSelections: () => [],
+        onDidChangeCursorSelection: noEvents,
+        onDidChangeModel: noEvents,
+        onDidChangeModelContent: noEvents,
+        onDidChangeModelOptions: noEvents,
+        onDidDispose: noEvents,
+    } as unknown as CursorSource)
+}
 
 beforeEach(() => {
     // The test DOM has no workers, so the outline is read on the main thread, straight away.

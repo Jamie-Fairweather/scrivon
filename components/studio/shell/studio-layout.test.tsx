@@ -81,6 +81,8 @@ vi.mock('@/components/studio/editor/code-editor-panel', () => ({
     },
 }))
 
+vi.mock('@/components/studio/shell/studio-status-bar', () => ({ StudioStatusBar: () => <footer aria-label="Status bar" /> }))
+
 const { StudioLayout } = await import('./studio-layout')
 
 function tab(path: string): DocumentTab {
@@ -141,6 +143,16 @@ describe('StudioLayout Outline panel', () => {
     it('hides the Outline panel when it is switched off', () => {
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Outline' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout status bar', () => {
+    it('shows the status bar along the bottom, below the panes', () => {
+        render(<StudioLayout />)
+        const bar = screen.getByRole('contentinfo', { name: 'Status bar' })
+        const editor = document.querySelector('[data-slot="code-editor"]')!
+        expect(editor.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(bar.parentElement?.contains(screen.getByRole('navigation', { name: 'Explorer' }))).toBe(true)
     })
 })
 

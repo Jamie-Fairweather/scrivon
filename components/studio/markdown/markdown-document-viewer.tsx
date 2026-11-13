@@ -169,6 +169,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const { requestCanvasFit } = useCanvasFit()
     const { tabs, openFile } = useDocumentTabs()
     const { workspaceRoot, tree } = useWorkspaceSession()
+    const tab = tabs.find((t) => t.id === tabId)
+    /** The document's file, which its links and images are found from; an example has none. */
+    const documentPath = tab && !isExampleTabId(tab.id) ? tab.path : null
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const expandedKey = expanded?.canvasKey ?? null
     /** Kept by the provider, so they survive this viewer unmounting while a diagram tab is open. */
@@ -286,8 +289,6 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
         }
 
         linkHandlerRef.current = (href) => {
-            const tab = tabs.find((t) => t.id === tabId)
-            const documentPath = tab && !isExampleTabId(tab.id) ? tab.path : null
             const target = resolveMarkdownLink(href, { documentPath, workspaceRoot })
 
             switch (target.kind) {
@@ -470,6 +471,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                                 onLinkClick={onLinkClick}
                                 loadRemoteImages={loadRemoteImages}
                                 onRemoteImageBlocked={onRemoteImageBlocked}
+                                documentPath={documentPath}
+                                workspaceRoot={workspaceRoot}
                             />
                         </PaneErrorBoundary>
                     )}

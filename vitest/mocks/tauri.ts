@@ -103,6 +103,8 @@ vi.mock(
             getRecentWorkspaces: vi.fn(async () => []),
             addRecentWorkspace: vi.fn(async () => []),
             removeRecentWorkspace: vi.fn(async () => []),
+            getLastWorkspace: vi.fn(async () => null),
+            setLastWorkspace: vi.fn(async () => undefined),
             getLastOpenedFile: vi.fn(async () => null),
             setLastOpenedFile: vi.fn(async () => undefined),
             setWorkspaceTabSession: vi.fn(async () => undefined),

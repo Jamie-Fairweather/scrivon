@@ -120,10 +120,10 @@ function errorText(err: unknown): string {
 /** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
 const MAX_PARALLEL_READS = 8
 
-type Limit = <T>(task: () => Promise<T>) => Promise<T>
+export type Limit = <T>(task: () => Promise<T>) => Promise<T>
 
 /** Runs at most `max` tasks at a time; the rest wait their turn in order. */
-function createLimit(max: number): Limit {
+export function createLimit(max: number): Limit {
     let running = 0
     const waiting: Array<() => void> = []
     return async (task) => {
@@ -726,7 +726,8 @@ export function normalizePath(path: string): string {
     return result === '/' ? result : result.replace(/\/+$/, '')
 }
 
-function comparablePath(path: string): string {
+/** One spelling per file, to compare or key by: {@link normalizePath}, in lower case on Windows. */
+export function comparablePath(path: string): string {
     const normalized = normalizePath(path)
     // Windows file names ignore case, so `C:\Notes\A.md` and `c:\notes\a.md` are one file.
     return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized

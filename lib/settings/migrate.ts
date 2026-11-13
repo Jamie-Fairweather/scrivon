@@ -174,9 +174,14 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
         },
         workspace: {
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
+            reopenLastFolder:
+                typeof source.workspace?.reopenLastFolder === 'boolean' ? source.workspace.reopenLastFolder : defaults.workspace.reopenLastFolder,
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,
+        },
+        statusBar: {
+            visible: typeof source.statusBar?.visible === 'boolean' ? source.statusBar.visible : defaults.statusBar.visible,
         },
         pdfExport: normalizePdfExportSettings(source.pdfExport),
         keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds),

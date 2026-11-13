@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { useCanvasFit, useDocumentSave, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import {
+    useCanvasFit,
+    useDocumentSave,
+    useDocumentTabs,
+    useStudioLayout,
+    useWorkspaceSession,
+} from '@/components/studio/workspace/workspace-provider'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
 import { StudioMenuBar } from './studio-menu-bar'
@@ -14,6 +20,7 @@ vi.mock('next/image', () => ({
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useCanvasFit: vi.fn(),
     useDocumentSave: vi.fn(),
+    useDocumentTabs: vi.fn(),
     useStudioLayout: vi.fn(),
     useWorkspaceSession: vi.fn(),
 }))
@@ -34,7 +41,9 @@ function mockContexts({
     keybinds = createDefaultKeybinds(false) as KeybindBindings,
     canFitToView = true,
     outlineOpen = false,
+    activeTab = null as { name: string; isDirty: boolean } | null,
 } = {}) {
+    vi.mocked(useDocumentTabs).mockReturnValue({ activeTab } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
         isDesktop,
@@ -89,6 +98,26 @@ describe('StudioMenuBar', () => {
 
         expect(within(screen.getByRole('menubar')).queryByRole('button', { name: 'Update' })).toBeNull()
         expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument()
+    })
+
+    it('shows the open file and folder in the drag area, marking unsaved changes, without getting in the way of dragging', () => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:\\Users\\me\\docs', activeTab: { name: 'notes.md', isDirty: true } })
+        render(<StudioMenuBar />)
+
+        const title = screen.getByText('● notes.md — docs')
+        // Clicks on the text reach the drag area, so it still drags, maximises and opens the window menu.
+        expect(title.parentElement).toHaveAttribute('data-tauri-drag-region')
+        expect(title).toHaveClass('pointer-events-none')
+    })
+
+    it('shows the open file in the title bar in the browser too, and nothing with no folder open', () => {
+        mockContexts({ workspaceRoot: '/home/me/work', activeTab: { name: 'flow.mmd', isDirty: false } })
+        const { rerender } = render(<StudioMenuBar />)
+        expect(screen.getByText('flow.mmd — work')).toBeInTheDocument()
+
+        mockContexts()
+        rerender(<StudioMenuBar />)
+        expect(screen.queryByText(/flow\.mmd/)).not.toBeInTheDocument()
     })
 
     it('focuses File when F10 is pressed', () => {

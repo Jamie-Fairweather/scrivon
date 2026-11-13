@@ -57,9 +57,14 @@ export type AppSettings = {
     }
     workspace: {
         maxRecentFolders: number
+        /** Reopen the folder (and its tabs) that was open when Scrivon last closed. */
+        reopenLastFolder: boolean
     }
     updates: {
         checkOnLaunch: boolean
+    }
+    statusBar: {
+        visible: boolean
     }
     pdfExport: PdfExportSettings
     keybinds: Record<KeybindActionId, KeybindChord[]>

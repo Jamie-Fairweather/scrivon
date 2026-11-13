@@ -73,9 +73,13 @@ export function createDefaultSettings(isMac = false): AppSettings {
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
+            reopenLastFolder: true,
         },
         updates: {
             checkOnLaunch: true,
+        },
+        statusBar: {
+            visible: true,
         },
         pdfExport: createDefaultPdfExportSettings(),
         keybinds: createDefaultKeybinds(isMac),

@@ -16,6 +16,8 @@ type DocumentSaveContextValue = {
     autosaveEnabled: boolean
     setAutosaveEnabled: (enabled: boolean) => void
     flushSave: (id: string) => Promise<boolean>
+    /** Saves a tab again after a failed save, as its notice's Try Again does. */
+    retrySave: (id: string) => Promise<boolean>
     flushAllSaves: () => Promise<boolean>
     scheduleSave: (id: string) => void
     flushSaveOnTabLeave: (id: string) => void
@@ -147,6 +149,16 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
         })
     }, [])
 
+    const flushSaveRef = useRef<(id: string, options?: SaveOptions) => Promise<boolean>>(async () => true)
+
+    // The old notice goes first, so a save that fails again gets a new one (with the new reason) that a
+    // screen reader reads out, wherever Try Again was clicked.
+    const retrySave = useCallback((id: string): Promise<boolean> => {
+        saveErrors.current.delete(id)
+        dismissNotification(saveErrorToastId(id))
+        return flushSaveRef.current(id)
+    }, [])
+
     const writeTab = useCallback(
         async (id: string, { silent = false, background = false }: SaveOptions): Promise<boolean> => {
             const tab = tabsRef.current.find((t) => t.id === id)
@@ -210,14 +222,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                         id: saveErrorToastId(id),
                         description: message,
                         timeout: 0,
-                        action: {
-                            label: 'Try Again',
-                            onClick: () => {
-                                dismissNotification(saveErrorToastId(id))
-                                saveErrors.current.delete(id)
-                                void coordinator.flushSave.current(id)
-                            },
-                        },
+                        action: { label: 'Try Again', onClick: () => void retrySave(id) },
                     })
                 }
                 saveErrors.current.set(id, message)
@@ -225,13 +230,12 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                 return false
             }
         },
-        [askAboutDiskChange, clearBackup, coordinator, setTabs, tabsRef]
+        [askAboutDiskChange, clearBackup, coordinator, retrySave, setTabs, tabsRef]
     )
 
     // Tabs whose file is being renamed or deleted. A save asked for meanwhile waits, then goes to wherever
     // the tab is afterwards, so it can never bring back the old file or be dropped.
     const holds = useRef(new Map<string, { whereNow: Promise<string | null>; wantsSave: boolean }>())
-    const flushSaveRef = useRef<(id: string, options?: SaveOptions) => Promise<boolean>>(async () => true)
 
     const flushSave = useCallback(
         (id: string, options: SaveOptions = {}): Promise<boolean> => {
@@ -406,11 +410,12 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
             autosaveEnabled,
             setAutosaveEnabled,
             flushSave,
+            retrySave,
             flushAllSaves,
             scheduleSave,
             flushSaveOnTabLeave,
         }),
-        [autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves, scheduleSave, flushSaveOnTabLeave]
+        [autosaveEnabled, setAutosaveEnabled, flushSave, retrySave, flushAllSaves, scheduleSave, flushSaveOnTabLeave]
     )
 
     return (
