@@ -89,6 +89,7 @@ vi.mock('@/components/studio/editor/code-editor-panel', () => ({
 vi.mock('@/components/studio/shell/studio-status-bar', () => ({ StudioStatusBar: () => <footer aria-label="Status bar" /> }))
 
 const { StudioLayout } = await import('./studio-layout')
+const { focusPane } = await import('./pane-focus')
 
 function tab(path: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content: '', isDirty: false, isSaving: false }
@@ -151,6 +152,30 @@ describe('StudioLayout Outline panel', () => {
     })
 })
 
+describe('StudioLayout landmarks and panes', () => {
+    it('has exactly one main landmark, holding the tabs, the editor and the preview', () => {
+        render(<StudioLayout />)
+
+        const [main, ...more] = screen.getAllByRole('main')
+        expect(more).toHaveLength(0)
+        expect(main).toContainElement(screen.getByRole('tab', { name: 'a.md' }))
+        expect(main).toContainElement(screen.getByRole('textbox', { name: 'Editor' }))
+        expect(main).toContainElement(screen.getByRole('region', { name: 'Preview' }))
+        expect(main).not.toContainElement(screen.getByRole('navigation', { name: 'Explorer' }))
+    })
+
+    it('lets the keyboard reach the preview, even when nothing in it can take focus', () => {
+        render(<StudioLayout />)
+        const preview = screen.getByRole('region', { name: 'Preview' })
+
+        act(() => {
+            expect(focusPane('preview')).toBe(true)
+        })
+        expect(preview).toHaveFocus()
+        expect(preview).toContainElement(screen.getByText('Markdown preview'))
+    })
+})
+
 describe('StudioLayout preview', () => {
     it('shows the preview beside an editor of its own width', () => {
         render(<StudioLayout />)
@@ -164,6 +189,7 @@ describe('StudioLayout preview', () => {
         layout = { explorerOpen: true, editorOpen: true, previewOpen: false }
         view.rerender(<StudioLayout />)
         expect(screen.queryByText('Markdown preview')).toBeNull()
+        expect(screen.queryByRole('region', { name: 'Preview' })).toBeNull()
         expect(document.querySelector('[data-slot="code-editor"]')).toHaveAttribute('data-fill', 'true')
 
         layout = { explorerOpen: true, editorOpen: true, previewOpen: true }

@@ -274,6 +274,24 @@ describe('FileTree', () => {
         expect(confirmDelete).toHaveBeenCalledWith(tree[0])
     })
 
+    it('leaves F2 and Delete alone away from a row: in its open menu, on the tree itself, or with Ctrl, Alt or Shift', async () => {
+        render(<FileTree tree={tree} />)
+        press('docs', 'ContextMenu')
+        const rename = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Rename' })
+
+        fireEvent.keyDown(rename, { key: 'F2' })
+        fireEvent.keyDown(rename, { key: 'Delete' })
+        fireEvent.keyDown(screen.getByRole('tree'), { key: 'F2' })
+        fireEvent.keyDown(screen.getByRole('tree'), { key: 'Delete' })
+        press('flow.mmd', 'F2', { ctrlKey: true })
+        press('flow.mmd', 'F2', { altKey: true })
+        press('flow.mmd', 'Delete', { shiftKey: true })
+        press('flow.mmd', 'Delete', { ctrlKey: true })
+
+        expect(promptName).not.toHaveBeenCalled()
+        expect(confirmDelete).not.toHaveBeenCalled()
+    })
+
     it('opens the row menu with Shift+F10 or the menu key', async () => {
         render(<FileTree tree={tree} />)
 

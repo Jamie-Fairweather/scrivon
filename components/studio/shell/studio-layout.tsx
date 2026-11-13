@@ -90,8 +90,9 @@ export function StudioLayout() {
                 {layout.outlineOpen && <OutlinePanel />}
 
                 <MarkdownExpandProvider tabId={activeTabId}>
-                    {/* data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
+                    {/* The page's one main landmark: the tabs, the editor and the preview.
+                        data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
+                    <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
                         <EditorTabBar />
 
                         {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
@@ -107,19 +108,30 @@ export function StudioLayout() {
                                 />
                             )}
 
-                            {/* A view that breaks takes only itself down; the editor and tabs stay usable.
-                                Unmounted while hidden, so it doesn't draw on every keystroke. */}
+                            {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to its scroll box when
+                                it scrolls, else to this region itself. Unmounted while hidden, so it doesn't draw on every
+                                keystroke. */}
                             {layout.previewOpen && (
-                                <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
-                                    {viewerKind === 'markdown' ? (
-                                        <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
-                                    ) : (
-                                        <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
-                                    )}
-                                </PaneErrorBoundary>
+                                <div
+                                    data-pane="preview"
+                                    role="region"
+                                    aria-label="Preview"
+                                    tabIndex={-1}
+                                    className="flex min-h-0 min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring
+                                        focus-visible:ring-inset"
+                                >
+                                    {/* A view that breaks takes only itself down; the editor and tabs stay usable. */}
+                                    <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
+                                        {viewerKind === 'markdown' ? (
+                                            <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
+                                        ) : (
+                                            <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
+                                        )}
+                                    </PaneErrorBoundary>
+                                </div>
                             )}
                         </div>
-                    </div>
+                    </main>
                 </MarkdownExpandProvider>
             </div>
             <StudioStatusBar />

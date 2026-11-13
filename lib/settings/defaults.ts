@@ -29,6 +29,11 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
+        'view.focusExplorer': [chord('e', { ...mod, shift: true })],
+        'view.focusEditor': [chord('1', mod)],
+        'view.focusPreview': [chord('2', mod)],
+        'view.focusNextPane': [chord('F6')],
+        'view.focusPreviousPane': [chord('F6', { shift: true })],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
     }
 

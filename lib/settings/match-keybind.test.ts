@@ -226,6 +226,35 @@ describe('matchKeybind', () => {
         })
     })
 
+    describe('moving between panes', () => {
+        const workspace = { hasWorkspace: true }
+        const input = { tagName: 'INPUT', closest: () => null } as unknown as EventTarget
+        const editor = { tagName: 'TEXTAREA', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
+
+        it('focuses the explorer, editor and preview, and F6 / Shift+F6 cycle the panes, once a folder is open', () => {
+            expect(matchKeybind(keyEvent('E', { ctrl: true, shift: true }), bindings, workspace)).toBe('view.focusExplorer')
+            expect(matchKeybind(keyEvent('1', { ctrl: true }), bindings, workspace)).toBe('view.focusEditor')
+            expect(matchKeybind(keyEvent('2', { ctrl: true }), bindings, workspace)).toBe('view.focusPreview')
+            expect(matchKeybind(keyEvent('F6'), bindings, workspace)).toBe('view.focusNextPane')
+            expect(matchKeybind(keyEvent('F6', { shift: true }), bindings, workspace)).toBe('view.focusPreviousPane')
+            expect(matchKeybind(keyEvent('F6'), bindings)).toBeNull()
+        })
+
+        it('uses Cmd on macOS', () => {
+            expect(matchKeybind(keyEvent('1', { meta: true }), createDefaultKeybinds(true), workspace)).toBe('view.focusEditor')
+        })
+
+        it('lets F6 and Shift+F6 out of the editor and out of a text box', () => {
+            expect(matchKeybind(keyEvent('F6', {}, editor), bindings, workspace)).toBe('view.focusNextPane')
+            expect(matchKeybind(keyEvent('F6', { shift: true }, input), bindings, workspace)).toBe('view.focusPreviousPane')
+        })
+
+        it('leaves the other focus keys to a text box, but not to the editor', () => {
+            expect(matchKeybind(keyEvent('2', { ctrl: true }, input), bindings, workspace)).toBeNull()
+            expect(matchKeybind(keyEvent('2', { ctrl: true }, editor), bindings, workspace)).toBe('view.focusPreview')
+        })
+    })
+
     it('does not treat non-field targets as native text fields', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true }, {} as EventTarget), bindings)).toBe('document.save')
     })

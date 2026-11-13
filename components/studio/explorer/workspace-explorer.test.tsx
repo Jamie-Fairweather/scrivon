@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { focusPane } from '@/components/studio/shell/pane-focus'
 import { WorkspaceExplorer } from './workspace-explorer'
 
 const { useWorkspaceSession } = vi.hoisted(() => ({
@@ -8,7 +9,16 @@ const { useWorkspaceSession } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession }))
-vi.mock('@/components/studio/explorer/file-tree', () => ({ FileTree: () => <div>File tree</div> }))
+vi.mock('@/components/studio/explorer/file-tree', () => ({
+    FileTree: () => (
+        <div role="tree" aria-label="Files">
+            <span>File tree</span>
+            <div role="treeitem" aria-selected={false} tabIndex={0}>
+                a.md
+            </div>
+        </div>
+    ),
+}))
 vi.mock('@/components/studio/explorer/examples-explorer', () => ({ ExamplesExplorer: () => null }))
 vi.mock('@/components/studio/explorer/file-tree-root-actions', () => ({ FileTreeRootActions: () => null }))
 vi.mock('@/components/studio/explorer/explorer-tree-buttons', () => ({ ExplorerTreeButtons: () => null }))
@@ -56,5 +66,16 @@ describe('WorkspaceExplorer', () => {
         } finally {
             for (const size of sizes) size.mockRestore()
         }
+    })
+
+    it('is a named pane that Focus Explorer and F6 reach, landing on the file tree rather than the buttons above it', () => {
+        render(<WorkspaceExplorer />)
+
+        act(() => {
+            expect(focusPane('explorer')).toBe(true)
+        })
+
+        expect(screen.getByRole('treeitem', { name: 'a.md' })).toHaveFocus()
+        expect(screen.getByRole('complementary', { name: 'Explorer' })).toContainElement(screen.getByRole('tree'))
     })
 })

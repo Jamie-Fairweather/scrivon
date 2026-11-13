@@ -21,7 +21,8 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
     const panel = useExplorerPanel()
 
     return (
-        <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+        // A pane for F6 and Focus Explorer (pane-focus.ts), which go to the list below before the buttons above it.
+        <aside data-pane="explorer" aria-label="Explorer" className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             <div className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-2 py-2">
                 <div className="flex items-center justify-center gap-0.5 px-0.5">
                     <IconTooltip label="Files">
@@ -69,7 +70,7 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
                 {panel === 'examples' && <p className="px-1 text-center text-xs text-muted-foreground">View-only diagram and markdown samples</p>}
             </div>
 
-            <div className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>
+            <div data-pane-focus className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>
                 {panel === 'files' ? (
                     // The tree is a Tab stop of its own, and a focused row scrolls into view, so the scroll box isn't one.
                     <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>

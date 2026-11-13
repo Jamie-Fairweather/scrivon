@@ -26,6 +26,11 @@ export type KeybindActionId =
     | 'view.togglePreview'
     | 'view.previewOnly'
     | 'view.fitDiagram'
+    | 'view.focusExplorer'
+    | 'view.focusEditor'
+    | 'view.focusPreview'
+    | 'view.focusNextPane'
+    | 'view.focusPreviousPane'
     | 'workspace.saveAll'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'

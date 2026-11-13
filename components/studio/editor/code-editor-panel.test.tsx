@@ -371,7 +371,8 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
 const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
-const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
+const { focusEditorFor, focusEditorNow } = await import('@/components/studio/editor/editor-focus')
+const { focusPane } = await import('@/components/studio/shell/pane-focus')
 const { useEditorCursor, useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
@@ -1286,6 +1287,30 @@ describe('CodeEditorPanel search hits', () => {
 
         view.rerender(<Panel open />)
         expect(coordinatorHandlers.getEditorSelectedText!()).toBe('TODO')
+    })
+})
+
+describe('CodeEditorPanel as a pane', () => {
+    it('is the editor pane, which Focus Editor and F6 focus at once while it shows a file', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+
+        expect(focusPane('editor')).toBe(true)
+        expect(editor.focused).toBe(true)
+    })
+
+    it('says no while hidden, or with no file open', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        view.rerender(<Panel open={false} />)
+
+        expect(focusEditorNow()).toBe(false)
+        expect(editor.focused).toBe(false)
+
+        view.unmount()
+        tabsState = { tabs: [], activeTabId: null }
+        render(<Panel />)
+        expect(focusEditorNow()).toBe(false)
     })
 })
 
