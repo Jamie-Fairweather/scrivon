@@ -28,14 +28,26 @@ export type KeybindActionId =
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
+/** 'system' follows the Windows light/dark setting. */
+export const FOLLOW_SYSTEM = 'system'
+
+export type ThemeChoice = AppThemeId | typeof FOLLOW_SYSTEM
+
+export type ThemeSetting = {
+    /** A fixed theme, or 'system' to follow Windows. Older versions read 'system' as "follow the OS" too. */
+    id: ThemeChoice
+    /** The theme System mode uses when Windows is light. */
+    light: AppThemeId
+    /** The theme System mode uses when Windows is dark. */
+    dark: AppThemeId
+}
+
 export type AppSettings = {
     autosave: {
         enabled: boolean
         delayMs: number
     }
-    theme: {
-        id: AppThemeId
-    }
+    theme: ThemeSetting
     layout: {
         explorerOpen: boolean
         editorOpen: boolean

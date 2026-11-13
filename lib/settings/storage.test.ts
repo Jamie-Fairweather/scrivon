@@ -125,21 +125,15 @@ describe('loadSettings and saveSettings with localStorage', () => {
         expect(corrupt.map((key) => store.get(key))).toEqual(['{"editor": {"fontSize": 2'])
     })
 
-    it('follows the OS light or dark setting on first launch, and saves it', () => {
-        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
-        expect(loadSettingsWithRecovery().settings.theme.id).toBe('scrivon-light')
-        expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}').theme.id).toBe('scrivon-light')
-
-        store.clear()
-        vi.stubGlobal('window', { matchMedia: () => ({ matches: true }) })
-        expect(loadSettings().theme.id).toBe('scrivon-dark')
+    it('follows the OS light or dark setting on first launch, and saves that choice', () => {
+        expect(loadSettingsWithRecovery().settings.theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+        expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}').theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
     })
 
     it('follows the OS for a saved theme this version does not know', () => {
-        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
         store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'theme-from-a-newer-version' } }))
 
-        expect(loadSettings().theme.id).toBe('scrivon-light')
+        expect(loadSettings().theme.id).toBe('system')
     })
 
     it('keeps a saved theme whatever the OS setting', () => {
@@ -244,11 +238,11 @@ describe('loadSettings and saveSettings with localStorage', () => {
             store.set(SETTINGS_STORAGE_KEY, JSON.stringify(newerSettings()))
             const loaded = loadSettings()
 
-            saveSettings({ ...loaded, theme: { id: 'tokyo-night' } })
+            saveSettings({ ...loaded, theme: { ...loaded.theme, id: 'tokyo-night' } })
             expect(saved().theme.id).toBe('tokyo-night')
 
             // Changed back within the same session: saved as chosen, not as first read.
-            saveSettings({ ...loaded, theme: { id: loaded.theme.id } })
+            saveSettings({ ...loaded, theme: { ...loaded.theme, id: loaded.theme.id } })
             expect(saved().theme.id).toBe(loaded.theme.id)
         })
 
