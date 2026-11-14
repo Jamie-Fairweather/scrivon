@@ -8,8 +8,10 @@ import {
     type Highlighter,
     type SpecialLanguage,
 } from 'shiki'
+import type { ShikiTheme } from '@/lib/markdown/code-themes'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
+/** Loaded when the highlighter starts. Other themes load the first time a block uses them. */
 const THEMES = ['github-dark', 'github-light'] as const
 
 /** A Map, so a fence named after an object property (`constructor`, `__proto__`) isn't taken for an alias. */
@@ -29,9 +31,6 @@ const LANG_ALIASES = new Map<string, BundledLanguage>([
     ['rb', 'ruby'],
     ['kt', 'kotlin'],
 ])
-
-/** The code themes export offers. The preview also uses others; see {@link previewCodeTheme}. */
-export type ShikiTheme = (typeof THEMES)[number]
 
 /** Shiki's own version of a palette. Palettes Shiki doesn't have use GitHub's colours. */
 const PALETTE_CODE_THEMES = new Map<AppThemeId, BundledTheme>([
@@ -150,7 +149,7 @@ function discardHighlighter(highlighter: Highlighter): void {
     highlighterPromise = null
 }
 
-/** Loads a palette's code theme the first time a block needs it; GitHub's two are loaded at start. */
+/** Loads a code theme the first time a block needs it; GitHub's two are loaded at start. */
 async function ensureTheme(highlighter: Highlighter, theme: BundledTheme): Promise<void> {
     if (!highlighter.getLoadedThemes().includes(theme)) await highlighter.loadTheme(theme)
 }
@@ -194,6 +193,7 @@ export type HighlightedToken = {
 export async function highlightFencedCodeTokens(code: string, language: string | undefined, theme: ShikiTheme): Promise<HighlightedToken[][]> {
     const highlighter = await getHighlighter()
     const lang = await ensureLanguage(highlighter, normalizeLanguage(language))
+    await ensureTheme(highlighter, theme)
     const { tokens } = highlighter.codeToTokens(code.replace(/\n$/, ''), { lang: lang as BundledLanguage | SpecialLanguage, theme })
     return tokens.map((line) => line.map((token) => ({ text: token.content, color: token.color })))
 }

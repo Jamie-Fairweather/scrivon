@@ -1,5 +1,6 @@
 import { pdfPageNumberFormat, pdfPageNumberTemplate } from '@/lib/markdown/export-metadata'
 import { GITHUB_ALERT_COLOURS, GITHUB_ALERT_KINDS } from '@/lib/markdown/github-alerts'
+import { PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { getDiagramColors } from '@/lib/theme/catalog'
 
@@ -65,7 +66,10 @@ export function resolvePdfExportLayout(profile: PdfExportProfile): PdfExportLayo
 
 /** Portrait sheet dimensions for the profile's paper size; orientation is applied separately. */
 export function pdfPageSizeMm(profile: PdfExportProfile): { width: number; height: number } {
-    return profile.page.size === 'letter' ? { width: 215.9, height: 279.4 } : { width: 210, height: 297 }
+    const { size, customSizeMm } = profile.page
+    if (size === 'custom') return { ...customSizeMm }
+    const named = PDF_PAGE_SIZES[size]
+    return { width: named.widthMm, height: named.heightMm }
 }
 
 /** Margins the print engine itself must apply; zero when the CSS emulates them. */
@@ -155,8 +159,14 @@ export function pdfStampGlyphText(format: string): string {
 }
 
 function pageSizeCss(profile: PdfExportProfile): string {
-    const size = profile.page.size === 'letter' ? 'letter' : 'A4'
-    return profile.page.orientation === 'landscape' ? `${size} landscape` : size
+    const landscape = profile.page.orientation === 'landscape'
+    if (profile.page.size === 'custom') {
+        // CSS takes no orientation word after lengths, so landscape swaps them.
+        const { width, height } = pdfPageSizeMm(profile)
+        return landscape ? `${height}mm ${width}mm` : `${width}mm ${height}mm`
+    }
+    const size = PDF_PAGE_SIZES[profile.page.size].css
+    return landscape ? `${size} landscape` : size
 }
 
 function marginCss(margins: PdfMarginsMm): string {
@@ -368,6 +378,16 @@ export function pdfBodyHeightMm(profile: PdfExportProfile): number {
         edgeBandMm(top, drawn.header, layout.showHeader, layout.headerBleeds) -
         edgeBandMm(bottom, drawn.footer, layout.showFooter, layout.footerBleeds)
     )
+}
+
+/**
+ * Page width left for the document text once the left and right margins are taken off, the way
+ * the sheet is turned. Negative when the margins add up to more than the page.
+ */
+export function pdfBodyWidthMm(profile: PdfExportProfile): number {
+    const { width, height } = pdfPageSizeMm(profile)
+    const { left, right } = profile.page.marginsMm
+    return (profile.page.orientation === 'landscape' ? height : width) - left - right
 }
 
 /** Slack for table-cell padding and rounding, so the cover never tips onto a second page. */

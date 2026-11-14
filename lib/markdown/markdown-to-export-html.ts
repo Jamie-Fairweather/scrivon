@@ -350,7 +350,7 @@ function stampGlyphSample(format: string): string {
 }
 
 /** `outline` is every heading: a row's mark carries its heading's place there, as the heading's own mark does. */
-function renderToc(items: PdfExportOutlineItem[], outline: PdfExportOutlineItem[], stamped: boolean): string {
+function renderToc(items: PdfExportOutlineItem[], outline: PdfExportOutlineItem[], title: string, stamped: boolean): string {
     if (items.length === 0) return ''
     // Every TOC number is in the same font, so the first row's sample is enough for all of them.
     const sample = stamped ? stampGlyphSample('number') : ''
@@ -368,7 +368,7 @@ function renderToc(items: PdfExportOutlineItem[], outline: PdfExportOutlineItem[
             return `<li class="pdf-toc-l${level}"><a href="#${escapeHtml(item.id)}"><span class="pdf-toc-title" dir="auto">${escapeHtml(item.text)}</span>${page}</a></li>`
         })
         .join('')
-    return `<section class="pdf-toc-page"><h1>Contents</h1><ol class="pdf-toc-list">${list}</ol></section>`
+    return `<section class="pdf-toc-page"><h1 dir="auto">${escapeHtml(title)}</h1><ol class="pdf-toc-list">${list}</ol></section>`
 }
 
 function chromeImage(dataUrl: string): string {
@@ -546,7 +546,7 @@ export async function renderExportPdf(
     if (stamped && profile.footer.numberFromBody) bodyHtml += `<span class="pdf-body-mark" dir="ltr">${PDF_BODY_START_MARK}</span>`
 
     const titlePage = profile.frontMatter.titlePage ? renderTitlePage(metadata, assets) : ''
-    const toc = renderToc(tocItems, outline, stamped)
+    const toc = renderToc(tocItems, outline, document.contentsTitle, stamped)
     const baseCss = buildPdfExportCss(profile, metadata)
     const stylesheet = stamped ? baseCss : `${baseCss}\n  ${printDialogPageNumberCss(profile, metadata)}`
     // Backstop for any profile value written into the CSS raw: `</style` would end the stylesheet and start markup.

@@ -76,6 +76,7 @@ import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 import { notifyWarning } from '@/lib/notify'
+import { exportCodeTheme } from '@/lib/markdown/code-themes'
 import type { ExportDocument } from '@/lib/markdown/export-document'
 import type { PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { pdfChromeShown, pdfPageSizeMm, resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
@@ -495,7 +496,7 @@ function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
 function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
     const phrasing: PhrasingContent[] = []
     const key = ({ bold, italics, strike, href }: HtmlMarks) => JSON.stringify([bold, italics, strike, href])
-    for (let start = 0; start < leaves.length; ) {
+    for (let start = 0; start < leaves.length;) {
         const marks = leaves[start]!.marks
         let end = start
         const nodes: PhrasingContent[] = []
@@ -1809,18 +1810,8 @@ function renderTableCell(
     }
 }
 
-function codeFill(theme: PdfExportProfile['content']['codeTheme']): string {
-    return theme === 'github-dark' ? '0D1117' : 'F6F8FA'
-}
-
-function codeColor(theme: PdfExportProfile['content']['codeTheme']): string {
-    return theme === 'github-dark' ? 'E6EDF3' : '24292F'
-}
-
 function renderCodeLines(state: RenderState, lines: HighlightedToken[][]): Paragraph[] {
-    const theme = state.document.profile.content.codeTheme
-    const fill = codeFill(theme)
-    const fallback = codeColor(theme)
+    const { background: fill, text: fallback } = exportCodeTheme(state.document.profile.content.codeTheme)
     const size = codeHalfPoints(state)
     const anchors = takePendingAnchors(state)
     // A short block stays on one page, as in the PDF: each line keeps with the next.
@@ -2545,14 +2536,15 @@ function measureList(
     }
 }
 
-/** The "Contents" title's size, in half-points: 20pt with the 11pt default body. */
+/** The Contents title's size, in half-points: 20pt with the 11pt default body. */
 function contentsTitleHalfPoints(state: RenderState): number {
     return emHalfPoints(state, CONTENTS_TITLE_EM)
 }
 
-/** Height of the "Contents" title: its line (about 1.3x its size), its 200-twip space after, and the rule under it. 840 at 20pt. */
+/** Height of the Contents title: each line (about 1.3x its size), its 200-twip space after, and the rule under it. 840 for one line at 20pt. */
 function tocTitleTwip(state: RenderState): number {
-    return Math.round(contentsTitleHalfPoints(state) * 13) + 320
+    const halfPoints = contentsTitleHalfPoints(state)
+    return lineCount(state.document.contentsTitle, halfPoints, state.contentTwip) * Math.round(halfPoints * 13) + 320
 }
 
 /**
@@ -2654,13 +2646,22 @@ function tocBlocks(state: RenderState): Paragraph[] {
             ],
         })
     })
+    const title = state.document.contentsTitle
     return [
         new Paragraph({
             indent: contentIndent(state),
             border: { bottom: { style: BorderStyle.SINGLE, size: 16, color: state.accent, space: 4 } },
             spacing: { after: 200 },
+            bidirectional: bidi(title),
             children: [
-                new TextRun({ text: 'Contents', bold: true, font: state.headingFont, size: contentsTitleHalfPoints(state), color: state.accent }),
+                new TextRun({
+                    text: title,
+                    bold: true,
+                    font: state.headingFont,
+                    size: contentsTitleHalfPoints(state),
+                    color: state.accent,
+                    rightToLeft: runIsRtl(title) || undefined,
+                }),
             ],
         }),
         ...entries,

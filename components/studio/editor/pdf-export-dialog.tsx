@@ -5,7 +5,7 @@ import type { ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { notifyError } from '@/lib/notify'
-import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
+import { getActivePdfExportProfile, pdfBodyHeightMm, pdfPageWidthWarning, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
 import { PdfExportPreview } from '@/components/studio/editor/pdf-export-preview'
@@ -101,17 +101,22 @@ function pageNumberNote(format: ExportFormat, profile: PdfExportProfile, metadat
     return ''
 }
 
+/** The height half of {@link pageSpaceNote}: margins, header and footer that leave little or no page height. */
+function pageHeightNote(profile: PdfExportProfile): string {
+    const bodyHeightMm = pdfBodyHeightMm(profile)
+    if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return ''
+    if (bodyHeightMm <= 0) return 'Margins, header and footer are taller than the page, so there is no room left for the text.'
+    return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
+}
+
 /**
- * The page-space warning from Settings, for the profile picked here: margins, header and footer
+ * The page-space warnings from Settings, for the profile picked here: margins, header and footer
  * that leave little or no room for the text. The export still runs; Settings is where to fix it.
  */
 function pageSpaceNote(format: ExportFormat, profile: PdfExportProfile): string {
     // A web page has no pages to run out of.
     if (format === 'html') return ''
-    const bodyHeightMm = pdfBodyHeightMm(profile)
-    if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return ''
-    if (bodyHeightMm <= 0) return 'Margins, header and footer are taller than the page, so there is no room left for the text.'
-    return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
+    return [pageHeightNote(profile), pdfPageWidthWarning(profile)].filter(Boolean).join(' ')
 }
 
 /**

@@ -11,11 +11,12 @@ import {
     otherProfileNamed,
     PDF_MIN_BODY_HEIGHT_MM,
     pdfBodyHeightMm,
+    pdfPageWidthWarning,
     renamePdfExportProfile,
     setActivePdfExportProfile,
     updatePdfExportProfile,
 } from '@/lib/settings/pdf-export-profiles'
-import { PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
+import { PDF_EXPORT_LIMITS, PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import {
     cachedPdfExportFontOptions,
     ensureFontOption,
@@ -43,7 +44,7 @@ import type {
     PdfTocDepth,
 } from '@/lib/settings/pdf-export-types'
 import { resolvePdfExportLayout } from '@/lib/markdown/export-html-css'
-import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import { EXPORT_CODE_THEMES, type ShikiTheme } from '@/lib/markdown/code-themes'
 import { isWindowsTauri } from '@/lib/tauri/platform'
 import { ColorField } from '@/components/studio/settings/color-field'
 import { ImagePathField } from '@/components/studio/settings/image-path-field'
@@ -79,8 +80,8 @@ import { Input } from '@/components/ui/input'
 import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 
 const PAGE_SIZE_OPTIONS: SelectOption<PdfPageSize>[] = [
-    { label: 'A4', value: 'a4' },
-    { label: 'Letter', value: 'letter' },
+    ...Object.entries(PDF_PAGE_SIZES).map(([value, size]) => ({ label: size.label, value: value as PdfPageSize })),
+    { label: 'Custom size', value: 'custom' },
 ]
 const ORIENTATION_OPTIONS: SelectOption<PdfPageOrientation>[] = [
     { label: 'Portrait', value: 'portrait' },
@@ -102,10 +103,7 @@ const NEW_PAGE_OPTIONS: SelectOption<`${PdfNewPageFromHeading}`>[] = [
     { label: 'H5 and above', value: '5' },
     { label: 'H6 and above', value: '6' },
 ]
-const CODE_THEME_OPTIONS: SelectOption<ShikiTheme>[] = [
-    { label: 'GitHub Light', value: 'github-light' },
-    { label: 'GitHub Dark', value: 'github-dark' },
-]
+const CODE_THEME_OPTIONS: SelectOption<ShikiTheme>[] = EXPORT_CODE_THEMES.map((theme) => ({ label: theme.label, value: theme.id }))
 const DIAGRAM_THEME_OPTIONS: SelectOption<AppThemeId>[] = APP_THEME_IDS.map((id) => ({ label: APP_THEME_LABELS[id], value: id }))
 const HIDE_ON_OPTIONS: SelectOption<PdfHideOnFirstPages>[] = [
     { label: 'None', value: 'none' },
@@ -309,6 +307,7 @@ export function PdfExportSettings() {
 
     const layout = resolvePdfExportLayout(active)
     const bodyHeightMm = pdfBodyHeightMm(active)
+    const widthWarning = pdfPageWidthWarning(active)
     // New and Duplicate pick unique names, but a rename can still copy another profile's.
     const twin = otherProfileNamed(pdf.profiles, active.id, active.name)
 
@@ -391,6 +390,29 @@ export function PdfExportSettings() {
                     </Field>
                 </div>
 
+                {active.page.size === 'custom' ? (
+                    <>
+                        <p className="text-sm text-muted-foreground">Size of the page standing upright. Landscape turns it on its side.</p>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            {(['width', 'height'] as const).map((side) => (
+                                <NumberSetting
+                                    key={side}
+                                    id={`pdf-page-${side}`}
+                                    label={side === 'width' ? 'Page width (mm)' : 'Page height (mm)'}
+                                    value={active.page.customSizeMm[side]}
+                                    {...PDF_EXPORT_LIMITS.pageMm}
+                                    onChange={(value) =>
+                                        patch((profile) => ({
+                                            ...profile,
+                                            page: { ...profile.page, customSizeMm: { ...profile.page.customSizeMm, [side]: value } },
+                                        }))
+                                    }
+                                />
+                            ))}
+                        </div>
+                    </>
+                ) : null}
+
                 <div className="grid gap-4 sm:grid-cols-2">
                     {MARGIN_SIDES.map((side) => (
                         <NumberSetting
@@ -409,6 +431,7 @@ export function PdfExportSettings() {
                     ))}
                 </div>
                 <PageSpaceWarning bodyHeightMm={bodyHeightMm} />
+                {widthWarning ? <SettingsWarning>{widthWarning}</SettingsWarning> : null}
             </SettingsGroup>
 
             <SettingsGroup title="Text">
@@ -526,6 +549,18 @@ export function PdfExportSettings() {
                     onChange={(toc) => setSection('frontMatter', { toc })}
                 />
                 <DependentFields enabled={active.frontMatter.toc}>
+                    <Field>
+                        <FieldLabel htmlFor="pdf-toc-title">Contents title</FieldLabel>
+                        <FieldDescription>
+                            The heading above the contents. A document can set its own with <code>toc-title:</code> in its front matter.
+                        </FieldDescription>
+                        <Input
+                            id="pdf-toc-title"
+                            value={active.frontMatter.tocTitle}
+                            placeholder="Contents"
+                            onChange={(event) => setSection('frontMatter', { tocTitle: event.target.value })}
+                        />
+                    </Field>
                     <div className="grid gap-4 sm:grid-cols-2">
                         <Field>
                             <FieldLabel htmlFor="pdf-toc-depth">TOC depth</FieldLabel>

@@ -421,7 +421,7 @@ describe('SettingsDialog search', () => {
 })
 
 /** Rows that only show after another setting's choice. Search finds them through that setting. */
-const ONLY_SHOWN_SOMETIMES = new Set(['Wrap column', 'Custom text'])
+const ONLY_SHOWN_SOMETIMES = new Set(['Wrap column', 'Custom text', 'Page width (mm)', 'Page height (mm)'])
 
 /** The title of the group a setting's label sits in, the way findSetting looks for it. */
 function groupOf(label: Element): string | undefined {
