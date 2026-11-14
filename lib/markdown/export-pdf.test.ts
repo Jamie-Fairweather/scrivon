@@ -13,7 +13,7 @@ const revealItemInDir = vi.hoisted(() => vi.fn<(path: string) => Promise<void>>(
 const writeBinaryFile = vi.hoisted(() => vi.fn())
 const isWindowsTauri = vi.hoisted(() => vi.fn(() => false))
 const isTauri = vi.hoisted(() => vi.fn(() => false))
-const renderExportDocx = vi.hoisted(() => vi.fn(async () => new Uint8Array([1, 2, 3])))
+const renderExportDocx = vi.hoisted(() => vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), diagramsNotDrawn: 0 })))
 const EXPORT_DOCUMENT = vi.hoisted(() => ({
     html: '<html><body><article class="export-article">x</article></body></html>',
     metadata: { title: 'Hi', subtitle: '', author: '', date: '' },
@@ -28,6 +28,7 @@ const EXPORT_DOCUMENT = vi.hoisted(() => ({
         pageNumberFormat: 'none',
         pageNumberColor: '',
     },
+    diagramsNotDrawn: 0,
 }))
 const renderExportPdf = vi.hoisted(() => vi.fn(async () => EXPORT_DOCUMENT))
 const EMPTY_ASSETS = vi.hoisted(() => ({ logoDataUrl: '', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
@@ -37,7 +38,7 @@ const resolvePdfExportAssets = vi.hoisted(() =>
 )
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
-vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, writeBinaryFile }))
+vi.mock('@/lib/tauri/dialog', () => ({ pickSavePath, writeBinaryFile, writeTextFileAtPath: vi.fn() }))
 vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyError,
@@ -66,7 +67,7 @@ describe('export-pdf helpers', () => {
         isTauri.mockReturnValue(false)
         writeBinaryFile.mockReset()
         renderExportDocx.mockReset()
-        renderExportDocx.mockResolvedValue(new Uint8Array([1, 2, 3]))
+        renderExportDocx.mockResolvedValue({ bytes: new Uint8Array([1, 2, 3]), diagramsNotDrawn: 0 })
         notifyInfo.mockReset()
         renderExportPdf.mockReset()
         renderExportPdf.mockImplementation(async () => EXPORT_DOCUMENT)
@@ -511,6 +512,67 @@ describe('export-pdf helpers', () => {
         expect(notifyInfo).toHaveBeenCalledWith('No contents page was added', { description: toc })
     })
 
+    it('says how many diagrams could not be drawn, in every format', async () => {
+        isWindowsTauri.mockReturnValue(true)
+        isTauri.mockReturnValue(true)
+        const { exportMarkdown } = await import('@/lib/markdown/export-pdf')
+
+        renderExportPdf.mockImplementation(async () => ({ ...EXPORT_DOCUMENT, diagramsNotDrawn: 2 }))
+        pickSavePath.mockResolvedValue('C:/out/notes.pdf')
+        await expect(exportMarkdown('# Notes', 'notes.md')).resolves.toEqual({ status: 'saved', path: 'C:/out/notes.pdf', diagramsNotDrawn: 2 })
+        // The web page is built from the same page.
+        pickSavePath.mockResolvedValue('C:/out/notes.html')
+        await expect(exportMarkdown('# Notes', 'notes.md', { format: 'html' })).resolves.toMatchObject({ diagramsNotDrawn: 2 })
+
+        renderExportDocx.mockResolvedValue({ bytes: new Uint8Array([1]), diagramsNotDrawn: 1 })
+        pickSavePath.mockResolvedValue('C:/out/notes.docx')
+        await expect(exportMarkdown('# Notes', 'notes.md', { format: 'docx' })).resolves.toEqual({
+            status: 'saved',
+            path: 'C:/out/notes.docx',
+            diagramsNotDrawn: 1,
+        })
+
+        // Every diagram drawn: nothing to say.
+        renderExportPdf.mockImplementation(async () => EXPORT_DOCUMENT)
+        pickSavePath.mockResolvedValue('C:/out/notes.pdf')
+        await expect(exportMarkdown('# Notes', 'notes.md')).resolves.toEqual({ status: 'saved', path: 'C:/out/notes.pdf' })
+    })
+
+    it("tells the user when diagrams couldn't be drawn", async () => {
+        const { notifyExportSaved, describeLeftOut } = await import('@/lib/markdown/export-pdf')
+        notifyExportSaved({ status: 'saved', path: 'C:/out/notes.pdf', diagramsNotDrawn: 1 })
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(notifyWarning).toHaveBeenLastCalledWith('Saved notes.pdf without some diagrams', {
+            description: "1 diagram couldn't be drawn.",
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        notifyExportSaved({
+            status: 'saved',
+            path: 'C:/out/notes.pdf',
+            pageNumberWarning: "Scrivon couldn't add page numbers to this PDF.",
+            missingImages: [MISSING_LOGO],
+            diagramsNotDrawn: 2,
+        })
+        expect(notifyWarning).toHaveBeenLastCalledWith('Saved notes.pdf without page numbers, some images or some diagrams', {
+            description:
+                "Scrivon couldn't add page numbers to this PDF. Cover image (logo.png): Could not read image: not found. 2 diagrams couldn't be drawn.",
+            action: expect.objectContaining({ label: 'Show in folder' }),
+        })
+
+        // Printed or downloaded: no file to name, but the user still hears about them.
+        notifyExportSaved({ status: 'saved', diagramsNotDrawn: 2 })
+        expect(notifyWarning).toHaveBeenLastCalledWith("Some diagrams couldn't be drawn", { description: "2 diagrams couldn't be drawn." })
+        notifyExportSaved({ status: 'saved', missingImages: [MISSING_LOGO], diagramsNotDrawn: 1 })
+        // The title names both.
+        expect(notifyWarning).toHaveBeenLastCalledWith('Some images and diagrams were left out', {
+            description: "Cover image (logo.png): Could not read image: not found. 1 diagram couldn't be drawn.",
+        })
+
+        // The PDF preview's note says it too.
+        expect(describeLeftOut({ diagramsNotDrawn: 1 })).toBe("1 diagram couldn't be drawn.")
+    })
+
     it('builds the page a PDF prints from, with what it left out, for the export and its preview alike', async () => {
         resolvePdfExportAssets.mockResolvedValue({ assets: EMPTY_ASSETS, missing: [MISSING_LOGO] })
         const { buildExportPdfPage } = await import('@/lib/markdown/export-pdf')
@@ -526,6 +588,7 @@ describe('export-pdf helpers', () => {
             missingImages: [MISSING_LOGO],
             webImagesLeftOut: 0,
             tocSkipped: true,
+            diagramsNotDrawn: 0,
         })
         expect(resolvePdfExportAssets).toHaveBeenCalledWith(profile)
         expect(renderExportPdf).toHaveBeenCalledWith(

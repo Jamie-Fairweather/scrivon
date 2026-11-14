@@ -1,5 +1,6 @@
 import nodeConsole from 'node:console'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
@@ -33,16 +34,19 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 /** Stands in for the export menu, which owns the export state; `shown` mimics a tab switch unmounting the dialog. */
 function Owner({
     shown = true,
-    format,
+    format: initialFormat = 'pdf',
     allowRemoteImages,
     onOpenChange,
+    onFormatChange,
 }: {
     shown?: boolean
     format?: ExportFormat
     allowRemoteImages?: boolean
     onOpenChange: (open: boolean) => void
+    onFormatChange?: (format: ExportFormat) => void
 }) {
     const [exporting, setExporting] = useState(false)
+    const [format, setFormat] = useState(initialFormat)
     if (!shown) return <p>{exporting ? 'Menu busy' : 'Menu idle'}</p>
     return (
         <PdfExportDialog
@@ -53,6 +57,10 @@ function Owner({
             tabPath={'D:\\docs\\report.md'}
             workspaceRoot={'D:\\docs'}
             format={format}
+            onFormatChange={(next) => {
+                setFormat(next)
+                onFormatChange?.(next)
+            }}
             allowRemoteImages={allowRemoteImages}
             exporting={exporting}
             onExportingChange={setExporting}
@@ -401,6 +409,29 @@ describe('PdfExportDialog', () => {
         expect(exportMarkdown).toHaveBeenCalledWith('# Report\n\nBody', 'report.md', expect.objectContaining({ format: 'html' }))
         expect(onOpenChange).toHaveBeenCalledWith(false)
         expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', path: 'D:\\docs\\report.html' })
+    })
+
+    it('tells the owner the format picked, so the next export opens at it, and keeps what was typed', async () => {
+        exportMarkdown.mockResolvedValue({ status: 'cancelled' })
+        const onFormatChange = vi.fn()
+        render(<Owner onOpenChange={vi.fn()} onFormatChange={onFormatChange} />)
+        fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Quarterly report' } })
+
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('combobox', { name: 'Format' }))
+        await user.click(await screen.findByRole('option', { name: 'HTML' }))
+
+        expect(onFormatChange).toHaveBeenCalledWith('html')
+        expect(screen.getByRole('combobox', { name: 'Format' })).toHaveTextContent('HTML')
+        expect(screen.getByLabelText('Title')).toHaveValue('Quarterly report')
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+        await waitFor(() =>
+            expect(exportMarkdown).toHaveBeenCalledWith(
+                expect.any(String),
+                'report.md',
+                expect.objectContaining({ format: 'html', overrides: expect.objectContaining({ title: 'Quarterly report' }) })
+            )
+        )
     })
 
     it('leaves out the notes about pages for a web page, which has none', async () => {

@@ -29,7 +29,7 @@ const WIDE_PNG = (() => {
 /** The main part of a Word file: the zip entry `word/document.xml`, unpacked. */
 function wordXml(docx: Uint8Array): string {
     const data = Buffer.from(docx)
-    for (let offset = 0; data.readUInt32LE(offset) === 0x04034b50; ) {
+    for (let offset = 0; data.readUInt32LE(offset) === 0x04034b50;) {
         const compressed = data.readUInt32LE(offset + 18)
         const nameLength = data.readUInt16LE(offset + 26)
         const start = offset + 30 + nameLength + data.readUInt16LE(offset + 28)
@@ -204,7 +204,7 @@ describe('embedDocumentImages', () => {
         const document = buildExportDocument('![Wide](wide.png)\n\n<p><img src="wide.png" alt="Raw" width="9000"></p>')
 
         await embedDocumentImages(document.tree, { documentPath: DOC, workspaceRoot: ROOT, allowRemoteImages: false })
-        const xml = wordXml(await renderExportDocx(document))
+        const xml = wordXml((await renderExportDocx(document)).bytes)
 
         for (const descr of ['Wide', 'Raw']) {
             const at = xml.indexOf(`descr="${descr}"`)

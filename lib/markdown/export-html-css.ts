@@ -673,6 +673,14 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     object-fit: contain;
   }
   .pdf-body img[width], .pdf-body img:not([height]) { height: auto; }
+  /* Stands in for a diagram type Scrivon can't draw, above its source. */
+  .export-diagram-note {
+    margin: 0 0 0.5rem;
+    color: #525252;
+    font-style: italic;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
   .export-error {
     margin: 0 0 1rem;
     padding: 12px;

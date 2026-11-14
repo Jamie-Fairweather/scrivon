@@ -18,12 +18,13 @@ const PRINT = vi.hoisted(() => ({
 type RenderExportPdf = (
     document: ExportDocument,
     options?: { stamped?: boolean; allowRemoteImages?: boolean }
-) => Promise<{ html: string; metadata: ExportDocument['metadata']; print: typeof PRINT }>
+) => Promise<{ html: string; metadata: ExportDocument['metadata']; print: typeof PRINT; diagramsNotDrawn: number }>
 const renderExportPdf = vi.hoisted(() =>
     vi.fn<RenderExportPdf>(async (document) => ({
         html: `<html>${document.metadata.title}</html>`,
         metadata: document.metadata,
         print: PRINT,
+        diagramsNotDrawn: 0,
     }))
 )
 const LOGO = vi.hoisted(() => ({ logoDataUrl: 'data:image/png;base64,AAAA', header: { left: '', right: '' }, footer: { left: '', right: '' } }))
@@ -95,6 +96,18 @@ describe('previewMarkdownPdf', () => {
         invoke.mockResolvedValue({ pdf: '', pageNumberWarning: null })
         const preview = await previewMarkdownPdf('![Badge](https://example.com/badge.png)', 'notes.md', { profile: createDefaultPdfExportProfile() })
         expect(preview.note).toBe('1 web image was left out. Choose Load images in the preview to include it.')
+    })
+
+    it("says when diagrams couldn't be drawn, as the saved notice does", async () => {
+        invoke.mockResolvedValue({ pdf: '', pageNumberWarning: null })
+        renderExportPdf.mockImplementationOnce(async (document) => ({
+            html: '<html></html>',
+            metadata: document.metadata,
+            print: PRINT,
+            diagramsNotDrawn: 2,
+        }))
+        const preview = await previewMarkdownPdf('# Notes', 'notes.md', { profile: createDefaultPdfExportProfile() })
+        expect(preview.note).toBe("2 diagrams couldn't be drawn.")
     })
 
     it('fails with the reason when the document or the print fails', async () => {

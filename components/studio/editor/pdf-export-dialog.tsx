@@ -26,7 +26,9 @@ type PdfExportDialogProps = {
     tabPath?: string
     /** The open folder. Only images inside it are embedded. */
     workspaceRoot?: string | null
-    format?: ExportFormat
+    /** The format picked. The owner keeps it, so the next export opens at the same one. */
+    format: ExportFormat
+    onFormatChange: (format: ExportFormat) => void
     /** The user chose 'Load images' in this document's preview, so the export embeds its web images too. */
     allowRemoteImages?: boolean
     /**
@@ -44,7 +46,8 @@ export function PdfExportDialog({
     tabName,
     tabPath,
     workspaceRoot = null,
-    format = 'pdf',
+    format,
+    onFormatChange,
     allowRemoteImages = false,
     exporting,
     onExportingChange,
@@ -64,12 +67,12 @@ export function PdfExportDialog({
             >
                 {/* The popup unmounts when closed, so the form's state starts fresh on every open. */}
                 <PdfExportForm
-                    key={format}
                     source={source}
                     tabName={tabName}
                     tabPath={tabPath}
                     workspaceRoot={workspaceRoot}
-                    initialFormat={format}
+                    format={format}
+                    onFormatChange={onFormatChange}
                     allowRemoteImages={allowRemoteImages}
                     busy={exporting}
                     onBusyChange={onExportingChange}
@@ -157,7 +160,8 @@ function PdfExportForm({
     tabName,
     tabPath,
     workspaceRoot,
-    initialFormat,
+    format,
+    onFormatChange,
     allowRemoteImages,
     busy,
     onBusyChange,
@@ -167,7 +171,8 @@ function PdfExportForm({
     tabName: string | undefined
     tabPath: string | undefined
     workspaceRoot: string | null
-    initialFormat: ExportFormat
+    format: ExportFormat
+    onFormatChange: (format: ExportFormat) => void
     allowRemoteImages: boolean
     busy: boolean
     onBusyChange: (busy: boolean) => void
@@ -184,7 +189,6 @@ function PdfExportForm({
     const [subtitle, setSubtitle] = useState(defaults.subtitle)
     const [author, setAuthor] = useState(defaults.author)
     const [date, setDate] = useState(defaults.date)
-    const [format, setFormat] = useState<ExportFormat>(initialFormat)
     const [error, setError] = useState('')
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
@@ -253,7 +257,7 @@ function PdfExportForm({
                 <fieldset disabled={busy} className="min-w-0 space-y-4">
                     <Field>
                         <FieldLabel htmlFor="export-format">Format</FieldLabel>
-                        <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={setFormat} />
+                        <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={onFormatChange} />
                     </Field>
                     <Field>
                         <FieldLabel htmlFor="export-profile">Profile</FieldLabel>

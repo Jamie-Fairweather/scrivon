@@ -24,6 +24,7 @@ type DialogProps = {
     workspaceRoot?: string | null
     allowRemoteImages?: boolean
     format?: ExportFormat
+    onFormatChange?: (format: ExportFormat) => void
 }
 const dialogProps = vi.hoisted(() => ({ current: null as DialogProps | null }))
 /** The props the export dialog last rendered with, or null when the menu left it out. */
@@ -345,6 +346,22 @@ describe('export commands', () => {
 
         act(() => void command('export').run())
         expect(lastDialog()).toMatchObject({ open: true, format: 'docx' })
+    })
+
+    it('opens the dialog with Export… at the format last picked inside the dialog', async () => {
+        tabs.activeTab = tab('notes.md', '# Notes')
+        render(<WithCommands />)
+        await waitFor(() => expect(command('export').disabled).toBe(false))
+
+        act(() => void command('export').run())
+        expect(lastDialog()).toMatchObject({ open: true, format: 'pdf' })
+        // The user switches Format to HTML in the dialog, exports, and the dialog closes.
+        act(() => lastDialog()?.onFormatChange?.('html'))
+        expect(lastDialog()?.format).toBe('html')
+        act(() => lastDialog()?.onOpenChange(false))
+
+        act(() => void command('export').run())
+        expect(lastDialog()).toMatchObject({ open: true, format: 'html' })
     })
 
     it('opens the export menu with Export… for a Mermaid file, which has no dialog', async () => {

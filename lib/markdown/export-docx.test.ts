@@ -9,6 +9,8 @@ const renderMermaidDiagramForExport = vi.hoisted(() =>
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
         if (source.includes('throw-lines')) throw new Error('Pies are not drawn yet. Scrivon can draw:\n• Flowcharts\r\n• Sequence diagrams')
+        // As the real renderer does: the preview card's help.
+        if (source.startsWith('pie')) throw new Error("Pie charts aren't supported yet. Scrivon can draw:\n• Flowcharts (flowchart TD or graph LR)")
         // The size of the 1×1 PNG svgToPngBlob hands back.
         return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
@@ -239,8 +241,8 @@ function profile(edit?: (draft: PdfExportProfile) => void): PdfExportProfile {
 
 async function render(source: string, edit?: (draft: PdfExportProfile) => void, assets?: PdfExportResolvedAssets) {
     const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-    const bytes = await renderExportDocx(buildExportDocument(source, { profile: profile(edit), tabName: 'notes.md', assets }))
-    return readDocx(bytes)
+    const { bytes, diagramsNotDrawn } = await renderExportDocx(buildExportDocument(source, { profile: profile(edit), tabName: 'notes.md', assets }))
+    return { ...readDocx(bytes), diagramsNotDrawn }
 }
 
 const RICH = [
@@ -539,6 +541,39 @@ describe('renderExportDocx', () => {
         expect(body).not.toContain('graph TD')
         expect(body).not.toContain('<w:drawing>')
         expect(svgToPngBlob).not.toHaveBeenCalled()
+    })
+
+    it("writes a diagram type Scrivon can't draw as a short note for readers and its source, not the preview's help", async () => {
+        const { parts, diagramsNotDrawn } = await render(['Before.', '', fence('mermaid', 'pie\n  "Dogs" : 3'), '', 'After.'].join('\n'))
+        const body = parts['word/document.xml']!
+        const note = blockWith(body, 'Pie chart: not supported in Scrivon yet')
+        expect(note).toContain('<w:i/>')
+        // It stays on the page with the code under it.
+        expect(note).toContain('<w:keepNext/>')
+        // The diagram's data still reaches the reader, as a code block.
+        expect(runWith(body, 'pie')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, '  &quot;Dogs&quot; : 3')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('Scrivon can draw')
+        expect(body).not.toContain('<w:drawing>')
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
+    it('counts the diagrams it could not draw: errors, empty ones, pictures that failed and types it does not support', async () => {
+        const draw = renderMermaidDiagramForExport.getMockImplementation()!
+        // Nothing to draw yet renders a 0×0 picture.
+        renderMermaidDiagramForExport.mockImplementation((source) =>
+            source === 'empty' ? '<svg viewBox="0 0 0 0" width="0" height="0"></svg>' : draw(source)
+        )
+        try {
+            // png-garbage: a picture came back, but its size can't be read, so the source is shown.
+            const source = ['png-ok', 'throw-error', 'empty', 'png-fail', 'png-garbage', 'pie\n  "Dogs" : 3']
+                .map((text) => fence('mermaid', text))
+                .join('\n\n')
+            expect((await render(source)).diagramsNotDrawn).toBe(5)
+            expect((await render(fence('js', 'const a = 1'))).diagramsNotDrawn).toBe(0)
+        } finally {
+            renderMermaidDiagramForExport.mockImplementation(draw)
+        }
     })
 
     it('writes each line of a diagram error on a line of its own, as Word ignores line breaks inside a run', async () => {
