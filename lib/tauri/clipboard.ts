@@ -1,8 +1,10 @@
 /**
- * All clipboard reads and writes, through Tauri's clipboard plugin. Reading through the browser's
+ * All clipboard reads and writes, through Tauri's clipboard plugin (and, for an SVG picture, which the plugin
+ * can't write, a command of the app's own). Reading through the browser's
  * navigator.clipboard makes WebView2 ask the user for clipboard access (#208), so the app never does.
  * Only the plain browser build (bun run dev, without Tauri) falls back to navigator.clipboard.
  */
+import { invoke } from '@tauri-apps/api/core'
 import { readImage, readText, writeImage, writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { isTauri } from '@/lib/tauri/platform'
 
@@ -85,6 +87,20 @@ export async function writeClipboardText(text: string): Promise<void> {
     if (!isTauri()) return browserClipboard().writeText(text)
     try {
         await writeText(text)
+    } catch (error) {
+        throw plainError(error)
+    }
+}
+
+/**
+ * Puts SVG markup on the clipboard as text and, on Windows, as an SVG picture too, which Word and PowerPoint paste
+ * as a picture. The plugin can't write that picture format, so the app's own command writes both in one go
+ * (src-tauri/src/svg_clipboard.rs). The plain browser build puts the text only.
+ */
+export async function writeClipboardSvg(svg: string): Promise<void> {
+    if (!isTauri()) return browserClipboard().writeText(svg)
+    try {
+        await invoke('write_clipboard_svg', { svg })
     } catch (error) {
         throw plainError(error)
     }

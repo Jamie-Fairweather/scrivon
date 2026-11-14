@@ -2,7 +2,7 @@ import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
 import { downloadBlob } from '@/lib/download'
 import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { notifyFileSaved, showInFolderAction } from '@/lib/saved-file-notice'
-import { writeClipboardPng, writeClipboardText } from '@/lib/tauri/clipboard'
+import { writeClipboardPng, writeClipboardSvg } from '@/lib/tauri/clipboard'
 import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
@@ -299,15 +299,14 @@ export async function copyPng(source: string, look: DiagramLook): Promise<void> 
 }
 
 /**
- * Copies the diagram's SVG markup as text, to paste into a web page, a .svg file or an app that reads SVG text.
- * Tauri's clipboard takes text, HTML and pixels, not an SVG picture, so Office apps get the markup too: Copy as
- * PNG is the one for them.
+ * Copies the diagram as SVG: the markup as text (for a web page, a .svg file or an app that reads SVG text) and, on
+ * Windows, as an SVG picture that Word and PowerPoint paste as a picture.
  */
 export async function copySvg(source: string, { themeId, transparent }: DiagramLook): Promise<void> {
     try {
         // Pasted into other apps, like a saved .svg file (see exportSvg).
         const svg = buildExportSvg(source, themeId, { labelHalo: false, transparent })
-        await writeClipboardText(svg)
+        await writeClipboardSvg(svg)
         notifySuccess('Diagram copied as SVG')
     } catch (err) {
         notifyError(COPY_FAILED, err)

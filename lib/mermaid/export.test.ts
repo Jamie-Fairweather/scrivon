@@ -17,7 +17,7 @@ const opener = vi.hoisted(() => ({ revealItemInDir: vi.fn<(path: string) => Prom
 const render = vi.hoisted(() => ({ fakeSvg: null as string | null }))
 /** The clipboard, written through Tauri. */
 const clipboard = vi.hoisted(() => ({
-    writeClipboardText: vi.fn<(text: string) => Promise<void>>(async () => undefined),
+    writeClipboardSvg: vi.fn<(svg: string) => Promise<void>>(async () => undefined),
     writeClipboardPng: vi.fn<(png: Uint8Array) => Promise<void>>(async () => undefined),
 }))
 
@@ -268,7 +268,7 @@ describe('copy to the clipboard (F45)', () => {
         expect(notify.notifyError).not.toHaveBeenCalled()
         // The bytes the canvas encoded.
         expect(clipboard.writeClipboardPng).toHaveBeenCalledWith(new TextEncoder().encode('png'))
-        expect(clipboard.writeClipboardText).not.toHaveBeenCalled()
+        expect(clipboard.writeClipboardSvg).not.toHaveBeenCalled()
         expect(canvas.fills).toEqual(['#ffffff'])
         expect(notify.notifySuccess).toHaveBeenCalledWith('Diagram copied as PNG')
         // Nothing is saved to disk.
@@ -310,11 +310,11 @@ describe('copy to the clipboard (F45)', () => {
         )
     })
 
-    it('copies the SVG markup as text through Tauri, without the label halo, and says so', async () => {
+    it('copies the SVG markup through Tauri (as text, and as a picture for Office), without the label halo, and says so', async () => {
         await copySvg(SEQUENCE, { themeId: 'scrivon-dark', transparent: true })
 
         expect(notify.notifyError).not.toHaveBeenCalled()
-        const [[text]] = clipboard.writeClipboardText.mock.calls as [[string]]
+        const [[text]] = clipboard.writeClipboardSvg.mock.calls as [[string]]
         expect(text).toMatch(/^<svg /)
         expect(text).toContain('Hello')
         expect(text).not.toContain('paint-order')
@@ -326,7 +326,7 @@ describe('copy to the clipboard (F45)', () => {
         stubCanvas()
         const occupied = 'The native clipboard is not accessible due to being held by another party.'
         clipboard.writeClipboardPng.mockRejectedValueOnce(occupied)
-        clipboard.writeClipboardText.mockRejectedValueOnce(occupied)
+        clipboard.writeClipboardSvg.mockRejectedValueOnce(occupied)
 
         await copyPng(FLOW, LIGHT)
         await copySvg(FLOW, LIGHT)
@@ -339,7 +339,7 @@ describe('copy to the clipboard (F45)', () => {
     it('says so instead of copying an empty diagram', async () => {
         await copySvg('graph TD', LIGHT)
 
-        expect(clipboard.writeClipboardText).not.toHaveBeenCalled()
+        expect(clipboard.writeClipboardSvg).not.toHaveBeenCalled()
         expect(notify.notifyError).toHaveBeenCalledWith(
             "Couldn't copy the diagram",
             new Error('The diagram is empty, so there is nothing to export.')

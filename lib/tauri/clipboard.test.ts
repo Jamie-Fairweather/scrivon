@@ -7,11 +7,14 @@ const plugin = vi.hoisted(() => ({
     writeImage: vi.fn<(image: Uint8Array) => Promise<void>>(),
 }))
 const platform = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
+/** The app's own commands (src-tauri/src/svg_clipboard.rs). */
+const core = vi.hoisted(() => ({ invoke: vi.fn<(command: string, args?: unknown) => Promise<unknown>>(async () => undefined) }))
 
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => plugin)
+vi.mock('@tauri-apps/api/core', () => core)
 vi.mock('@/lib/tauri/platform', () => platform)
 
-const { readClipboardPng, readClipboardText, writeClipboardPng, writeClipboardText } = await import('./clipboard')
+const { readClipboardPng, readClipboardText, writeClipboardPng, writeClipboardSvg, writeClipboardText } = await import('./clipboard')
 
 /** What the plugin rejects with when the clipboard has nothing of the kind asked for (arboard's ContentNotAvailable). */
 const NOTHING_THERE = 'The clipboard contents were not available in the requested format or the clipboard is empty.'
@@ -109,6 +112,22 @@ describe('in the app', () => {
         expect(plugin.writeImage).toHaveBeenCalledWith(PNG)
     })
 
+    it('writes SVG through the app’s own command, which also puts an SVG picture on the clipboard for Office', async () => {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+
+        await writeClipboardSvg(svg)
+
+        expect(core.invoke).toHaveBeenCalledWith('write_clipboard_svg', { svg })
+        // Not as text alone, which Office pastes as a text box of markup.
+        expect(plugin.writeText).not.toHaveBeenCalled()
+    })
+
+    it('says why when the SVG can’t be put on the clipboard', async () => {
+        core.invoke.mockRejectedValueOnce('Another app is using the clipboard. Try again.')
+
+        await expect(writeClipboardSvg('<svg/>')).rejects.toBe('Another app is using the clipboard. Try again.')
+    })
+
     it('says why when the clipboard refuses a write, in plain words when another app has it', async () => {
         plugin.writeText.mockRejectedValueOnce(HELD)
         await expect(writeClipboardText('x')).rejects.toEqual(IN_USE)
@@ -159,13 +178,16 @@ describe('in a plain browser (bun run dev, without Tauri)', () => {
         await expect(readClipboardPng()).resolves.toBeNull()
     })
 
-    it('writes text and PNG pictures to the browser’s clipboard', async () => {
+    it('writes text and PNG pictures to the browser’s clipboard, and SVG as text', async () => {
         const clipboard = browserClipboard()
 
         await writeClipboardText('Hello')
         await writeClipboardPng(PNG)
+        await writeClipboardSvg('<svg/>')
 
-        expect(clipboard.writeText).toHaveBeenCalledWith('Hello')
+        expect(clipboard.writeText).toHaveBeenNthCalledWith(1, 'Hello')
+        expect(clipboard.writeText).toHaveBeenNthCalledWith(2, '<svg/>')
+        expect(core.invoke).not.toHaveBeenCalled()
         const [[written]] = clipboard.write.mock.calls
         expect(Object.keys(written![0]!.items)).toEqual(['image/png'])
         expect(new Uint8Array(await written![0]!.items['image/png']!.arrayBuffer())).toEqual(PNG)
@@ -181,5 +203,6 @@ describe('in a plain browser (bun run dev, without Tauri)', () => {
         await expect(readClipboardPng()).rejects.toEqual(missing)
         await expect(writeClipboardText('x')).rejects.toEqual(missing)
         await expect(writeClipboardPng(PNG)).rejects.toEqual(missing)
+        await expect(writeClipboardSvg('<svg/>')).rejects.toEqual(missing)
     })
 })

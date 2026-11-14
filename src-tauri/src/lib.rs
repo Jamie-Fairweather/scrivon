@@ -11,6 +11,7 @@ mod prevent_browser_shortcuts;
 mod settings_file;
 mod snap_layouts;
 mod store_recovery;
+mod svg_clipboard;
 mod system_fonts;
 mod system_menu;
 mod update_downloads;
@@ -375,6 +376,7 @@ pub fn run() {
             settings_file::save_settings_file,
             snap_layouts::set_maximize_button_area,
             store_recovery::take_store_recovery,
+            svg_clipboard::write_clipboard_svg,
             system_fonts::list_system_fonts,
             system_menu::show_system_menu,
             updater::check_for_app_update,
