@@ -126,3 +126,6 @@ declare module 'monaco-editor/editor/contrib/snippet/browser/snippetParser.js' {
         parse(value: string): { toString(): string }
     }
 }
+
+// Ctrl+. and its quick fix list, used by components/studio/editor/code-editor-panel-quick-fix.test.tsx with the real editor.
+declare module 'monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js'
