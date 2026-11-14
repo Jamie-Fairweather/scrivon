@@ -46,13 +46,6 @@ function startsWith(segments: readonly string[], root: readonly string[]): boole
     return segments.length >= root.length && root.every((segment, i) => segment === segments[i])
 }
 
-/** How many path segments at the end of `a` and `b` are the same. */
-function sharedTailLength(a: readonly string[], b: readonly string[]): number {
-    let length = 0
-    while (length < a.length && length < b.length && a[a.length - 1 - length] === b[b.length - 1 - length]) length++
-    return length
-}
-
 /**
  * Finds tabs that were renamed or moved, as remapTabsAfterRename does: the tab list keeps its length
  * and order, and the changed paths are all inside one file or folder that moved from `oldRoot` to
@@ -87,8 +80,7 @@ export function detectRenamedPaths(prev: readonly string[], next: readonly strin
 
     // The moved entry is the first changed tab's file or one of the folders above it, so try each.
     const { from, to } = changed[0]!
-    const longestRest = Math.min(sharedTailLength(from, to), from.length - 1, to.length - 1)
-    for (let rest = 0; rest <= longestRest; rest++) {
+    for (let rest = 0; rest < Math.min(from.length, to.length); rest++) {
         if (isOneMove(from.slice(0, from.length - rest), to.slice(0, to.length - rest))) return renamed
     }
     return new Map()

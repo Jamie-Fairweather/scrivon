@@ -134,6 +134,11 @@ describe('detectRenamedPaths', () => {
         )
     })
 
+    it('finds nothing when no tab changed', () => {
+        expect(detectRenamedPaths(['/w/a.md'], ['/w/a.md']).size).toBe(0)
+        expect(detectRenamedPaths([], []).size).toBe(0)
+    })
+
     it('ignores tabs being opened, closed or replaced', () => {
         expect(detectRenamedPaths(['/w/a.md'], ['/w/a.md', '/w/b.md']).size).toBe(0)
         expect(detectRenamedPaths(['/w/a.md', '/w/b.md'], ['/w/b.md']).size).toBe(0)
