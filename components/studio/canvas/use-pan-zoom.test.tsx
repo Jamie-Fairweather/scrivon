@@ -113,6 +113,8 @@ function Canvas({ tabId = 'a.mmd', memory, onPanZoom }: { tabId?: string; memory
             <div data-canvas-no-gestures>
                 <pre data-testid="banner">error</pre>
             </div>
+            <input data-testid="field" aria-label="Field" />
+            <div data-testid="editable" contentEditable suppressContentEditableWarning />
         </div>
     )
 }
@@ -230,7 +232,7 @@ describe('usePanZoom', () => {
         expect(content.style.transform).toBe('translate(0px, 0px) scale(1)')
     })
 
-    it('leaves other keys, Alt shortcuts and keys pressed inside the canvas (a toolbar button) alone', () => {
+    it('leaves other keys and Alt shortcuts alone', () => {
         const { getByTestId } = render(<Canvas />)
         const container = getByTestId('container')
 
@@ -238,7 +240,26 @@ describe('usePanZoom', () => {
         expect(fireEvent.keyDown(container, { key: '=', altKey: true })).toBe(true)
         expect(fireEvent.keyDown(container, { key: '=', ctrlKey: true, altKey: true })).toBe(true)
         expect(fireEvent.keyDown(container, { key: 'ArrowLeft', ctrlKey: true })).toBe(true)
-        expect(fireEvent.keyDown(getByTestId('banner'), { key: '+' })).toBe(true)
+        expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1)')
+    })
+
+    it('zooms with keys pressed on something inside the canvas, but leaves it the arrow keys (#178)', () => {
+        const { getByTestId } = render(<Canvas />)
+        const banner = getByTestId('banner')
+
+        expect(fireEvent.keyDown(banner, { key: '+' })).toBe(false)
+        expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1.25)')
+        // The arrow keys stay with the message, which they scroll.
+        expect(fireEvent.keyDown(banner, { key: 'ArrowDown' })).toBe(true)
+        expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1.25)')
+    })
+
+    it('leaves every key to a text field inside the canvas (#178)', () => {
+        const { getByTestId } = render(<Canvas />)
+
+        expect(fireEvent.keyDown(getByTestId('field'), { key: '-' })).toBe(true)
+        expect(fireEvent.keyDown(getByTestId('field'), { key: '0', ctrlKey: true })).toBe(true)
+        expect(fireEvent.keyDown(getByTestId('editable'), { key: '+' })).toBe(true)
         expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1)')
     })
 
