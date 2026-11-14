@@ -473,7 +473,7 @@ describe('StudioMenuBar File → Export', () => {
         mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
     })
 
-    it('sits after Save All, with every kind of export', async () => {
+    it('sits after the save items, with every kind of export', async () => {
         render(
             <Studio>
                 <ExportCommands state={MARKDOWN} />
@@ -481,7 +481,9 @@ describe('StudioMenuBar File → Export', () => {
         )
 
         const { file, exportMenu } = await openExportMenu()
-        expect(menuLabels(file).slice(2, 5)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Export'])
+        const labels = menuLabels(file)
+        const save = labels.indexOf('SaveCtrl+S')
+        expect(labels.slice(save, save + 4)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Revert File', 'Export'])
         expect(menuLabels(exportMenu)).toEqual(['PDF…', 'Word…', 'HTML…', 'Diagram as SVG…', 'Diagram as PNG'])
     })
 
