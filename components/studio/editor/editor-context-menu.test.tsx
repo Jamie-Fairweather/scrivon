@@ -231,6 +231,70 @@ describe('EditorContextMenu', () => {
         expect(setUp.spelling.asked).toHaveLength(0)
     })
 
+    it('keeps the highlight on the row you are on when the suggestions come late', async () => {
+        const setUp = setup()
+        fake = setUp.fake
+        fake.focus()
+        fireEvent.contextMenu(fake.text, { clientX: 25, clientY: 5 })
+        const menu = screen.getByRole('menu')
+        await waitFor(() => expect(menu).toContainElement(document.activeElement as HTMLElement))
+        const addToDictionary = screen.getByRole('menuitem', { name: 'Add to Dictionary' })
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+        await waitFor(() => expect(addToDictionary).toHaveFocus())
+        expect(addToDictionary).toHaveAttribute('data-highlighted')
+
+        // Three rows come in above it.
+        await setUp.spelling.answer(['help', 'hello', 'halo'])
+        expect(addToDictionary).toHaveFocus()
+        expect([...menu.querySelectorAll('[data-highlighted]')]).toEqual([addToDictionary])
+
+        // The arrow keys carry on from it, and Enter runs the row shown.
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
+        await waitFor(() => expect(screen.getByRole('menuitem', { name: 'halo' })).toHaveFocus())
+        expect(screen.getByRole('menuitem', { name: 'halo' })).toHaveAttribute('data-highlighted')
+        fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
+        await waitFor(() => expect(setUp.spelling.replaced).toEqual(['halo']))
+        expect(setUp.spelling.added).toEqual([])
+    })
+
+    it('moves you onto the first suggestion if you were on “Looking for suggestions…”', async () => {
+        const setUp = setup()
+        fake = setUp.fake
+        fake.focus()
+        fireEvent.contextMenu(fake.text, { clientX: 25, clientY: 5 })
+        const menu = screen.getByRole('menu')
+        await waitFor(() => expect(menu).toContainElement(document.activeElement as HTMLElement))
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+        await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Looking for suggestions…' })).toHaveFocus())
+
+        await setUp.spelling.answer(['help', 'hello'])
+        const help = screen.getByRole('menuitem', { name: 'help' })
+        expect(help).toHaveFocus()
+        expect([...menu.querySelectorAll('[data-highlighted]')]).toEqual([help])
+        fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
+        await waitFor(() => expect(setUp.spelling.replaced).toEqual(['help']))
+    })
+
+    it('keeps the row under the mouse highlighted, and gives it focus, when the suggestions come late', async () => {
+        const setUp = setup()
+        fake = setUp.fake
+        fireEvent.contextMenu(fake.text, { clientX: 25, clientY: 5 })
+        const menu = screen.getByRole('menu')
+        await waitFor(() => expect(menu).toContainElement(document.activeElement as HTMLElement))
+        fireEvent.mouseMove(screen.getByRole('menuitem', { name: 'Add to Dictionary' }), { movementX: 1, movementY: 1 })
+        await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Add to Dictionary' })).toHaveAttribute('data-highlighted'))
+
+        // The second row is now 'hello', and the mouse hasn't moved: that row is the one under it.
+        await setUp.spelling.answer(['help', 'hello', 'halo'])
+        const hello = screen.getByRole('menuitem', { name: 'hello' })
+        expect([...menu.querySelectorAll('[data-highlighted]')]).toEqual([hello])
+        expect(hello).toHaveFocus()
+        fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
+        await waitFor(() => expect(setUp.spelling.replaced).toEqual(['hello']))
+        expect(setUp.spelling.added).toEqual([])
+    })
+
     it('ignores suggestions that come after the menu closed, or for a word right-clicked before', async () => {
         const setUp = setup()
         fake = setUp.fake

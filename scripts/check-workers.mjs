@@ -46,9 +46,18 @@ function readOutFile(url) {
     return readFileSync(join(out, ...path.split('/').filter(Boolean)), 'utf8')
 }
 
-/** The spell check worker is the one whose code answers with "suggested" (lib/spellcheck/spellcheck-worker-core.ts). */
-function isSpellcheckWorker({ chunks }) {
-    return chunks.some((chunk) => readOutFile(`/_next/${chunk}`).includes('"suggested"'))
+/** The workers the app starts, each told apart by a string only its own code has. The first that matches wins. */
+const KINDS = [
+    ['spell check', '"suggested"'], // lib/spellcheck/spellcheck-worker-core.ts
+    ['outline', 'headings:'], // lib/markdown/outline.worker.ts
+    ['Mermaid', '"rendered"'], // lib/mermaid/render-worker-core.ts
+    ['Monaco', '$computeDiff'], // Monaco's editor worker (lib/monaco/editor.worker.ts)
+]
+
+/** Which worker this is, or null if none of them. */
+function workerKind({ chunks }) {
+    const code = chunks.map((chunk) => readOutFile(`/_next/${chunk}`)).join('\n')
+    return KINDS.find(([, marker]) => code.includes(marker))?.[0] ?? null
 }
 
 /** Runs one worker in a sandbox. Resolves with what it sent and any error it hit. */
@@ -111,6 +120,19 @@ async function runWorker({ bootstrap, chunks }, request) {
     return { sent, errors }
 }
 
+/**
+ * An error's name and message, then where it happened. The message goes first: for an error in the sandbox the
+ * stack starts with the file, the line of code and a caret, which would push it out of view.
+ */
+function describeError(err) {
+    if (typeof err?.message !== 'string') return String(err)
+    const at = String(err.stack ?? '')
+        .split('\n')
+        .filter((line) => line.trimStart().startsWith('at '))
+        .slice(0, 3)
+    return [`${err.name ?? 'Error'}: ${err.message}`, ...at].join('\n')
+}
+
 const workers = findWorkers()
 if (workers.length === 0) {
     console.error('Found no workers in out/. Has the way Turbopack starts workers changed?')
@@ -122,21 +144,14 @@ let spellcheckFound = false
 const spellRequest = { type: 'check', id: 1, language: 'en-US', words: [], text: 'This has a mispelt wurd.', document: 'check' }
 
 for (const worker of workers) {
-    const spellcheck = isSpellcheckWorker(worker)
+    const kind = workerKind(worker)
+    const spellcheck = kind === 'spell check'
     if (spellcheck) spellcheckFound = true
     const { sent, errors } = await runWorker(worker, spellcheck ? spellRequest : null)
-    const name = `${spellcheck ? 'the spell check worker, ' : ''}${worker.chunks[0]}`
+    const name = `${kind ? `the ${kind} worker, ` : ''}${worker.chunks[0]}`
     if (errors.length > 0) {
         failed = true
-        console.error(
-            `✗ A worker (${name}) failed to load:`,
-            ...errors.map((err) =>
-                String(err?.stack ?? err)
-                    .split('\n')
-                    .slice(0, 3)
-                    .join('\n')
-            )
-        )
+        console.error(`✗ A worker (${name}) failed to load:`, ...errors.map(describeError))
         continue
     }
     if (spellcheck) {

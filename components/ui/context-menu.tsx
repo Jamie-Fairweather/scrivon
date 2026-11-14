@@ -39,6 +39,16 @@ export function useContextMenuAtPoint(): UseContextMenuAtPointResult {
     return { open, anchor, openAt, close, onOpenChange }
 }
 
+/**
+ * Whether focus is still in a menu (or nowhere), for a menu's `finalFocus`: as it closes, the menu gives focus back
+ * only then, and not when a choice in it has taken focus somewhere else (a prompt or the palette). The menu calls
+ * `finalFocus` before it leaves the page, so this sees where focus really is.
+ */
+export function isFocusInMenu(): boolean {
+    const active = document.activeElement
+    return !active || active === document.body || active.closest('[data-slot="menu-popup"]') !== null
+}
+
 export function ContextMenuAtPoint({
     open,
     onOpenChange,
@@ -48,6 +58,7 @@ export function ContextMenuAtPoint({
     side = 'bottom',
     className,
     finalFocus,
+    onItemHighlighted,
 }: {
     open: boolean
     onOpenChange: (open: boolean) => void
@@ -57,9 +68,10 @@ export function ContextMenuAtPoint({
     side?: React.ComponentProps<typeof MenuPopup>['side']
     className?: string
     finalFocus?: React.ComponentProps<typeof MenuPopup>['finalFocus']
+    onItemHighlighted?: React.ComponentProps<typeof Menu>['onItemHighlighted']
 }) {
     return (
-        <Menu open={open} onOpenChange={onOpenChange}>
+        <Menu open={open} onOpenChange={onOpenChange} onItemHighlighted={onItemHighlighted}>
             <MenuPopup anchor={anchor} align={align} side={side} className={className} finalFocus={finalFocus}>
                 {children}
             </MenuPopup>
