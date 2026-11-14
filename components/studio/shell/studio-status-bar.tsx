@@ -1,10 +1,10 @@
 'use client'
 
 import { CircleAlert, Loader2, Lock } from 'lucide-react'
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
-import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
+import { useFrameSyncedValue } from '@/components/studio/hooks/use-frame-synced-value'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useDocumentSave, useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
@@ -26,10 +26,15 @@ function countLabel(total: number, selected: number | null, word: string): strin
 
 /**
  * Counting takes about 25 ms a megabyte, all in one go, so above this length the counts wait for a short
- * pause in typing instead of running again after every key.
+ * pause in typing (or selecting) instead of running again after every key.
  */
 const LIVE_COUNT_CHARS = 100_000
 const COUNT_PAUSE_MS = 300
+
+/** How long text waits before it is counted again: long text waits for a pause, short text only for the next frame. */
+function countDelay(text: string): number {
+    return text.length > LIVE_COUNT_CHARS ? COUNT_PAUSE_MS : 0
+}
 
 const LINE_ENDINGS: Record<LineEndings, { label: string; title: string }> = {
     CRLF: { label: 'CRLF', title: 'Windows line endings (CRLF)' },
@@ -123,8 +128,8 @@ function StatusBarContent() {
     const { layout } = useStudioLayout()
     const cursor = useEditorCursor()
     const liveContent = activeTab?.content ?? ''
-    // A newly opened tab is counted at once.
-    const content = useFrameSyncedValue(liveContent, activeTab?.id, liveContent.length > LIVE_COUNT_CHARS ? COUNT_PAUSE_MS : 0)
+    // Switching tabs counts the new one at once.
+    const content = useFrameSyncedValue(liveContent, activeTab?.id, countDelay(liveContent))
     const lineEndings = useMemo(() => {
         const kind = lineEndingsOf(content)
         return kind ? LINE_ENDINGS[kind] : null
@@ -136,7 +141,10 @@ function StatusBarContent() {
     )
     // A hidden editor's caret and selection can't be seen, so they aren't shown here either.
     const showCursor = layout.editorOpen && cursor !== null
-    const selectedText = useDeferredValue(showCursor && counts ? cursor.selectedText : '')
+    const liveSelected = showCursor && counts ? cursor.selectedText : ''
+    // A large selection waits for the same pause. Selecting comes after typing, so the file's count
+    // catches up first, and Ctrl+A just after typing doesn't show more selected than the file holds.
+    const selectedText = useFrameSyncedValue(liveSelected, activeTab?.id, countDelay(liveSelected))
     const selection = useMemo(
         () => (selectedText ? { words: countWords(selectedText), characters: countCharacters(selectedText) } : null),
         [selectedText]

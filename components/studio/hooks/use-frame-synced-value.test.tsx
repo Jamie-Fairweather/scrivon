@@ -3,15 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useFrameSyncedValue } from './use-frame-synced-value'
 
 describe('useFrameSyncedValue', () => {
-    let frames: FrameRequestCallback[] = []
+    const frames = new Map<number, FrameRequestCallback>()
+    let lastFrame = 0
 
     beforeEach(() => {
-        frames = []
+        frames.clear()
         vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
-            frames.push(cb)
-            return frames.length
+            frames.set(++lastFrame, cb)
+            return lastFrame
         })
-        vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+        vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+            frames.delete(id)
+        })
     })
 
     afterEach(() => {
@@ -20,8 +23,8 @@ describe('useFrameSyncedValue', () => {
 
     const flushFrame = () =>
         act(() => {
-            const pending = frames
-            frames = []
+            const pending = [...frames.values()]
+            frames.clear()
             for (const cb of pending) cb(0)
         })
 
@@ -69,6 +72,21 @@ describe('useFrameSyncedValue', () => {
 
             act(() => vi.advanceTimersByTime(50))
             expect(result.current).toBe('three')
+        })
+
+        it('still waits when the value needs the delay just after a quick update', () => {
+            const { result, rerender } = renderHook(({ value, delay }) => useFrameSyncedValue(value, 'tab-a', delay), {
+                initialProps: { value: 'short', delay: 0 },
+            })
+            rerender({ value: 'short edited', delay: 0 })
+            // Within the same frame, the value grows long enough to need the delay.
+            rerender({ value: 'long', delay: 200 })
+            flushFrame()
+            act(() => vi.advanceTimersByTime(100))
+            expect(result.current).toBe('short')
+
+            act(() => vi.advanceTimersByTime(100))
+            expect(result.current).toBe('long')
         })
 
         it('still shows a new tab’s value straight away', () => {

@@ -222,6 +222,63 @@ describe('StudioStatusBar', () => {
             rerender(<StudioStatusBar />)
             expect(within(statusBar()).getByText('50,000 words')).toBeInTheDocument()
         })
+
+        it('counts a small selection again as soon as it changes', () => {
+            show({ activeTab: tab({ content: 'one two three' }), cursor: { line: 1, column: 4, selectedText: 'one' } })
+            const { rerender } = render(<StudioStatusBar />)
+            expect(within(statusBar()).getByText('1 of 3 words')).toBeInTheDocument()
+
+            show({ activeTab: tab({ content: 'one two three' }), cursor: { line: 1, column: 8, selectedText: 'one two' } })
+            rerender(<StudioStatusBar />)
+            act(() => vi.advanceTimersByTime(20))
+            expect(within(statusBar()).getByText('2 of 3 words')).toBeInTheDocument()
+        })
+
+        it('waits for a pause before counting a large selection again', () => {
+            const big = 'word '.repeat(50_000)
+            const select = (selectedText: string) => show({ activeTab: tab({ content: big }), cursor: { line: 1, column: 1, selectedText } })
+            select('')
+            const { rerender } = render(<StudioStatusBar />)
+
+            // Select all, then Shift+Up a few times, each sooner than the pause: the selection isn't counted yet.
+            for (const words of [50_000, 49_990, 49_980]) {
+                select('word '.repeat(words))
+                rerender(<StudioStatusBar />)
+                act(() => vi.advanceTimersByTime(100))
+                expect(within(statusBar()).getByText('50,000 words')).toBeInTheDocument()
+            }
+
+            // Once selecting stops, it is.
+            act(() => vi.advanceTimersByTime(1000))
+            expect(within(statusBar()).getByText('49,980 of 50,000 words')).toBeInTheDocument()
+            expect(within(statusBar()).getByText('249,900 of 250,000 characters')).toBeInTheDocument()
+
+            // Clearing the selection shows at once.
+            select('')
+            rerender(<StudioStatusBar />)
+            act(() => vi.advanceTimersByTime(20))
+            expect(within(statusBar()).getByText('50,000 words')).toBeInTheDocument()
+        })
+
+        it('never shows more selected than the file holds when selecting all just after typing', () => {
+            const big = 'word '.repeat(50_000)
+            show({ activeTab: tab({ content: big }) })
+            const { rerender } = render(<StudioStatusBar />)
+
+            const typed = `${big}a b c`
+            show({ activeTab: tab({ content: typed }) })
+            rerender(<StudioStatusBar />)
+            act(() => vi.advanceTimersByTime(100))
+
+            // Ctrl+A before the file has been counted again.
+            show({ activeTab: tab({ content: typed }), cursor: { line: 1, column: 1, selectedText: typed } })
+            rerender(<StudioStatusBar />)
+            for (let waited = 0; waited < 1000; waited += 50) {
+                act(() => vi.advanceTimersByTime(50))
+                expect(within(statusBar()).queryByText('50,003 of 50,000 words')).not.toBeInTheDocument()
+            }
+            expect(within(statusBar()).getByText('50,003 of 50,003 words')).toBeInTheDocument()
+        })
     })
 
     it('says "1 word" rather than "1 words"', () => {
