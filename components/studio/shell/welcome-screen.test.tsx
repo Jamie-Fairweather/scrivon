@@ -26,7 +26,14 @@ describe('WelcomeScreen', () => {
         const { container } = render(<WelcomeScreen />)
 
         expect(container.textContent).not.toContain('`')
-        expect(screen.getByText(/Open a folder to browse \.md, \.mmd and \.mermaid files/)).toBeInTheDocument()
+        expect(screen.getByText(/Open a folder to browse \.md, \.markdown, \.mmd and \.mermaid files/)).toBeInTheDocument()
+    })
+
+    it('is the main landmark', () => {
+        mockSession()
+        render(<WelcomeScreen />)
+
+        expect(screen.getByRole('main')).toContainElement(screen.getByRole('heading', { level: 1 }))
     })
 })
 

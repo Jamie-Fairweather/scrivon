@@ -6,10 +6,12 @@ function context(overrides: Partial<LayoutCommandsContext> = {}): LayoutCommands
         hasWorkspace: true,
         explorerOpen: true,
         editorOpen: true,
+        previewOpen: true,
         outlineOpen: false,
         canFitDiagram: true,
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setPreviewOpen: vi.fn(),
         setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
         requestCanvasFit: vi.fn(),
@@ -32,6 +34,18 @@ describe('buildLayoutCommands panes', () => {
         expect(ctx.setEditorOpen).toHaveBeenCalledWith(true)
     })
 
+    it('shows and hides the preview, on its shortcut', () => {
+        const shown = context({ previewOpen: true })
+        expect(find(shown, 'toggle-preview')).toMatchObject({ label: 'Preview', checked: true, keybind: 'view.togglePreview', disabled: false })
+        void find(shown, 'toggle-preview')!.run()
+        expect(shown.setPreviewOpen).toHaveBeenCalledWith(false)
+
+        const hidden = context({ previewOpen: false })
+        expect(find(hidden, 'toggle-preview')?.checked).toBe(false)
+        void find(hidden, 'toggle-preview')!.run()
+        expect(hidden.setPreviewOpen).toHaveBeenCalledWith(true)
+    })
+
     it('shows and hides the Outline panel', () => {
         const closed = context({ outlineOpen: false })
         expect(find(closed, 'toggle-outline')).toMatchObject({ label: 'Outline', checked: false, disabled: false })
@@ -52,10 +66,13 @@ describe('buildLayoutCommands layout modes', () => {
         void find(ctx, 'layout-all-panels')!.run()
         expect(ctx.setExplorerOpen).toHaveBeenLastCalledWith(true)
         expect(ctx.setEditorOpen).toHaveBeenLastCalledWith(true)
+        expect(ctx.setPreviewOpen).toHaveBeenLastCalledWith(true)
 
-        void find(ctx, 'layout-editor-preview')!.run()
-        expect(ctx.setExplorerOpen).toHaveBeenLastCalledWith(false)
-        expect(ctx.setEditorOpen).toHaveBeenLastCalledWith(true)
+        const editorOnly = context({ previewOpen: false })
+        void find(editorOnly, 'layout-editor-preview')!.run()
+        expect(editorOnly.setExplorerOpen).toHaveBeenLastCalledWith(false)
+        expect(editorOnly.setEditorOpen).toHaveBeenLastCalledWith(true)
+        expect(editorOnly.setPreviewOpen).toHaveBeenLastCalledWith(true)
 
         void find(ctx, 'preview-only')!.run()
         expect(ctx.setPreviewOnly).toHaveBeenCalledTimes(1)
@@ -70,7 +87,15 @@ describe('buildLayoutCommands layout modes', () => {
 
     it('turns the layout commands off with no folder open, and says why', () => {
         const ctx = context({ hasWorkspace: false })
-        for (const id of ['toggle-explorer', 'toggle-editor', 'toggle-outline', 'layout-all-panels', 'layout-editor-preview', 'preview-only']) {
+        for (const id of [
+            'toggle-explorer',
+            'toggle-editor',
+            'toggle-preview',
+            'toggle-outline',
+            'layout-all-panels',
+            'layout-editor-preview',
+            'preview-only',
+        ]) {
             expect(find(ctx, id)).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
         }
     })

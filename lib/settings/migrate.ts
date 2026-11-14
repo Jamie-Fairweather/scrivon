@@ -157,6 +157,7 @@ export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPl
         layout: {
             explorerOpen: readBoolean(read(STORAGE_LAYOUT_EXPLORER), defaults.layout.explorerOpen),
             editorOpen: readBoolean(read(STORAGE_LAYOUT_EDITOR), defaults.layout.editorOpen),
+            previewOpen: defaults.layout.previewOpen,
             editorWidth: readNumber(read(STORAGE_KEY_WIDTH), defaults.layout.editorWidth, 280, 2000),
             restorePanelsOnOpen: defaults.layout.restorePanelsOnOpen,
             outlineOpen: defaults.layout.outlineOpen,
@@ -170,6 +171,9 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Partial<AppSettings>
+    const editorOpen = typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen
+    // Settings saved before the preview could be hidden have no previewOpen. With the editor hidden, the preview always shows.
+    const previewOpen = !editorOpen || (typeof source.layout?.previewOpen === 'boolean' ? source.layout.previewOpen : defaults.layout.previewOpen)
 
     return {
         autosave: {
@@ -179,7 +183,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
         theme: normalizeTheme(source.theme, defaults.theme),
         layout: {
             explorerOpen: typeof source.layout?.explorerOpen === 'boolean' ? source.layout.explorerOpen : defaults.layout.explorerOpen,
-            editorOpen: typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen,
+            editorOpen,
+            previewOpen,
             editorWidth:
                 typeof source.layout?.editorWidth === 'number'
                     ? Math.min(2000, Math.max(280, source.layout.editorWidth))

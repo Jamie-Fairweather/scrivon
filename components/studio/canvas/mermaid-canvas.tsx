@@ -8,6 +8,7 @@ import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { stopCanvasGesture, usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
+import { supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
 import { CircleAlert, Loader2 } from 'lucide-react'
@@ -68,11 +69,15 @@ const DiagramErrorBanner = memo(function DiagramErrorBanner({ message }: { messa
     )
 })
 
-const DiagramEmpty = memo(function DiagramEmpty({ message }: { message: string }) {
+/** Shown under the empty message of an empty file. */
+const DIAGRAM_TYPES_HINT = `Scrivon draws ${supportedDiagramsSentence()}. Press Ctrl+Space in the editor for a starter.`
+
+const DiagramEmpty = memo(function DiagramEmpty({ message, hint }: { message: string; hint?: string }) {
     return (
         <Card className="w-full max-w-md">
-            <CardPanel className="p-4">
-                <p className="text-center text-sm text-muted-foreground">{message}</p>
+            <CardPanel className="flex flex-col gap-2 p-4 text-center text-sm text-muted-foreground">
+                <p>{message}</p>
+                {hint ? <p className="text-xs">{hint}</p> : null}
             </CardPanel>
         </Card>
     )
@@ -142,6 +147,7 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
         : isEmpty
           ? 'Nothing to draw yet. Add some nodes to see the diagram.'
           : 'Add Mermaid syntax to preview a diagram.'
+    const emptyHint = viewKey && !isEmpty ? DIAGRAM_TYPES_HINT : undefined
     const showDiagram = hasSource && Boolean(svgForDisplay)
     const showEmpty = !error && !showDiagram && !isPending
     const showLoading = !error && !showDiagram && isPending
@@ -179,7 +185,13 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
             {/* Messages sit outside the pan/zoom layer, so they always show centred at full size. */}
             {!showDiagram && (error || showEmpty || showLoading) ? (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
-                    {error ? <DiagramError message={error} /> : showLoading ? <DiagramLoading /> : <DiagramEmpty message={emptyMessage} />}
+                    {error ? (
+                        <DiagramError message={error} />
+                    ) : showLoading ? (
+                        <DiagramLoading />
+                    ) : (
+                        <DiagramEmpty message={emptyMessage} hint={emptyHint} />
+                    )}
                 </div>
             ) : null}
             {showDiagram && error ? <DiagramErrorBanner message={error} /> : null}

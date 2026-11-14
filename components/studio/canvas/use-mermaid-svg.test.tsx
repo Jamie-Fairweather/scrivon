@@ -48,7 +48,8 @@ vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
 const V1 = 'graph TD\n  A --> B'
 const V2 = 'graph TD\n  A --> B --> C'
 const V3 = 'graph TD\n  A --> B --> C --> D'
-const BROKEN = 'graph\n  A --> B'
+// A bare `graph` header draws now (as graph TD), so a misspelt header is the broken text.
+const BROKEN = 'grpah TD\n  A --> B'
 
 function expectedSvg(source: string, themeId: AppThemeId = 'scrivon-light') {
     return vi.mocked(renderMermaidDiagram).getMockImplementation()!(source, themeId)

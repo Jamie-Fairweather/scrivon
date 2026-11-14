@@ -8,6 +8,7 @@ import { notifyError } from '@/lib/notify'
 import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
+import { PdfExportPreview } from '@/components/studio/editor/pdf-export-preview'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { BetaBadge } from '@/components/ui/beta-badge'
 import { Button } from '@/components/ui/button'
@@ -21,10 +22,12 @@ type PdfExportDialogProps = {
     onOpenChange: (open: boolean) => void
     source: string
     tabName: string | undefined
-    /** The document's file path, so the save dialog starts in its folder. */
+    /** The document's file path, so the save dialog starts in its folder and its images are found from it. */
     tabPath?: string
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
     format?: ExportFormat
-    /** The user chose 'Load images' in this document's preview, so the PDF prints its web images too. */
+    /** The user chose 'Load images' in this document's preview, so the export embeds its web images too. */
     allowRemoteImages?: boolean
     /**
      * Whether an export is running. Kept by the owner, not the dialog, so it outlives the dialog
@@ -40,6 +43,7 @@ export function PdfExportDialog({
     source,
     tabName,
     tabPath,
+    workspaceRoot = null,
     format = 'pdf',
     allowRemoteImages = false,
     exporting,
@@ -52,13 +56,19 @@ export function PdfExportDialog({
     }
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogPopup className="max-w-lg">
+            {/* With the PDF preview, a wide screen gets two columns: the settings, and the PDF beside them. */}
+            <DialogPopup
+                className="max-w-lg md:has-[[data-slot=pdf-preview]]:grid md:has-[[data-slot=pdf-preview]]:h-[min(85vh,56rem)]
+                    md:has-[[data-slot=pdf-preview]]:max-w-5xl md:has-[[data-slot=pdf-preview]]:grid-cols-[22rem_minmax(0,1fr)]
+                    md:has-[[data-slot=pdf-preview]]:grid-rows-[auto_minmax(0,1fr)_auto]"
+            >
                 {/* The popup unmounts when closed, so the form's state starts fresh on every open. */}
                 <PdfExportForm
                     key={format}
                     source={source}
                     tabName={tabName}
                     tabPath={tabPath}
+                    workspaceRoot={workspaceRoot}
                     initialFormat={format}
                     allowRemoteImages={allowRemoteImages}
                     busy={exporting}
@@ -134,6 +144,7 @@ function PdfExportForm({
     source,
     tabName,
     tabPath,
+    workspaceRoot,
     initialFormat,
     allowRemoteImages,
     busy,
@@ -143,6 +154,7 @@ function PdfExportForm({
     source: string
     tabName: string | undefined
     tabPath: string | undefined
+    workspaceRoot: string | null
     initialFormat: ExportFormat
     allowRemoteImages: boolean
     busy: boolean
@@ -167,6 +179,8 @@ function PdfExportForm({
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
     const spaceNote = pageSpaceNote(profile)
     const fieldsNote = titleFieldsNote(format, profile)
+    // The preview prints through the Windows exporter, so it's only there for PDFs in the Windows app.
+    const showPreview = format === 'pdf' && isWindowsTauri()
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -184,7 +198,14 @@ function PdfExportForm({
             // Let 'Exporting…' paint before the build takes over the main thread.
             await afterNextPaint()
             const { exportMarkdown, notifyExportSaved } = await loadMarkdownExport()
-            const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath, allowRemoteImages })
+            const result = await exportMarkdown(source, tabName, {
+                format,
+                profile,
+                overrides,
+                documentPath: tabPath,
+                workspaceRoot,
+                allowRemoteImages,
+            })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
                 notifyExportSaved(result)
@@ -207,7 +228,7 @@ function PdfExportForm({
 
     return (
         <>
-            <DialogHeader>
+            <DialogHeader className="col-span-full">
                 <DialogTitle className="flex items-center gap-2">
                     Export document
                     <BetaBadge />
@@ -255,7 +276,22 @@ function PdfExportForm({
                     </p>
                 ) : null}
             </DialogPanel>
-            <DialogFooter>
+            {showPreview ? (
+                <PdfExportPreview
+                    source={source}
+                    tabName={tabName}
+                    tabPath={tabPath}
+                    workspaceRoot={workspaceRoot}
+                    profile={profile}
+                    title={title}
+                    subtitle={subtitle}
+                    author={author}
+                    date={date}
+                    allowRemoteImages={allowRemoteImages}
+                    className="h-[40vh] shrink-0 px-6 pb-6 md:h-auto md:ps-0 md:pt-1"
+                />
+            ) : null}
+            <DialogFooter className="col-span-full">
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground sm:me-auto sm:self-center">
                     {busy ? 'Exporting…' : ''}
                 </p>

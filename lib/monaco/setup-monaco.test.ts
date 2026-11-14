@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { config, openerService, OPENER_SERVICE_ID } = vi.hoisted(() => ({
+const { config, openerService, OPENER_SERVICE_ID, registerMermaidLanguage } = vi.hoisted(() => ({
     config: vi.fn(),
+    registerMermaidLanguage: vi.fn(),
     openerService: { registerOpener: vi.fn(() => ({ dispose: () => {} })) },
     OPENER_SERVICE_ID: { type: 'opener service id' },
 }))
@@ -15,6 +16,7 @@ vi.mock('monaco-editor/editor/contrib/caretOperations/browser/caretOperations.js
 vi.mock('monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens.js', () => ({}))
 vi.mock('monaco-editor/languages/definitions/markdown/register', () => ({}))
 vi.mock('@/lib/monaco/code-block-languages', () => ({}))
+vi.mock('@/lib/monaco/mermaid-language', () => ({ registerMermaidLanguage }))
 vi.mock('monaco-editor/platform/opener/common/opener.js', () => ({ IOpenerService: OPENER_SERVICE_ID }))
 vi.mock('monaco-editor/editor/standalone/browser/standaloneServices.js', () => ({
     StandaloneServices: { get: (id: unknown) => (id === OPENER_SERVICE_ID ? openerService : undefined) },
@@ -35,6 +37,12 @@ describe('setup-monaco', () => {
         expect(monaco.editor).toBe(bundledMonaco.editor)
         expect(config.mock.calls[0]![0]).not.toHaveProperty('paths')
         expect(typeof globalThis.MonacoEnvironment?.getWorker).toBe('function')
+    })
+
+    it('registers the Mermaid language with the bundled Monaco', async () => {
+        await import('./setup-monaco')
+        expect(registerMermaidLanguage).toHaveBeenCalledTimes(1)
+        expect(registerMermaidLanguage.mock.calls[0]![0]).toMatchObject({ languages: bundledMonaco.languages })
     })
 
     it("hands Ctrl+Clicked links to the app's opener through Monaco's opener service", async () => {

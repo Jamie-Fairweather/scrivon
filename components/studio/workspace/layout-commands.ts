@@ -12,11 +12,13 @@ export type LayoutCommandsContext = {
     hasWorkspace: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    previewOpen: boolean
     outlineOpen: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setPreviewOpen: (open: boolean) => void
     setOutlineOpen: (open: boolean) => void
     setPreviewOnly: () => void
     requestCanvasFit: () => void
@@ -46,6 +48,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
         run: () => {
             ctx.setExplorerOpen(explorer)
             ctx.setEditorOpen(editor)
+            ctx.setPreviewOpen(true)
         },
     })
 
@@ -68,6 +71,16 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             disabled: off,
             disabledReason: NO_FOLDER,
             run: () => ctx.setEditorOpen(!ctx.editorOpen),
+        },
+        {
+            id: 'toggle-preview',
+            label: 'Preview',
+            keywords: 'diagram editor only full width',
+            keybind: 'view.togglePreview',
+            checked: ctx.previewOpen,
+            disabled: off,
+            disabledReason: NO_FOLDER,
+            run: () => ctx.setPreviewOpen(!ctx.previewOpen),
         },
         {
             id: 'toggle-outline',
@@ -106,7 +119,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
 
 export function useLayoutCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { layout, setExplorerOpen, setEditorOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
     const { canFitToView, zoomDiagram } = useCanvasControls()
@@ -118,10 +131,12 @@ export function useLayoutCommands(): void {
                 hasWorkspace,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                previewOpen: layout.previewOpen,
                 outlineOpen: layout.outlineOpen,
                 canFitDiagram: canFitToView,
                 setExplorerOpen,
                 setEditorOpen,
+                setPreviewOpen,
                 setOutlineOpen,
                 setPreviewOnly,
                 requestCanvasFit,
@@ -131,10 +146,12 @@ export function useLayoutCommands(): void {
             hasWorkspace,
             layout.explorerOpen,
             layout.editorOpen,
+            layout.previewOpen,
             layout.outlineOpen,
             canFitToView,
             setExplorerOpen,
             setEditorOpen,
+            setPreviewOpen,
             setOutlineOpen,
             setPreviewOnly,
             requestCanvasFit,
