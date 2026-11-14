@@ -381,6 +381,43 @@ describe('buildPdfExportCss', () => {
         expect(pdfPageSizeMm(profile)).toEqual({ width: 215.9, height: 279.4 })
     })
 
+    it.each([
+        ['a3', 'A3', 297, 420],
+        ['a5', 'A5', 148, 210],
+        ['legal', 'legal', 215.9, 355.6],
+    ] as const)('prints %s pages at their real size', (size, css, width, height) => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page.size = size
+        expect(resolvePdfPrintOptions(profile, { title: '', subtitle: '', author: '', date: '' })).toMatchObject({
+            pageWidthMm: width,
+            pageHeightMm: height,
+        })
+        expect(buildPdfExportCss(profile)).toContain(`size: ${css};`)
+        profile.page.orientation = 'landscape'
+        expect(buildPdfExportCss(profile)).toContain(`size: ${css} landscape;`)
+    })
+
+    it('prints a custom page size, turned on its side for landscape', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page.size = 'custom'
+        profile.page.customSizeMm = { width: 120, height: 180 }
+        expect(pdfPageSizeMm(profile)).toEqual({ width: 120, height: 180 })
+        expect(buildPdfExportCss(profile)).toContain('size: 120mm 180mm;')
+        // 180 - 10 - 10 - 40
+        expect(buildPdfExportCss(profile)).toContain('min-height: 120mm;')
+
+        profile.page.orientation = 'landscape'
+        expect(pdfPageSizeMm(profile)).toEqual({ width: 120, height: 180 })
+        expect(buildPdfExportCss(profile)).toContain('size: 180mm 120mm;')
+        expect(pdfBodyHeightMm(profile)).toBe(100)
+    })
+
+    it('keeps the custom size aside while a named size is picked', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page.customSizeMm = { width: 120, height: 180 }
+        expect(pdfPageSizeMm(profile)).toEqual({ width: 210, height: 297 })
+    })
+
     it('hands custom counting templates to the stamper with document placeholders filled', () => {
         const metadata = { title: 'Spec', subtitle: '', author: '', date: '' }
         const profile = createDefaultPdfExportProfile()

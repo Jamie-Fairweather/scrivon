@@ -297,10 +297,22 @@ describe('PdfExportDialog', () => {
         expect(await screen.findByText('Margins, header and footer leave only 20 mm of page height for the text.')).toBeInTheDocument()
         tight.unmount()
 
+        profiles.edit = (profile) => {
+            profile.page = {
+                ...profile.page,
+                size: 'custom',
+                customSizeMm: { width: 100, height: 200 },
+                marginsMm: { top: 10, right: 50, bottom: 10, left: 50 },
+            }
+        }
+        const narrow = render(<Owner onOpenChange={vi.fn()} />)
+        expect(await screen.findByText('The side margins are wider than the page, so there is no room left for the text.')).toBeInTheDocument()
+        narrow.unmount()
+
         profiles.edit = () => undefined
         render(<Owner onOpenChange={vi.fn()} />)
         await screen.findByLabelText('Title')
-        expect(screen.queryByText(/Margins, header and footer/)).toBeNull()
+        expect(screen.queryByText(/Margins, header and footer|side margins/)).toBeNull()
     })
 
     it('says where subtitle, author and date go when the profile has no title page', async () => {

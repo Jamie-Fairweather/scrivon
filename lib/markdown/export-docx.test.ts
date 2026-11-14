@@ -1183,6 +1183,44 @@ describe('renderExportDocx', () => {
         expect(rows).toEqual(['Pricing|2', 'Keys Ctrl|2'])
     })
 
+    it('heads the Contents page with the profile’s title, or the document’s own toc-title', async () => {
+        const toc = (title: string) => (draft: PdfExportProfile) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+            draft.frontMatter.tocTitle = title
+        }
+        const named = (await render('# Intro\n\n## Part', toc('Sommaire'))).parts['word/document.xml']!
+        expect(runWith(named, 'Sommaire')).toContain('<w:b/>')
+        expect(named).not.toContain('>Contents</w:t>')
+
+        const own = (await render('---\ntoc-title: 目次\n---\n# Intro', toc('Sommaire'))).parts['word/document.xml']!
+        expect(runWith(own, '目次')).toContain('<w:b/>')
+        expect(own).not.toContain('>Sommaire</w:t>')
+
+        const emptied = (await render('# Intro', toc(''))).parts['word/document.xml']!
+        expect(runWith(emptied, 'Contents')).toContain('<w:b/>')
+        expect(blockWith(emptied, 'Contents')).not.toContain('<w:bidi/>')
+
+        // A right-to-left title reads right to left, as the cover title does.
+        const arabic = (await render('# Intro', toc('فهرس'))).parts['word/document.xml']!
+        expect(blockWith(arabic, 'فهرس')).toContain('<w:bidi/>')
+        expect(runWith(arabic, 'فهرس')).toContain('<w:rtl/>')
+    })
+
+    it('counts a Contents title that wraps when estimating contents page numbers', async () => {
+        const rows = Array.from({ length: 40 }, (_, index) => `## Part ${index + 1}`).join('\n\n')
+        const pageOf = async (title: string) => {
+            const { xml } = await render(`# Intro\n\n${rows}`, (draft) => {
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocTitle = title
+            })
+            return tocPage(xml, 'Part 1')
+        }
+        const short = await pageOf('Contents')
+        // Six lines of title take room from the rows, so the body starts a page later.
+        expect(await pageOf(Array.from({ length: 30 }, () => 'Inhaltsverzeichnis').join(' '))).toBe(short! + 1)
+    })
+
     it('leaves out characters XML forbids, so Word can open the file', async () => {
         const { xml, parts } = await render(
             [
@@ -1753,6 +1791,40 @@ describe('renderExportDocx', () => {
         expect(runWith(xml, 'Head')).toContain('<w:color w:val="C4C8CC"/>')
         // Code tokens blend onto the dark code background.
         expect(runWith(xml, 'faded')).toContain('<w:color w:val="86888B"/>')
+    })
+
+    it.each([
+        ['a3', 'portrait', '<w:pgSz w:w="16837" w:h="23811" w:orient="portrait"/>'],
+        ['a5', 'portrait', '<w:pgSz w:w="8390" w:h="11905" w:orient="portrait"/>'],
+        ['legal', 'landscape', '<w:pgSz w:w="20160" w:h="12240" w:orient="landscape"/>'],
+    ] as const)('writes %s %s pages at their real size', async (size, orientation, pgSz) => {
+        const { xml } = await render('# Hi', (draft) => {
+            draft.page.size = size
+            draft.page.orientation = orientation
+        })
+        expect(xml).toContain(pgSz)
+    })
+
+    it('writes a custom page size, and lays the text out to its width', async () => {
+        const { xml } = await render('# Alpha\n\nA [site](https://example.com).', (draft) => {
+            draft.page.size = 'custom'
+            draft.page.customSizeMm = { width: 120, height: 180 }
+            draft.header.enabled = true
+            draft.header.ignoreMargins = true
+            draft.header.left.text = 'Head'
+        })
+        expect(xml).toContain('<w:pgSz w:w="6803" w:h="10204" w:orient="portrait"/>')
+        // The edge-to-edge header bar spans the 120 mm sheet.
+        expect(xml).toContain('<w:tblW w:type="dxa" w:w="6803"/>')
+    })
+
+    it('gives code blocks the code theme’s own background and text colour', async () => {
+        highlightFencedCodeTokens.mockImplementationOnce(async () => [[{ text: 'plain' }]])
+        const { xml } = await render(fence('js', 'plain'), (draft) => {
+            draft.content.codeTheme = 'solarized-dark'
+        })
+        expect(blockWith(xml, 'plain')).toContain('w:fill="002B36"')
+        expect(runWith(xml, 'plain')).toContain('<w:color w:val="839496"/>')
     })
 
     it('names the author in the file properties, and no one when there is no author', async () => {
