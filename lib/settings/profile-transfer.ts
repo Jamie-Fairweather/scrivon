@@ -1,10 +1,9 @@
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import { normalizePdfExportProfile } from '@/lib/settings/pdf-export-normalize'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
-import { changeImages, embedImages, isEmbedded, type LeftOutImage } from '@/lib/settings/profile-images'
+import { changeImages, embedImages, isEmbedded, saveEachImageOnce, type LeftOutImage } from '@/lib/settings/profile-images'
 import { checkFileVersion, parseJson, PROFILE_FILE_KIND, SETTINGS_FILE_KIND, TRANSFER_FILE_VERSION } from '@/lib/settings/settings-transfer'
 import { isRecord } from '@/lib/settings/storage'
-import { saveProfileImage } from '@/lib/tauri/export-image-access'
 
 /**
  * The text of a file holding one export profile, to share it. Its images are embedded, so it works on
@@ -43,9 +42,10 @@ export async function readProfileExport(text: string): Promise<{ profile: PdfExp
     checkFileVersion(file)
 
     const profile = normalizePdfExportProfile(file.profile, createDefaultPdfExportProfile({ id: 'imported', name: 'Imported profile' }))
+    const saveImage = saveEachImageOnce()
     return changeImages(profile, async (image) => {
         // A path names a file on the computer the profile came from.
         if (!isEmbedded(image)) throw new Error("It isn't embedded in the file.")
-        return saveProfileImage(image)
+        return saveImage(image)
     })
 }

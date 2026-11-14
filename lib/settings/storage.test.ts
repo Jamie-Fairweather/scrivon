@@ -300,7 +300,8 @@ describe('loadSettings and saveSettings with localStorage', () => {
         })
 
         it('says which layout it is in, even for settings last saved before 1.5.0', () => {
-            // Import settings knows settings.json by its schemaVersion.
+            // Import settings knows settings.json by its schemaVersion. These settings are layout 1, and stay 1
+            // when the current layout number goes up, so a restore still migrates them.
             store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'nord' }, editor: { fontSize: 16 } }))
 
             loadSettingsWithRecovery()

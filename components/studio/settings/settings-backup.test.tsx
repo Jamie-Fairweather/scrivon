@@ -9,7 +9,7 @@ import { SettingsProvider, useAppSettings } from '@/components/studio/settings/s
 import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
-import type { AppSettings } from '@/lib/settings/types'
+import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
 import { isTauri } from '@/lib/tauri/platform'
 
 vi.mock('@/lib/notify', async (importOriginal) => ({
@@ -151,10 +151,18 @@ describe('SettingsBackup', () => {
         expect(notifySuccess).not.toHaveBeenCalled()
     })
 
-    it('imports a settings.json from settings saved before 1.5.0, which has no schemaVersion', async () => {
-        fileText(JSON.stringify({ theme: { id: 'nord' }, editor: { fontSize: 16 } }))
+    it('imports the settings.json copy of settings last saved before 1.5.0', async () => {
+        // Those settings have no schemaVersion. The copy written at startup gets one, so Import knows it.
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'nord' }, editor: { fontSize: 16 } }))
         vi.mocked(open).mockResolvedValue('C:/Users/me/AppData/Roaming/com.scrivon.app/settings.json')
         renderBackup()
+        const copy = await waitFor(() => {
+            const call = vi.mocked(invoke).mock.calls.find(([command]) => command === 'save_settings_file')
+            expect(call).toBeDefined()
+            return (call![1] as { text: string }).text
+        })
+        fileText(copy)
+        act(() => current.updateSettings((settings) => ({ ...settings, editor: { ...settings.editor, fontSize: 20 } })))
 
         chooseFileToImport()
 

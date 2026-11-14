@@ -1,10 +1,9 @@
 import { isMacPlatform } from '@/lib/settings/chord-utils'
-import { createDefaultSettings } from '@/lib/settings/defaults'
 import { mergeStoredSettings } from '@/lib/settings/migrate'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
-import { changeImages, embedImages, isEmbedded, type LeftOutImage } from '@/lib/settings/profile-images'
+import { changeImages, embedImages, isEmbedded, saveEachImageOnce, type LeftOutImage } from '@/lib/settings/profile-images'
 import { isRecord, settingsToStore } from '@/lib/settings/storage'
-import { readExportImage, saveProfileImage } from '@/lib/tauri/export-image-access'
+import { readExportImage } from '@/lib/tauri/export-image-access'
 import type { AppSettings } from '@/lib/settings/types'
 
 /** What `scrivon` says in a file of all settings, and in a file of one export profile. */
@@ -65,13 +64,9 @@ function savedSettingsIn(file: unknown): unknown {
         return file.settings
     }
     if (file.scrivon === PROFILE_FILE_KIND) throw new Error('This is an export profile. Import it in Settings, Document export.')
-    // The copy in settings.json is the settings on their own, as saved. Settings last saved before 1.5.0
-    // have no schemaVersion, so a group of settings Scrivon knows (theme, editor…) will do too.
-    return typeof file.schemaVersion === 'number' || hasSettingsGroup(file) ? file : null
-}
-
-function hasSettingsGroup(file: Record<string, unknown>): boolean {
-    return Object.keys(createDefaultSettings(false)).some((key) => isRecord(file[key]))
+    // The copy in settings.json is the settings on their own, as saved. It always has a schemaVersion, even
+    // for settings last saved before 1.5.0 (lib/settings/storage.ts adds it), so another app's file is refused.
+    return typeof file.schemaVersion === 'number' ? file : null
 }
 
 /**
@@ -82,15 +77,13 @@ function hasSettingsGroup(file: Record<string, unknown>): boolean {
 export async function readSettingsExport(text: string): Promise<{ settings: AppSettings; leftOut: LeftOutImage[] }> {
     const saved = savedSettingsIn(parseJson(text))
     if (!isRecord(saved)) throw new Error("This file isn't a Scrivon settings file.")
+    const saveImage = saveEachImageOnce()
+    // An embedded image is saved in Scrivon's data folder. A path (from a file exported before images were
+    // embedded) is kept only when the export can already read it.
+    const importImage = async (image: string) => {
+        if (isEmbedded(image)) return saveImage(image)
+        await readExportImage(image)
+        return image
+    }
     return changeEachProfile(mergeStoredSettings(saved, isMacPlatform()), (profile) => changeImages(profile, importImage))
-}
-
-/**
- * An image from a settings file, as this computer uses it. An embedded one is saved in Scrivon's data folder.
- * A path (from a file exported before images were embedded) is kept only when the export can already read it.
- */
-async function importImage(image: string): Promise<string> {
-    if (isEmbedded(image)) return saveProfileImage(image)
-    await readExportImage(image)
-    return image
 }

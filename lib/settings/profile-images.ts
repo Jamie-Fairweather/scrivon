@@ -1,7 +1,7 @@
 import { errorMessage } from '@/lib/notify'
 import { PDF_EXPORT_IMAGE_SLOTS } from '@/lib/settings/pdf-export-images'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
-import { readExportImage } from '@/lib/tauri/export-image-access'
+import { readExportImage, saveProfileImage } from '@/lib/tauri/export-image-access'
 
 /** An image left out of an exported or imported profile, and why. */
 export type LeftOutImage = { slot: string; reason: string }
@@ -32,6 +32,19 @@ export async function changeImages(
         }
     }
     return { profile: copy, leftOut }
+}
+
+/**
+ * saveProfileImage for one import: an image used in more than one place (one logo as cover and header, or
+ * in several profiles) is saved once, and each place names that one copy.
+ */
+export function saveEachImageOnce(): (dataUrl: string) => Promise<string> {
+    const saved = new Map<string, Promise<string>>()
+    return (dataUrl) => {
+        const path = saved.get(dataUrl) ?? saveProfileImage(dataUrl)
+        saved.set(dataUrl, path)
+        return path
+    }
 }
 
 /** A copy of `profile` with its images in it as data URLs, so it works on another computer. */

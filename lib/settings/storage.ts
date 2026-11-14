@@ -117,8 +117,9 @@ export function loadSettingsWithRecovery(): LoadedSettings {
             keepNewerVersionCopy(stored)
             if (readItem(SETTINGS_BACKUP_KEY) !== raw) writeItem(SETTINGS_BACKUP_KEY, raw)
             // Settings saved before settings.json existed get their copy now, not at the first change.
-            // Those from before 1.5.0 have no schemaVersion; the copy gets one, as the next save would add.
-            mirrorSettingsFile({ ...stored.raw, schemaVersion: stored.raw.schemaVersion ?? SETTINGS_SCHEMA_VERSION })
+            // Those from before 1.5.0 have no schemaVersion. They are layout 1, so the copy says so: Import
+            // settings knows settings.json by it. Not the current number, as nothing here migrates them.
+            mirrorSettingsFile({ ...stored.raw, schemaVersion: stored.raw.schemaVersion ?? 1 })
             lastStored = stored
             return { settings: stored.settings, recovery: null }
         }

@@ -124,6 +124,21 @@ describe('settings export file', () => {
         expect(leftOut).toEqual([])
     })
 
+    it('saves an image used in several places once, and every place names that copy', async () => {
+        const settings = settingsWithImages()
+        settings.pdfExport.profiles[0]!.brand.logoPath = COVER
+        settings.pdfExport.profiles[1]!.footer.right.imagePath = COVER
+        const { text } = await settingsExportText(settings)
+
+        const [standard, report] = (await readSettingsExport(text)).settings.pdfExport.profiles
+
+        expect(standard!.brand.logoPath).toBe('C:/AppData/profile-images/1.png')
+        expect(report!.brand.logoPath).toBe('C:/AppData/profile-images/1.png')
+        expect(report!.footer.right.imagePath).toBe('C:/AppData/profile-images/1.png')
+        expect(report!.header.left.imagePath).toBe('C:/AppData/profile-images/2.svg')
+        expect(saved).toBe(2)
+    })
+
     it('keeps a path from an older backup only when the export can still read it, and says which it dropped', async () => {
         // Backups made before images were embedded name files on the computer they came from.
         const older = settingsWithImages()
@@ -154,13 +169,13 @@ describe('settings export file', () => {
         expect(settings.editor.fontSize).toBe(20)
     })
 
-    it('reads a settings.json from settings saved before 1.5.0, which has no schemaVersion', async () => {
-        const copy = { theme: { id: 'nord' }, editor: { fontSize: 16 } }
+    it("refuses another app's settings.json, which has no schemaVersion", async () => {
+        // Scrivon's own copy always has one, even for settings last saved before 1.5.0 (see storage.test.ts).
+        const zed = { theme: { mode: 'system', light: 'One Light', dark: 'One Dark' }, terminal: { font_size: 14 } }
+        const notSettings = "This file isn't a Scrivon settings file."
 
-        const { settings } = await readSettingsExport(JSON.stringify(copy))
-
-        expect(settings.theme.id).toBe('nord')
-        expect(settings.editor.fontSize).toBe(16)
+        await expect(readSettingsExport(JSON.stringify(zed))).rejects.toThrow(notSettings)
+        await expect(readSettingsExport(JSON.stringify({ theme: { id: 'scrivon-light' } }))).rejects.toThrow(notSettings)
     })
 
     it('puts values out of range back in range', async () => {
