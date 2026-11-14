@@ -48,13 +48,24 @@ declare module 'monaco-editor/editor/browser/config/tabFocus.js' {
     }
 }
 
-// Monaco's shared command registry, used by lib/monaco/editor-keybindings.test.ts to check that
-// Scrivon's 'Command Palette' replaces Monaco's own for the editor's right-click menu.
+// Monaco's shared command registry, used by lib/monaco/paste-command.ts to take over Monaco's Paste, and by
+// lib/monaco/editor-keybindings.test.ts to check that Scrivon's 'Command Palette' replaces Monaco's own.
 declare module 'monaco-editor/platform/commands/common/commands.js' {
     import type { IDisposable } from 'monaco-editor'
     export const CommandsRegistry: {
         registerCommand(id: string, handler: (accessor: unknown, ...args: unknown[]) => unknown): IDisposable
         getCommand(id: string): { id: string; handler: (accessor: unknown, ...args: unknown[]) => unknown } | undefined
+    }
+}
+
+// Monaco's clipboard commands and editor extensions, used by lib/monaco/paste-command.test.ts to check that Paste
+// stays a plain command, which editor.trigger hands to the shared command registry (where Scrivon's Paste is).
+declare module 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js'
+
+declare module 'monaco-editor/editor/browser/editorExtensions.js' {
+    export const EditorExtensionsRegistry: {
+        getEditorActions(): ReadonlyArray<{ readonly id: string }>
+        getEditorCommand(commandId: string): { readonly id: string } | null
     }
 }
 
