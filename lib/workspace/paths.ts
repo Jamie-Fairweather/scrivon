@@ -61,11 +61,12 @@ export function uniqueFileName(base: string, existing: Iterable<string>): string
 /**
  * A name for a new file or folder that no sibling uses: `diagram.mmd`, then `diagram 2.mmd`, `diagram 3.mmd`…
  * Names are compared ignoring letter case, because Windows treats `Diagram.mmd` and `diagram.mmd` as one file.
+ * A folder's name has no extension, so its number goes at the end (`v1.2 2`).
  */
-export function uniqueNewName(base: string, existing: Iterable<string>): string {
+export function uniqueNewName(base: string, existing: Iterable<string>, kind: FileNode['kind'] = 'file'): string {
     const taken = new Set([...existing].map((name) => name.toLowerCase()))
     if (!taken.has(base.toLowerCase())) return base
-    const dot = base.lastIndexOf('.')
+    const dot = kind === 'directory' ? -1 : base.lastIndexOf('.')
     const stem = dot > 0 ? base.slice(0, dot) : base
     const ext = dot > 0 ? base.slice(dot) : ''
     let i = 2

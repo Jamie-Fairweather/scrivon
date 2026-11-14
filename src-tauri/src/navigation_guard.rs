@@ -82,7 +82,7 @@ pub fn guard(
             // Off the window's thread: starting the browser can take a moment.
             std::thread::spawn(move || {
                 if let Err(err) = app.opener().open_url(url, None::<&str>) {
-                    eprintln!("Could not open a link: {err}");
+                    log::warn!("Could not open a link: {err}");
                 }
             });
             false

@@ -1,4 +1,4 @@
-import { getKeybindActionMeta, type KeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { getKeybindActionMeta, isEditorAction, type KeybindActionMeta } from '@/lib/settings/keybind-registry'
 import {
     chordsEqual,
     hasCommandModifier,
@@ -24,6 +24,14 @@ export function isNativeTextField(target: EventTarget | null): boolean {
  */
 export function isInsideCodeEditor(target: EventTarget | null): boolean {
     return isInside(target, '.monaco-editor')
+}
+
+/** Where Monaco types: a div on WebView2 (Windows), a hidden textarea on WebKit. Not its find box. */
+const CODE_EDITOR_TEXT = '.monaco-editor .native-edit-context, .monaco-editor textarea.inputarea'
+
+/** True while typing in the editor's text, where its own actions (Bold, Link…) get the keys first. */
+export function isInCodeEditorText(target: EventTarget | null): boolean {
+    return isInside(target, CODE_EDITOR_TEXT)
 }
 
 /**
@@ -66,14 +74,18 @@ export type MatchKeybindOptions = {
     inPalette?: boolean
 }
 
-export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
+/**
+ * Every action the key press runs, in the order to try them: an editor action first (it only
+ * matches while typing in the editor), then the app's. The caller runs the first that takes it.
+ */
+export function matchKeybinds(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId[] {
     // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
-    if (isModifierKey(event.key)) return null
+    if (isModifierKey(event.key)) return []
     // Keys that are part of IME input, characters typed with AltGr, and Alt codes are text, not shortcuts.
-    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event) || isAltCodeKey(event)) return null
+    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event) || isAltCodeKey(event)) return []
 
     const pressed = eventToChords(event)
-    if (pressed.length === 0) return null
+    if (pressed.length === 0) return []
 
     const actions = (Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]).filter(([actionId, chords]) => {
         if (chords.length === 0) return false
@@ -81,15 +93,23 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
         const meta = getKeybindActionMeta(actionId)
         if (!meta) return false
         if (meta.when === 'workspace' && !options.hasWorkspace) return false
+        if (meta.when === 'editor' && !isInCodeEditorText(event.target)) return false
         return !shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)
     })
 
     // The key as typed wins, so a shortcut bound to it isn't taken by one that only matches a looser reading.
     for (const candidate of pressed) {
-        const match = actions.find(([, chords]) => chords.some((chord) => chordsEqual(candidate, chord)))
+        const matches = actions.filter(([, chords]) => chords.some((chord) => chordsEqual(candidate, chord))).map(([actionId]) => actionId)
+        if (matches.length === 0) continue
+        const ordered = [...matches.filter(isEditorAction), ...matches.filter((actionId) => !isEditorAction(actionId))]
         // Holding the keys down fires only the shortcuts that are meant to repeat.
-        if (match) return event.repeat && !getKeybindActionMeta(match[0])?.allowRepeat ? null : match[0]
+        return event.repeat ? ordered.filter((actionId) => getKeybindActionMeta(actionId)?.allowRepeat) : ordered
     }
 
-    return null
+    return []
+}
+
+/** The action the key press runs first, or null. */
+export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
+    return matchKeybinds(event, bindings, options)[0] ?? null
 }

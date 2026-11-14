@@ -357,6 +357,11 @@
     [data-slot='menu-switch'][data-checked] [data-slot='menu-switch-thumb'] {
         background-color: HighlightText;
     }
+    /* The folder something dragged in the explorer would go into; its ring and tint are removed. */
+    [data-drop-target] {
+        outline: 2px dashed Highlight;
+        outline-offset: -2px;
+    }
 }
 
 /* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.

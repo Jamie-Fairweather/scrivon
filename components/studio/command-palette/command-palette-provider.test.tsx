@@ -10,6 +10,7 @@ import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@
 const search = vi.hoisted(() => ({
     enabled: false,
     groups: [] as PaletteGroup[],
+    emptyHint: null as string | null,
     runItem: (async () => {}) as (item: PaletteItem) => Promise<void>,
 }))
 
@@ -34,6 +35,7 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
                 textTruncatedFiles: 0,
                 runItem: (item: PaletteItem) => search.runItem(item),
                 hasWorkspace: true,
+                emptyHint: search.emptyHint,
             }
         },
     }
@@ -43,6 +45,7 @@ const palette: { openMode: (mode: PaletteMode) => void } = { openMode: () => {} 
 
 beforeEach(() => {
     search.groups = []
+    search.emptyHint = null
     search.runItem = async () => {}
 })
 
@@ -208,6 +211,51 @@ describe('CommandPaletteProvider after a pick', () => {
 
         await waitFor(() => expect(run).toHaveBeenCalled())
         expect(focusEditorFor).not.toHaveBeenCalled()
+    })
+})
+
+describe('CommandPaletteProvider prefixes', () => {
+    beforeEach(() => {
+        palette.openMode = () => {}
+    })
+
+    it('shows what the search says when a prefix lists nothing', () => {
+        search.emptyHint = 'Open a file to go to a line in it.'
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: ':12' } })
+        expect(screen.getByText(/^Open a file to go to a line in it\./)).toBeInTheDocument()
+    })
+
+    it('keeps a Find in Workspace search for @media a search when the Text filter is removed', () => {
+        renderProvider(null)
+        act(() => palette.openMode('text'))
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: '@media' } })
+
+        fireEvent.click(screen.getByRole('button', { name: /show all results/i }))
+
+        expect(screen.getByPlaceholderText(/^Search files and text/)).toBeInTheDocument()
+        expect(screen.getByRole('combobox')).toHaveValue(' @media')
+    })
+
+    it('keeps it a search when F1 switches Find in Workspace to the full palette', () => {
+        renderProvider('@media')
+        focusEditor()
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('@media')
+
+        act(() => palette.openMode('all'))
+        expect(screen.getByRole('combobox')).toHaveValue(' @media')
+    })
+
+    it('leaves a heading jump alone when the palette opens Find in Workspace over it', () => {
+        renderProvider(null)
+        act(() => palette.openMode('all'))
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: '@install' } })
+
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('@install')
     })
 })
 

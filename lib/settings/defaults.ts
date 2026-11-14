@@ -32,7 +32,8 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'palette.open': [chord('F1')],
         'palette.openText': [chord('f', { ...mod, shift: true })],
         'palette.openFiles': [chord('n', { ...mod, shift: true })],
-        'view.toggleExplorer': [chord('b', mod)],
+        // Not Ctrl+B: that makes text bold in the editor.
+        'view.toggleExplorer': [chord('b', { ...mod, shift: true })],
         'view.toggleEditor': [chord('e', mod)],
         'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
@@ -58,9 +59,25 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'tabs.next': [chord('Tab', { ctrl: true }), chord('PageDown', mod)],
         'tabs.previous': [chord('Tab', { ctrl: true, shift: true }), chord('PageUp', mod)],
         'tabs.reopenClosed': [chord('t', { ...mod, shift: true })],
+        // Only while typing in a Markdown file, where they come before the app's own keys.
+        'format.bold': [chord('b', mod)],
+        'format.italic': [chord('i', mod)],
+        'format.code': [chord('e', mod)],
+        'format.link': [chord('k', mod)],
     }
 
     return bindings
+}
+
+/**
+ * Defaults that have changed, with what they were. Older versions saved the whole keymap, so a
+ * saved copy of an old default there was never the user's own choice (see migrate.ts).
+ */
+export function createFormerDefaultKeybinds(isMac: boolean): Partial<KeybindBindings> {
+    const mod = isMac ? { meta: true } : { ctrl: true }
+    return {
+        'view.toggleExplorer': [chord('b', mod)],
+    }
 }
 
 export function createDefaultSettings(isMac = false): AppSettings {

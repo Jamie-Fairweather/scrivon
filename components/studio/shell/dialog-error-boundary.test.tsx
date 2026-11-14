@@ -1,6 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { logError } from '@/lib/diagnostics/app-log'
 import { DialogErrorBoundary } from './dialog-error-boundary'
+
+vi.mock('@/lib/diagnostics/app-log', () => ({ logError: vi.fn(), logWarning: vi.fn() }))
 
 const dialog = { broken: true }
 
@@ -37,6 +40,7 @@ describe('DialogErrorBoundary', () => {
 
         expect(onCrash).toHaveBeenCalledTimes(1)
         expect(onCrash.mock.calls[0]![0]).toEqual(new Error('bad row'))
+        expect(logError).toHaveBeenCalledWith('A dialog hit an error while rendering', new Error('bad row'))
         expect(screen.queryByRole('dialog')).toBeNull()
         expect(screen.getByText('The rest of the page')).toBeInTheDocument()
     })

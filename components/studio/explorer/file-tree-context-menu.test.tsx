@@ -20,6 +20,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn() }) }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
 vi.mock('@/lib/workspace/path-actions', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/workspace/path-actions')>()),
     revealInFileExplorer: vi.fn(async () => undefined),

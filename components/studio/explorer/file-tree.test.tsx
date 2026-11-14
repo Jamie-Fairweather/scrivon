@@ -6,13 +6,14 @@ import { isMermaidFile } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
 
-const { tabs, tabContent, folders, session, confirmDelete, promptName } = vi.hoisted(() => ({
+const { tabs, tabContent, folders, session, confirmDelete, promptName, chooseFolder, fileDrops } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
     /** The tabs with their text, which change on every keystroke. */
     tabContent: { text: '', listeners: new Set<() => void>() },
     /** The session's open or closed folders, which outlive the tree. */
     folders: { toggles: new Map() as ReadonlyMap<string, boolean>, listeners: new Set<() => void>() },
     session: {
+        workspaceRoot: '/ws',
         setFolderExpanded: vi.fn((path: string, expanded: boolean) => {
             folders.toggles = new Map(folders.toggles).set(path, expanded)
             folders.listeners.forEach((l) => l())
@@ -25,6 +26,8 @@ const { tabs, tabContent, folders, session, confirmDelete, promptName } = vi.hoi
         }),
         openFile: vi.fn(async () => undefined),
         renameEntry: vi.fn(async () => undefined),
+        moveEntry: vi.fn<(path: string, isDirectory: boolean, target: string) => Promise<string | null>>(async () => null),
+        copyIntoFolder: vi.fn(async () => undefined),
         deleteEntry: vi.fn(async () => undefined),
         duplicateFile: vi.fn(async () => undefined),
         createFile: vi.fn(async () => undefined),
@@ -34,6 +37,13 @@ const { tabs, tabContent, folders, session, confirmDelete, promptName } = vi.hoi
     },
     confirmDelete: vi.fn(async () => false),
     promptName: vi.fn(async () => null),
+    chooseFolder: vi.fn<(node: unknown) => Promise<string | null>>(async () => null),
+    /** What the tree registered for files dropped from File Explorer. */
+    fileDrops: {
+        element: null as Element | null,
+        handler: null as null | ((drop: { paths: readonly string[]; x: number; y: number }) => readonly string[] | Promise<readonly string[]>),
+        onHover: null as null | ((point: { x: number; y: number } | null) => void),
+    },
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', async () => {
@@ -51,6 +61,15 @@ vi.mock('@/components/studio/workspace/workspace-provider', async () => {
 })
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete }) }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder }) }))
+vi.mock('@/lib/tauri/file-drop', () => ({
+    registerFileDropTarget: (element: Element, handler: typeof fileDrops.handler, onHover: typeof fileDrops.onHover) => {
+        Object.assign(fileDrops, { element, handler, onHover })
+        return () => {
+            if (fileDrops.handler === handler) Object.assign(fileDrops, { element: null, handler: null, onHover: null })
+        }
+    },
+}))
 // Each file row asks isMermaidFile once as it draws, which shows which rows were drawn again.
 vi.mock('@/lib/tauri/fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/tauri/fs')>()
@@ -231,7 +250,7 @@ describe('FileTree', () => {
         const first = render(<FileTree tree={tree} />)
         press('docs', 'ArrowLeft')
         expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
-        // Ctrl+B, or switching to Examples, takes the tree away.
+        // Ctrl+Shift+B, or switching to Examples, takes the tree away.
         first.unmount()
 
         render(<FileTree tree={tree} />)
@@ -374,6 +393,225 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         expect(item('flow.mmd')).not.toContainElement(screen.getByLabelText('Actions for flow.mmd'))
+    })
+})
+
+describe('FileTree moves files and folders', () => {
+    /** What the pointer is over, as the page would find it. */
+    let under: Element | null = null
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        tabs.activeTabId = null
+        folders.toggles = new Map()
+        under = null
+        document.elementFromPoint = vi.fn(() => under)
+    })
+
+    // A drop swallows the click that follows it, until the next turn; that mustn't reach the next test.
+    afterEach(async () => {
+        await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    })
+
+    /** Presses on `from`'s row, moves the pointer over `over` (null for nowhere in the tree) and lets go there. */
+    function drag(from: string, over: Element | null, { release = true } = {}) {
+        fireEvent.pointerDown(item(from), { button: 0, buttons: 1, clientX: 10, clientY: 10, pointerId: 1 })
+        under = over
+        fireEvent.pointerMove(document, { buttons: 1, clientX: 30, clientY: 40, pointerId: 1 })
+        if (release) fireEvent.pointerUp(document, { button: 0, clientX: 30, clientY: 40, pointerId: 1 })
+    }
+
+    /** The rows (or 'top', the space around them) marked as where the entry would go. */
+    const dropTargets = () =>
+        [...document.querySelectorAll('[data-drop-target]')].map((el) => el.querySelector(':scope > [role="treeitem"]')?.textContent ?? 'top')
+
+    it('moves a file dragged onto a folder into that folder', () => {
+        render(<FileTree tree={tree} />)
+
+        drag('flow.mmd', item('docs'))
+
+        expect(session.moveEntry).toHaveBeenCalledWith('/ws/flow.mmd', false, '/ws/docs')
+    })
+
+    it('shows the folder it will go into while it is dragged, and nothing once dropped', () => {
+        render(<FileTree tree={tree} />)
+
+        drag('flow.mmd', item('notes.md'), { release: false })
+        // Over a file, it goes into that file's folder.
+        expect(dropTargets()).toEqual(['docs'])
+        expect(document.querySelector('[data-drag-label]')).toHaveTextContent('flow.mmd')
+
+        fireEvent.pointerUp(document, { button: 0, clientX: 30, clientY: 40 })
+        expect(dropTargets()).toEqual([])
+        expect(document.querySelector('[data-drag-label]')).toBeNull()
+        expect(session.moveEntry).toHaveBeenCalledWith('/ws/flow.mmd', false, '/ws/docs')
+    })
+
+    it('moves to the top of the folder when dropped beside the rows', () => {
+        render(<FileTree tree={tree} />)
+
+        drag('notes.md', screen.getByRole('tree').parentElement, { release: false })
+        expect(dropTargets()).toEqual(['top'])
+        fireEvent.pointerUp(document, { button: 0 })
+
+        expect(session.moveEntry).toHaveBeenCalledWith('/ws/docs/notes.md', false, '/ws')
+    })
+
+    it('shows no target and moves nothing where the entry can’t go', () => {
+        render(<FileTree tree={tree} />)
+
+        // A folder onto a file inside it, a file onto the folder it is in, and outside the tree.
+        for (const [from, over] of [
+            ['docs', () => item('notes.md')],
+            ['notes.md', () => item('docs')],
+            ['flow.mmd', () => null],
+        ] as const) {
+            drag(from, over(), { release: false })
+            expect(dropTargets()).toEqual([])
+            fireEvent.pointerUp(document, { button: 0 })
+        }
+
+        expect(session.moveEntry).not.toHaveBeenCalled()
+    })
+
+    it('treats a press that barely moves as a click, and the click after a drop as part of the drop', () => {
+        render(<FileTree tree={tree} />)
+
+        fireEvent.pointerDown(item('docs'), { button: 0, buttons: 1, clientX: 10, clientY: 10 })
+        fireEvent.pointerMove(document, { buttons: 1, clientX: 11, clientY: 11 })
+        fireEvent.pointerUp(document, { button: 0 })
+        fireEvent.click(item('docs'))
+        expect(item('docs')).toHaveAttribute('aria-expanded', 'false')
+        expect(session.moveEntry).not.toHaveBeenCalled()
+
+        drag('flow.mmd', item('docs'))
+        fireEvent.click(item('flow.mmd'))
+        expect(tabs.openFile).not.toHaveBeenCalled()
+    })
+
+    it('stops dragging with Escape, and nothing moves', () => {
+        render(<FileTree tree={tree} />)
+
+        drag('flow.mmd', item('docs'), { release: false })
+        fireEvent.keyDown(document, { key: 'Escape' })
+        expect(dropTargets()).toEqual([])
+        fireEvent.pointerUp(document, { button: 0 })
+
+        expect(session.moveEntry).not.toHaveBeenCalled()
+    })
+
+    it('stops dragging when the button was let go outside the window', () => {
+        render(<FileTree tree={tree} />)
+
+        drag('flow.mmd', item('docs'), { release: false })
+        fireEvent.pointerMove(document, { buttons: 0, clientX: 50, clientY: 50 })
+        expect(dropTargets()).toEqual([])
+        fireEvent.pointerUp(document, { button: 0 })
+
+        expect(session.moveEntry).not.toHaveBeenCalled()
+    })
+
+    it('opens a closed folder the entry is held over for a moment', () => {
+        vi.useFakeTimers()
+        try {
+            folders.toggles = new Map([['/ws/docs', false]])
+            render(<FileTree tree={tree} />)
+
+            drag('flow.mmd', item('docs'), { release: false })
+            act(() => vi.advanceTimersByTime(1000))
+
+            expect(session.setFolderExpanded).toHaveBeenCalledWith('/ws/docs', true)
+            fireEvent.pointerUp(document, { button: 0 })
+            vi.runOnlyPendingTimers()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('moves with Move to… in the row menu, and opens the folder it went into', async () => {
+        folders.toggles = new Map([['/ws/docs', false]])
+        chooseFolder.mockResolvedValueOnce('/ws/docs')
+        session.moveEntry.mockResolvedValueOnce('/ws/docs/flow.mmd')
+        render(<FileTree tree={tree} />)
+
+        await act(async () => {
+            await chooseFromActionsMenu('flow.mmd', 'Move to…')
+        })
+
+        expect(chooseFolder).toHaveBeenCalledWith(expect.objectContaining({ path: '/ws/flow.mmd' }))
+        expect(session.moveEntry).toHaveBeenCalledWith('/ws/flow.mmd', false, '/ws/docs')
+        expect(session.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs'], true)
+    })
+
+    it('copies files dropped from File Explorer into the folder they land on, and shows it as they are dragged', async () => {
+        render(<FileTree tree={tree} />)
+        expect(fileDrops.element).toBe(screen.getByRole('tree').parentElement)
+
+        under = item('notes.md')
+        act(() => fileDrops.onHover!({ x: 5, y: 5 }))
+        expect(dropTargets()).toEqual(['docs'])
+        act(() => fileDrops.onHover!(null))
+        expect(dropTargets()).toEqual([])
+
+        let rest: readonly string[] = ['not yet']
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['D:\\in\\a.md', 'D:\\in\\pic.png'], x: 5, y: 5 })
+        })
+        expect(rest).toEqual([])
+        expect(session.copyIntoFolder).toHaveBeenCalledWith(['D:\\in\\a.md', 'D:\\in\\pic.png'], '/ws/docs')
+
+        // Beside the rows, they go to the top of the open folder.
+        under = screen.getByRole('tree').parentElement
+        await act(async () => {
+            await fileDrops.handler!({ paths: ['D:\\in\\b.md'], x: 5, y: 5 })
+        })
+        expect(session.copyIntoFolder).toHaveBeenLastCalledWith(['D:\\in\\b.md'], '/ws')
+    })
+
+    it('leaves files already in the folder they land on to the window, which opens them', async () => {
+        render(<FileTree tree={tree} />)
+
+        under = item('notes.md')
+        let rest: readonly string[] = []
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['/ws/docs/notes.md', 'D:\\in\\a.md'], x: 5, y: 5 })
+        })
+
+        expect(rest).toEqual(['/ws/docs/notes.md'])
+        expect(session.copyIntoFolder).toHaveBeenCalledWith(['D:\\in\\a.md'], '/ws/docs')
+
+        // Only those: nothing is copied.
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['/ws/docs/notes.md'], x: 5, y: 5 })
+        })
+        expect(rest).toEqual(['/ws/docs/notes.md'])
+        expect(session.copyIntoFolder).toHaveBeenCalledTimes(1)
+    })
+
+    it('takes nothing on a folder that can’t be read, as Move to… leaves it out', async () => {
+        render(<FileTree tree={[{ kind: 'directory', name: 'private', path: '/ws/private', children: [], unreadable: true }, ...tree]} />)
+
+        drag('flow.mmd', item('private'), { release: false })
+        expect(dropTargets()).toEqual([])
+        fireEvent.pointerUp(document, { button: 0 })
+        expect(session.moveEntry).not.toHaveBeenCalled()
+
+        under = item('private')
+        act(() => fileDrops.onHover!({ x: 5, y: 5 }))
+        expect(dropTargets()).toEqual([])
+        let rest: readonly string[] = ['not yet']
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['D:\\in\\a.md'], x: 5, y: 5 })
+        })
+        expect(rest).toEqual([])
+        expect(session.copyIntoFolder).not.toHaveBeenCalled()
+    })
+
+    it('says so when the folder is empty, and still takes files dropped on it', () => {
+        render(<FileTree tree={[]} />)
+
+        expect(screen.getByText('No files in this folder.')).toBeInTheDocument()
+        expect(fileDrops.element).not.toBeNull()
     })
 })
 

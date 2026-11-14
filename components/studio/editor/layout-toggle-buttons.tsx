@@ -13,7 +13,7 @@ export function LayoutToggleButtons() {
     const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen } = useStudioLayout()
     const { settings } = useAppSettings()
 
-    /** The tooltip text, with the user's shortcut when one is set, e.g. 'Toggle explorer (Ctrl+B)'. */
+    /** The tooltip text, with the user's shortcut when one is set, e.g. 'Toggle explorer (Ctrl+Shift+B)'. */
     const label = (text: string, action: KeybindActionId) => {
         const keys = formatKeybindForAction(action, settings.keybinds)
         return keys ? `${text} (${keys})` : text

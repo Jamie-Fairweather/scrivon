@@ -15,6 +15,7 @@ import { usePaletteSearch } from '@/components/studio/command-palette/use-palett
 import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 
 /** Files are read as bytes and decoded, so text has to come back encoded. */
@@ -34,6 +35,7 @@ const state = vi.hoisted(() => ({
     tabs: {
         tabs: [] as Array<{ id: string; path: string; name: string; content: string; isDirty: boolean }>,
         activeTabId: null as string | null,
+        activeTab: null as { id: string; path: string; name: string; content: string; isDirty: boolean } | null,
         openFile: async () => {},
         openExample: () => {},
         setActiveTab: async () => {},
@@ -45,7 +47,7 @@ const state = vi.hoisted(() => ({
     layout: {
         layout: { explorerOpen: true, editorOpen: true, outlineOpen: false },
         setExplorerOpen: () => {},
-        setEditorOpen: () => {},
+        setEditorOpen: (() => {}) as (open: boolean) => void,
         setOutlineOpen: () => {},
         setPreviewOnly: () => {},
     },
@@ -53,7 +55,7 @@ const state = vi.hoisted(() => ({
     canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
     settings: { settings: null as unknown, openSettings: () => {}, flushPendingSettings: () => {} },
-    coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) } },
+    coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) }, revealInEditor: { current: vi.fn() } },
 }))
 
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn(async () => null) }) }))
@@ -69,6 +71,8 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 vi.mock('@/components/studio/app-update-provider', () => ({ useAppUpdate: () => ({ checking: false, checkForUpdates: async () => {} }) }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
+
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => state.canvasControls,
 }))
@@ -114,7 +118,7 @@ function file(path: string): FileNode {
 
 function groupPaths(groups: PaletteGroup[], id: string): string[] {
     const group = groups.find((g) => g.id === id)
-    return (group?.items ?? []).map((item) => (item.kind === 'action' ? item.value : item.path))
+    return (group?.items ?? []).map((item) => ('path' in item ? item.path : item.value))
 }
 
 describe('usePaletteSearch text search', () => {
@@ -778,7 +782,7 @@ describe("usePaletteSearch the editor's commands", () => {
     ])('runs %s in the editor', (query, monacoAction) => {
         const editor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
         function Editor() {
-            useEditorCommands(editor as never, true, false)
+            useEditorCommands(editor as never, { shown: true, readOnly: false, markdown: true })
             return null
         }
         const { result } = renderHookAlone(() => usePaletteSearch('all', true), {
@@ -797,5 +801,197 @@ describe("usePaletteSearch the editor's commands", () => {
 
         expect(editor.focus).toHaveBeenCalled()
         expect(editor.trigger).toHaveBeenCalledWith('scrivon', monacoAction, null)
+    })
+})
+
+describe('usePaletteSearch prefixes', () => {
+    type Tab = NonNullable<typeof state.tabs.activeTab>
+    const tab = (name: string, content: string): Tab => ({ id: `/ws/${name}`, path: `/ws/${name}`, name, content, isDirty: false })
+    const GUIDE = ['# Guide', '', '## Install', '', '## Use', ''].join('\n')
+    let setEditorOpen: ReturnType<typeof vi.fn<(open: boolean) => void>>
+
+    function open(activeTab: Tab | null) {
+        state.tabs.tabs = activeTab ? [activeTab] : []
+        state.tabs.activeTabId = activeTab?.id ?? null
+        state.tabs.activeTab = activeTab
+    }
+
+    function items(result: { current: ReturnType<typeof usePaletteSearch> }) {
+        return result.current.groups.flatMap((group) => group.items)
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // The test DOM has no workers, so headings are read on the main thread.
+        vi.stubGlobal('Worker', undefined)
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/guide.md'), file('/ws/flow.mmd')]
+        state.session.recentWorkspaces = []
+        setEditorOpen = vi.fn<(open: boolean) => void>()
+        state.layout.setEditorOpen = setEditorOpen
+        state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
+        open(tab('guide.md', GUIDE))
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        state.layout.setEditorOpen = () => {}
+        open(null)
+    })
+
+    it('offers the line typed after :, and only that', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':3:2'))
+        expect(result.current.groups.map((group) => group.id)).toEqual(['line'])
+        expect(items(result)).toEqual([expect.objectContaining({ kind: 'line', path: '/ws/guide.md', line: 3, column: 2 })])
+        expect(result.current.isSearchingText).toBe(false)
+    })
+
+    it('asks for a line number until one is typed', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('Type a line number from 1 to 6. Add :5 to go to a column.')
+
+        // Not worked out while there is a row to show.
+        act(() => result.current.setQuery(':3'))
+        expect(result.current.emptyHint).toBeNull()
+    })
+
+    it('asks for a file before going to a line', () => {
+        open(null)
+        state.session.workspaceRoot = null
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':12'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('Open a file to go to a line in it.')
+    })
+
+    it('shows the editor and goes to the line picked', async () => {
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false }
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':3:2'))
+        await act(() => result.current.runItem(items(result)[0]!))
+
+        expect(setEditorOpen).toHaveBeenCalledWith(true)
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/guide.md', 3, 2)
+    })
+
+    it('opens a text hit in the editor, then selects the match', async () => {
+        const calls: string[] = []
+        const openFile = state.tabs.openFile
+        state.tabs.openFile = async () => void calls.push('open')
+        state.coordinator.revealInEditor.current.mockImplementationOnce(() => void calls.push('reveal'))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        await act(() =>
+            result.current.runItem({
+                kind: 'text',
+                value: 'text:/ws/notes.md:4:7',
+                searchText: 'notes.md',
+                path: '/ws/notes.md',
+                name: 'notes.md',
+                relativePath: 'notes.md',
+                documentKind: 'markdown',
+                line: 4,
+                column: 7,
+                length: 5,
+                preview: 'the oauth flow',
+                previewMatchStart: 4,
+                source: 'disk',
+            })
+        )
+        state.tabs.openFile = openFile
+
+        expect(setEditorOpen).toHaveBeenCalledWith(true)
+        expect(calls).toEqual(['open', 'reveal'])
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/notes.md', 4, 7, 5)
+    })
+
+    it("lists the Markdown file's headings after @", async () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        await waitFor(() => expect(result.current.groups.map((group) => group.id)).toEqual(['headings']))
+        expect(items(result).map((item) => item.kind === 'heading' && item.text)).toEqual(['Guide', 'Install', 'Use'])
+
+        act(() => result.current.setQuery('@use'))
+        expect(items(result).map((item) => item.kind === 'heading' && item.text)).toEqual(['Use'])
+
+        act(() => result.current.setQuery('@zzz'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('No matching headings.')
+    })
+
+    it('moves the preview and the editor to the heading picked', async () => {
+        const reveal = vi.fn()
+        const stop = registerPreviewHeadingReveal(reveal)
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@install'))
+        await waitFor(() => expect(items(result)).toHaveLength(1))
+        await act(() => result.current.runItem(items(result)[0]!))
+        stop()
+
+        expect(reveal).toHaveBeenCalledWith('install')
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/guide.md', 3, 1)
+        expect(setEditorOpen).not.toHaveBeenCalled()
+    })
+
+    it('leaves a hidden editor alone when jumping to a heading', async () => {
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false }
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@install'))
+        await waitFor(() => expect(items(result)).toHaveLength(1))
+        await act(() => result.current.runItem(items(result)[0]!))
+
+        expect(state.coordinator.revealInEditor.current).not.toHaveBeenCalled()
+        expect(setEditorOpen).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['no file is open', null, 'Open a Markdown file to jump to its headings.'],
+        ['the file is a diagram', tab('flow.mmd', 'graph TD\n  A --> B'), 'Only Markdown files have headings.'],
+        ['the file has no headings', tab('plain.md', 'Just text.'), 'No headings yet. Start a line with # to add one.'],
+    ])('says why @ lists nothing when %s', async (_, activeTab, hint) => {
+        open(activeTab)
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        await waitFor(() => expect(result.current.emptyHint).toBe(hint))
+        expect(result.current.groups).toEqual([])
+    })
+
+    it('lists the prefixes after ?', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('?'))
+        expect(result.current.groups.map((group) => group.id)).toEqual(['help'])
+        expect(items(result).map((item) => item.kind === 'prefix' && item.prefix)).toEqual(['>', ':', '@'])
+
+        act(() => result.current.setQuery('?zzz'))
+        expect(result.current.emptyHint).toBe('No matching prefixes.')
+    })
+
+    it('gives no hint for a plain search', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('guide'))
+        expect(result.current.emptyHint).toBeNull()
+    })
+
+    it('searches file contents for @ in Find in Workspace instead of listing headings', () => {
+        const { result } = renderHook(() => usePaletteSearch('text', true))
+
+        act(() => result.current.setQuery('@media'))
+        expect(result.current.isSearchingText).toBe(true)
+        expect(result.current.emptyHint).toBeNull()
     })
 })

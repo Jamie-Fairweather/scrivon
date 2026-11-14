@@ -7,6 +7,7 @@ function context(overrides: Partial<ExplorerCommandsContext> = {}): ExplorerComm
         canRevealActiveFile: true,
         collapseAllFolders: vi.fn(),
         revealActiveFile: vi.fn(),
+        moveActiveFile: vi.fn(),
         ...overrides,
     }
 }
@@ -30,6 +31,14 @@ describe('buildExplorerCommands', () => {
         expect(ctx.revealActiveFile).toHaveBeenCalledTimes(1)
     })
 
+    it('moves the open file to another folder', () => {
+        const ctx = context()
+        expect(find(ctx, 'move-active-file')).toMatchObject({ label: 'Move Active File to…', disabled: false })
+
+        void find(ctx, 'move-active-file')!.run()
+        expect(ctx.moveActiveFile).toHaveBeenCalledTimes(1)
+    })
+
     it('can be found by the words people use for them', () => {
         expect(find(context(), 'collapse-all-folders')?.keywords).toContain('explorer')
         expect(find(context(), 'reveal-active-file')?.keywords).toMatch(/\bshow\b.*\bcurrent\b/)
@@ -39,11 +48,13 @@ describe('buildExplorerCommands', () => {
         const ctx = context({ hasWorkspace: false, canRevealActiveFile: false })
         expect(find(ctx, 'collapse-all-folders')).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
         expect(find(ctx, 'reveal-active-file')).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
+        expect(find(ctx, 'move-active-file')).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
     })
 
     it('says why Reveal is off when the open tab is not a file in the folder', () => {
         const ctx = context({ canRevealActiveFile: false })
         expect(find(ctx, 'collapse-all-folders')?.disabled).toBe(false)
         expect(find(ctx, 'reveal-active-file')).toMatchObject({ disabled: true, disabledReason: 'No file from the folder is open' })
+        expect(find(ctx, 'move-active-file')).toMatchObject({ disabled: true, disabledReason: 'No file from the folder is open' })
     })
 })

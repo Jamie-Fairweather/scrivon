@@ -46,7 +46,12 @@ export type KeybindActionId =
     | 'tabs.next'
     | 'tabs.previous'
     | 'tabs.reopenClosed'
+    | 'format.bold'
+    | 'format.italic'
+    | 'format.code'
+    | 'format.link'
 
+/** Where an action's keys work: anywhere, with a folder open, or while typing in the editor (where they come first). */
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
 /** 'system' follows the Windows light/dark setting. */

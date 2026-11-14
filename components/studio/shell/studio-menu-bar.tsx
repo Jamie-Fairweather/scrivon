@@ -277,6 +277,13 @@ export function StudioMenuBar() {
                                 {item('edit.replace')}
                                 {item('edit.go-to-line')}
                             </MenuGroup>
+                            <MenuSeparator />
+                            <MenuGroup>
+                                {item('edit.bold')}
+                                {item('edit.italic')}
+                                {item('edit.inline-code')}
+                                {item('edit.link')}
+                            </MenuGroup>
                         </MenuBarEntry>
                     )}
 
@@ -326,6 +333,12 @@ export function StudioMenuBar() {
                                 <MenuSeparator />
                             </>
                         )}
+                        <MenuGroup>
+                            {item('report-issue')}
+                            {item('copy-diagnostic-info')}
+                            {item('open-logs-folder')}
+                        </MenuGroup>
+                        <MenuSeparator />
                         <MenuGroup>
                             {item('about')}
                             {item('licences')}

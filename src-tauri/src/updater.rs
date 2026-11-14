@@ -640,7 +640,7 @@ fn install_with_record(
 ) -> Result<(), String> {
     if let Some(dir) = dir {
         if let Err(err) = record_attempt(dir, from, to) {
-            eprintln!("Could not record the update attempt: {err}");
+            log::warn!("Could not record the update attempt: {err}");
         }
     }
     let result = install();
@@ -707,14 +707,23 @@ pub async fn install_app_update(
                 },
             )
             .await
-            .map_err(|e| install_error_message(&e))?;
+            .map_err(|e| {
+                // The message is for the user; the log keeps the technical reason.
+                log::error!("The update download failed: {e}");
+                install_error_message(&e)
+            })?;
         // Again, in case another window was opened during the download.
         ensure_no_other_instances().await?;
         install_with_record(
             data_dir.as_deref(),
             &update.current_version,
             &update.version,
-            || update.install(bytes).map_err(|e| install_error_message(&e)),
+            || {
+                update.install(bytes).map_err(|e| {
+                    log::error!("The update install failed: {e}");
+                    install_error_message(&e)
+                })
+            },
         )
     })
     .await
