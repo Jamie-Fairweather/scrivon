@@ -37,7 +37,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
-- **PDF and Word export** — Save the rendered document as PDF (native export on Windows via WebView2) or Word (.docx), styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**
+- **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+X**
 
 ### General
 
@@ -45,7 +45,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Themes** — Light and dark UI plus 15+ diagram palettes (Scrivon, Zinc, Tokyo Night, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, and more)
 - **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
-- **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace
+- **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace. Type `:` to go to a line, `@` to jump to a heading, or `?` to see these
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
 - **Auto-updates** — Updates install in-app; **Help → Check for Updates…** looks for one at any time (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 
@@ -85,11 +85,11 @@ Your documents stay where you save them. Scrivon keeps its own data in your Wind
 | The program                                                            | `%LOCALAPPDATA%\Scrivon`, unless you chose another folder when installing                                                      |
 | Recent folders, open tabs, window size, and unsaved edits kept for you | `%APPDATA%\io.github.jamie-fairweather.scrivon`                                                                                |
 | Settings (theme, shortcuts, export profiles)                           | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\EBWebView`, with a copy in `settings.json` in the `%APPDATA%` folder above |
-| Crash log                                                              | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                                                                      |
+| Log (`scrivon.log`) and crash log                                      | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                                                                      |
 | Data from before version 1.4.1                                         | `com.diagram.app` in `%APPDATA%` and `%LOCALAPPDATA%` (copied across once, then left)                                          |
 | Downloaded updates                                                     | `%TEMP%\Scrivon-<version>-updater-…`, removed the next time Scrivon starts                                                     |
 
-To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings and crash log, and the old `com.diagram.app` folders. Your documents are never touched.
+To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings and logs, and the old `com.diagram.app` folders. Your documents are never touched.
 
 ### Build from source
 
@@ -156,4 +156,4 @@ Scrivon is released under the [MIT License](LICENSE). Third-party dependencies a
 
 - [Releases](https://github.com/Jamie-Fairweather/scrivon/releases)
 - [Development & releases guide](docs/development.md)
-- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues)
+- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues), or use **Help → Report an Issue** in the app, which fills in your app, Windows and WebView2 versions. **Help → Open Logs Folder** shows the log files to attach. They can show file and folder names, so check them first.

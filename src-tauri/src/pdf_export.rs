@@ -222,7 +222,7 @@ async fn export_html_to_pdf_impl(
     .await;
     match readiness {
         PageReadiness::Ready => {}
-        PageReadiness::TimedOut => eprintln!(
+        PageReadiness::TimedOut => log::warn!(
             "PDF export: the page wasn't ready after {READY_TIMEOUT:?}; printing it anyway."
         ),
         // Printing now would replace the chosen file with a blank page.
@@ -397,7 +397,7 @@ fn place_printed_pdf(
     if !numbered {
         if let Err(err) = std::fs::rename(printed, output) {
             let _ = std::fs::remove_file(printed);
-            eprintln!("Could not move the printed PDF into place: {err}");
+            log::error!("Could not move the printed PDF into place: {err}");
             return Err(could_not_save_message(&output.to_string_lossy()));
         }
     }

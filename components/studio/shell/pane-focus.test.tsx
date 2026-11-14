@@ -115,7 +115,6 @@ describe('cyclePaneFocus', () => {
 
         cyclePaneFocus(1)
         expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
-
         ;(document.activeElement as HTMLElement).blur()
         cyclePaneFocus(-1)
         expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))

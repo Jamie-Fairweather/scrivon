@@ -83,6 +83,7 @@ export function PdfExportDialog({
 const FORMAT_OPTIONS: { label: string; value: ExportFormat }[] = [
     { label: 'PDF', value: 'pdf' },
     { label: 'Word', value: 'docx' },
+    { label: 'HTML', value: 'html' },
 ]
 
 /**
@@ -104,7 +105,9 @@ function pageNumberNote(format: ExportFormat, profile: PdfExportProfile, metadat
  * The page-space warning from Settings, for the profile picked here: margins, header and footer
  * that leave little or no room for the text. The export still runs; Settings is where to fix it.
  */
-function pageSpaceNote(profile: PdfExportProfile): string {
+function pageSpaceNote(format: ExportFormat, profile: PdfExportProfile): string {
+    // A web page has no pages to run out of.
+    if (format === 'html') return ''
     const bodyHeightMm = pdfBodyHeightMm(profile)
     if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return ''
     if (bodyHeightMm <= 0) return 'Margins, header and footer are taller than the page, so there is no room left for the text.'
@@ -118,6 +121,10 @@ function pageSpaceNote(profile: PdfExportProfile): string {
  */
 function titleFieldsNote(format: ExportFormat, profile: PdfExportProfile): string {
     if (profile.frontMatter.titlePage) return ''
+    // A web page has no header or footer, but keeps the author and subtitle in its <meta> tags.
+    if (format === 'html') {
+        return "Subtitle, author and date appear on the title page (off in this profile). Author and subtitle are also saved in the page's details."
+    }
     const note = 'Subtitle, author and date appear on the title page (off in this profile) and in {{…}} header or footer text.'
     const savedInFile = format === 'docx' || isWindowsTauri()
     return savedInFile ? `${note} Author and subtitle are also saved in the file's properties.` : note
@@ -177,7 +184,7 @@ function PdfExportForm({
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
-    const spaceNote = pageSpaceNote(profile)
+    const spaceNote = pageSpaceNote(format, profile)
     const fieldsNote = titleFieldsNote(format, profile)
     // The preview prints through the Windows exporter, so it's only there for PDFs in the Windows app.
     const showPreview = format === 'pdf' && isWindowsTauri()

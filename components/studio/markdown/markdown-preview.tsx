@@ -526,8 +526,12 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. Block math
-                isn't in a paragraph, so it gets the paragraphs' text size and space below here. */}
-            <article lang={lang} className="w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm">
+                isn't in a paragraph, so it gets the paragraphs' text size and space below here. preview-text sizes the
+                text and spacing by the Preview text size setting (app/globals.css). */}
+            <article
+                lang={lang}
+                className="preview-text w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm"
+            >
                 <RemoteImagesContext.Provider value={remoteImages}>
                     <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
                 </RemoteImagesContext.Provider>

@@ -2,12 +2,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDocumentSave } from '@/components/studio/workspace/workspace-provider'
+import { logError } from '@/lib/diagnostics/app-log'
 import { isTauri } from '@/lib/tauri/platform'
 import { clearWorkspaceStore } from '@/lib/tauri/store'
 import { CopyErrorDetailsButton, StudioErrorBoundary, StudioReloadFallback } from './studio-error-boundary'
 import { StudioRecoveryScreen } from './studio-recovery-screen'
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useDocumentSave: vi.fn() }))
+vi.mock('@/lib/diagnostics/app-log', () => ({ logError: vi.fn(), logWarning: vi.fn() }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: vi.fn() }))
 // The real controls need the desktop window, which these tests don't have.
 vi.mock('@/components/studio/shell/window-titlebar-controls', () => ({ TITLEBAR_ABOVE_DIALOGS_CLASS: '', WindowTitlebarControls: () => null }))
@@ -57,6 +59,7 @@ describe('StudioErrorBoundary', () => {
 
         expect(screen.getByRole('alert')).toHaveTextContent('Render exploded')
         expect(screen.getByRole('banner')).toBeInTheDocument()
+        expect(logError).toHaveBeenCalledWith('Scrivon hit an error while rendering', new Error('Render exploded'))
 
         await userEvent.setup().click(screen.getByRole('button', { name: 'Reload' }))
         expect(reload).toHaveBeenCalled()

@@ -66,7 +66,7 @@ fn launch_path(arg: &OsStr, cwd: &Path) -> Option<LaunchPath> {
     let path = std::path::absolute(cwd.join(arg)).ok()?;
     let is_folder = path.is_dir();
     if !is_folder && !(path.is_file() && is_document(&path)) {
-        eprintln!(
+        log::warn!(
             "Not opening {}: not a folder or a document Scrivon opens.",
             path.display()
         );
@@ -104,7 +104,7 @@ impl LaunchPaths {
             .filter(|path| match allow_folder(path.folder()) {
                 Ok(()) => true,
                 Err(err) => {
-                    eprintln!("Could not open {}: {err}", path.path);
+                    log::warn!("Could not open {}: {err}", path.path);
                     false
                 }
             })

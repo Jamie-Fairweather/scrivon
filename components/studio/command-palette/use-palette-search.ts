@@ -6,10 +6,13 @@ import { notifyError } from '@/lib/notify'
 import { getBaseName, readStamp, readWorkspaceFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
+import type { OutlineHeading } from '@/lib/markdown/document-outline'
+import { documentKind } from '@/lib/workspace/file-types'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
 import { foldText } from '@/components/studio/command-palette/fold-text'
-import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
+import { goToLineHint, goToLineItem, headingItems, helpItems, type PaletteFile } from '@/components/studio/command-palette/palette-prefixes'
+import { parsePaletteQuery, type PaletteQueryKind } from '@/components/studio/command-palette/parse-palette-query'
 import { isThemePick, matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import {
     createContentCache,
@@ -22,7 +25,9 @@ import {
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useCommands } from '@/components/studio/commands/command-registry'
-import { useDocumentTabs, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { jumpToHeading } from '@/components/studio/outline/jump-to-heading'
+import { useMarkdownOutline } from '@/components/studio/outline/use-markdown-outline'
+import { useDocumentTabs, useStudioLayout, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
     // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
@@ -73,10 +78,49 @@ function buildMixedCommandGroup(actions: ActionPaletteItem[], query: string, has
     return { id: 'actions', label: 'Commands', items }
 }
 
+/** The results of ':', '@' and '?', which work on the open file rather than the folder. */
+function buildPrefixGroups(
+    kind: Exclude<PaletteQueryKind, 'search' | 'commands'>,
+    query: string,
+    file: PaletteFile | null,
+    headings: OutlineHeading[] | null
+): PaletteGroup[] {
+    if (kind === 'line') {
+        const item = file ? goToLineItem(file, query) : null
+        return item ? [{ id: 'line', label: 'Go to Line', items: [item] }] : NO_GROUPS
+    }
+    if (kind === 'heading') {
+        const items = file && headings ? headingItems(headings, file.path, query) : []
+        return items.length > 0 ? [{ id: 'headings', label: 'Headings', items }] : NO_GROUPS
+    }
+    const items = helpItems(query)
+    return items.length > 0 ? [{ id: 'help', label: 'Prefixes', items }] : NO_GROUPS
+}
+
+/** What ':', '@' and '?' say when they list nothing. Null for a search or commands, whose messages the dialog has. */
+function prefixHint(kind: PaletteQueryKind, file: PaletteFile | null, isMarkdown: boolean, headings: OutlineHeading[] | null): string | null {
+    switch (kind) {
+        case 'line':
+            return goToLineHint(file)
+        case 'heading':
+            if (!file) return 'Open a Markdown file to jump to its headings.'
+            if (!isMarkdown) return 'Only Markdown files have headings.'
+            if (headings === null) return 'Reading headings…'
+            if (headings.length === 0) return 'No headings yet. Start a line with # to add one.'
+            return 'No matching headings.'
+        case 'help':
+            return 'No matching prefixes.'
+        default:
+            return null
+    }
+}
+
 export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const { workspaceRoot, tree, recentWorkspaces, openWorkspace } = useWorkspaceSession()
-    const { tabs, openFile, setActiveTab } = useDocumentTabs()
-    const { setEditorOpen } = useStudioLayout()
+    const { tabs, activeTab, openFile, setActiveTab } = useDocumentTabs()
+    const { layout, setEditorOpen } = useStudioLayout()
+    const editorOpen = layout.editorOpen
+    const coordinator = useWorkspaceCoordinator()
 
     const [query, setQuery] = useState('')
     const [recentFilesState, setRecentFilesState] = useState<{ root: string; paths: string[] } | null>(null)
@@ -89,13 +133,22 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     // File text read by earlier searches in this palette session (cleared on close and folder change).
     const [contentCache] = useState(() => createContentCache())
 
-    const parsedQueryState = useMemo(() => parsePaletteQuery(query), [query])
+    const parsedQueryState = useMemo(() => parsePaletteQuery(query, mode), [query, mode])
     const shouldSearchText =
-        enabled && Boolean(workspaceRoot) && !parsedQueryState.actionsOnly && mode !== 'files' && meetsTextQueryMinimum(parsedQueryState.query, mode)
+        enabled &&
+        Boolean(workspaceRoot) &&
+        parsedQueryState.kind === 'search' &&
+        mode !== 'files' &&
+        meetsTextQueryMinimum(parsedQueryState.query, mode)
     // Text results (and their footer notes) only count for the query they were found for, so
     // hits for something the user has typed past are never opened by a quick Enter.
     const textResolved = shouldSearchText && lastResolvedTextQuery === parsedQueryState.query
     const isSearchingText = shouldSearchText && !textResolved
+
+    // '@' reads the open Markdown file's headings, as the Outline panel does, only while it is typed.
+    const isMarkdown = activeTab !== null && documentKind(activeTab.name) === 'markdown'
+    const wantsHeadings = enabled && parsedQueryState.kind === 'heading' && isMarkdown
+    const headings = useMarkdownOutline(wantsHeadings ? activeTab.id : null, wantsHeadings ? activeTab.content : null)
 
     // While a new search runs, the last hits stay in place (so the list doesn't jump on every key)
     // but can't be opened until the new hits replace them.
@@ -139,16 +192,18 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const groups = useMemo((): PaletteGroup[] => {
         // `enabled` stays true until the close animation ends, so the fading list keeps its results.
         if (!enabled) return NO_GROUPS
-        const { actionsOnly, query: parsedQuery } = parsedQueryState
+        const { kind, query: parsedQuery } = parsedQueryState
         const result: PaletteGroup[] = []
 
-        if (actionsOnly) {
+        if (kind === 'commands') {
             const actionItems = searchActions(allActions, parsedQuery)
             if (actionItems.length > 0) {
                 result.push({ id: 'actions', label: 'Commands', items: actionItems })
             }
             return result
         }
+
+        if (kind !== 'search') return buildPrefixGroups(kind, parsedQuery, activeTab, headings)
 
         const commandGroup = mode === 'all' ? buildMixedCommandGroup(allActions, parsedQuery, Boolean(workspaceRoot)) : null
 
@@ -194,7 +249,23 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         if (commandGroup && parsedQuery) result.push(commandGroup)
 
         return result
-    }, [enabled, parsedQueryState, allActions, workspaceRoot, recentWorkspaces, tabs, liveRecentFiles, filePaths, textGroup, mode])
+    }, [
+        enabled,
+        parsedQueryState,
+        allActions,
+        workspaceRoot,
+        recentWorkspaces,
+        tabs,
+        activeTab,
+        headings,
+        liveRecentFiles,
+        filePaths,
+        textGroup,
+        mode,
+    ])
+
+    // Only worked out when the list is empty: ':' counts the open file's lines for it.
+    const emptyHint = groups.length === 0 ? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings) : null
 
     useEffect(() => {
         if (!shouldSearchText) {
@@ -265,13 +336,22 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
                 case 'workspace':
                     await openWorkspace(item.path)
                     break
+                // Text hits and lines show the editor and move it, which also puts the keyboard there.
                 case 'text':
                     setEditorOpen(true)
                     await openFile(item.path)
+                    coordinator.revealInEditor.current(item.path, item.line, item.column, item.length)
+                    break
+                case 'line':
+                    setEditorOpen(true)
+                    coordinator.revealInEditor.current(item.path, item.line, item.column)
+                    break
+                case 'heading':
+                    jumpToHeading(coordinator, item.path, { id: item.headingId, line: item.line }, editorOpen)
                     break
             }
         },
-        [setActiveTab, openFile, openWorkspace, setEditorOpen]
+        [setActiveTab, openFile, openWorkspace, setEditorOpen, coordinator, editorOpen]
     )
 
     return {
@@ -285,5 +365,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         textTruncatedFiles: textResolved ? textTruncatedFiles : 0,
         runItem,
         hasWorkspace: Boolean(workspaceRoot),
+        /** What to show instead of results when ':', '@' or '?' lists nothing. */
+        emptyHint,
     }
 }

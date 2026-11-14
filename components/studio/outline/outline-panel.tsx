@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useEditorCursorLine } from '@/components/studio/editor/editor-cursor'
-import { revealHeadingInPreview } from '@/components/studio/markdown/preview-heading'
+import { jumpToHeading } from '@/components/studio/outline/jump-to-heading'
 import { useMarkdownOutline } from '@/components/studio/outline/use-markdown-outline'
 import { useDocumentTabs, useStudioLayout, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
@@ -137,14 +137,7 @@ export function OutlinePanel() {
     const currentIndex = headings && editorOpen ? headingAtLine(headings, cursorLine) : -1
 
     const path = activeTab?.path ?? null
-    const onPick = useCallback(
-        (heading: OutlineHeading) => {
-            revealHeadingInPreview(heading.id)
-            // A hidden editor would jump, and take the keyboard, whenever it is next shown.
-            if (path !== null && editorOpen) coordinator.revealInEditor.current(path, heading.line, 1)
-        },
-        [path, editorOpen, coordinator]
-    )
+    const onPick = useCallback((heading: OutlineHeading) => jumpToHeading(coordinator, path, heading, editorOpen), [path, editorOpen, coordinator])
 
     let body
     if (!activeTab) body = <EmptyOutline>Open a Markdown file to see its headings.</EmptyOutline>

@@ -6,6 +6,7 @@ import { usePanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
 import { MarkdownExpandProvider } from '@/components/studio/markdown/markdown-expand-context'
 import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
+import { DocumentExportProvider } from '@/components/studio/editor/document-export-provider'
 import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
@@ -93,7 +94,10 @@ export function StudioLayout() {
                     {/* The page's one main landmark: the tabs, the editor and the preview.
                         data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
                     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
-                        <EditorTabBar />
+                        {/* Export for the active tab, from the tab bar, the File menu, the palette and the shortcut. */}
+                        <DocumentExportProvider>
+                            <EditorTabBar />
+                        </DocumentExportProvider>
 
                         {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
                         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>

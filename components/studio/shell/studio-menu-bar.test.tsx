@@ -1,12 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
-import { CommandRegistryProvider, useCommands } from '@/components/studio/commands/command-registry'
+import { CommandRegistryProvider, useCommands, useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { exportAvailability, type ExportState } from '@/components/studio/editor/export-availability'
+import { buildExportCommands } from '@/components/studio/editor/export-commands'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -19,6 +21,7 @@ import {
     useWorkspaceCoordinator,
     useWorkspaceSession,
 } from '@/components/studio/workspace/workspace-provider'
+import { formatMarkdown } from '@/lib/monaco/markdown-editing'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
 import { isTauri } from '@/lib/tauri/platform'
@@ -43,6 +46,7 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSetting
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: vi.fn() }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
+vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn() }))
 vi.mock('@/components/studio/dialogs/open-source-licenses-dialog', () => ({ OpenSourceLicensesDialog: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
 const { checkForUpdates } = vi.hoisted(() => ({ checkForUpdates: vi.fn(async () => {}) }))
@@ -54,7 +58,7 @@ vi.mock('@/components/studio/shell/window-titlebar-controls', async (importOrigi
 
 type EditorState = 'none' | 'hidden' | 'ready'
 
-const fakeEditor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
+const fakeEditor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}), hasTextFocus: () => false }
 
 function mockContexts({
     isDesktop = false,
@@ -67,6 +71,7 @@ function mockContexts({
     dirty = false,
     outlineOpen = false,
     activeTab = null as { name: string; isDirty: boolean } | null,
+    zoom = 1,
 } = {}) {
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView, zoomDiagram: vi.fn() } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
@@ -102,6 +107,9 @@ function mockContexts({
         closeTab: vi.fn(async () => {}),
         closeOtherTabs: vi.fn(async () => {}),
         closeAllTabs: vi.fn(async () => {}),
+        canReopenClosedTab: true,
+        reopenClosedTab: vi.fn(async () => {}),
+        revertTab: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
         layout: { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen },
@@ -118,7 +126,8 @@ function mockContexts({
         flushAllSaves: vi.fn(async () => true),
     } as unknown as ReturnType<typeof useDocumentSave>)
     vi.mocked(useAppSettings).mockReturnValue({
-        settings: { keybinds },
+        settings: { keybinds, appearance: { zoom, previewFontSize: 14 } },
+        updateSettings: vi.fn(),
         openSettings: vi.fn(),
         flushPendingSettings: vi.fn(),
     } as unknown as ReturnType<typeof useAppSettings>)
@@ -130,7 +139,7 @@ function mockContexts({
 
 /** Stands in for the editor panel, which registers the Edit menu's commands. */
 function EditorCommands({ state }: { state: EditorState }) {
-    useEditorCommands(state === 'none' ? null : (fakeEditor as never), state === 'ready', false)
+    useEditorCommands(state === 'none' ? null : (fakeEditor as never), { shown: state === 'ready', readOnly: false, markdown: true })
     return null
 }
 
@@ -240,15 +249,14 @@ describe('StudioMenuBar', () => {
         expect(screen.getByRole('menuitem', { name: 'File' })).toHaveFocus()
     })
 
-    it('lists About and Licences directly in the Help menu', async () => {
+    it('lists the bug report helpers, About and Licences directly in the Help menu', async () => {
         render(<Studio />)
 
         const menu = await openMenu('Help')
-        expect(within(menu).getByRole('menuitem', { name: 'About Scrivon…' })).toBeInTheDocument()
-        expect(within(menu).getByRole('menuitem', { name: 'Licences…' })).toBeInTheDocument()
         // The browser build has no updates to check for.
-        expect(menuLabels(menu)).toEqual(['About Scrivon…', 'Licences…'])
-        expect(menu.querySelector('[role="separator"]')).toBeNull()
+        expect(menuLabels(menu)).toEqual(['Report an Issue', 'Copy Diagnostic Info', 'Open Logs Folder', 'About Scrivon…', 'Licences…'])
+        // Just the one between the two groups, with no stray one on top.
+        expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(1)
     })
 
     it('checks for updates from the Help menu of the desktop app', async () => {
@@ -256,7 +264,14 @@ describe('StudioMenuBar', () => {
         render(<Studio />)
 
         const menu = await openMenu('Help')
-        expect(menuLabels(menu)).toEqual(['Check for Updates…', 'About Scrivon…', 'Licences…'])
+        expect(menuLabels(menu)).toEqual([
+            'Check for Updates…',
+            'Report an Issue',
+            'Copy Diagnostic Info',
+            'Open Logs Folder',
+            'About Scrivon…',
+            'Licences…',
+        ])
         await userEvent.setup().click(within(menu).getByRole('menuitem', { name: 'Check for Updates…' }))
 
         expect(checkForUpdates).toHaveBeenCalledTimes(1)
@@ -268,7 +283,7 @@ describe('StudioMenuBar', () => {
         const user = userEvent.setup()
 
         const view = await openMenu('View')
-        expect(within(view).getByRole('menuitemcheckbox', { name: 'Explorer Ctrl+B' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitemcheckbox', { name: 'Explorer Ctrl+Shift+B' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitemcheckbox', { name: 'Editor Ctrl+E' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Preview Only Ctrl+Shift+O' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Fit Diagram to Screen Ctrl+R' })).toBeInTheDocument()
@@ -332,7 +347,7 @@ describe('StudioMenuBar', () => {
 })
 
 describe('StudioMenuBar File menu', () => {
-    it('has Save, Save All, Close Tab and Exit, with their shortcuts', async () => {
+    it('has Save, Save All, Revert, the tab commands and Exit, with their shortcuts', async () => {
         mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md', dirty: true })
         render(<Studio />)
 
@@ -345,7 +360,11 @@ describe('StudioMenuBar File menu', () => {
             'Close Folder',
             'SaveCtrl+S',
             'Save AllCtrl+Shift+S',
-            'Close Tab',
+            'Revert File',
+            'Close TabCtrl+W',
+            'Reopen Closed TabCtrl+Shift+T',
+            'Next TabCtrl+Tab or Ctrl+PageDown',
+            'Previous TabCtrl+Shift+Tab or Ctrl+PageUp',
             'ExitAlt+F4',
         ])
         for (const name of [
@@ -354,11 +373,27 @@ describe('StudioMenuBar File menu', () => {
             'New Folder…',
             'Save Ctrl+S',
             'Save All Ctrl+Shift+S',
-            'Close Tab',
+            'Revert File',
+            'Close Tab Ctrl+W',
+            'Reopen Closed Tab Ctrl+Shift+T',
             'Exit Alt+F4',
         ]) {
             expect(within(file).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true')
         }
+        // Only one tab is open.
+        expect(within(file).getByRole('menuitem', { name: /^Next Tab/ })).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('reverts the open file and reopens the last closed tab', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
+        render(<Studio />)
+        const user = userEvent.setup()
+
+        await user.click(within(await openMenu('File')).getByRole('menuitem', { name: 'Revert File' }))
+        await user.click(within(await openMenu('File')).getByRole('menuitem', { name: /^Reopen Closed Tab/ }))
+
+        expect(vi.mocked(useDocumentTabs)().revertTab).toHaveBeenCalledWith('C:/work/a.md')
+        expect(vi.mocked(useDocumentTabs)().reopenClosedTab).toHaveBeenCalledTimes(1)
     })
 
     it('asks for a new document in the open file’s folder', async () => {
@@ -410,9 +445,116 @@ describe('StudioMenuBar File menu', () => {
         render(<Studio />)
 
         const file = await openMenu('File')
-        for (const name of [/^Save Ctrl/, /^Save All/, 'Close Tab']) {
+        for (const name of [/^Save Ctrl/, /^Save All/, 'Revert File', /^Close Tab/]) {
             expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
+    })
+})
+
+const MARKDOWN: ExportState = {
+    tabKind: 'markdown',
+    exporting: false,
+    hasMarkdown: true,
+    hasDiagram: false,
+    hasDiagramSource: false,
+    diagramError: false,
+    isPending: false,
+    isEmpty: false,
+    isStale: false,
+}
+const exportActions = { openDialog: vi.fn(), openMenu: vi.fn(), exportDiagram: vi.fn() }
+
+/** Stands in for the export provider, which registers the export commands for the active tab. */
+function ExportCommands({ state }: { state: ExportState }) {
+    const commands = useMemo(() => buildExportCommands({ availability: exportAvailability(state), lastFormat: 'pdf', ...exportActions }), [state])
+    useRegisterCommands(commands)
+    return null
+}
+
+async function openExportMenu() {
+    const user = userEvent.setup()
+    const file = await openMenu('File')
+    await user.click(within(file).getByRole('menuitem', { name: 'Export' }))
+    const exportMenu = (await screen.findByRole('menuitem', { name: 'PDF…' })).closest<HTMLElement>('[role="menu"]')!
+    return { file, exportMenu }
+}
+
+describe('StudioMenuBar File → Export', () => {
+    beforeEach(() => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
+    })
+
+    it('sits after the save items, with every kind of export', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+            </Studio>
+        )
+
+        const { file, exportMenu } = await openExportMenu()
+        const labels = menuLabels(file)
+        const save = labels.indexOf('SaveCtrl+S')
+        expect(labels.slice(save, save + 4)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Revert File', 'Export'])
+        expect(menuLabels(exportMenu)).toEqual(['PDF…', 'Word…', 'HTML…', 'Diagram as SVG…', 'Diagram as PNG'])
+    })
+
+    it('turns on only what the active tab can export', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        for (const name of ['PDF…', 'Word…', 'HTML…']) expect(within(exportMenu).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled')
+        for (const name of ['Diagram as SVG…', 'Diagram as PNG']) {
+            expect(within(exportMenu).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
+        }
+    })
+
+    it('opens the export dialog at the chosen format', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'HTML…' }))
+        expect(exportActions.openDialog).toHaveBeenCalledWith('html')
+    })
+
+    it('saves a diagram as SVG, or as PNG at the size picked', async () => {
+        const mermaid: ExportState = { ...MARKDOWN, tabKind: 'mermaid', hasMarkdown: false, hasDiagram: true, hasDiagramSource: true }
+        render(
+            <Studio>
+                <ExportCommands state={mermaid} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        expect(within(exportMenu).getByRole('menuitem', { name: 'PDF…' })).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'Diagram as PNG' }))
+        fireEvent.click(await screen.findByRole('menuitem', { name: '4×…' }))
+        expect(exportActions.exportDiagram).toHaveBeenCalledWith(4)
+    })
+
+    it('is greyed out when the tab can export nothing', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, tabKind: null, hasMarkdown: false }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: 'Export' })).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('is left out with no folder open, as nothing can be exported', async () => {
+        mockContexts()
+        render(<Studio />)
+
+        expect(menuLabels(await openMenu('File'))).not.toContain('Export')
     })
 })
 
@@ -443,6 +585,10 @@ describe('StudioMenuBar Edit menu', () => {
             'FindCtrl+F',
             'ReplaceCtrl+H',
             'Go to Line…Ctrl+G',
+            'BoldCtrl+B',
+            'ItalicCtrl+I',
+            'Inline CodeCtrl+E',
+            'LinkCtrl+K',
         ])
     })
 
@@ -455,11 +601,20 @@ describe('StudioMenuBar Edit menu', () => {
         expect(fakeEditor.trigger).toHaveBeenCalledWith('scrivon', 'editor.action.startFindReplaceAction', null)
     })
 
+    it('makes the selection bold in the editor', async () => {
+        render(<Studio editor="ready" />)
+
+        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Bold Ctrl+B' }))
+
+        expect(fakeEditor.focus).toHaveBeenCalled()
+        expect(formatMarkdown).toHaveBeenCalledWith(fakeEditor, 'bold')
+    })
+
     it.each<EditorState>(['none', 'hidden'])('turns every item off when the editor is %s', async (state) => {
         render(<Studio editor={state} />)
 
         const items = within(await openMenu('Edit')).getAllByRole('menuitem')
-        expect(items).toHaveLength(9)
+        expect(items).toHaveLength(13)
         expect(items.every((item) => item.getAttribute('aria-disabled') === 'true')).toBe(true)
     })
 })
@@ -483,7 +638,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(33)
+        expect(compared).toBe(47)
     })
 })
 
@@ -557,6 +712,20 @@ describe('StudioMenuBar View menu', () => {
         await userEvent.setup().click(outline)
 
         expect(vi.mocked(useStudioLayout)().setOutlineOpen).toHaveBeenCalledWith(true)
+    })
+
+    it('zooms the whole app in, out and back to 100%, with the zoom keys', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', zoom: 1.25 })
+        render(<Studio />)
+
+        const view = await openMenu('View')
+        expect(within(view).getByRole('menuitem', { name: 'Zoom In Ctrl+= or Ctrl+Plus' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Out Ctrl+-' })).toBeInTheDocument()
+        await userEvent.setup().click(within(view).getByRole('menuitem', { name: 'Reset Zoom Ctrl+0' }))
+
+        const update = vi.mocked(useAppSettings)().updateSettings as unknown as ReturnType<typeof vi.fn>
+        const change = update.mock.calls[0]?.[0] as (current: { appearance: { zoom: number } }) => { appearance: { zoom: number } }
+        expect(change({ appearance: { zoom: 1.25 } }).appearance.zoom).toBe(1)
     })
 })
 
