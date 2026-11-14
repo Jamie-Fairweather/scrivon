@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { prepareMermaidSource, readFrontMatterTitle, supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
+import { prepareMermaidSource, readFrontMatterTitle, supportedDiagramsSentence, unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
 
 describe('supportedDiagramsSentence', () => {
     it('names the supported types for a sentence', () => {
@@ -104,6 +104,22 @@ describe('prepareMermaidSource', () => {
 
     it.each(['graf TD\n  A --> B', 'constructor\n  A --> B'])('leaves a header it does not know to the renderer, which quotes it: %j', (source) => {
         expect(prepareMermaidSource(source)).toBe(source)
+    })
+})
+
+describe('unsupportedDiagramNote', () => {
+    it.each([
+        ['pie title Pets\n  "Dogs" : 386', 'Pie chart: not supported in Scrivon yet'],
+        ['---\ntitle: Week\n---\njourney\n  title My day', 'User journey: not supported in Scrivon yet'],
+        ['%% branches\ngitGraph\n  commit', 'Git graph: not supported in Scrivon yet'],
+        ['sankey-beta\n  a,b,1', 'Sankey diagram: not supported in Scrivon yet'],
+        ['treemap\n  "A": 1', 'Treemap: not supported in Scrivon yet'],
+    ])('gives readers of an export one short line for %j, without the help', (source, note) => {
+        expect(unsupportedDiagramNote(source)).toBe(note)
+    })
+
+    it.each(['graph TD\n  A --> B', 'sequenceDiagram\n  A->>B: hi', '', '%% just a note', 'graf TD'])('has nothing to say about %j', (source) => {
+        expect(unsupportedDiagramNote(source)).toBeNull()
     })
 })
 

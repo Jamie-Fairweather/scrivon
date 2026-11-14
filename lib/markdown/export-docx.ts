@@ -88,6 +88,7 @@ import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/l
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
 import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
@@ -102,6 +103,8 @@ type PreparedCode =
     /** `size` is the SVG's own size, which the PDF draws it at. The PNG is drawn at 2x that. */
     | { kind: 'diagram'; png: Uint8Array | null; size: { width: number; height: number } | null; source: string; alt: DiagramAltText }
     | { kind: 'error'; message: string }
+    /** A diagram type Scrivon can't draw: a short note for readers, then its source as code. */
+    | { kind: 'unsupported'; note: string; lines: HighlightedToken[][] }
 
 type Marks = {
     bold?: boolean
@@ -1858,6 +1861,15 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
             .flatMap((line, index) => [...(index > 0 ? [new TextRun({ break: 1 })] : []), textRun(state, line, { code: true })])
         return [new Paragraph({ ...paragraphOptions(state), children: [...takePendingAnchors(state), ...runs] })]
     }
+    if (prepared.kind === 'unsupported') {
+        const note = new Paragraph({
+            ...paragraphOptions(state),
+            // On the same page as the code under it.
+            keepNext: true,
+            children: [...takePendingAnchors(state), textRun(state, prepared.note, { italics: true, color: '525252' })],
+        })
+        return [note, ...renderCodeLines(state, prepared.lines.length > 0 ? prepared.lines : [[{ text: '' }]])]
+    }
     if (prepared.kind === 'diagram') {
         const size = diagramDisplaySize(state, prepared)
         if (!prepared.png || !size)
@@ -2458,9 +2470,12 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
         // Each line of the message starts a new line, as renderPrepared writes it.
         return prepared.message.split(/\r?\n/).reduce((height, line) => height + textBlockTwip(state, line, state.bodyHalfPoints, width, 0, 0), 120)
     }
-    const lines = prepared?.kind === 'code' ? Math.max(1, prepared.lines.length) : Math.max(1, node.value.replace(/\n$/, '').split('\n').length)
+    const highlighted = prepared?.kind === 'code' || prepared?.kind === 'unsupported' ? prepared.lines : null
+    const lines = Math.max(1, highlighted ? highlighted.length : node.value.replace(/\n$/, '').split('\n').length)
+    // The note above an unsupported diagram's code, with the 120 after it.
+    const note = prepared?.kind === 'unsupported' ? textBlockTwip(state, prepared.note, state.bodyHalfPoints, width, 0, 120) : 0
     // A code line is about 276 twips with the default 9pt code, and grows with it.
-    return 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)
+    return note + 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)
 }
 
 function measureFlow(
@@ -2759,9 +2774,21 @@ function buildSections(state: RenderState, groups: { id: FrontGroup; children: B
     })
 }
 
+/** Coloured code lines, or plain ones in the theme's code colour when it can't be highlighted, as in the PDF. */
+async function codeLines(text: string, lang: string | undefined, profile: PdfExportProfile): Promise<HighlightedToken[][]> {
+    try {
+        return await highlightFencedCodeTokens(text, lang, profile.content.codeTheme)
+    } catch {
+        return text.split('\n').map((line) => [{ text: line }])
+    }
+}
+
 async function prepareCode(node: Code, profile: PdfExportProfile): Promise<PreparedCode> {
     const text = node.value.replace(/\n$/, '')
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
+        // As in the PDF: a line for readers instead of the preview's help, and the source so its data isn't lost.
+        const unsupported = unsupportedDiagramNote(text)
+        if (unsupported) return { kind: 'unsupported', note: unsupported, lines: await codeLines(text, 'mermaid', profile) }
         try {
             // The renderer leaves out the accTitle and accDescr lines; the alt text reads them.
             const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
@@ -2779,12 +2806,12 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
             return { kind: 'error', message: xmlSafe(errorMessage(err)) }
         }
     }
-    try {
-        return { kind: 'code', lines: await highlightFencedCodeTokens(text, node.lang ?? undefined, profile.content.codeTheme) }
-    } catch {
-        // Like the PDF, a block that can't be highlighted is still written, in the theme's plain code colour.
-        return { kind: 'code', lines: text.split('\n').map((line) => [{ text: line }]) }
-    }
+    return { kind: 'code', lines: await codeLines(text, node.lang ?? undefined, profile) }
+}
+
+/** Whether a block is a diagram that came out as a note, an error or its source instead of a picture. */
+function diagramNotDrawn(prepared: PreparedCode): boolean {
+    return prepared.kind === 'error' || prepared.kind === 'unsupported' || (prepared.kind === 'diagram' && !prepared.png)
 }
 
 /** Word can't draw MathML, so math is written as its TeX source in the code font: a block as code, inline math as inline code. */
@@ -2797,8 +2824,11 @@ function mathAsCode(tree: Root): void {
     })
 }
 
+/** The Word file, and how many diagrams it shows as a note, an error or their source instead of a picture. */
+export type ExportDocxFile = { bytes: Uint8Array; diagramsNotDrawn: number }
+
 /** Word renderer for an {@link ExportDocument}. */
-export async function renderExportDocx(source: ExportDocument): Promise<Uint8Array> {
+export async function renderExportDocx(source: ExportDocument): Promise<ExportDocxFile> {
     const document = xmlSafeDocument(source)
     mathAsCode(document.tree)
     expandHtml(document.tree)
@@ -2853,5 +2883,5 @@ export async function renderExportDocx(source: ExportDocument): Promise<Uint8Arr
         { path: 'word/fontTable.xml', data: fontTableXml(state.monoFont.ascii, state.eastAsianFonts) },
     ])
     warnAboutDroppedImages(state)
-    return new Uint8Array(buffer)
+    return { bytes: new Uint8Array(buffer), diagramsNotDrawn: preparedList.filter(diagramNotDrawn).length }
 }

@@ -5,7 +5,7 @@ import { embedDocumentImages } from '@/lib/markdown/export-images'
 import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
 import { errorMessage, notifyInfo, notifyWarning } from '@/lib/notify'
 import { downloadBlob } from '@/lib/download'
-import { saveExportHtml } from '@/lib/markdown/export-html'
+import { renderExportHtml, saveExportHtml } from '@/lib/markdown/export-html'
 import { notifyFileSaved, showInFolderAction } from '@/lib/saved-file-notice'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadataOverrides, PdfExportProfile, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
@@ -44,6 +44,8 @@ export type SavedExport = {
     pageNumberWarning?: string
     /** The profile asks for a table of contents, but no heading matched its settings, so there is none. */
     tocSkipped?: boolean
+    /** How many diagrams came out as a note or an error instead of a picture. */
+    diagramsNotDrawn?: number
 }
 
 /** How an export ended: saved, cancelled at the save picker, or failed. */
@@ -146,6 +148,8 @@ type LeftOut = {
     /** Web images left out because the user hasn't chosen Load images in the preview. */
     webImagesLeftOut: number
     tocSkipped: boolean
+    /** Diagrams that came out as a note or an error instead of a picture. */
+    diagramsNotDrawn: number
 }
 
 type DocumentOptions = {
@@ -164,7 +168,7 @@ async function prepareExport(
     source: string,
     tabName: string | undefined,
     { profile, overrides, documentPath, workspaceRoot, allowRemoteImages }: DocumentOptions
-): Promise<LeftOut & { exportDocument: ExportDocument }> {
+): Promise<Omit<LeftOut, 'diagramsNotDrawn'> & { exportDocument: ExportDocument }> {
     const { assets, missing } = await resolvePdfExportAssets(profile)
     const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
     const documentImages = await embedDocumentImages(exportDocument.tree, {
@@ -197,21 +201,28 @@ export type ExportPdfPage = LeftOut & { html: string; print: PdfPrintOptions }
  */
 export async function buildExportPdfPage(source: string, tabName: string | undefined, options: ExportPdfPageOptions): Promise<ExportPdfPage> {
     const { exportDocument, ...leftOut } = await prepareExport(source, tabName, options)
-    const { html, print } = await renderExportPdf(exportDocument, { stamped: options.stamped, allowRemoteImages: options.allowRemoteImages === true })
-    return { html, print, ...leftOut }
+    const { html, print, diagramsNotDrawn } = await renderExportPdf(exportDocument, {
+        stamped: options.stamped,
+        allowRemoteImages: options.allowRemoteImages === true,
+    })
+    return { html, print, ...leftOut, diagramsNotDrawn }
 }
 
 async function exportDocx(source: string, tabName: string | undefined, options: ExportMarkdownOptions & DocumentOptions) {
     const { exportDocument, ...leftOut } = await prepareExport(source, tabName, options)
     const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-    const bytes = await renderExportDocx(exportDocument)
-    return { ...leftOut, result: await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, options.documentPath) }
+    const { bytes, diagramsNotDrawn } = await renderExportDocx(exportDocument)
+    return { ...leftOut, diagramsNotDrawn, result: await saveDocx(bytes, `${markdownExportBaseName(tabName)}.docx`, options.documentPath) }
 }
 
 async function exportHtml(source: string, tabName: string | undefined, options: ExportMarkdownOptions & DocumentOptions) {
     const { exportDocument, ...leftOut } = await prepareExport(source, tabName, options)
-    const { documentPath, allowRemoteImages = false } = options
-    return { ...leftOut, result: await saveExportHtml(exportDocument, markdownExportBaseName(tabName), { documentPath, allowRemoteImages }) }
+    const { html, diagramsNotDrawn } = await renderExportHtml(exportDocument, { allowRemoteImages: options.allowRemoteImages === true })
+    return {
+        ...leftOut,
+        diagramsNotDrawn,
+        result: await saveExportHtml(html, markdownExportBaseName(tabName), { documentPath: options.documentPath }),
+    }
 }
 
 async function exportPdf(source: string, tabName: string | undefined, options: ExportMarkdownOptions & DocumentOptions) {
@@ -250,7 +261,7 @@ export async function exportMarkdown(source: string, tabName: string | undefined
     try {
         const profile = options.profile ?? createDefaultPdfExportProfile()
         const save = EXPORTERS[options.format ?? 'pdf']
-        const { result, missingImages, webImagesLeftOut, tocSkipped } = await save(source, tabName, { ...options, profile })
+        const { result, missingImages, webImagesLeftOut, tocSkipped, diagramsNotDrawn } = await save(source, tabName, { ...options, profile })
         // Nothing was saved, so there is nothing to report.
         if (result.status !== 'saved') return result
         return {
@@ -258,6 +269,7 @@ export async function exportMarkdown(source: string, tabName: string | undefined
             ...(missingImages.length > 0 && { missingImages }),
             ...(webImagesLeftOut > 0 && { webImagesLeftOut }),
             ...(tocSkipped && { tocSkipped }),
+            ...(diagramsNotDrawn > 0 && { diagramsNotDrawn }),
         }
     } catch (err) {
         return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
@@ -283,6 +295,16 @@ function describeWebImagesLeftOut(count: number): string {
         : `${count} web images were left out. Choose Load images in the preview to include them.`
 }
 
+/** Said when diagrams came out as a note or an error instead of a picture. */
+function describeDiagramsNotDrawn(count: number): string {
+    return count === 1 ? "1 diagram couldn't be drawn." : `${count} diagrams couldn't be drawn.`
+}
+
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: string[]): string {
+    return items.length > 1 ? `${items.slice(0, -1).join(', ')} or ${items.at(-1)}` : (items[0] ?? '')
+}
+
 const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'
 
 /** The non-empty parts as one description, each ending in a full stop when another follows. */
@@ -291,39 +313,50 @@ function joinSentences(parts: (string | undefined)[]): string {
     return kept.map((part, index) => (index < kept.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(' ')
 }
 
-/** What a PDF had to leave out (page numbers, images, the contents page), as one note; empty when nothing. */
+/** What a PDF had to leave out (page numbers, images, diagrams, the contents page), as one note; empty when nothing. */
 export function describeLeftOut({
     pageNumberWarning,
     missingImages = [],
     webImagesLeftOut = 0,
     tocSkipped,
+    diagramsNotDrawn = 0,
 }: Omit<SavedExport, 'status' | 'path'>): string {
     const images = missingImages.length > 0 ? ['Some images were left out', describeMissingImages(missingImages)] : []
     const webImages = webImagesLeftOut > 0 ? describeWebImagesLeftOut(webImagesLeftOut) : ''
-    return joinSentences([pageNumberWarning, ...images, webImages, tocSkipped ? TOC_SKIPPED : ''])
+    const diagrams = diagramsNotDrawn > 0 ? describeDiagramsNotDrawn(diagramsNotDrawn) : ''
+    return joinSentences([pageNumberWarning, ...images, webImages, diagrams, tocSkipped ? TOC_SKIPPED : ''])
 }
 
 /**
  * Tells the user the export was saved and where, with a button that shows the file in its
- * folder. One notice says what had to be left out (page numbers, images, or both),
- * and when no heading matched the table of contents settings.
+ * folder. One notice says what had to be left out (page numbers, images, diagrams that
+ * couldn't be drawn), and when no heading matched the table of contents settings.
  */
-export function notifyExportSaved({ path, missingImages = [], webImagesLeftOut = 0, pageNumberWarning, tocSkipped }: SavedExport): void {
+export function notifyExportSaved({
+    path,
+    missingImages = [],
+    webImagesLeftOut = 0,
+    pageNumberWarning,
+    tocSkipped,
+    diagramsNotDrawn = 0,
+}: SavedExport): void {
     const images = joinSentences([
         missingImages.length > 0 ? describeMissingImages(missingImages) : '',
         webImagesLeftOut > 0 ? describeWebImagesLeftOut(webImagesLeftOut) : '',
     ])
+    const diagrams = diagramsNotDrawn > 0 ? describeDiagramsNotDrawn(diagramsNotDrawn) : ''
     const toc = tocSkipped ? TOC_SKIPPED : ''
     if (!path) {
         // The print dialog or the browser's download took over; only what was left out needs a word.
-        if (images) notifyWarning('Some images were left out', { description: joinSentences([images, toc]) })
+        const warning = images ? 'Some images were left out' : diagrams ? "Some diagrams couldn't be drawn" : ''
+        if (warning) notifyWarning(warning, { description: joinSentences([images, diagrams, toc]) })
         else if (toc) notifyInfo('No contents page was added', { description: toc })
         return
     }
-    const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : ''].filter(Boolean)
+    const leftOut = [pageNumberWarning ? 'page numbers' : '', images ? 'some images' : '', diagrams ? 'some diagrams' : ''].filter(Boolean)
     if (leftOut.length > 0) {
-        const description = joinSentences([pageNumberWarning, images, toc])
-        notifyWarning(`Saved ${getBaseName(path)} without ${leftOut.join(' or ')}`, { description, action: showInFolderAction(path) })
+        const description = joinSentences([pageNumberWarning, images, diagrams, toc])
+        notifyWarning(`Saved ${getBaseName(path)} without ${orList(leftOut)}`, { description, action: showInFolderAction(path) })
         return
     }
     // The title names the file and Show in folder finds it, so the TOC note can take the path's place.
