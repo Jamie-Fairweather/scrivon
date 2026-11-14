@@ -380,6 +380,16 @@ export function pdfBodyHeightMm(profile: PdfExportProfile): number {
     )
 }
 
+/**
+ * Page width left for the document text once the left and right margins are taken off, the way
+ * the sheet is turned. Negative when the margins add up to more than the page.
+ */
+export function pdfBodyWidthMm(profile: PdfExportProfile): number {
+    const { width, height } = pdfPageSizeMm(profile)
+    const { left, right } = profile.page.marginsMm
+    return (profile.page.orientation === 'landscape' ? height : width) - left - right
+}
+
 /** Slack for table-cell padding and rounding, so the cover never tips onto a second page. */
 const TITLE_PAGE_SLACK_MM = 4
 

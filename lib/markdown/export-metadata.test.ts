@@ -119,6 +119,8 @@ describe('front matter toc-title', () => {
         expect(parsePdfExportFrontMatter('---\ntoc-title: Sommaire\n---\nBody')).toEqual({ matter: {}, body: 'Body', tocTitle: 'Sommaire' })
         expect(parsePdfExportFrontMatter('---\nTOC-title: "目次"\n---\nBody').tocTitle).toBe('目次')
         expect(parsePdfExportFrontMatter('---\ntoc-title: ""\n---\nBody').tocTitle).toBeUndefined()
+        expect(parsePdfExportFrontMatter('---\ntoc-title: "  "\n---\nBody').tocTitle).toBeUndefined()
+        expect(parsePdfExportFrontMatter('---\ntoc-title: "  Inhalt "\n---\nBody').tocTitle).toBe('Inhalt')
         expect(resolvePdfExportMetadata('---\ntoc-title: Índice\n---\n# Hi', undefined).tocTitle).toBe('Índice')
     })
 })

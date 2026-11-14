@@ -77,6 +77,12 @@ describe('searchSettings', () => {
         expect(searchSettings('preview', BROWSER).map((entry) => entry.label)).toContain('Restore panel layout')
     })
 
+    it('finds the page sizes, the custom size boxes and the Contents title', () => {
+        expect(searchSettings('legal', BROWSER)).toEqual([expect.objectContaining({ label: 'Page size' })])
+        expect(searchSettings('page height', BROWSER)).toEqual([expect.objectContaining({ label: 'Page size' })])
+        expect(searchSettings('contents title', BROWSER)[0]).toEqual(expect.objectContaining({ group: 'Table of contents', label: 'Contents title' }))
+    })
+
     it('finds the status bar', () => {
         expect(searchSettings('word count', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Status bar' })])
     })

@@ -11,6 +11,7 @@ import {
     otherProfileNamed,
     PDF_MIN_BODY_HEIGHT_MM,
     pdfBodyHeightMm,
+    pdfPageWidthWarning,
     renamePdfExportProfile,
     setActivePdfExportProfile,
     updatePdfExportProfile,
@@ -306,6 +307,7 @@ export function PdfExportSettings() {
 
     const layout = resolvePdfExportLayout(active)
     const bodyHeightMm = pdfBodyHeightMm(active)
+    const widthWarning = pdfPageWidthWarning(active)
     // New and Duplicate pick unique names, but a rename can still copy another profile's.
     const twin = otherProfileNamed(pdf.profiles, active.id, active.name)
 
@@ -429,6 +431,7 @@ export function PdfExportSettings() {
                     ))}
                 </div>
                 <PageSpaceWarning bodyHeightMm={bodyHeightMm} />
+                {widthWarning ? <SettingsWarning>{widthWarning}</SettingsWarning> : null}
             </SettingsGroup>
 
             <SettingsGroup title="Text">

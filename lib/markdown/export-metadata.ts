@@ -159,7 +159,7 @@ export function parsePdfExportFrontMatter(source: string): { matter: Partial<Pdf
         const key = entry.key.toLowerCase()
         const value = stripQuotes(entry.value)
         if (key === 'lang' && LANGUAGE_TAG.test(value)) lang = value
-        if (key === 'toc-title' && value) tocTitle = value
+        if (key === 'toc-title' && value.trim()) tocTitle = value.trim()
         if (!FRONT_MATTER_KEYS.has(key) || !value) continue
         matter[key as keyof PdfExportMetadata] = value
     }

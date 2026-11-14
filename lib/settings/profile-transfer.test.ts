@@ -113,6 +113,29 @@ describe('export profile files', () => {
         expect(profile.page).toEqual(createDefaultPdfExportProfile().page)
     })
 
+    it('keeps a custom page size, the Contents title and a newer code theme through export and import', async () => {
+        const original = createDefaultPdfExportProfile({ id: 'booklet', name: 'Booklet' })
+        original.page = { ...original.page, size: 'custom', customSizeMm: { width: 120.5, height: 180 } }
+        original.frontMatter = { ...original.frontMatter, toc: true, tocTitle: 'Inhalt' }
+        original.content = { ...original.content, codeTheme: 'nord' }
+
+        const { profile } = await readProfileExport((await profileExportText(original)).text)
+
+        expect(profile.page).toEqual(original.page)
+        expect(profile.frontMatter.tocTitle).toBe('Inhalt')
+        expect(profile.content.codeTheme).toBe('nord')
+    })
+
+    it('puts a custom page size that is out of range back in range', async () => {
+        const page = { size: 'custom', customSizeMm: { width: 20, height: 9000 } }
+        const text = JSON.stringify({ scrivon: 'export-profile', version: 1, profile: { name: 'Odd', page } })
+
+        const { profile } = await readProfileExport(text)
+
+        expect(profile.page.size).toBe('custom')
+        expect(profile.page.customSizeMm).toEqual({ width: 100, height: 550 })
+    })
+
     it('puts back the default for a colour that is not hex', async () => {
         const beacon = 'red} body{background:url(https://example.invalid/beacon)} h1{display:none'
         const file = { scrivon: 'export-profile', version: 1, profile: { name: 'Shared', brand: { accentColor: beacon, linkColor: '#0000FF' } } }

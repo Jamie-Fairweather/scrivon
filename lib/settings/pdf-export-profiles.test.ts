@@ -10,6 +10,8 @@ import {
     otherProfileNamed,
     PDF_AUTO_BAR_HEIGHT_MM,
     pdfBodyHeightMm,
+    pdfBodyWidthMm,
+    pdfPageWidthWarning,
     renamePdfExportProfile,
     setActivePdfExportProfile,
     uniqueProfileName,
@@ -337,6 +339,33 @@ describe('pdf export profile CRUD', () => {
         const settings = importPdfExportProfile(createDefaultPdfExportSettings(), createDefaultPdfExportProfile({ name: '  ' }))
 
         expect(settings.profiles[1]!.name).toBe('Imported profile')
+    })
+})
+
+describe('pdfBodyWidthMm and pdfPageWidthWarning', () => {
+    it('is the page width minus the side margins, the way the sheet is turned', () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(pdfBodyWidthMm(profile)).toBe(210 - 10 - 10)
+        profile.page = { ...profile.page, orientation: 'landscape' }
+        expect(pdfBodyWidthMm(profile)).toBe(297 - 10 - 10)
+        expect(pdfPageWidthWarning(profile)).toBe('')
+    })
+
+    it('warns when the side margins leave a custom page little or no width', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page = {
+            ...profile.page,
+            size: 'custom',
+            customSizeMm: { width: 130, height: 200 },
+            marginsMm: { top: 10, right: 50, bottom: 10, left: 50 },
+        }
+        expect(pdfBodyWidthMm(profile)).toBe(30)
+        expect(pdfPageWidthWarning(profile)).toBe('The side margins leave only 30 mm of page width for the text.')
+        profile.page = { ...profile.page, customSizeMm: { width: 100, height: 200 } }
+        expect(pdfPageWidthWarning(profile)).toBe('The side margins are wider than the page, so there is no room left for the text.')
+        // Turned on its side, the 200 mm edge is the width.
+        profile.page = { ...profile.page, orientation: 'landscape' }
+        expect(pdfPageWidthWarning(profile)).toBe('')
     })
 })
 

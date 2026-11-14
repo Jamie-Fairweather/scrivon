@@ -1,3 +1,4 @@
+import { pdfBodyWidthMm } from '@/lib/markdown/export-html-css'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportProfile, PdfExportSettings } from '@/lib/settings/pdf-export-types'
 
@@ -124,5 +125,19 @@ export function deletePdfExportProfile(settings: PdfExportSettings, profileId: s
 /** Below this much page height for the text, the settings warn that the page is nearly full. */
 export const PDF_MIN_BODY_HEIGHT_MM = 40
 
+/** Below this much page width for the text, the settings warn that the side margins leave too little. */
+export const PDF_MIN_BODY_WIDTH_MM = 40
+
+/**
+ * The warning for side margins that leave little or no page width for the text, or '' when there is room.
+ * Only a narrow custom page can get here: the named sizes are too wide for the biggest margins.
+ */
+export function pdfPageWidthWarning(profile: PdfExportProfile): string {
+    const widthMm = pdfBodyWidthMm(profile)
+    if (widthMm >= PDF_MIN_BODY_WIDTH_MM) return ''
+    if (widthMm <= 0) return 'The side margins are wider than the page, so there is no room left for the text.'
+    return `The side margins leave only ${Math.floor(widthMm)} mm of page width for the text.`
+}
+
 // One copy, shared with the export, so the warning and the export agree on how much room is left.
-export { PDF_AUTO_BAR_HEIGHT_MM, pdfBodyHeightMm } from '@/lib/markdown/export-html-css'
+export { PDF_AUTO_BAR_HEIGHT_MM, pdfBodyHeightMm, pdfBodyWidthMm } from '@/lib/markdown/export-html-css'

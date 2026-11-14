@@ -166,6 +166,19 @@ describe('PdfExportSettings page space', () => {
         expect(group('Page').getByText(/taller than the page, so there is no room left for the text/)).toBeInTheDocument()
     })
 
+    it('warns under the margins when a narrow custom page leaves the text little width', () => {
+        renderWithProfile((profile) => ({
+            ...profile,
+            page: {
+                ...profile.page,
+                size: 'custom',
+                customSizeMm: { width: 120, height: 200 },
+                marginsMm: { top: 10, right: 45, bottom: 10, left: 45 },
+            },
+        }))
+        expect(group('Page').getByText('The side margins leave only 30 mm of page width for the text.')).toBeInTheDocument()
+    })
+
     it('does not count the size of a switched-off footer that only prints page numbers', () => {
         renderWithProfile((profile) => ({
             ...profile,
