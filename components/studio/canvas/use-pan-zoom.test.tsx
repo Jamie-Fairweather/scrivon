@@ -249,7 +249,7 @@ describe('usePanZoom', () => {
 
         expect(fireEvent.keyDown(banner, { key: '+' })).toBe(false)
         expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1.25)')
-        // The arrow keys scroll the message, or move between buttons.
+        // The arrow keys stay with the message, which they scroll.
         expect(fireEvent.keyDown(banner, { key: 'ArrowDown' })).toBe(true)
         expect(getByTestId('content').style.transform).toBe('translate(0px, 0px) scale(1.25)')
     })
