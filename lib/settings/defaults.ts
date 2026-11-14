@@ -2,6 +2,8 @@ import { SYSTEM_DARK_THEME, SYSTEM_LIGHT_THEME } from '@/lib/theme/catalog'
 import { createDefaultPdfExportSettings } from '@/lib/settings/pdf-export-defaults'
 import { FOLLOW_SYSTEM, type AppSettings, type KeybindBindings, type KeybindChord } from '@/lib/settings/types'
 import { createDefaultSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
+import { DEFAULT_APP_ZOOM } from '@/lib/zoom/app-zoom'
+import { DEFAULT_PREVIEW_FONT_SIZE } from '@/lib/zoom/preview-text-size'
 
 export const DEFAULT_EDITOR_WIDTH = 400
 export const DEFAULT_AUTOSAVE_DELAY_MS = 400
@@ -35,6 +37,10 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
+        // Ctrl+Plus is the number pad's plus, a plus key (German), or Ctrl+Shift+= (US, UK): see matchKeybind.
+        'view.appZoomIn': [chord('=', mod), chord('+', mod)],
+        'view.appZoomOut': [chord('-', mod)],
+        'view.appZoomReset': [chord('0', mod)],
         'view.zoomDiagramIn': [chord('=', diagramZoom)],
         'view.zoomDiagramOut': [chord('-', diagramZoom)],
         'view.resetDiagramZoom': [chord('0', diagramZoom)],
@@ -68,6 +74,10 @@ export function createDefaultSettings(isMac = false): AppSettings {
             id: FOLLOW_SYSTEM,
             light: SYSTEM_LIGHT_THEME,
             dark: SYSTEM_DARK_THEME,
+        },
+        appearance: {
+            zoom: DEFAULT_APP_ZOOM,
+            previewFontSize: DEFAULT_PREVIEW_FONT_SIZE,
         },
         layout: {
             explorerOpen: true,

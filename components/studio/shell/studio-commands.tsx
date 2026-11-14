@@ -8,6 +8,7 @@ import { useThemeCommands } from '@/components/studio/theme/theme-commands'
 import { useDocumentCommands } from '@/components/studio/workspace/document-commands'
 import { useLayoutCommands } from '@/components/studio/workspace/layout-commands'
 import { useWorkspaceCommands } from '@/components/studio/workspace/workspace-commands'
+import { useAppZoomCommands } from '@/components/studio/zoom/app-zoom-commands'
 
 /**
  * Registers the commands of the features that have no component of their own to do it from. Other
@@ -26,6 +27,7 @@ export function StudioCommands() {
     useLayoutCommands()
     usePaneFocusCommands()
     useExplorerCommands()
+    useAppZoomCommands()
     useThemeCommands()
     useExitCommand()
     return null

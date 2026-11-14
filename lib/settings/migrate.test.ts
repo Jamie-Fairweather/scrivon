@@ -314,6 +314,28 @@ describe('mergeStoredSettings', () => {
         expect(merged.workspace.maxRecentFolders).toBe(50)
     })
 
+    it('starts settings saved before app zoom at 100%, with 14px preview text', () => {
+        const merged = mergeStoredSettings({ editor: { fontSize: 16 } }, false)
+
+        expect(merged.appearance).toEqual({ zoom: 1, previewFontSize: 14 })
+    })
+
+    it('reads a saved zoom and preview text size', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 1.5, previewFontSize: 18 } }, false).appearance).toEqual({ zoom: 1.5, previewFontSize: 18 })
+    })
+
+    it('moves a saved zoom to the nearest step, and keeps the preview text size between 10 and 32', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 7, previewFontSize: 100 } }, false).appearance).toEqual({ zoom: 2, previewFontSize: 32 })
+        expect(mergeStoredSettings({ appearance: { zoom: 1.12, previewFontSize: 2.4 } }, false).appearance).toEqual({
+            zoom: 1.1,
+            previewFontSize: 10,
+        })
+        expect(mergeStoredSettings({ appearance: { zoom: 'big', previewFontSize: null } }, false).appearance).toEqual({
+            zoom: 1,
+            previewFontSize: 14,
+        })
+    })
+
     it('rounds whole-number settings saved with decimals', () => {
         const merged = mergeStoredSettings(
             {

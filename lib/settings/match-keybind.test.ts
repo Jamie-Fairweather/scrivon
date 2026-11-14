@@ -320,3 +320,49 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true }, {} as EventTarget), bindings)).toBe('document.save')
     })
 })
+
+describe('app zoom shortcuts', () => {
+    const bindings = createDefaultKeybinds(false)
+    /** An element that `closest` finds inside the diagram canvas, or not. */
+    const element = (tagName: string, inCanvas = false) =>
+        ({ tagName, closest: (selector: string) => (inCanvas && selector === '[data-own-zoom]' ? {} : null) }) as unknown as EventTarget
+
+    it('zooms in with Ctrl+= or Ctrl+Plus, out with Ctrl+-, and back to 100% with Ctrl+0, with or without a folder', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true }), bindings)).toBe('view.appZoomIn')
+        // The number pad's plus, and the plus key on layouts that have one (German).
+        expect(matchKeybind(keyEvent('+', { ctrl: true }), bindings)).toBe('view.appZoomIn')
+        // Plus is Shift+= on US and UK keyboards.
+        expect(matchKeybind(keyEvent('+', { ctrl: true, shift: true, code: 'Equal' }), bindings)).toBe('view.appZoomIn')
+        expect(matchKeybind(keyEvent('-', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.appZoomOut')
+        expect(matchKeybind(keyEvent('0', { ctrl: true }), bindings)).toBe('view.appZoomReset')
+    })
+
+    it('uses Cmd on macOS', () => {
+        expect(matchKeybind(keyEvent('=', { meta: true }), createDefaultKeybinds(true))).toBe('view.appZoomIn')
+    })
+
+    it('leaves Ctrl+Shift+Plus to a shortcut the user bound to it', () => {
+        // Save All comes after Zoom In in the list, so this checks the exact chord wins, not the first action.
+        const custom = { ...bindings, 'workspace.saveAll': [{ key: '+', ctrl: true, shift: true }] }
+        const ctrlShiftPlus = keyEvent('+', { ctrl: true, shift: true, code: 'Equal' })
+        expect(matchKeybind(ctrlShiftPlus, custom, { hasWorkspace: true })).toBe('workspace.saveAll')
+    })
+
+    it('only lets Shift go with Plus', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true, shift: true, code: 'Equal' }), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('_', { ctrl: true, shift: true, code: 'Minus' }), bindings)).toBeNull()
+    })
+
+    it('works in text boxes and the editor too', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true }, element('INPUT')), bindings)).toBe('view.appZoomIn')
+        expect(matchKeybind(keyEvent('-', { ctrl: true }, element('TEXTAREA')), bindings, { inPalette: true })).toBe('view.appZoomOut')
+    })
+
+    it('leaves the keys to the diagram canvas while it has focus, so its own zoom wins', () => {
+        const canvas = element('DIV', true)
+        expect(matchKeybind(keyEvent('=', { ctrl: true }, canvas), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('0', { ctrl: true }, canvas), bindings)).toBeNull()
+        // Other shortcuts still work there.
+        expect(matchKeybind(keyEvent('s', { ctrl: true }, canvas), bindings)).toBe('document.save')
+    })
+})

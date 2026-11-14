@@ -160,6 +160,8 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
             aria-describedby={showDiagram ? keysHintId : undefined}
             // A Tab stop only while there is a diagram to zoom; a click still focuses it.
             tabIndex={showDiagram ? 0 : -1}
+            // Ctrl+wheel and the zoom keys here zoom the diagram, not the whole app (OWN_ZOOM_SELECTOR).
+            data-own-zoom
             className={cn(
                 'relative isolate min-h-0 flex-1 cursor-grab touch-none overflow-hidden bg-background outline-none select-none',
                 // The focus ring is drawn on top, so a zoomed-in diagram can't cover it.

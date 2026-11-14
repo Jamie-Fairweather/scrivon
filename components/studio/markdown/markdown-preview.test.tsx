@@ -60,6 +60,12 @@ describe('MarkdownPreview', () => {
         expect(markdownParses.count).toBe(parses + 1)
     })
 
+    it('sizes its text by the Preview text size setting (the preview-text scale)', () => {
+        const { container } = preview('Some text')
+
+        expect(container.querySelector('article')).toHaveClass('preview-text')
+    })
+
     describe('keeps what the Markdown says about each element', () => {
         it('numbers a list that resumes at 3 from 3', () => {
             const { container } = preview('3. three\n4. four')

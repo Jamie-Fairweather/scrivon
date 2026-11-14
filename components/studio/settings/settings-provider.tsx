@@ -169,7 +169,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const updateSettings = useCallback(
         (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
             const current = settingsRef.current
-            persist(typeof patch === 'function' ? patch(current) : { ...current, ...patch })
+            const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
+            // An update that hands back the same settings (zoom already at 200%) has nothing to save.
+            if (next !== current) persist(next)
         },
         [persist]
     )

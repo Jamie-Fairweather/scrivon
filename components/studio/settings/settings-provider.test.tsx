@@ -394,6 +394,19 @@ describe('SettingsProvider persistence', () => {
         expect(settingsWrites).toBe(1)
     })
 
+    it("doesn't write an update that hands back the same settings", () => {
+        const { result } = renderSettings()
+        const before = result.current.settings
+
+        act(() => {
+            result.current.updateSettings((current) => current)
+        })
+        waitForSave()
+
+        expect(settingsWrites).toBe(0)
+        expect(result.current.settings).toBe(before)
+    })
+
     it('writes the first of a burst of changes at once, and the rest once, shortly after the last one', () => {
         const { result } = renderSettings()
 

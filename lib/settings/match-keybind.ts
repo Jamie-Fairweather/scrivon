@@ -23,13 +23,12 @@ export function isNativeTextField(target: EventTarget | null): boolean {
  * and its find box is a textarea too, so look for the editor itself rather than the element type.
  */
 export function isInsideCodeEditor(target: EventTarget | null): boolean {
-    if (!target || typeof (target as Element).closest !== 'function') return false
-    return (target as Element).closest('.monaco-editor') !== null
+    return isInside(target, '.monaco-editor')
 }
 
 /**
- * The chords a key press can stand for: as typed, plus the physical key when the layout gets in
- * the way. A dead key or an unknown key only stands for its physical key, when it has one.
+ * The chords a key press can stand for, best match first: as typed, plus the physical key when the
+ * layout gets in the way. A dead key or an unknown key only stands for its physical key, when it has one.
  */
 function eventToChords(event: KeyboardEvent): KeybindChord[] {
     const pressed: KeybindChord = {
@@ -40,11 +39,19 @@ function eventToChords(event: KeyboardEvent): KeybindChord[] {
         alt: event.altKey || undefined,
     }
     const candidates = isUnnamedKey(pressed.key) ? [] : [pressed]
+    // Plus is Shift+= on US and UK keyboards, so Ctrl+Shift+= is Ctrl+Plus too, as in browsers.
+    if (pressed.key === '+' && pressed.shift) candidates.push({ ...pressed, shift: undefined })
     const fallback = physicalKeyFallback(event)
     return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
 }
 
+function isInside(target: EventTarget | null, selector: string): boolean {
+    if (!target || typeof (target as Element).closest !== 'function') return false
+    return (target as Element).closest(selector) !== null
+}
+
 function shouldSkipForTarget(meta: KeybindActionMeta, target: EventTarget | null, pressed: KeybindChord, inPalette: boolean): boolean {
+    if (meta.leaveInside && isInside(target, meta.leaveInside)) return true
     if (meta.allowInNativeTextField) return false
     // In the editor, real shortcuts (Ctrl/Alt/Cmd or an F-key) work on every platform; a bare key
     // never fires there, so it can't stop that character being typed. The same goes for the palette's
@@ -68,21 +75,20 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
     const pressed = eventToChords(event)
     if (pressed.length === 0) return null
 
-    for (const [actionId, chords] of Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]) {
-        if (chords.length === 0) continue
-
+    const actions = (Object.entries(bindings) as [KeybindActionId, KeybindChord[]][]).filter(([actionId, chords]) => {
+        if (chords.length === 0) return false
         // An action this build doesn't know is skipped, so it can't break every other shortcut.
         const meta = getKeybindActionMeta(actionId)
-        if (!meta) continue
-        if (meta.when === 'workspace' && !options.hasWorkspace) continue
-        if (shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)) continue
+        if (!meta) return false
+        if (meta.when === 'workspace' && !options.hasWorkspace) return false
+        return !shouldSkipForTarget(meta, event.target, pressed[0], options.inPalette ?? false)
+    })
 
-        for (const chord of chords) {
-            if (pressed.some((candidate) => chordsEqual(candidate, chord))) {
-                // Holding the keys down fires only the shortcuts that are meant to repeat.
-                return event.repeat && !meta.allowRepeat ? null : actionId
-            }
-        }
+    // The key as typed wins, so a shortcut bound to it isn't taken by one that only matches a looser reading.
+    for (const candidate of pressed) {
+        const match = actions.find(([, chords]) => chords.some((chord) => chordsEqual(candidate, chord)))
+        // Holding the keys down fires only the shortcuts that are meant to repeat.
+        if (match) return event.repeat && !getKeybindActionMeta(match[0])?.allowRepeat ? null : match[0]
     }
 
     return null

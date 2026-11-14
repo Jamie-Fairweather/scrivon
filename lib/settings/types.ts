@@ -27,6 +27,9 @@ export type KeybindActionId =
     | 'view.togglePreview'
     | 'view.previewOnly'
     | 'view.fitDiagram'
+    | 'view.appZoomIn'
+    | 'view.appZoomOut'
+    | 'view.appZoomReset'
     | 'view.zoomDiagramIn'
     | 'view.zoomDiagramOut'
     | 'view.resetDiagramZoom'
@@ -66,6 +69,12 @@ export type AppSettings = {
         delayMs: number
     }
     theme: ThemeSetting
+    appearance: {
+        /** The whole app's zoom, one of APP_ZOOM_LEVELS: 1 is 100%. */
+        zoom: number
+        /** The Markdown preview's body text size in pixels. Headings, code and spacing grow with it. */
+        previewFontSize: number
+    }
     layout: {
         explorerOpen: boolean
         editorOpen: boolean

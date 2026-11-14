@@ -19,7 +19,7 @@ const COMMAND_PALETTE_SELECTOR = '[data-slot="command-dialog-popup"]'
 /**
  * Which modal is open. App shortcuts must not act behind one (Settings, confirmations, prompts),
  * but palette shortcuts still work while only the command palette is open, so F1 can switch it
- * back to all commands.
+ * back to all commands. Zoom works behind any of them (allowInModal).
  */
 function openModal(): 'none' | 'palette' | 'other' {
     if (typeof document === 'undefined') return 'none'
@@ -51,8 +51,9 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
             if (!actionId) return
             // Only now look for open dialogs: that walks the whole page, too much for every key typed in the editor.
             const modal = openModal()
-            if (modal === 'other') return
-            if (modal === 'palette' && !getKeybindActionMeta(actionId)?.allowInPalette) return
+            const meta = getKeybindActionMeta(actionId)
+            if (modal === 'other' && !meta?.allowInModal) return
+            if (modal === 'palette' && !meta?.allowInPalette) return
 
             const handler = handlersRef.current[actionId]
             if (!handler) return

@@ -117,6 +117,22 @@ describe('useGlobalKeybinds', () => {
         expect(openPalette).not.toHaveBeenCalled()
     })
 
+    it('still zooms the app behind a dialog, even from its text box', () => {
+        const zoomIn = vi.fn()
+        const save = vi.fn()
+        renderHook(() => useGlobalKeybinds(bindings, { 'view.appZoomIn': zoomIn, 'document.save': save }))
+        const dialog = addElement({ role: 'dialog', 'data-open': '' })
+        const input = document.createElement('input')
+        dialog.appendChild(input)
+
+        const event = press('=', { ctrlKey: true }, input)
+        press('s', { ctrlKey: true }, input)
+
+        expect(zoomIn).toHaveBeenCalledTimes(1)
+        expect(event.defaultPrevented).toBe(true)
+        expect(save).not.toHaveBeenCalled()
+    })
+
     it('does nothing while an alert dialog is open', () => {
         const save = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'document.save': save }))
