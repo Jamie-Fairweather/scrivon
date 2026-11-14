@@ -71,6 +71,12 @@ export type WorkspaceCoordinatorRefs = {
      */
     reloadChangedTabs: MutableRefObject<(paths?: readonly string[]) => Promise<void>>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
+    /**
+     * Whether the open tabs may be saved as `root`'s tab list: only once it is the open folder and its saved
+     * tabs are back. Until then the tabs open are only part of the list, and saving them would lose the rest.
+     * A no for the open folder also notes that a save was held back, so the list is saved once its tabs are back.
+     */
+    canPersistTabSession: MutableRefObject<(root: string) => boolean>
     openFile: MutableRefObject<(path: string) => Promise<void>>
     revealInEditor: MutableRefObject<(path: string, line: number, column: number, length?: number) => void>
     /**
@@ -107,6 +113,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         reloadTabFromDisk: { current: async () => {} },
         reloadChangedTabs: { current: async () => {} },
         persistWorkspaceTabSession: { current: async () => {} },
+        canPersistTabSession: { current: () => true },
         openFile: { current: async () => {} },
         revealInEditor: { current: () => {} },
         replaceEditorText: { current: () => {} },

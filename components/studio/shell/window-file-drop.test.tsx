@@ -19,6 +19,7 @@ vi.mock('@/lib/notify', () => ({ notifyInfo: notify.info, notifyError: notify.er
 const session = vi.hoisted(() => ({
     workspaceRoot: 'C:\\notes' as string | null,
     openFile: vi.fn<(path: string) => Promise<void>>(async () => {}),
+    openLaunchPaths: vi.fn(async () => null),
     pickAndOpenWorkspace: vi.fn(async () => {}),
 }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession: () => session }))
@@ -61,23 +62,27 @@ describe('WindowFileDrop', () => {
             action: { label: 'Open Folder…', onClick: expect.any(Function) },
         })
         expect(session.openFile).not.toHaveBeenCalled()
+        expect(session.openLaunchPaths).not.toHaveBeenCalled()
         notify.info.mock.calls[0]![1].action.onClick()
         expect(session.pickAndOpenWorkspace).toHaveBeenCalled()
     })
 
-    it('says to open a folder first when none is open', async () => {
+    it('opens dropped files with their folder, as from File Explorer, when no folder is open', async () => {
         session.workspaceRoot = null
         render(<WindowFileDrop />)
 
-        await drop(['D:\\elsewhere\\readme.md'])
+        await drop(['D:\\elsewhere\\readme.md', 'D:\\Pictures\\cat.png', 'D:\\elsewhere\\flow.mmd'])
 
         await vi.waitFor(() =>
-            expect(notify.info).toHaveBeenCalledWith('Open a folder to edit readme.md', {
-                description: 'Scrivon edits files inside the folder you open. Open its folder, then drop it again.',
-                action: { label: 'Open Folder…', onClick: expect.any(Function) },
-            })
+            expect(session.openLaunchPaths).toHaveBeenCalledWith([
+                { path: 'D:\\elsewhere\\readme.md', isFolder: false },
+                { path: 'D:\\elsewhere\\flow.mmd', isFolder: false },
+            ])
         )
         expect(session.openFile).not.toHaveBeenCalled()
+        // Only the image is explained.
+        expect(notify.info).toHaveBeenCalledTimes(1)
+        expect(notify.info).toHaveBeenCalledWith("Can't add cat.png here", expect.anything())
     })
 
     it('says where images go when nothing under them took them', async () => {
