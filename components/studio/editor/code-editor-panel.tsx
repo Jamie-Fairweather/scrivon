@@ -422,8 +422,10 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     const isReadOnly = activeTab?.readOnly ?? false
     // Monaco sets up Ctrl+. (the quick fix list) for a file when the file is put in the editor, and only if the
     // editor can be edited at that moment. @monaco-editor/react puts the new file in first and passes on the new
-    // options after, so after a read-only tab (an example, say) Ctrl+. did nothing in the next file. A layout
-    // effect runs before those, so the editor is already editable, or not, when the file goes in.
+    // options after, so without this, after a read-only tab (an example, say) Ctrl+. would do nothing in the next
+    // file. A layout effect runs before those, so the editor is already editable, or not, when the file goes in.
+    // Turning read-only off with the same file still showing (Edit as UTF-8, Edit Anyway, a reload) doesn't make
+    // Monaco set it up again either; the spell check does that when it turns on (setConfig in lib/monaco/spellcheck.ts).
     useLayoutEffect(() => {
         editorRef.current?.updateOptions({ readOnly: isReadOnly, domReadOnly: isReadOnly })
     }, [isReadOnly])

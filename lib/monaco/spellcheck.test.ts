@@ -111,14 +111,20 @@ function fakeMonaco() {
             },
         },
         languages: {
-            registerCodeActionProvider: (language: string, provider: languages.CodeActionProvider) => {
+            registerCodeActionProvider: vi.fn((language: string, provider: languages.CodeActionProvider) => {
                 expect(language).toBe('markdown')
                 providers.add(provider)
                 return { dispose: () => providers.delete(provider) }
-            },
+            }),
         },
     }
-    return { monaco: monaco as unknown as Monaco, markers, commands, providers }
+    return {
+        monaco: monaco as unknown as Monaco,
+        registerCodeActionProvider: monaco.languages.registerCodeActionProvider,
+        markers,
+        commands,
+        providers,
+    }
 }
 
 /** The words underlined in a model, as the text under each mark. */
@@ -272,6 +278,33 @@ describe('attachSpellcheck', () => {
         editorInstance.type('Hi, wrold\nsecnod line')
         // The check hasn't run yet: the old marks are in the wrong place now.
         expect(await codeActions([...providers][0]!, model, { lineNumber: 1, column: 9 })).toEqual([])
+    })
+
+    it('registers its quick fixes again each time the check turns on, so Monaco sets up Ctrl+. for a file made editable in place', () => {
+        // Monaco sets up Ctrl+. again when the providers change, but not when read-only turns off.
+        const editorInstance = new FakeEditor(new FakeModel('Hello wrold', URI))
+        const { monaco, registerCodeActionProvider, providers } = fakeMonaco()
+        const session = attachSpellcheck(
+            editorInstance as unknown as editor.IStandaloneCodeEditor,
+            monaco,
+            { client: fakeClient([]), addWord: vi.fn() },
+            null
+        )
+        expect(registerCodeActionProvider).toHaveBeenCalledTimes(1)
+
+        session.setConfig(config)
+        expect(registerCodeActionProvider).toHaveBeenCalledTimes(2)
+        // Other changes, while it stays on or off, leave it be.
+        session.setConfig({ ...config, words: ['Scrivon', 'wrold'] })
+        session.setConfig(null)
+        session.setConfig(null)
+        expect(registerCodeActionProvider).toHaveBeenCalledTimes(2)
+        session.setConfig(config)
+        expect(registerCodeActionProvider).toHaveBeenCalledTimes(3)
+        expect(providers.size).toBe(1)
+
+        session.dispose()
+        expect(providers.size).toBe(0)
     })
 
     it('adds a word to the dictionary and takes its marks away at once', async () => {

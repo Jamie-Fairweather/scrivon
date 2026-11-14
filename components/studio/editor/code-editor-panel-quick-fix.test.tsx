@@ -1,6 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react'
 import { Suspense, lazy, type ComponentType } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { editor } from 'monaco-editor'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { tabFromExample } from '@/lib/examples/example-tab'
@@ -56,12 +56,13 @@ const CHART: DocumentTab = {
 const DIAGRAM_EXAMPLE = tabFromExample(APP_EXAMPLES.find((example) => example.category !== 'markdown')!)
 const MISSPELT = 'helo'
 
+let tabs: DocumentTab[] = [NOTE, CHART, DIAGRAM_EXAMPLE]
 let activeTabId = NOTE.id
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({
-        tabs: [NOTE, CHART, DIAGRAM_EXAMPLE],
+        tabs,
         activeTabId,
-        activeTab: [NOTE, CHART, DIAGRAM_EXAMPLE].find((tab) => tab.id === activeTabId) ?? null,
+        activeTab: tabs.find((tab) => tab.id === activeTabId) ?? null,
         updateTabContent: () => {},
     }),
     useDocumentTabActions: () => ({ makeTabEditable: () => {} }),
@@ -144,6 +145,11 @@ async function pressQuickFixOnMisspeltWord(monaco: MonacoApi, codeEditor: editor
 }
 
 describe('CodeEditorPanel quick fixes (Ctrl+.)', () => {
+    beforeEach(() => {
+        tabs = [NOTE, CHART, DIAGRAM_EXAMPLE]
+        activeTabId = NOTE.id
+    })
+
     it('offers the spelling fixes on a Markdown file after a read-only diagram example has been shown, however often the tab changes', async () => {
         const view = render(<CodeEditorPanel width={600} onWidthChange={() => {}} />)
         const { monaco, editor: codeEditor } = await mountedEditor()
@@ -155,6 +161,24 @@ describe('CodeEditorPanel quick fixes (Ctrl+.)', () => {
             await show(view, codeEditor, NOTE)
             expect(await pressQuickFixOnMisspeltWord(monaco, codeEditor, `after ${other.name}`)).toContain('Change to “hello”')
         }
+        view.unmount()
+    })
+
+    it('offers the spelling fixes once a read-only Markdown file is made editable with the file still showing', async () => {
+        // Edit as UTF-8, Edit Anyway and a reload all do this: the same tab and file, only read-only goes off.
+        tabs = [{ ...NOTE, readOnly: true }, CHART, DIAGRAM_EXAMPLE]
+        const view = render(<CodeEditorPanel width={600} onWidthChange={() => {}} />)
+        const { monaco, editor: codeEditor } = await mountedEditor()
+        const model = codeEditor.getModel()!
+        // A read-only file isn't spell checked.
+        await waitFor(() => expect(codeEditor.getOption(monaco.editor.EditorOption.readOnly)).toBe(true))
+        await waitFor(() => expect(monaco.editor.getModelMarkers({ resource: model.uri })).toHaveLength(0))
+
+        tabs = [NOTE, CHART, DIAGRAM_EXAMPLE]
+        view.rerender(<CodeEditorPanel width={600} onWidthChange={() => {}} />)
+        await waitFor(() => expect(codeEditor.getOption(monaco.editor.EditorOption.readOnly)).toBe(false))
+        expect(codeEditor.getModel()).toBe(model)
+        expect(await pressQuickFixOnMisspeltWord(monaco, codeEditor, 'after Edit as UTF-8 in place')).toContain('Change to “hello”')
         view.unmount()
     })
 })
