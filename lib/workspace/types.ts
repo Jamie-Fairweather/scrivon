@@ -55,6 +55,9 @@ export type DocumentTab = {
 export type StudioLayoutState = {
     explorerOpen: boolean
     editorOpen: boolean
+    /** The Markdown preview or the diagram. At least one of editor and preview is always shown. */
+    previewOpen: boolean
+    outlineOpen: boolean
 }
 
 export const AUTO_SAVE_MS = 400

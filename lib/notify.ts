@@ -1,10 +1,12 @@
 import { toastManager } from '@/components/ui/toast'
+import { logError, logWarning } from '@/lib/diagnostics/app-log'
 
 /**
  * Shared, non-blocking user feedback.
  *
  * Use these instead of `console.error` (invisible to users) or native message boxes
- * (blocking, and they lose context) whenever an action succeeds or fails.
+ * (blocking, and they lose context) whenever an action succeeds or fails. Errors and
+ * warnings also go to the log file, for bug reports.
  */
 
 export type NotifyAction = {
@@ -56,10 +58,12 @@ function add(type: 'error' | 'success' | 'info' | 'warning', title: string, opti
 export function notifyError(title: string, err?: unknown, options: NotifyOptions = {}): string {
     const description = options.description ?? (err === undefined ? undefined : errorMessage(err))
     if (err !== undefined) console.error(title, err)
+    logError(title, err ?? options.description)
     return add('error', title, { ...options, description })
 }
 
 export function notifyWarning(title: string, options: NotifyOptions = {}): string {
+    logWarning(title, options.description)
     return add('warning', title, options)
 }
 

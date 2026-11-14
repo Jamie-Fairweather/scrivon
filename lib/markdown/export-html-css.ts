@@ -1,4 +1,5 @@
 import { pdfPageNumberFormat, pdfPageNumberTemplate } from '@/lib/markdown/export-metadata'
+import { GITHUB_ALERT_COLOURS, GITHUB_ALERT_KINDS } from '@/lib/markdown/github-alerts'
 import { PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportProfile, PdfMarginsMm, PdfNewPageFromHeading, PdfPrintOptions } from '@/lib/settings/pdf-export-types'
 import { getDiagramColors } from '@/lib/theme/catalog'
@@ -96,6 +97,7 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
         // Word files get these as creator and description; the PDF stamper writes them into the file's properties.
         ...(author ? { author } : {}),
         ...(subject ? { subject } : {}),
+        ...(profile.footer.numberFromBody ? { numberFromBody: true } : {}),
     }
 }
 
@@ -115,11 +117,17 @@ export function resolvePdfPrintOptions(profile: PdfExportProfile, metadata: PdfE
  */
 export const PDF_PAGE_NUMBER_MARK = 'SFPN'
 
-/** Paired marks linking a TOC row to the heading it points at. Must match `page_numbers.rs`. */
+/**
+ * Paired marks for the heading at `index` in the document's outline: one inside the heading, which tells the
+ * stamper its page (for its bookmark and its Contents row), and one in that Contents row. Must match `page_numbers.rs`.
+ */
 export function pdfTocMark(index: number, kind: 'slot' | 'heading'): string {
     const id = String(index + 1).padStart(4, '0')
     return kind === 'slot' ? `SFT${id}` : `SFH${id}`
 }
+
+/** Marks the top of the body's first page, so the stamper can number pages from there. Must match `BODY_MARK` in `page_numbers.rs`. */
+export const PDF_BODY_START_MARK = 'SFH0000'
 
 /** Class of the glyph sample that goes first inside a page-number or TOC marker. */
 export const PDF_STAMP_GLYPHS_CLASS = 'pdf-stamp-glyphs'
@@ -411,6 +419,14 @@ const MERMAID_BOX_MM = 8
 
 const NO_METADATA: PdfExportMetadata = { title: '', subtitle: '', author: '', date: '' }
 
+/** Each alert kind's bar and title colour. */
+function alertCss(): string {
+    return GITHUB_ALERT_KINDS.map((kind) => {
+        const colour = `#${GITHUB_ALERT_COLOURS[kind]}`
+        return `.markdown-alert-${kind} { border-inline-start-color: ${colour}; }\n  .markdown-alert-${kind} > .markdown-alert-title { color: ${colour}; }`
+    }).join('\n  ')
+}
+
 /** The export stylesheet. `metadata` fills the placeholders the page-number slot is sized for. */
 export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExportMetadata = NO_METADATA): string {
     const mermaidBg = getDiagramColors(profile.content.mermaidThemeId).bg
@@ -501,6 +517,18 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     color: #525252;
     font-style: italic;
   }
+  /* GitHub's alerts: a bar and title in the kind's colour, with plain text. */
+  .markdown-alert {
+    margin: 0 0 0.75rem;
+    padding: 0.25rem 0;
+    padding-inline-start: 1rem;
+    border-inline-start: 3px solid #e5e5e5;
+  }
+  .markdown-alert > :last-child { margin-bottom: 0; }
+  .markdown-alert-title { margin-bottom: 0.25rem; font-weight: 600; }
+  ${alertCss()}
+  /* Block math sits on its own line, centred. */
+  math[display="block"] { margin: 0 0 0.75rem; }
   /* max-width: a raw <hr width="3000"> can't widen the page either. */
   hr { margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5; max-width: 100%; }
   /*
@@ -759,12 +787,24 @@ export function buildPdfExportCss(profile: PdfExportProfile, metadata: PdfExport
     white-space: nowrap;
   }
   .pdf-toc-mark,
-  .pdf-heading-mark {
+  .pdf-heading-mark,
+  .pdf-body-mark {
     color: rgba(64, 64, 64, 0.01);
   }
   .pdf-heading-mark {
     font-size: 1px;
     line-height: 0;
+  }
+  /*
+   * Last in the body, lifted to its top: it lands on the body's first page and takes no room.
+   * It needs a line of its own: with line-height 0, Chromium draws it on the page before.
+   */
+  .pdf-body-mark {
+    position: absolute;
+    top: 0;
+    left: 0;
+    font-size: 1px;
+    line-height: 1px;
   }
   /* Drawn, so its glyphs are embedded for the stamped numbers, but tiny, see-through and taking no room. Not clipped: a clipped sample may not be drawn at all. */
   .${PDF_STAMP_GLYPHS_CLASS} {

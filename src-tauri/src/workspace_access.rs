@@ -58,14 +58,14 @@ impl WorkspaceAccess {
             // plugin. Start empty and put a valid list back; the user picks the
             // folders again.
             Err(err) if err.kind() == ErrorKind::InvalidData => {
-                eprintln!("The workspace folder list wasn't valid, so it was cleared: {err}");
+                log::warn!("The workspace folder list wasn't valid, so it was cleared: {err}");
                 save_access_file(&file, &[]);
                 Vec::new()
             }
             // Couldn't be read just now (locked, say): start empty but leave the
             // file alone. `remember` merges it back in.
             Err(err) => {
-                eprintln!("Could not read the workspace folder list: {err}");
+                log::warn!("Could not read the workspace folder list: {err}");
                 Vec::new()
             }
         };
@@ -243,7 +243,7 @@ fn read_access_file(file: &Path) -> std::io::Result<Vec<String>> {
 
 fn save_access_file(file: &Path, folders: &[String]) {
     if let Err(err) = write_access_file(file, folders) {
-        eprintln!("Could not save the workspace folder list: {err}");
+        log::warn!("Could not save the workspace folder list: {err}");
     }
 }
 

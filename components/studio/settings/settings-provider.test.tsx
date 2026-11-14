@@ -1,7 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SettingsProvider, useAppSettings, useFlushPendingSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
+import {
+    SETTINGS_SECTION_STORAGE_KEY,
+    SettingsProvider,
+    useAppSettings,
+    useFlushPendingSettings,
+    type KeybindRefusal,
+} from '@/components/studio/settings/settings-provider'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import { createPdfExportProfile } from '@/lib/settings/pdf-export-profiles'
@@ -25,6 +31,11 @@ function renderSettings() {
     // Loading writes the settings back once in the current format.
     settingsWrites = 0
     return rendered
+}
+
+/** Hides the editor in the settings. */
+function hideEditor(current: AppSettings): AppSettings {
+    return { ...current, layout: { ...current.layout, editorOpen: false } }
 }
 
 /** Settings are written a moment after the last change. */
@@ -62,7 +73,7 @@ describe('SettingsProvider persistence', () => {
 
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         waitForSave()
 
@@ -120,6 +131,29 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.activeSection).toBe('keyboard')
     })
 
+    it('reopens settings on the last used section after a restart', () => {
+        const first = renderSettings()
+        act(() => {
+            first.result.current.openSettings('pdf-export')
+        })
+        first.unmount()
+
+        const { result } = renderSettings()
+        act(() => {
+            result.current.openSettings()
+        })
+
+        expect(result.current.activeSection).toBe('pdf-export')
+    })
+
+    it('opens on General when the remembered section is unknown', () => {
+        localStorage.setItem(SETTINGS_SECTION_STORAGE_KEY, 'sync')
+
+        const { result } = renderSettings()
+
+        expect(result.current.activeSection).toBe('general')
+    })
+
     it('refuses shortcuts that would break typing, and in-use shortcuts', () => {
         const { result } = renderSettings()
         let refusal: KeybindRefusal | null = null
@@ -130,9 +164,12 @@ describe('SettingsProvider persistence', () => {
         expect(refusal).toEqual({ message: expect.stringMatching(/can't be used in shortcuts/) })
 
         act(() => {
-            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true }])
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true, shift: true }])
         })
-        expect(refusal).toEqual({ message: 'Ctrl+B is already assigned to Toggle explorer', reassign: [{ key: 'b', ctrl: true }] })
+        expect(refusal).toEqual({
+            message: 'Ctrl+Shift+B is already assigned to Toggle explorer',
+            reassign: [{ key: 'b', ctrl: true, shift: true }],
+        })
 
         act(() => {
             refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'd', ctrl: true }])
@@ -140,6 +177,44 @@ describe('SettingsProvider persistence', () => {
         expect(refusal).toEqual({ message: 'Ctrl+D is used by the editor' })
 
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('lets an app shortcut share keys with a Markdown action, which has them only while typing in the editor', () => {
+        const { result } = renderSettings()
+        let refusal: KeybindRefusal | null = null
+
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleExplorer', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['format.bold']).toEqual([{ key: 'b', ctrl: true }])
+
+        act(() => {
+            refusal = result.current.setKeybindChords('format.italic', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+B is already assigned to Bold', reassign: [{ key: 'b', ctrl: true }] })
+
+        // Ctrl+K starts two-key editor shortcuts: a Markdown action may take it, an app shortcut may not.
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'k', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+K is used by the editor' })
+        act(() => {
+            result.current.setKeybindChords('format.link', [])
+        })
+        act(() => {
+            refusal = result.current.setKeybindChords('format.code', [{ key: 'k', ctrl: true }])
+        })
+        expect(refusal).toBeNull()
+
+        // Reassigning takes the keys only from the action they clash with.
+        act(() => {
+            refusal = result.current.reassignKeybind('format.italic', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['format.italic']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['format.bold']).toEqual([])
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
     })
 
     it('does not reset a shortcut to a default another action now uses', () => {
@@ -175,26 +250,26 @@ describe('SettingsProvider persistence', () => {
         let refusal: KeybindRefusal | null = null
 
         act(() => {
-            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'b', ctrl: true }])
+            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'b', ctrl: true, shift: true }])
         })
 
         expect(refusal).toBeNull()
-        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([])
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
-        // Not saved as cleared: it loads without Ctrl+B only while another action has it.
+        // Not saved as cleared: it loads without Ctrl+Shift+B only while another action has it.
         expect(stored().keybinds).not.toHaveProperty('view.toggleExplorer')
 
         act(() => {
             refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'c', ctrl: true }])
         })
         expect(refusal).toEqual({ message: 'Ctrl+C is used by the editor' })
-        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true, shift: true }])
 
         act(() => {
             result.current.resetKeybind('view.toggleEditor')
         })
-        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
     })
 
     it('gives a default back once its chord is free, instead of saving it as cleared', () => {
@@ -256,8 +331,22 @@ describe('SettingsProvider persistence', () => {
         expect(stored().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
     })
 
-    it('restores the theme that matches the OS light or dark setting', () => {
-        const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+    it('keeps the user’s dictionary when restoring defaults', () => {
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.updateSettings((current) => ({ ...current, spellcheck: { ...current.spellcheck, enabled: false, words: ['Scrivon'] } }))
+        })
+        act(() => {
+            result.current.resetAllSettings()
+        })
+
+        expect(result.current.settings.spellcheck.enabled).toBe(true)
+        expect(result.current.settings.spellcheck.words).toEqual(['Scrivon'])
+        expect(stored().spellcheck.words).toEqual(['Scrivon'])
+    })
+
+    it('goes back to following Windows light/dark when everything is reset', () => {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'tokyo-night' } }))
         const { result } = renderSettings()
         expect(result.current.settings.theme.id).toBe('tokyo-night')
@@ -266,7 +355,40 @@ describe('SettingsProvider persistence', () => {
             result.current.resetAllSettings()
         })
 
-        expect(result.current.settings.theme.id).toBe('scrivon-light')
+        expect(result.current.settings.theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it("keeps System mode's light and dark themes when a fixed theme is picked", () => {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'system', light: 'solarized-light', dark: 'dracula' } }))
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.setThemeId('nord')
+        })
+
+        expect(stored().theme).toEqual({ id: 'nord', light: 'solarized-light', dark: 'dracula' })
+    })
+
+    it("turns System mode on and off, keeping the current theme, and sets System mode's themes", () => {
+        const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'nord' } }))
+        const { result } = renderSettings()
+
+        act(() => {
+            result.current.setFollowSystem(true)
+        })
+        expect(stored().theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'nord' })
+
+        act(() => {
+            result.current.setSystemThemeId('github-light')
+            result.current.setSystemThemeId('dracula')
+        })
+        expect(result.current.settings.theme).toEqual({ id: 'system', light: 'github-light', dark: 'dracula' })
+
+        act(() => {
+            result.current.setFollowSystem(false)
+        })
+        expect(result.current.settings.theme).toEqual({ id: 'dracula', light: 'github-light', dark: 'dracula' })
         matchMedia.mockRestore()
     })
 
@@ -295,7 +417,8 @@ describe('SettingsProvider persistence', () => {
             vi.mocked(isTauri).mockReturnValue(false)
         }
 
-        expect(invoke).toHaveBeenCalledTimes(1)
+        // Once, beside the copy of the settings in settings.json.
+        expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['save_settings_file', 'adopt_export_images'])
         expect(invoke).toHaveBeenCalledWith('adopt_export_images', { paths: ['C:/brand/cover.png', 'C:/brand/logo.png'] })
     })
 
@@ -310,6 +433,19 @@ describe('SettingsProvider persistence', () => {
         expect(stored().theme.id).toBe('scrivon-light')
         waitForSave()
         expect(settingsWrites).toBe(1)
+    })
+
+    it("doesn't write an update that hands back the same settings", () => {
+        const { result } = renderSettings()
+        const before = result.current.settings
+
+        act(() => {
+            result.current.updateSettings((current) => current)
+        })
+        waitForSave()
+
+        expect(settingsWrites).toBe(0)
+        expect(result.current.settings).toBe(before)
     })
 
     it('writes the first of a burst of changes at once, and the rest once, shortly after the last one', () => {
@@ -447,12 +583,75 @@ describe('SettingsProvider persistence', () => {
         })
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         unmount()
 
         const reloaded = loadSettings()
         expect(reloaded.editor.fontSize).toBe(20)
         expect(reloaded.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+
+    it('starts with the panels as they were left while Restore panel layout is on', () => {
+        const first = renderSettings()
+        act(() => {
+            first.result.current.setLayoutExplorerOpen(false)
+            first.result.current.updateSettings(hideEditor)
+        })
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+
+    it('remembers a hidden preview after a restart', () => {
+        const first = renderSettings()
+        act(() => first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, previewOpen: false } })))
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: false })
+    })
+
+    it('starts with the preview shown while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() =>
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, previewOpen: false },
+            }))
+        )
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: true })
+    })
+
+    it('starts with the explorer and editor shown, and the outline hidden, while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() => {
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, outlineOpen: true },
+            }))
+            first.result.current.setLayoutExplorerOpen(false)
+            first.result.current.updateSettings(hideEditor)
+            first.result.current.setEditorWidth(600)
+        })
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toEqual({
+            explorerOpen: true,
+            editorOpen: true,
+            previewOpen: true,
+            editorWidth: 600,
+            restorePanelsOnOpen: false,
+            outlineOpen: false,
+        })
+        // Hiding a panel still works, and is still saved.
+        act(() => result.current.updateSettings(hideEditor))
+        waitForSave()
+        expect(stored().layout.editorOpen).toBe(false)
     })
 })

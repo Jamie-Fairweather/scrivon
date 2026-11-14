@@ -33,7 +33,9 @@ import {
     confirmCloseAfterSaveFailure,
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
+    confirmNameClash,
     confirmOpenLargeFile,
+    confirmRevert,
     confirmUnsavedChanges,
     pickOpenFile,
     pickSavePath,
@@ -306,6 +308,9 @@ describe('confirmDeleteHiddenFolders', () => {
         await expect(confirmDeleteHiddenFolders('proj', ['.git', 'site\node_modules'])).resolves.toBe(true)
         const [body, options] = messageMock.mock.calls[0]!
         expect(body).toContain("proj also has .git and site\node_modules in it, which Scrivon doesn't show in the file list.")
+        // They go to the Recycle Bin with it, so it doesn't claim they are gone for good.
+        expect(body).toContain('Deleting proj moves them to the Recycle Bin too.')
+        expect(body).not.toContain("can't be undone")
         expect(options).toMatchObject({ title: 'Delete hidden folders too?', buttons: { yes: 'Keep Folder', no: 'Delete All', cancel: 'Cancel' } })
 
         // Enter on the first button, and Esc or closing it (which answers with the last), keep the folder.
@@ -331,14 +336,52 @@ describe('questions that can lose work', () => {
         await confirmCloseAfterSaveFailure([{ name: 'a.md', stillSaving: true }])
         await confirmKeptChangesWithoutFolder('Notes', ['a.md'])
         await confirmDeleteHiddenFolders('proj', ['.git'])
+        await confirmRevert('a.md')
 
-        const losesWork = ["Don't Save", 'Close Without Saving', 'Discard', 'Delete All']
-        expect(messageMock).toHaveBeenCalledTimes(5)
+        const losesWork = ["Don't Save", 'Close Without Saving', 'Discard', 'Delete All', 'Revert']
+        expect(messageMock).toHaveBeenCalledTimes(6)
         for (const [, options] of messageMock.mock.calls) {
             const { yes, ok, no, cancel } = (options as { buttons: Record<string, string | undefined> }).buttons
             expect(losesWork).toContain(no)
             for (const label of [yes, ok, cancel]) expect(losesWork).not.toContain(label)
         }
+    })
+})
+
+describe('confirmRevert', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('says the unsaved changes go, and only Revert goes ahead', async () => {
+        isTauriMock.mockReturnValue(true)
+        messageMock.mockResolvedValueOnce('Revert')
+        await expect(confirmRevert('plan.md')).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toBe('Put back the saved version of plan.md?\n\nYour unsaved changes will be lost.')
+        expect(options).toMatchObject({ title: 'Revert file', buttons: { yes: 'Keep Changes', no: 'Revert', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Keep Changes')
+        await expect(confirmRevert('plan.md')).resolves.toBe(false)
+        messageMock.mockResolvedValueOnce(null)
+        await expect(confirmRevert('plan.md')).resolves.toBe(false)
+    })
+
+    it('asks with the browser confirm outside the app', async () => {
+        isTauriMock.mockReturnValue(false)
+        // With no way to ask, nothing is lost.
+        await expect(confirmRevert('plan.md')).resolves.toBe(false)
+
+        const confirm = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false)
+        vi.stubGlobal('window', { confirm })
+        try {
+            await expect(confirmRevert('plan.md')).resolves.toBe(true)
+            await expect(confirmRevert('plan.md')).resolves.toBe(false)
+        } finally {
+            vi.unstubAllGlobals()
+        }
+        expect(confirm.mock.calls[0]![0]).toContain('OK: Revert.')
+        expect(messageMock).not.toHaveBeenCalled()
     })
 })
 
@@ -364,5 +407,45 @@ describe('confirmKeptChangesWithoutFolder', () => {
 
         messageMock.mockResolvedValueOnce(null)
         await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md'])).resolves.toBe('keep')
+    })
+})
+
+describe('confirmNameClash', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('asks before moving onto a name that is taken, and never offers to replace it', async () => {
+        messageMock.mockResolvedValueOnce('Keep Both')
+        await expect(confirmNameClash(['notes.md'], 'docs', 'move', false)).resolves.toBe('keep-both')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('docs already has something named notes.md.')
+        expect(body).toContain("Keep Both adds a number to the name of the one you're moving.")
+        expect(options).toMatchObject({ title: 'Name already used', buttons: { ok: 'Keep Both', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmNameClash(['notes.md'], 'docs', 'move', false)).resolves.toBe('cancel')
+    })
+
+    it('can skip the taken names when other files are copied in too', async () => {
+        messageMock.mockResolvedValueOnce('Skip')
+        await expect(confirmNameClash(['a.md', 'b.png'], 'docs', 'copy', true)).resolves.toBe('skip')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('docs already has things named:\n\na.md\nb.png')
+        expect(body).toContain("Keep Both adds a number to the names of the ones you're copying in.")
+        expect(options).toMatchObject({ buttons: { yes: 'Keep Both', no: 'Skip', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce(null)
+        await expect(confirmNameClash(['a.md'], 'docs', 'copy', true)).resolves.toBe('cancel')
+    })
+
+    it('outside the desktop app keeps both only when the user agrees', async () => {
+        isTauriMock.mockReturnValue(false)
+        vi.stubGlobal('window', { confirm: vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false) })
+
+        await expect(confirmNameClash(['a.md'], 'docs', 'move', false)).resolves.toBe('keep-both')
+        await expect(confirmNameClash(['a.md'], 'docs', 'move', false)).resolves.toBe('cancel')
+        vi.unstubAllGlobals()
     })
 })

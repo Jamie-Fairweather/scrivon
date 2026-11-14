@@ -1,5 +1,6 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook as renderHookAlone, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { notifyError } from '@/lib/notify'
 import { createDefaultSettings } from '@/lib/settings/defaults'
@@ -11,6 +12,11 @@ import type { FileNode } from '@/lib/workspace/types'
 import { searchWorkspaceContent } from '@/components/studio/command-palette/search-content'
 import type { PaletteGroup } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
+import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
+import { HelpCommands } from '@/components/studio/dialogs/help-commands'
+import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
+import { StudioCommands } from '@/components/studio/shell/studio-commands'
 
 /** Files are read as bytes and decoded, so text has to come back encoded. */
 const utf8 = (text: string) => new TextEncoder().encode(text)
@@ -29,6 +35,7 @@ const state = vi.hoisted(() => ({
     tabs: {
         tabs: [] as Array<{ id: string; path: string; name: string; content: string; isDirty: boolean }>,
         activeTabId: null as string | null,
+        activeTab: null as { id: string; path: string; name: string; content: string; isDirty: boolean } | null,
         openFile: async () => {},
         openExample: () => {},
         setActiveTab: async () => {},
@@ -37,22 +44,34 @@ const state = vi.hoisted(() => ({
         closeAllTabs: async () => {},
     },
     save: { autosaveEnabled: true, setAutosaveEnabled: () => {}, flushSave: async () => true, flushAllSaves: async () => true },
-    layout: { layout: { explorerOpen: true, editorOpen: true }, setExplorerOpen: () => {}, setEditorOpen: () => {}, setPreviewOnly: () => {} },
+    layout: {
+        layout: { explorerOpen: true, editorOpen: true, outlineOpen: false },
+        setExplorerOpen: () => {},
+        setEditorOpen: (() => {}) as (open: boolean) => void,
+        setOutlineOpen: () => {},
+        setPreviewOnly: () => {},
+    },
     canvas: { requestCanvasFit: () => {} },
     canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
-    settings: { settings: null as unknown, openSettings: () => {} },
-    coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) } },
+    settings: { settings: null as unknown, openSettings: () => {}, flushPendingSettings: () => {} },
+    coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) }, revealInEditor: { current: vi.fn() } },
 }))
+
+vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn(async () => null) }) }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
+    useActiveTabId: () => state.tabs.activeTabId,
     useDocumentTabs: () => state.tabs,
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
     useCanvasFit: () => state.canvas,
     useWorkspaceCoordinator: () => state.coordinator,
 }))
+
+vi.mock('@/components/studio/app-update-provider', () => ({ useAppUpdate: () => ({ checking: false, checkForUpdates: async () => {} }) }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
 
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => state.canvasControls,
@@ -80,13 +99,26 @@ vi.mock('@/components/studio/command-palette/search-content', async (importOrigi
     return { ...actual, searchWorkspaceContent: vi.fn(actual.searchWorkspaceContent) }
 })
 
+/** The app's commands, registered as in the studio, so the palette lists the same ones the menu bar shows. */
+function WithCommands({ children }: { children: ReactNode }) {
+    return (
+        <CommandRegistryProvider>
+            <StudioCommands />
+            <HelpCommands />
+            {children}
+        </CommandRegistryProvider>
+    )
+}
+
+const renderHook = <Result,>(hook: () => Result) => renderHookAlone(hook, { wrapper: WithCommands })
+
 function file(path: string): FileNode {
     return { kind: 'file', name: path.split('/').pop()!, path }
 }
 
 function groupPaths(groups: PaletteGroup[], id: string): string[] {
     const group = groups.find((g) => g.id === id)
-    return (group?.items ?? []).map((item) => (item.kind === 'action' ? item.value : item.path))
+    return (group?.items ?? []).map((item) => ('path' in item ? item.path : item.value))
 }
 
 describe('usePaletteSearch text search', () => {
@@ -353,6 +385,15 @@ describe('usePaletteSearch commands in the default results', () => {
         expect(commands.length).toBeLessThanOrEqual(5)
     })
 
+    it('keeps the theme list out of the first suggestions until something is typed', () => {
+        state.session.workspaceRoot = null
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        expect(groupPaths(result.current.groups, 'actions').some((value) => value.startsWith('action:theme:'))).toBe(false)
+        act(() => result.current.setQuery('nord'))
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:theme:nord')
+    })
+
     it('lists commands first on a fresh start with no recent folders', () => {
         state.session.workspaceRoot = null
         const { result } = renderHook(() => usePaletteSearch('all', true))
@@ -389,8 +430,44 @@ describe('usePaletteSearch commands in the default results', () => {
     it('finds a command by name without the > prefix', () => {
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
-        act(() => result.current.setQuery('theme'))
+        act(() => result.current.setQuery('switch theme'))
         expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
+    })
+
+    it.each(['theme', 'dark theme', 'th'])('puts the light/dark switch above the theme list for %s', (query) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')[0]).toBe('action:toggle-theme')
+    })
+
+    it.each([
+        ['dracula', 'action:theme:dracula'],
+        ['about', 'action:about'],
+        ['licences', 'action:licences'],
+        ['refresh', 'action:refresh-explorer'],
+        ['preview only', 'action:preview-only'],
+        ['editor and preview', 'action:layout-editor-preview'],
+        ['all panels', 'action:layout-all-panels'],
+        ['focus explorer', 'action:focus-explorer'],
+        ['focus preview', 'action:focus-preview'],
+        ['next pane', 'action:focus-next-pane'],
+        ['previous pane', 'action:focus-previous-pane'],
+        ['exit', 'action:exit'],
+    ])('finds %s by name', (query, value) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')).toContain(value)
+    })
+
+    it('finds Focus Editor once a file is open', () => {
+        state.tabs.tabs = [{ id: '/ws/notes.md', path: '/ws/notes.md', name: 'notes.md', content: '', isDirty: false }]
+        state.tabs.activeTabId = '/ws/notes.md'
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('focus editor'))
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:focus-editor')
     })
 
     it('lists commands after matching files while typing', () => {
@@ -420,6 +497,51 @@ describe('usePaletteSearch commands in the default results', () => {
 
         act(() => result.current.setQuery('settings'))
         expect(groupIds(result.current.groups)).toEqual(['files'])
+    })
+})
+
+describe('usePaletteSearch on/off commands', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.session.recentWorkspaces = []
+        state.tabs.tabs = []
+        state.tabs.activeTabId = null
+        // The explorer shows, the editor is hidden, autosave is on.
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false }
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    afterEach(() => {
+        state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
+    })
+
+    it.each([
+        ['hide explorer', 'action:toggle-explorer'],
+        ['toggle explorer', 'action:toggle-explorer'],
+        ['show editor', 'action:toggle-editor'],
+        ['disable autosave', 'action:toggle-autosave'],
+        ['turn off autosave', 'action:toggle-autosave'],
+    ])('finds %s by what picking it does now, with or without >', (query, value) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')).toContain(value)
+        act(() => result.current.setQuery(`>${query}`))
+        expect(groupPaths(result.current.groups, 'actions')[0]).toBe(value)
+    })
+
+    it.each([
+        ['show explorer', 'action:toggle-explorer'],
+        ['hide editor', 'action:toggle-editor'],
+        ['enable autosave', 'action:toggle-autosave'],
+    ])('does not offer %s when picking it would do the opposite', (query, value) => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(query))
+        expect(groupPaths(result.current.groups, 'actions')).not.toContain(value)
     })
 })
 
@@ -453,7 +575,7 @@ describe('usePaletteSearch commands next to text hits', () => {
         act(() => result.current.setQuery('theme'))
         await waitFor(() => expect(result.current.isSearchingText).toBe(false))
         expect(result.current.groups.map((group) => group.id)).toEqual(['files', 'text', 'actions'])
-        expect(groupPaths(result.current.groups, 'actions')).toContain('action:toggle-theme')
+        expect(groupPaths(result.current.groups, 'actions')[0]).toBe('action:toggle-theme')
     })
 })
 
@@ -631,5 +753,245 @@ describe('usePaletteSearch Fit Diagram and Close Other Tabs', () => {
 
         expect(command(result, 'action:fit-diagram').disabled).toBe(false)
         expect(command(result, 'action:close-other-tabs').disabled).toBe(false)
+    })
+})
+
+describe("usePaletteSearch the editor's commands", () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = []
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(false)
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0)
+            return 0
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
+        ['find', 'actions.find'],
+        ['replace', 'editor.action.startFindReplaceAction'],
+        ['go to line', 'editor.action.gotoLine'],
+        ['undo', 'undo'],
+    ])('runs %s in the editor', (query, monacoAction) => {
+        const editor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
+        function Editor() {
+            useEditorCommands(editor as never, { shown: true, readOnly: false, markdown: true })
+            return null
+        }
+        const { result } = renderHookAlone(() => usePaletteSearch('all', true), {
+            wrapper: ({ children }) => (
+                <WithCommands>
+                    <Editor />
+                    {children}
+                </WithCommands>
+            ),
+        })
+
+        act(() => result.current.setQuery(query))
+        const [first] = result.current.groups.find((group) => group.id === 'actions')?.items ?? []
+        if (first?.kind !== 'action') throw new Error(`no command for ${query}`)
+        act(() => void first.run())
+
+        expect(editor.focus).toHaveBeenCalled()
+        expect(editor.trigger).toHaveBeenCalledWith('scrivon', monacoAction, null)
+    })
+})
+
+describe('usePaletteSearch prefixes', () => {
+    type Tab = NonNullable<typeof state.tabs.activeTab>
+    const tab = (name: string, content: string): Tab => ({ id: `/ws/${name}`, path: `/ws/${name}`, name, content, isDirty: false })
+    const GUIDE = ['# Guide', '', '## Install', '', '## Use', ''].join('\n')
+    let setEditorOpen: ReturnType<typeof vi.fn<(open: boolean) => void>>
+
+    function open(activeTab: Tab | null) {
+        state.tabs.tabs = activeTab ? [activeTab] : []
+        state.tabs.activeTabId = activeTab?.id ?? null
+        state.tabs.activeTab = activeTab
+    }
+
+    function items(result: { current: ReturnType<typeof usePaletteSearch> }) {
+        return result.current.groups.flatMap((group) => group.items)
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // The test DOM has no workers, so headings are read on the main thread.
+        vi.stubGlobal('Worker', undefined)
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/guide.md'), file('/ws/flow.mmd')]
+        state.session.recentWorkspaces = []
+        setEditorOpen = vi.fn<(open: boolean) => void>()
+        state.layout.setEditorOpen = setEditorOpen
+        state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
+        open(tab('guide.md', GUIDE))
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        state.layout.setEditorOpen = () => {}
+        open(null)
+    })
+
+    it('offers the line typed after :, and only that', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':3:2'))
+        expect(result.current.groups.map((group) => group.id)).toEqual(['line'])
+        expect(items(result)).toEqual([expect.objectContaining({ kind: 'line', path: '/ws/guide.md', line: 3, column: 2 })])
+        expect(result.current.isSearchingText).toBe(false)
+    })
+
+    it('asks for a line number until one is typed', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('Type a line number from 1 to 6. Add :5 to go to a column.')
+
+        // Not worked out while there is a row to show.
+        act(() => result.current.setQuery(':3'))
+        expect(result.current.emptyHint).toBeNull()
+    })
+
+    it('asks for a file before going to a line', () => {
+        open(null)
+        state.session.workspaceRoot = null
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':12'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('Open a file to go to a line in it.')
+    })
+
+    it('shows the editor and goes to the line picked', async () => {
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false }
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery(':3:2'))
+        await act(() => result.current.runItem(items(result)[0]!))
+
+        expect(setEditorOpen).toHaveBeenCalledWith(true)
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/guide.md', 3, 2)
+    })
+
+    it('opens a text hit in the editor, then selects the match', async () => {
+        const calls: string[] = []
+        const openFile = state.tabs.openFile
+        state.tabs.openFile = async () => void calls.push('open')
+        state.coordinator.revealInEditor.current.mockImplementationOnce(() => void calls.push('reveal'))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        await act(() =>
+            result.current.runItem({
+                kind: 'text',
+                value: 'text:/ws/notes.md:4:7',
+                searchText: 'notes.md',
+                path: '/ws/notes.md',
+                name: 'notes.md',
+                relativePath: 'notes.md',
+                documentKind: 'markdown',
+                line: 4,
+                column: 7,
+                length: 5,
+                preview: 'the oauth flow',
+                previewMatchStart: 4,
+                source: 'disk',
+            })
+        )
+        state.tabs.openFile = openFile
+
+        expect(setEditorOpen).toHaveBeenCalledWith(true)
+        expect(calls).toEqual(['open', 'reveal'])
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/notes.md', 4, 7, 5)
+    })
+
+    it("lists the Markdown file's headings after @", async () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        await waitFor(() => expect(result.current.groups.map((group) => group.id)).toEqual(['headings']))
+        expect(items(result).map((item) => item.kind === 'heading' && item.text)).toEqual(['Guide', 'Install', 'Use'])
+
+        act(() => result.current.setQuery('@use'))
+        expect(items(result).map((item) => item.kind === 'heading' && item.text)).toEqual(['Use'])
+
+        act(() => result.current.setQuery('@zzz'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('No matching headings.')
+    })
+
+    it('moves the preview and the editor to the heading picked', async () => {
+        const reveal = vi.fn()
+        const stop = registerPreviewHeadingReveal(reveal)
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@install'))
+        await waitFor(() => expect(items(result)).toHaveLength(1))
+        await act(() => result.current.runItem(items(result)[0]!))
+        stop()
+
+        expect(reveal).toHaveBeenCalledWith('install')
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/guide.md', 3, 1)
+        expect(setEditorOpen).not.toHaveBeenCalled()
+    })
+
+    it('leaves a hidden editor alone when jumping to a heading', async () => {
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false }
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@install'))
+        await waitFor(() => expect(items(result)).toHaveLength(1))
+        await act(() => result.current.runItem(items(result)[0]!))
+
+        expect(state.coordinator.revealInEditor.current).not.toHaveBeenCalled()
+        expect(setEditorOpen).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['no file is open', null, 'Open a Markdown file to jump to its headings.'],
+        ['the file is a diagram', tab('flow.mmd', 'graph TD\n  A --> B'), 'Only Markdown files have headings.'],
+        ['the file has no headings', tab('plain.md', 'Just text.'), 'No headings yet. Start a line with # to add one.'],
+    ])('says why @ lists nothing when %s', async (_, activeTab, hint) => {
+        open(activeTab)
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        await waitFor(() => expect(result.current.emptyHint).toBe(hint))
+        expect(result.current.groups).toEqual([])
+    })
+
+    it('lists the prefixes after ?', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('?'))
+        expect(result.current.groups.map((group) => group.id)).toEqual(['help'])
+        expect(items(result).map((item) => item.kind === 'prefix' && item.prefix)).toEqual(['>', ':', '@'])
+
+        act(() => result.current.setQuery('?zzz'))
+        expect(result.current.emptyHint).toBe('No matching prefixes.')
+    })
+
+    it('gives no hint for a plain search', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('guide'))
+        expect(result.current.emptyHint).toBeNull()
+    })
+
+    it('searches file contents for @ in Find in Workspace instead of listing headings', () => {
+        const { result } = renderHook(() => usePaletteSearch('text', true))
+
+        act(() => result.current.setQuery('@media'))
+        expect(result.current.isSearchingText).toBe(true)
+        expect(result.current.emptyHint).toBeNull()
     })
 })

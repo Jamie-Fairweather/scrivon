@@ -14,6 +14,7 @@ import {
     keepUnchangedNodes,
     nameTakenMessage,
     replaceChildren,
+    safeFileStem,
     shortenPath,
     uniqueFileName,
     uniqueNewName,
@@ -78,6 +79,34 @@ describe('validateFileName', () => {
     })
 })
 
+describe('safeFileStem', () => {
+    it.each([
+        ['flow', 'flow'],
+        ['v1.2 plan', 'v1.2 plan'],
+        ['CI/CD Pipeline', 'CI-CD Pipeline'],
+        ['a\\b', 'a-b'],
+        ['Inheritance (<|--)', 'Inheritance (-)'],
+        ['Direction: Left-Right (LR)', 'Direction- Left-Right (LR)'],
+        ['::: Class Shorthand', 'Class Shorthand'],
+        ['tab\there', 'tab-here'],
+        ['  lots   of   space  ', 'lots of space'],
+        ['Ends with a dot.', 'Ends with a dot'],
+        ['CON', 'CON_'],
+        ['com0', 'com0_'],
+        ['nul.backup', 'nul_.backup'],
+        ['console', 'console'],
+    ])('%s -> %s', (name, expected) => {
+        expect(safeFileStem(name, 'fallback')).toBe(expected)
+        expect(validateFileName(`${expected}.md`)).toBeNull()
+    })
+
+    it('gives the fallback when nothing usable is left', () => {
+        expect(safeFileStem(':::', 'diagram')).toBe('diagram')
+        expect(safeFileStem(' . ', 'diagram')).toBe('diagram')
+        expect(safeFileStem('', 'diagram')).toBe('diagram')
+    })
+})
+
 describe('uniqueFileName', () => {
     it('returns the base name when unused', () => {
         expect(uniqueFileName('doc.mmd', new Set(['other.mmd']))).toBe('doc.mmd')
@@ -109,6 +138,11 @@ describe('uniqueNewName', () => {
 
     it('numbers names without an extension', () => {
         expect(uniqueNewName('diagrams', ['diagrams'])).toBe('diagrams 2')
+    })
+
+    it('numbers a folder at the end, as a dot in its name starts no extension', () => {
+        expect(uniqueNewName('v1.2', ['v1.2'], 'directory')).toBe('v1.2 2')
+        expect(uniqueNewName('v1.2', ['v1.2'])).toBe('v1 2.2')
     })
 })
 
@@ -345,7 +379,7 @@ describe('entryNameError', () => {
 
     it('checks the characters, then the file extension, then the siblings', () => {
         expect(entryNameError('my:flow.mmd', 'file', docs)).toBe('Name contains invalid characters')
-        expect(entryNameError('notes.txt', 'file', docs)).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(entryNameError('notes.txt', 'file', docs)).toBe('File name must end with .md, .markdown, .mmd or .mermaid.')
         expect(entryNameError('notes.txt', 'directory', docs)).toBeNull()
         expect(entryNameError('flow.mermaid', 'file', docs)).toBeNull()
         expect(entryNameError('Diagram.MMD', 'file', docs)).toBe('A file named "diagram.mmd" already exists here.')
@@ -358,6 +392,6 @@ describe('entryNameError', () => {
     it('lets a file Scrivon does not open be renamed to any name, but keeps a document a document', () => {
         expect(entryNameError('logo.png', 'file', docs, '/ws/docs/logo.PNG')).toBeNull()
         expect(entryNameError('logo-dark.png', 'file', docs, '/ws/docs/logo.png')).toBeNull()
-        expect(entryNameError('diagram.txt', 'file', docs, '/ws/docs/diagram.mmd')).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(entryNameError('diagram.txt', 'file', docs, '/ws/docs/diagram.mmd')).toBe('File name must end with .md, .markdown, .mmd or .mermaid.')
     })
 })

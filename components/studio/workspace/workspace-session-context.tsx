@@ -4,8 +4,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { defaultMarkdownFor } from '@/lib/default-markdown'
-import { confirmDeleteHiddenFolders, confirmKeptChangesWithoutFolder, confirmOpenLargeFile, pickWorkspaceFolder } from '@/lib/tauri/dialog'
 import {
+    confirmDeleteHiddenFolders,
+    confirmKeptChangesWithoutFolder,
+    confirmNameClash,
+    confirmOpenLargeFile,
+    pickWorkspaceFolder,
+} from '@/lib/tauri/dialog'
+import {
+    copyWorkspaceEntry,
     createWorkspaceDirectory,
     createWorkspaceFile,
     duplicateWorkspaceFile,
@@ -20,13 +27,16 @@ import {
     listWorkspaceTree,
     MAX_TREE_ENTRIES,
     normalizePath,
+    PartialCopyError,
+    readEntryKind,
     readWorkspaceTextFile,
-    removeWorkspacePath,
     renameWorkspacePath,
     samePath,
+    trashWorkspacePath,
     watchWorkspace,
     type WorkspaceChange,
 } from '@/lib/tauri/fs'
+import { onLaunchPaths, takeLaunchPaths, type LaunchPath } from '@/lib/tauri/launch'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath, forgetWorkspacePath } from '@/lib/tauri/scope'
 import { deleteUnsavedBackup, listUnsavedBackups, settleUnsavedBackups, type UnsavedBackup } from '@/lib/tauri/backups'
@@ -34,16 +44,21 @@ import {
     addRecentWorkspace,
     clampRecentWorkspaceLimit,
     getFolderToggles,
+    getLastWorkspace,
     getRecentWorkspaces,
     getWorkspaceTabSession,
     removeRecentFiles,
     removeRecentWorkspace,
     renameRecentFiles,
     setFolderToggles,
+    setLastWorkspace,
 } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
-import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
+import { dismissNotification, errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
+import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
+import { planLaunchOpen } from '@/lib/workspace/launch-open'
+import { moveRefusal } from '@/lib/workspace/move-entry'
 import {
     canReplaceChildren,
     changeAltersTree,
@@ -77,6 +92,8 @@ type WorkspaceSessionContextValue = {
     folderToggles: ReadonlyMap<string, boolean>
     /** Opens or closes a folder in the file tree, and remembers the choice. Stays the same function throughout. */
     setFolderExpanded: (path: string, expanded: boolean) => void
+    /** Opens or closes several folders at once, saved once. Stays the same function throughout. */
+    setFoldersExpanded: (paths: readonly string[], expanded: boolean) => void
     recentWorkspaces: string[]
     pickAndOpenWorkspace: () => Promise<void>
     openWorkspace: (path: string) => Promise<void>
@@ -93,6 +110,19 @@ type WorkspaceSessionContextValue = {
     createFile: (parentPath: string, name: string, content?: string) => Promise<void>
     createFolder: (parentPath: string, name: string) => Promise<void>
     renameEntry: (oldPath: string, newName: string, isDirectory: boolean) => Promise<void>
+    /**
+     * Moves a file or folder into `targetFolder`; its open tabs (unsaved edits too), recent files and open folders
+     * follow. A folder can't go into itself, and a name already used there is never replaced: the user is asked,
+     * and can keep both. Resolves to where it is now (where it was, when it is already in that folder), or null
+     * when it didn't move.
+     */
+    moveEntry: (path: string, isDirectory: boolean, targetFolder: string) => Promise<string | null>
+    /**
+     * Copies files and folders (dropped from File Explorer) into `targetFolder`, then opens it in the tree. Names
+     * already used there are never replaced: the user is asked, and can keep both or skip them. Ones already in
+     * `targetFolder` are left alone.
+     */
+    copyIntoFolder: (sources: readonly string[], targetFolder: string) => Promise<void>
     deleteEntry: (path: string, isDirectory: boolean) => Promise<void>
     duplicateFile: (path: string) => Promise<void>
     openFile: (path: string) => Promise<void>
@@ -105,6 +135,9 @@ const OPENING_NOTICE_ID = 'opening-folder'
 const TRUNCATED_NOTICE_ID = 'folder-too-big'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
+const COPYING_NOTICE_ID = 'copying-in'
+/** Copying in files that takes longer than this shows a notice too. */
+const COPYING_NOTICE_DELAY_MS = 400
 /** The least time between two reads of the folder when the window gets focus or another app changes it (open files don't wait). */
 const FOCUS_RELOAD_GAP_MS = 5_000
 /** Past this many changed paths waiting to be looked at, the folder is simply read again. */
@@ -116,6 +149,16 @@ async function listBackupsSafely(): Promise<UnsavedBackup[]> {
         return await listUnsavedBackups()
     } catch (err) {
         console.warn("Couldn't read the copies of unsaved changes", err)
+        return []
+    }
+}
+
+/** What Scrivon was asked to open from File Explorer or the command line; nothing when that can't be read. */
+async function takeLaunchPathsSafely(): Promise<LaunchPath[]> {
+    try {
+        return await takeLaunchPaths()
+    } catch (err) {
+        console.warn("Couldn't get the files Scrivon was asked to open", err)
         return []
     }
 }
@@ -188,6 +231,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     // A lower limit shows straight away. The saved list is cut to it on the next folder open, so typing
     // '15' into the setting, which passes through '1', can't wipe the list.
     const visibleRecentWorkspaces = useMemo(() => (recentWorkspaces ?? []).slice(0, maxRecentFolders), [recentWorkspaces, maxRecentFolders])
+    // Read once: turning the setting on later mustn't open a folder in the middle of a session.
+    const reopenAtStartup = useRef(settings.workspace.reopenLastFolder)
 
     const workspaceName = workspaceRoot ? getBaseName(workspaceRoot) : null
 
@@ -205,7 +250,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return open === null || root === null ? open === root : samePath(open, root)
     }, [])
 
-    const openWorkspaceRef = useRef<(path: string) => Promise<void>>(async () => {})
+    const openWorkspaceRef = useRef<(path: string, atStartup?: boolean) => Promise<void>>(async () => {})
 
     const [folderToggles, setFolderTogglesState] = useState<ReadonlyMap<string, boolean>>(() => new Map())
     // The ref is the latest value, so changes made one after another (a rename, then a click) build on each other.
@@ -220,48 +265,31 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         if (root) void setFolderToggles(root, next).catch((err: unknown) => console.warn("Couldn't remember which folders are open", err))
     }, [])
 
-    const setFolderExpanded = useCallback(
-        (path: string, expanded: boolean) => {
-            const key = normalizePath(path)
+    const setFoldersExpanded = useCallback(
+        (paths: readonly string[], expanded: boolean) => {
             updateFolderToggles(workspaceRootRef.current, (prev) => {
-                if (prev.get(key) === expanded) return prev
-                const next = new Map(prev)
-                // The latest choice goes last, so the newest are the ones kept if the list is ever cut.
-                next.delete(key)
-                return next.set(key, expanded)
+                let next: Map<string, boolean> | null = null
+                for (const path of paths) {
+                    const key = normalizePath(path)
+                    if ((next ?? prev).get(key) === expanded) continue
+                    next ??= new Map(prev)
+                    // The latest choice goes last, so the newest are the ones kept if the list is ever cut.
+                    next.delete(key)
+                    next.set(key, expanded)
+                }
+                return next ?? prev
             })
         },
         [updateFolderToggles]
     )
+
+    const setFolderExpanded = useCallback((path: string, expanded: boolean) => setFoldersExpanded([path], expanded), [setFoldersExpanded])
 
     useEffect(() => {
         void getRecentWorkspaces()
             .then(setRecentWorkspaces)
             .catch(() => setRecentWorkspaces([]))
     }, [])
-
-    // After a crash or a forced restart, says which folder has unsaved changes waiting and offers to open it.
-    useEffect(() => {
-        if (!isDesktop) return
-        let cancelled = false
-        void listBackupsSafely().then((backups) => {
-            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
-            const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
-            const root = folderOf(backups[0]!)
-            const here = backups.filter((b) => samePath(folderOf(b), root))
-            const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
-            const elsewhere = here.length < backups.length ? ' Changes in other folders come back when you open them.' : ''
-            notifyWarning('Unsaved changes from last time', {
-                id: RECOVERED_CHANGES_NOTICE_ID,
-                description: `Scrivon closed before ${what} in ${getBaseName(root) || root} were saved. Open the folder to get them back.${elsewhere}`,
-                timeout: 0,
-                action: { label: 'Open Folder', onClick: () => void openWorkspaceRef.current(root) },
-            })
-        })
-        return () => {
-            cancelled = true
-        }
-    }, [isDesktop])
 
     // Reads of the tree can overlap (an action and a window focus), so only the one started last is shown, and
     // an older one still running stops reading.
@@ -388,9 +416,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
     useEffect(() => {
         if (!isDesktop || !workspaceRoot) return
         const root = workspaceRoot
+        // Images kept from an earlier visit to this folder may have changed while nothing watched it.
+        forgetWorkspaceImages([root])
         let disposed = false
         let unlisten: (() => void) | undefined
         let unwatch: (() => void) | undefined
+        // Unwatched, any image in the folder may have changed while the window was in the background.
+        let imagesStale = false
         let reloading = false
         let again = false
         let lastReloadEnd = 0
@@ -447,6 +479,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             })()
         }
         const reload = async () => {
+            // With the tree, so a run of focus changes reads the images again at most once every few seconds too.
+            if (imagesStale) {
+                imagesStale = false
+                forgetWorkspaceImages([root])
+            }
             const withTree = treeWanted || changeAltersTree(treeRef.current, root, seen)
             treeWanted = false
             seen = { added: [], removed: [] }
@@ -485,10 +522,12 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
         const onFocus = () => {
             treeWanted = true
+            if (!unwatch) imagesStale = true
             request()
             requestTabs()
         }
         const onDiskChange = (change: WorkspaceChange) => {
+            forgetWorkspaceImages([...change.added, ...change.removed, ...change.changed])
             // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
             if (!treeWanted) {
                 seen.added.push(...change.added)
@@ -713,8 +752,9 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         return { request: ++workspaceRequest.current, signal: controller.signal }
     }, [])
 
+    /** Opens a folder; `atStartup` when it is the one reopened as Scrivon starts. */
     const openWorkspace = useCallback(
-        async (requestedPath: string) => {
+        async (requestedPath: string, atStartup = false) => {
             if (!isDesktop) return
 
             const path = normalizePath(requestedPath)
@@ -761,7 +801,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     // A recent folder that was moved, deleted or is on a missing drive can be dropped from the list.
                     const isRecent = (recentWorkspaces ?? []).some((p) => samePath(p, path))
                     const removeFromRecent = () => void removeRecent(path)
-                    notifyError(`Couldn't open ${name}`, err, isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {})
+                    notifyError(
+                        atStartup ? `Couldn't reopen ${name}` : `Couldn't open ${name}`,
+                        err,
+                        isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {}
+                    )
                     void offerKeptChanges(path)
                     return
                 }
@@ -791,6 +835,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                         if (isCurrent()) setRecentWorkspaces(recents)
                     })
                     .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
+                // Reopened at the next start, unless it is closed first.
+                void setLastWorkspace(path).catch((err: unknown) => console.warn("Couldn't remember the open folder", err))
 
                 try {
                     await restoreTabSession(path, isCurrent)
@@ -825,6 +871,103 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         openWorkspaceRef.current = openWorkspace
     }, [openWorkspace])
 
+    /**
+     * Opens what Scrivon was asked to open from File Explorer or the command line (see planLaunchOpen).
+     * Resolves to the folder it opened, or tried to, or null when it stayed in the open one.
+     */
+    const openLaunchPaths = useCallback(
+        async (paths: readonly LaunchPath[]) => {
+            const { folder, files, skipped } = planLaunchOpen(paths, workspaceRootRef.current)
+            if (folder) {
+                await openWorkspaceRef.current(folder)
+                // It couldn't be opened (that says why), or the user kept the open folder's unsaved changes.
+                if (!isOpenFolder(folder)) return folder
+            }
+            for (const file of files) await coordinator.openFile.current(file)
+            if (skipped.length > 0) {
+                const one = skipped.length === 1
+                notifyWarning(one ? `${getBaseName(skipped[0]!)} wasn't opened` : `${skipped.length} files weren't opened`, {
+                    description: `${one ? "It's in another folder" : "They're in other folders"}. Scrivon opens one folder at a time.`,
+                })
+            }
+            return folder
+        },
+        [isOpenFolder, coordinator]
+    )
+
+    // Taken once, even when React runs the effect below twice (it does in development).
+    const launchedAtStartup = useRef<Promise<LaunchPath[]> | null>(null)
+    // Set once the launch's own file or folder (or the last folder) is open: files handed over later wait for it.
+    const [startupOpened, setStartupOpened] = useState(false)
+
+    // At launch, opens the file or folder Scrivon was started with from File Explorer or the command line, or
+    // else reopens the folder that was open when it last closed (a setting). Then, after a crash or a forced
+    // restart, says which other folder has unsaved changes waiting and offers to open it.
+    useEffect(() => {
+        if (!isDesktop || !hydrated) return
+        let cancelled = false
+        void (async () => {
+            const launched = await (launchedAtStartup.current ??= takeLaunchPathsSafely())
+            const last = launched.length === 0 && reopenAtStartup.current ? await getLastWorkspace().catch(() => null) : null
+            if (cancelled) return
+            let tried: string | null = null
+            if (launched.length > 0) tried = await openLaunchPaths(launched)
+            // Not once the user has opened or closed a folder. One that can't be opened says why, and the
+            // welcome screen stays.
+            else if (last && workspaceRequest.current === 0) {
+                tried = last
+                await openWorkspaceRef.current(last, true)
+            }
+            setStartupOpened(true)
+            const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
+            // A folder that couldn't be reopened has already offered its kept changes (offerKeptChanges).
+            const backups = (await listBackupsSafely()).filter((b) => !tried || !samePath(folderOf(b), tried))
+            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
+            const root = folderOf(backups[0]!)
+            const here = backups.filter((b) => samePath(folderOf(b), root))
+            const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
+            const elsewhere = here.length < backups.length ? ' Changes in other folders come back when you open them.' : ''
+            notifyWarning('Unsaved changes from last time', {
+                id: RECOVERED_CHANGES_NOTICE_ID,
+                description: `Scrivon closed before ${what} in ${getBaseName(root) || root} were saved. Open the folder to get them back.${elsewhere}`,
+                timeout: 0,
+                action: { label: 'Open Folder', onClick: () => void openWorkspaceRef.current(root) },
+            })
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [isDesktop, hydrated, openLaunchPaths])
+
+    // Files opened from File Explorer while Scrivon runs: that launch hands them to this window. One handover at a
+    // time, so the second waits until the first one's folder is open.
+    useEffect(() => {
+        if (!startupOpened) return
+        let disposed = false
+        let unlisten: (() => void) | undefined
+        let queue = Promise.resolve()
+        const openWaiting = () => {
+            queue = queue.then(async () => {
+                if (disposed) return
+                // Once taken they can't be taken again, so they are opened whatever happens to this effect.
+                const paths = await takeLaunchPathsSafely()
+                if (paths.length > 0) await openLaunchPaths(paths)
+            })
+        }
+        void onLaunchPaths(openWaiting)
+            .then((stop) => {
+                if (disposed) stop()
+                else unlisten = stop
+            })
+            .catch((err: unknown) => console.warn("Can't open files from File Explorer while Scrivon runs", err))
+            // Any handed over before this listened.
+            .then(openWaiting)
+        return () => {
+            disposed = true
+            unlisten?.()
+        }
+    }, [startupOpened, openLaunchPaths])
+
     const pickAndOpenWorkspace = useCallback(async () => {
         let path: string | null
         try {
@@ -858,6 +1001,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         await Promise.all([
             leaving.catch((err: unknown) => console.warn("Couldn't remember the tabs of the folder that was open", err)),
             settleUnsavedBackups(),
+            // No folder is reopened at the next start.
+            setLastWorkspace(null).catch((err: unknown) => console.warn("Couldn't forget the open folder", err)),
         ])
     }, [coordinator, updateFolderToggles, startWorkspaceRequest, startTreeRead])
 
@@ -935,6 +1080,41 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [getNameError, refreshFolder, explainIfHidden]
     )
 
+    /**
+     * Renames or moves `oldPath` to `newPath` on disk (never replacing anything there), and its open tabs, recent
+     * files and open folders follow. When it can't, says `failed` and why. Resolves true once it is there.
+     */
+    const relocateEntry = useCallback(
+        async (oldPath: string, newPath: string, isDirectory: boolean, failed: string): Promise<boolean> => {
+            // The folder it is in, even if another one is opened meanwhile.
+            const root = workspaceRootRef.current
+            // Saves of the files being renamed wait until their tabs have moved too, so none writes to the old
+            // path (bringing the old file back next to the new one) and none is dropped.
+            const release = await coordinator.holdSaves.current(oldPath, isDirectory)
+            let whereNow = (id: string): string | null => id
+            try {
+                await renameWorkspacePath(oldPath, newPath)
+                // The tabs follow straight away, unsaved edits and all; reading the file list again can take a while.
+                coordinator.remapTabsAfterRename.current(oldPath, newPath, getBaseName(newPath))
+                whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
+                // Recent files follow too (best-effort: a store failure never fails the rename).
+                if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
+                if (isDirectory) {
+                    // The folder and the ones inside it stay open or closed as they were.
+                    updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
+                    explainIfHidden(getParentPath(newPath), getBaseName(newPath))
+                }
+                return true
+            } catch (err) {
+                notifyError(failed, err)
+                return false
+            } finally {
+                release(whereNow)
+            }
+        },
+        [explainIfHidden, updateFolderToggles, coordinator]
+    )
+
     const renameEntry = useCallback(
         async (oldPath: string, newName: string, isDirectory: boolean) => {
             const failed = `Couldn't rename ${getBaseName(oldPath)}`
@@ -946,34 +1126,110 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 notifyError(failed, undefined, { description: problem })
                 return
             }
-            const newPath = joinPath(parent, newName)
-            // The folder it is in, even if another one is opened while it is renamed.
-            const root = workspaceRootRef.current
-            // Saves of the files being renamed wait until their tabs have moved too, so none writes to the old
-            // path (bringing the old file back next to the new one) and none is dropped.
-            const release = await coordinator.holdSaves.current(oldPath, isDirectory)
-            let whereNow = (id: string): string | null => id
-            try {
-                await renameWorkspacePath(oldPath, newPath)
-                // The tabs follow straight away; reading the file list again can take a while.
-                coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
-                whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
-                // Recent files follow too (best-effort: a store failure never fails the rename).
-                if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
-                if (isDirectory) {
-                    // The folder and the ones inside it stay open or closed as they were.
-                    updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
-                    explainIfHidden(parent, newName)
-                }
-            } catch (err) {
-                notifyError(failed, err)
-            } finally {
-                release(whereNow)
-            }
+            await relocateEntry(oldPath, joinPath(parent, newName), isDirectory, failed)
             // A rename keeps the entry in its folder, so only that folder changed.
             await refreshFolder(parent)
         },
-        [getNameError, refreshFolder, explainIfHidden, updateFolderToggles, coordinator]
+        [getNameError, relocateEntry, refreshFolder]
+    )
+
+    const moveEntry = useCallback(
+        async (path: string, isDirectory: boolean, targetFolder: string): Promise<string | null> => {
+            const name = getBaseName(path)
+            const failed = `Couldn't move ${name}`
+            const refusal = moveRefusal(path, isDirectory, targetFolder)
+            if (refusal === 'same-folder') return normalizePath(path)
+            if (refusal === 'into-itself') {
+                notifyError(failed, undefined, { description: "A folder can't go inside itself." })
+                return null
+            }
+            let newName = name
+            try {
+                // Names in use come from the disk, not the tree, so one added elsewhere since the last read is seen.
+                const names = await listFolderNames(targetFolder)
+                if (names.some((taken) => taken.toLowerCase() === name.toLowerCase())) {
+                    // Nothing is ever replaced: the user keeps both, or nothing moves.
+                    if ((await confirmNameClash([name], getBaseName(targetFolder), 'move', false)) !== 'keep-both') return null
+                    newName = uniqueNewName(name, names, isDirectory ? 'directory' : 'file')
+                }
+            } catch (err) {
+                notifyError(failed, err)
+                return null
+            }
+            const newPath = joinPath(targetFolder, newName)
+            const moved = await relocateEntry(path, newPath, isDirectory, failed)
+            await Promise.all([refreshFolder(getParentPath(path)), refreshFolder(targetFolder)])
+            return moved ? newPath : null
+        },
+        [relocateEntry, refreshFolder]
+    )
+
+    const copyIntoFolder = useCallback(
+        async (sources: readonly string[], targetFolder: string) => {
+            const root = workspaceRootRef.current
+            const folderName = getBaseName(targetFolder)
+            // Each is checked as a folder would be: a file can't be the folder it goes into anyway.
+            const intoItself = sources.filter((source) => moveRefusal(source, true, targetFolder) === 'into-itself')
+            for (const source of intoItself) {
+                notifyError(`Couldn't copy ${getBaseName(source)}`, undefined, { description: "A folder can't go inside itself." })
+            }
+            // Ones already in that folder are there, so they aren't copied over themselves.
+            let todo = sources.filter((source) => moveRefusal(source, true, targetFolder) === null)
+            if (todo.length === 0) return
+            let names: string[]
+            try {
+                // From the disk, not the tree, so a file added elsewhere since the last read is seen.
+                names = await listFolderNames(targetFolder)
+            } catch (err) {
+                notifyError(todo.length === 1 ? `Couldn't copy ${getBaseName(todo[0]!)}` : `Couldn't copy ${todo.length} items`, err)
+                return
+            }
+            const clashes = todo.filter((source) => names.some((taken) => taken.toLowerCase() === getBaseName(source).toLowerCase()))
+            if (clashes.length > 0) {
+                // Nothing is ever replaced: the user keeps both, leaves those out, or copies nothing.
+                const choice = await confirmNameClash(clashes.map(getBaseName), folderName, 'copy', clashes.length < todo.length)
+                if (choice === 'cancel') return
+                if (choice === 'skip') todo = todo.filter((source) => !clashes.includes(source))
+            }
+            const copied: string[] = []
+            let partly = false
+            // A big folder takes a while to copy; saying so stops the user thinking nothing happened.
+            const slowNotice = setTimeout(
+                () => notifyInfo(`Copying into ${folderName}…`, { id: COPYING_NOTICE_ID, timeout: 0 }),
+                COPYING_NOTICE_DELAY_MS
+            )
+            // One at a time: a big folder is many files, and the rest still come in when one can't.
+            for (const source of todo) {
+                const sourceName = getBaseName(source)
+                try {
+                    const kind = await readEntryKind(source)
+                    const name = uniqueNewName(sourceName, names, kind)
+                    names.push(name)
+                    await copyWorkspaceEntry(source, joinPath(targetFolder, name))
+                    copied.push(name)
+                    if (kind === 'directory') explainIfHidden(targetFolder, name)
+                } catch (err) {
+                    if (err instanceof PartialCopyError) {
+                        // What was copied stays, so the user is told it isn't all there.
+                        partly = true
+                        notifyError(`Copied only part of ${sourceName}`, err.cause, {
+                            description: `Some of what is inside it couldn't be copied: ${errorMessage(err.cause)}`,
+                        })
+                    } else {
+                        notifyError(`Couldn't copy ${sourceName}`, err)
+                    }
+                }
+            }
+            clearTimeout(slowNotice)
+            dismissNotification(COPYING_NOTICE_ID)
+            if (copied.length > 0) {
+                notifySuccess(copied.length === 1 ? `Copied ${copied[0]} into ${folderName}` : `Copied ${copied.length} items into ${folderName}`)
+            }
+            // The folder opens, so what came in shows.
+            if ((copied.length > 0 || partly) && root && isOpenFolder(root) && !samePath(targetFolder, root)) setFolderExpanded(targetFolder, true)
+            await refreshFolder(targetFolder)
+        },
+        [isOpenFolder, setFolderExpanded, refreshFolder, explainIfHidden]
     )
 
     const deleteEntry = useCallback(
@@ -990,8 +1246,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             const release = await coordinator.holdSaves.current(path, isDirectory)
             let whereNow = (id: string): string | null => id
             try {
-                // The user confirmed deleting the folder and everything in it; without recursive a folder that isn't empty is refused.
-                await removeWorkspacePath(path, { recursive: isDirectory })
+                // To the Recycle Bin, so a mistake can be undone; a folder goes with everything in it.
+                await trashWorkspacePath(path)
                 coordinator.closeTabsForDelete.current(path, isDirectory)
                 whereNow = () => null
                 if (root) void removeRecentFiles(root, path).catch((err: unknown) => console.warn("Couldn't update recent files", err))
@@ -1046,6 +1302,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             tree,
             folderToggles,
             setFolderExpanded,
+            setFoldersExpanded,
             recentWorkspaces: visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,
@@ -1057,6 +1314,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             createFile,
             createFolder,
             renameEntry,
+            moveEntry,
+            copyIntoFolder,
             deleteEntry,
             duplicateFile,
             openFile,
@@ -1070,6 +1329,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             tree,
             folderToggles,
             setFolderExpanded,
+            setFoldersExpanded,
             visibleRecentWorkspaces,
             pickAndOpenWorkspace,
             openWorkspace,
@@ -1081,6 +1341,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             createFile,
             createFolder,
             renameEntry,
+            moveEntry,
+            copyIntoFolder,
             deleteEntry,
             duplicateFile,
             openFile,

@@ -1,43 +1,64 @@
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AppCommand } from '@/components/studio/commands/app-command'
+import { CommandRegistryProvider, useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 
 const mocks = vi.hoisted(() => ({
-    setExplorerOpen: vi.fn(),
-    setEditorOpen: vi.fn(),
-    setPreviewOnly: vi.fn(),
+    toggleExplorer: vi.fn(),
+    previewOnly: vi.fn(),
+    fitDiagram: vi.fn(),
+    otherExplorer: vi.fn(),
+    toggleEditor: vi.fn(),
+    bold: vi.fn(),
+    code: vi.fn(),
     openMode: vi.fn(),
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ isDesktop: true, workspaceRoot: 'C:/work' }),
-    useActiveTabId: () => 'C:/work/a.mmd',
-    useDocumentSave: () => ({ flushSave: vi.fn(), flushAllSaves: vi.fn() }),
-    useStudioLayout: () => ({
-        layout: { explorerOpen: true, editorOpen: true },
-        setExplorerOpen: mocks.setExplorerOpen,
-        setEditorOpen: mocks.setEditorOpen,
-        setPreviewOnly: mocks.setPreviewOnly,
-    }),
-    useCanvasFit: () => ({ requestCanvasFit: vi.fn() }),
 }))
 
 vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
     useCommandPalette: () => ({ openMode: mocks.openMode }),
 }))
 
+/** Set once, so the list stays the same between renders as a feature's memoized list does. */
+const COMMANDS: AppCommand[] = [
+    { id: 'toggle-explorer', label: 'Explorer', keybind: 'view.toggleExplorer', run: mocks.toggleExplorer },
+    { id: 'preview-only', label: 'Preview Only', keybind: 'view.previewOnly', run: mocks.previewOnly },
+    { id: 'fit-diagram', label: 'Fit Diagram', keybind: 'view.fitDiagram', disabled: true, run: mocks.fitDiagram },
+    // A second command on the same keys: the first one registered runs.
+    { id: 'other-explorer', label: 'Other', keybind: 'view.toggleExplorer', run: mocks.otherExplorer },
+    { id: 'toggle-editor', label: 'Editor', keybind: 'view.toggleEditor', run: mocks.toggleEditor },
+    { id: 'edit.bold', label: 'Bold', keybind: 'format.bold', run: mocks.bold },
+    // Off, as in a file that isn't Markdown.
+    { id: 'edit.inline-code', label: 'Inline Code', keybind: 'format.code', disabled: true, run: mocks.code },
+]
+
+function Commands() {
+    useRegisterCommands(COMMANDS)
+    return null
+}
+
 function Providers({ children }: { children: ReactNode }) {
     return (
         <SettingsProvider>
-            <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+            <CommandRegistryProvider>
+                <Commands />
+                <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+            </CommandRegistryProvider>
         </SettingsProvider>
     )
 }
 
-function press(key: string, init: KeyboardEventInit = {}) {
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+/** Presses the keys and says whether the app took them (the web view never sees them). */
+function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = document.body): boolean {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    target.dispatchEvent(event)
+    return event.defaultPrevented
 }
 
 describe('GlobalKeybindsProvider', () => {
@@ -56,12 +77,57 @@ describe('GlobalKeybindsProvider', () => {
         vi.unstubAllGlobals()
     })
 
-    it('runs shortcuts while settings is closed', () => {
+    it('runs the command that has the pressed shortcut', () => {
         renderHook(() => useAppSettings(), { wrapper: Providers })
 
-        press('b', { ctrlKey: true })
+        expect(press('b', { ctrlKey: true, shiftKey: true })).toBe(true)
 
-        expect(mocks.setExplorerOpen).toHaveBeenCalledWith(false)
+        expect(mocks.toggleExplorer).toHaveBeenCalledTimes(1)
+        expect(mocks.otherExplorer).not.toHaveBeenCalled()
+    })
+
+    it('does nothing while the command is greyed out, but still keeps the keys from the web view', () => {
+        renderHook(() => useAppSettings(), { wrapper: Providers })
+
+        // Ctrl+R would reload the app.
+        expect(press('r', { ctrlKey: true })).toBe(true)
+
+        expect(mocks.fitDiagram).not.toHaveBeenCalled()
+    })
+
+    it('gives a Markdown command the keys while typing in the editor, and passes them on while it is greyed out', () => {
+        renderHook(() => useAppSettings(), { wrapper: Providers })
+        const editor = document.createElement('div')
+        editor.className = 'monaco-editor'
+        const text = document.createElement('div')
+        text.className = 'native-edit-context'
+        editor.appendChild(text)
+        document.body.appendChild(editor)
+
+        expect(press('b', { ctrlKey: true }, text)).toBe(true)
+        expect(mocks.bold).toHaveBeenCalledTimes(1)
+
+        expect(press('e', { ctrlKey: true }, text)).toBe(true)
+        expect(mocks.code).not.toHaveBeenCalled()
+        expect(mocks.toggleEditor).toHaveBeenCalledTimes(1)
+        editor.remove()
+    })
+
+    it('leaves keys alone when no command has them', () => {
+        renderHook(() => useAppSettings(), { wrapper: Providers })
+
+        // Save All's keys, with no Save All command registered.
+        expect(press('s', { ctrlKey: true, shiftKey: true })).toBe(false)
+    })
+
+    it('opens the palette on its own keys', () => {
+        renderHook(() => useAppSettings(), { wrapper: Providers })
+
+        press('F1')
+        press('f', { ctrlKey: true, shiftKey: true })
+        press('n', { ctrlKey: true, shiftKey: true })
+
+        expect(mocks.openMode.mock.calls).toEqual([['all'], ['text'], ['files']])
     })
 
     it('turns shortcuts off while settings is open, so recording a shortcut does not also run it', () => {
@@ -74,7 +140,7 @@ describe('GlobalKeybindsProvider', () => {
         press('F1')
         press(',', { ctrlKey: true })
 
-        expect(mocks.setPreviewOnly).not.toHaveBeenCalled()
+        expect(mocks.previewOnly).not.toHaveBeenCalled()
         expect(mocks.openMode).not.toHaveBeenCalled()
         expect(result.current.activeSection).toBe('keyboard')
 
@@ -83,6 +149,6 @@ describe('GlobalKeybindsProvider', () => {
         })
         press('o', { ctrlKey: true, shiftKey: true })
 
-        expect(mocks.setPreviewOnly).toHaveBeenCalledTimes(1)
+        expect(mocks.previewOnly).toHaveBeenCalledTimes(1)
     })
 })

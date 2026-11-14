@@ -63,7 +63,7 @@ fn set_aside_if_damaged(dir: &Path, now: u64) -> Option<String> {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == ErrorKind::NotFound => return None,
         Err(err) => {
-            eprintln!("Could not check {STORE_FILE}: {err}");
+            log::warn!("Could not check {STORE_FILE}: {err}");
             return None;
         }
     };
@@ -75,7 +75,7 @@ fn set_aside_if_damaged(dir: &Path, now: u64) -> Option<String> {
         .map(|time| format!("{KEPT_PREFIX}{time}"))
         .find(|name| !dir.join(name).exists())?;
     if let Err(err) = fs::rename(&file, dir.join(&name)) {
-        eprintln!("Could not keep the damaged {STORE_FILE} aside: {err}");
+        log::warn!("Could not keep the damaged {STORE_FILE} aside: {err}");
         return None;
     }
     remove_old_copies(dir);
@@ -98,7 +98,7 @@ fn remove_old_copies(dir: &Path) {
     copies.sort_unstable_by_key(|(time, _)| std::cmp::Reverse(*time));
     for (_, path) in copies.into_iter().skip(KEEP) {
         if let Err(err) = fs::remove_file(&path) {
-            eprintln!("Could not delete {}: {err}", path.display());
+            log::warn!("Could not delete {}: {err}", path.display());
         }
     }
 }

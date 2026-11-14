@@ -1,13 +1,26 @@
 import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
-import { notifyError, notifyWarning } from '@/lib/notify'
+import { downloadBlob } from '@/lib/download'
+import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
+import { notifyFileSaved, showInFolderAction } from '@/lib/saved-file-notice'
 import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
 import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
 import { renderMermaidDiagramForExport, type ExportRenderOptions } from '@/lib/mermaid/render'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
+import { safeFileStem } from '@/lib/workspace/paths'
 
 export type PngExportScale = 1 | 2 | 4
+
+/** How an exported diagram looks: the theme it's drawn in, and whether it has a background. */
+export type DiagramLook = {
+    themeId: AppThemeId
+    /**
+     * No backdrop behind the diagram, for pasting onto slides. Boxes and label backings keep the
+     * theme's colours, so lines still stop short of the text.
+     */
+    transparent: boolean
+}
 
 /** Where a diagram being exported comes from. */
 export type DiagramExportTarget = {
@@ -17,24 +30,6 @@ export type DiagramExportTarget = {
     tabPath?: string
     /** For a diagram expanded from Markdown: the document's text, used to number its diagrams. */
     markdown?: string
-}
-
-// Characters Windows does not allow in file names, including control characters.
-const INVALID_FILE_NAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]+/g
-const RESERVED_FILE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
-
-/**
- * Turns a tab name into a file name Windows accepts. Example titles such as 'CI/CD Pipeline' or
- * 'Inheritance (<|--)' would otherwise be split into folders or rejected by the save dialog.
- */
-export function safeFileStem(name: string, fallback: string): string {
-    const stem = name
-        .replace(INVALID_FILE_NAME_CHARS, '-')
-        .replace(/-{2,}/g, '-')
-        .replace(/\s+/g, ' ')
-        .replace(/^[\s.-]+|[\s.-]+$/g, '')
-    if (!stem) return fallback
-    return RESERVED_FILE_NAME.test(stem) ? `${stem}_` : stem
 }
 
 /** The tab name without its extension ('notes.md' -> 'notes'), made safe to use as a file name. */
@@ -97,48 +92,39 @@ export function buildExportSvg(source: string, themeId: AppThemeId, options?: Ex
     return flattenSvgForExport(svg)
 }
 
-function triggerBrowserDownload(blob: Blob, filename: string): void {
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = filename
-    anchor.rel = 'noopener'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
-}
-
 type SaveFilters = { name: string; extensions: string[] }[]
 
-/** Returns false when the user cancels the save dialog. */
+/** A saved file: its path, or none when the web build handed it to the browser's download. Null when the user cancelled. */
+type Saved = { path?: string } | null
+
 async function saveBytes(
     bytes: Uint8Array,
     filename: string,
     documentPath: string | undefined,
     mimeType: string,
     filters: SaveFilters
-): Promise<boolean> {
+): Promise<Saved> {
     if (isTauri()) {
         const path = await pickSavePath({ title: 'Save diagram', defaultPath: savePathBesideDocument(filename, documentPath), filters })
-        if (!path) return false
+        if (!path) return null
         await writeBinaryFile(path, bytes)
-        return true
+        return { path }
     }
 
-    triggerBrowserDownload(new Blob([Uint8Array.from(bytes)], { type: mimeType }), filename)
-    return true
+    downloadBlob(new Blob([Uint8Array.from(bytes)], { type: mimeType }), filename)
+    return {}
 }
 
-async function saveText(content: string, filename: string, documentPath: string | undefined, filters: SaveFilters): Promise<void> {
+async function saveText(content: string, filename: string, documentPath: string | undefined, filters: SaveFilters): Promise<Saved> {
     if (isTauri()) {
         const path = await pickSavePath({ title: 'Save diagram', defaultPath: savePathBesideDocument(filename, documentPath), filters })
-        if (!path) return
+        if (!path) return null
         await writeTextFileAtPath(path, content)
-        return
+        return { path }
     }
 
-    triggerBrowserDownload(new Blob([content], { type: 'image/svg+xml;charset=utf-8' }), filename)
+    downloadBlob(new Blob([content], { type: 'image/svg+xml;charset=utf-8' }), filename)
+    return {}
 }
 
 /**
@@ -185,8 +171,11 @@ export function fitPngScale(dims: { width: number; height: number }, requested: 
     return Math.min(requested, MAX_CANVAS_SIDE / dims.width, MAX_CANVAS_SIDE / dims.height, Math.sqrt(MAX_CANVAS_AREA / (dims.width * dims.height)))
 }
 
-/** Draws the SVG to a PNG at `scale`, or smaller if that would be too big for a canvas (see fitPngScale). */
-export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: number): Promise<Blob> {
+/**
+ * Draws the SVG to a PNG at `scale`, or smaller if that would be too big for a canvas (see fitPngScale),
+ * on the theme's background unless `transparent`.
+ */
+export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: number, { transparent = false } = {}): Promise<Blob> {
     const dims = getSvgDimensions(svg)
     if (!dims) {
         throw new Error('Could not determine diagram dimensions.')
@@ -213,9 +202,10 @@ export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: numb
         throw new Error('Canvas is not available.')
     }
 
-    const bg = getDiagramColors(themeId).bg
-    ctx.fillStyle = bg
-    ctx.fillRect(0, 0, width, height)
+    if (!transparent) {
+        ctx.fillStyle = getDiagramColors(themeId).bg
+        ctx.fillRect(0, 0, width, height)
+    }
     ctx.drawImage(img, 0, 0, width, height)
 
     return canvasToPngBlob(canvas)
@@ -224,41 +214,115 @@ export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: numb
 const SVG_FILTERS = [{ name: 'SVG', extensions: ['svg'] }]
 const PNG_FILTERS = [{ name: 'PNG', extensions: ['png'] }]
 
-export async function exportSvg(source: string, themeId: AppThemeId, target: DiagramExportTarget): Promise<void> {
+export async function exportSvg(source: string, { themeId, transparent }: DiagramLook, target: DiagramExportTarget): Promise<void> {
     try {
         // Other apps open this file, and some would hide halo'd labels (see ExportRenderOptions).
-        const svg = buildExportSvg(source, themeId, { labelHalo: false })
+        const svg = buildExportSvg(source, themeId, { labelHalo: false, transparent })
         const filename = `${diagramFileStem(source, target)}.svg`
-        await saveText(svg, filename, target.tabPath, SVG_FILTERS)
+        const saved = await saveText(svg, filename, target.tabPath, SVG_FILTERS)
+        // The browser shows its own download, so only a file saved to disk needs a word.
+        if (saved?.path) notifyFileSaved(saved.path)
     } catch (err) {
         notifyError('Export failed', err)
     }
 }
 
-export async function exportPng(source: string, themeId: AppThemeId, target: DiagramExportTarget, scale: PngExportScale): Promise<void> {
+/**
+ * The diagram as a PNG at `scale`, or smaller when that won't fit on a canvas. `smallerSize` is
+ * the size it was shrunk to, if it was. `tooBig` is the error for one too big at any readable size.
+ */
+async function diagramPng(
+    source: string,
+    { themeId, transparent }: DiagramLook,
+    scale: number,
+    tooBig: string
+): Promise<{ blob: Blob; smallerSize?: string }> {
+    // Keep the label halo even when transparent: like the edge-label boxes, it stops lines running through the text.
+    const svg = buildExportSvg(source, themeId, { transparent })
+    const dims = getSvgDimensions(svg)
+    if (!dims) {
+        throw new Error('Could not determine diagram dimensions.')
+    }
+
+    // Shrink to fit rather than fail, but not so far that the labels can't be read.
+    const drawScale = fitPngScale(dims, scale)
+    if (drawScale < MIN_PNG_SCALE) {
+        throw new Error(tooBig)
+    }
+
+    const blob = await svgToPngBlob(svg, themeId, drawScale, { transparent })
+    if (drawScale >= scale) return { blob }
+    return { blob, smallerSize: `${Math.round(dims.width * drawScale)} × ${Math.round(dims.height * drawScale)} px` }
+}
+
+export async function exportPng(source: string, look: DiagramLook, target: DiagramExportTarget, scale: PngExportScale): Promise<void> {
     try {
-        const svg = buildExportSvg(source, themeId)
-        const dims = getSvgDimensions(svg)
-        if (!dims) {
-            throw new Error('Could not determine diagram dimensions.')
-        }
-
-        // Shrink to fit rather than fail, but not so far that the labels can't be read.
-        const drawScale = fitPngScale(dims, scale)
-        if (drawScale < MIN_PNG_SCALE) {
-            throw new Error(PNG_TOO_LARGE_MESSAGE)
-        }
-
-        const blob = await svgToPngBlob(svg, themeId, drawScale)
+        const { blob, smallerSize } = await diagramPng(source, look, scale, PNG_TOO_LARGE_MESSAGE)
         const filename = `${diagramFileStem(source, target)}.png`
         const bytes = new Uint8Array(await blob.arrayBuffer())
         const saved = await saveBytes(bytes, filename, target.tabPath, 'image/png', PNG_FILTERS)
+        if (!saved) return
 
-        if (saved && drawScale < scale) {
-            const size = `${Math.round(dims.width * drawScale)} × ${Math.round(dims.height * drawScale)} px`
-            notifyWarning('Saved a smaller PNG', { description: `This diagram is too big for ${scale}×, so it was saved at ${size}.` })
+        const { path } = saved
+        if (smallerSize) {
+            const description = `This diagram is too big for ${scale}×, so it was saved at ${smallerSize}.`
+            notifyWarning('Saved a smaller PNG', path ? { description, action: showInFolderAction(path) } : { description })
+        } else if (path) {
+            notifyFileSaved(path)
         }
     } catch (err) {
         notifyError('Export failed', err)
+    }
+}
+
+/** Copied PNGs are drawn at 2×, so they stay sharp in slides and on high-DPI screens. */
+const COPY_PNG_SCALE = 2
+const COPY_FAILED = "Couldn't copy the diagram"
+const PNG_TOO_LARGE_TO_COPY_MESSAGE = 'This diagram is too big to copy as a PNG. Copy it as SVG instead.'
+
+/** Throws where the page isn't allowed to use the clipboard, before any drawing is done. */
+function checkClipboard(): void {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+        throw new Error('The clipboard is not available.')
+    }
+}
+
+/** Puts one item on the clipboard, in each format given (MIME type -> data of that type). */
+async function writeClipboard(formats: Record<string, Blob>): Promise<void> {
+    await navigator.clipboard.write([new ClipboardItem(formats)])
+}
+
+/** Copies the diagram as a PNG, ready to paste into slides or a chat. */
+export async function copyPng(source: string, look: DiagramLook): Promise<void> {
+    try {
+        checkClipboard()
+        const { blob, smallerSize } = await diagramPng(source, look, COPY_PNG_SCALE, PNG_TOO_LARGE_TO_COPY_MESSAGE)
+        await writeClipboard({ 'image/png': blob })
+        if (smallerSize) {
+            notifyWarning('Copied a smaller PNG', {
+                description: `This diagram is too big for ${COPY_PNG_SCALE}×, so it was copied at ${smallerSize}.`,
+            })
+        } else {
+            notifySuccess('Diagram copied as PNG')
+        }
+    } catch (err) {
+        notifyError(COPY_FAILED, err)
+    }
+}
+
+/** Copies the diagram as SVG: a picture for apps that take one (Office), and the markup as text for the rest. */
+export async function copySvg(source: string, { themeId, transparent }: DiagramLook): Promise<void> {
+    try {
+        checkClipboard()
+        // Pasted into other apps, like a saved .svg file (see exportSvg).
+        const svg = buildExportSvg(source, themeId, { labelHalo: false, transparent })
+        const formats: Record<string, Blob> = { 'text/plain': new Blob([svg], { type: 'text/plain' }) }
+        if (ClipboardItem.supports?.('image/svg+xml')) {
+            formats['image/svg+xml'] = new Blob([svg], { type: 'image/svg+xml' })
+        }
+        await writeClipboard(formats)
+        notifySuccess('Diagram copied as SVG')
+    } catch (err) {
+        notifyError(COPY_FAILED, err)
     }
 }

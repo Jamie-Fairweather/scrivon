@@ -274,6 +274,19 @@
     }
 }
 
+/* The Markdown preview's text and spacing grow with Settings > Appearance > Preview text size.
+   --preview-text-scale is that size over the 14px it always had (components/studio/zoom/preview-text-size.tsx).
+   These are Tailwind's own sizes, which its text-* and spacing utilities read. */
+.preview-text {
+    --text-xs: calc(0.75rem * var(--preview-text-scale, 1));
+    --text-sm: calc(0.875rem * var(--preview-text-scale, 1));
+    --text-base: calc(1rem * var(--preview-text-scale, 1));
+    --text-lg: calc(1.125rem * var(--preview-text-scale, 1));
+    --text-xl: calc(1.25rem * var(--preview-text-scale, 1));
+    --text-2xl: calc(1.5rem * var(--preview-text-scale, 1));
+    --spacing: calc(0.25rem * var(--preview-text-scale, 1));
+}
+
 /* Windows "Animation effects" off: toasts don't shake, slide or bounce, popups and dialogs don't
    zoom or glide to a new spot, and accordions don't grow or turn their chevrons. Fades and loading
    spinners (animate-spin) stay. Not a blanket rule, which would stop the spinners too. Unlayered
@@ -344,6 +357,11 @@
     [data-slot='menu-switch'][data-checked] [data-slot='menu-switch-thumb'] {
         background-color: HighlightText;
     }
+    /* The folder something dragged in the explorer would go into; its ring and tint are removed. */
+    [data-drop-target] {
+        outline: 2px dashed Highlight;
+        outline-offset: -2px;
+    }
 }
 
 /* Monaco find widget: tooltips render in the editor container; allow them past overflow clips.
@@ -374,4 +392,18 @@ body:has(.monaco-editor .find-widget.visible)
     gap: 6px !important;
     align-items: center !important;
     white-space: nowrap !important;
+}
+
+/* A setting that Settings search jumped to lights up for a moment (settings-search-results.tsx).
+   A fade, so it stays when Windows animation effects are off. */
+[data-settings-search-hit] {
+    border-radius: var(--radius-md);
+    animation: settings-search-hit 1.6s ease-out;
+}
+
+@keyframes settings-search-hit {
+    from {
+        background-color: color-mix(in srgb, var(--ring) 24%, transparent);
+        box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--ring) 24%, transparent);
+    }
 }

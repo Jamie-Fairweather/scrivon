@@ -1,3 +1,4 @@
+import { normalizeColorHex } from '@/lib/color-hex'
 import { isAppThemeId } from '@/lib/theme/catalog'
 import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS, PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import { repairFontStack, repairMonoFontStack } from '@/lib/settings/pdf-export-fonts'
@@ -43,6 +44,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function normalizeString(value: unknown, fallback: string): string {
     return typeof value === 'string' ? value : fallback
+}
+
+/**
+ * A hex colour, or '' when `allowEmpty` (the export then picks the colour). Anything else gets `fallback`: colours go
+ * into the export's CSS as they are, and a shared profile could otherwise add rules of its own there.
+ */
+function normalizeColor(value: unknown, fallback: string, allowEmpty: boolean): string {
+    if (typeof value !== 'string') return fallback
+    const color = value.trim()
+    if (allowEmpty && color === '') return ''
+    return normalizeColorHex(color) ? color : fallback
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
@@ -96,8 +108,8 @@ function normalizeChrome(raw: unknown, fallback: PdfExportChrome): PdfExportChro
         enabled: typeof source?.enabled === 'boolean' ? source.enabled : fallback.enabled,
         left: normalizeSide(source?.left, legacyLeft),
         right: normalizeSide(source?.right, fallback.right),
-        backgroundColor: normalizeString(source?.backgroundColor, fallback.backgroundColor),
-        textColor: normalizeString(source?.textColor, fallback.textColor),
+        backgroundColor: normalizeColor(source?.backgroundColor, fallback.backgroundColor, true),
+        textColor: normalizeColor(source?.textColor, fallback.textColor, true),
         heightMm: normalizeNumber(source?.heightMm, fallback.heightMm, PDF_EXPORT_LIMITS.chromeMm),
         gapMm: normalizeNumber(source?.gapMm, fallback.gapMm, PDF_EXPORT_LIMITS.chromeMm),
         ignoreMargins: normalizeBoolean(source?.ignoreMargins, fallback.ignoreMargins),
@@ -111,6 +123,7 @@ function normalizeFooter(raw: unknown, fallback: PdfExportFooter): PdfExportFoot
     return {
         ...chrome,
         pageNumbers: normalizeEnum(source?.pageNumbers, PAGE_NUMBER_FORMATS, fallback.pageNumbers),
+        numberFromBody: normalizeBoolean(source?.numberFromBody, fallback.numberFromBody),
     }
 }
 
@@ -146,8 +159,8 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             justify: normalizeBoolean(typography?.justify, fallback.typography.justify),
         },
         brand: {
-            accentColor: normalizeString(brand?.accentColor, fallback.brand.accentColor),
-            linkColor: normalizeString(brand?.linkColor, fallback.brand.linkColor),
+            accentColor: normalizeColor(brand?.accentColor, fallback.brand.accentColor, false),
+            linkColor: normalizeColor(brand?.linkColor, fallback.brand.linkColor, true),
             logoPath: normalizeString(brand?.logoPath, fallback.brand.logoPath),
             logoIgnoreMargins: normalizeBoolean(brand?.logoIgnoreMargins, fallback.brand.logoIgnoreMargins),
         },

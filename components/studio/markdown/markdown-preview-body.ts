@@ -8,6 +8,12 @@ export function markdownPreviewBody(source: string): string {
     return parsePdfExportFrontMatter(source).body
 }
 
+/** The line of `source` its preview body (see {@link markdownPreviewBody}) starts on, counting from 1. */
+export function markdownBodyFirstLine(source: string, body: string): number {
+    const frontMatter = source.slice(0, source.length - body.length)
+    return 1 + (frontMatter.match(/\r\n|\r|\n/g)?.length ?? 0)
+}
+
 /** A fenced code block, ``` or ~~~, closed by a fence at least as long, or running to the end when never closed. */
 const FENCED_CODE = /^ {0,3}(([`~])\2{2,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|$(?![\s\S]))/gm
 

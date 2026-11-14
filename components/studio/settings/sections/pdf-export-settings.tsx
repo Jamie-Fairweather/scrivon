@@ -7,6 +7,7 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    importPdfExportProfile,
     otherProfileNamed,
     PDF_MIN_BODY_HEIGHT_MM,
     pdfBodyHeightMm,
@@ -47,6 +48,7 @@ import { isWindowsTauri } from '@/lib/tauri/platform'
 import { ColorField } from '@/components/studio/settings/color-field'
 import { ImagePathField } from '@/components/studio/settings/image-path-field'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
+import { ProfileFileButtons } from '@/components/studio/settings/profile-file-buttons'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 import {
@@ -340,6 +342,11 @@ export function PdfExportSettings() {
                             disabled={pdf.profiles.length <= 1}
                             fallbackFocusId="pdf-profile"
                             onDelete={(id) => setPdf((current) => deletePdfExportProfile(current, id))}
+                        />
+                        <ProfileFileButtons
+                            profile={active}
+                            profiles={pdf.profiles}
+                            onImport={(profile) => addProfile((current) => importPdfExportProfile(current, profile))}
                         />
                     </div>
                 </Field>
@@ -707,12 +714,20 @@ function ChromeFields({
                 onChange={(enabled) => onChange({ enabled })}
             />
             {footer ? (
-                <FooterPageNumbers
-                    format={footer.pageNumbers}
-                    text={footer.right.text}
-                    onFormatChange={(pageNumbers) => onChange({ pageNumbers })}
-                    onTextChange={(text) => onChange({ right: { ...footer.right, text } })}
-                />
+                <>
+                    <FooterPageNumbers
+                        format={footer.pageNumbers}
+                        text={footer.right.text}
+                        onFormatChange={(pageNumbers) => onChange({ pageNumbers })}
+                        onTextChange={(text) => onChange({ right: { ...footer.right, text } })}
+                    />
+                    <SwitchSetting
+                        label="Number pages from the body"
+                        description="Page 1 is the first page after the title page and contents. Also used for the contents page and Word."
+                        checked={footer.numberFromBody}
+                        onChange={(numberFromBody) => onChange({ numberFromBody })}
+                    />
+                </>
             ) : null}
             <DependentFields enabled={chrome.enabled}>
                 <p className="text-sm text-muted-foreground">Images always sit outermost, nearest the page edge.</p>

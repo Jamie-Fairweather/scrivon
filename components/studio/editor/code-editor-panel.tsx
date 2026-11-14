@@ -8,17 +8,26 @@ import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
+import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
 import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
+import { bindMarkdownListEnter } from '@/lib/monaco/markdown-editing'
+import { WORD_SEGMENTER_LOCALES } from '@/lib/markdown/inline-format'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
-import { useDocumentTabs, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
-import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
+import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
+import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
+import { attachEditorImages, imageDocumentFor } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
+import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { lineEndingsOf } from '@/lib/workspace/text-stats'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -93,6 +102,9 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     // Monaco 0.56 made a double-click next to a bracket or quote select what's inside it. In Markdown
     // that catches links, (asides) and "quotes", so double-click keeps selecting the word, as it always did.
     doubleClickSelectsBlock: false,
+    // These languages don't put spaces between words, so without this double-click and Ctrl+Left/Right
+    // take a whole sentence at a time.
+    wordSegmenterLocales: WORD_SEGMENTER_LOCALES,
     scrollbar: {
         vertical: 'auto',
         // Only appears when a line is wider than the pane (word wrap off or at a column).
@@ -106,6 +118,8 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 type CodeEditorPanelProps = {
     /** When false the panel is hidden but stays mounted, so undo history and scroll survive. */
     open?: boolean
+    /** True while the preview is hidden: the editor takes the whole row and can't be resized. */
+    fill?: boolean
     width: number
     onWidthChange: (width: number) => void
     /** Puts the editor back to its default width (double-click or Enter on the resize handle). */
@@ -137,32 +151,27 @@ function applyIndentation(model: editor.ITextModel, tabSize: number) {
     model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
-/**
- * The one line ending `text` uses, or null when it has no line break or mixes them. Monaco gives a buffer
- * one line ending, so a file that mixes them is evened out on purpose and is left that way.
- */
-function lineEndingOf(text: string): '\r\n' | '\n' | null {
-    if (!/[\r\n]/.test(text)) return null
-    if (!/\r(?!\n)|(?<!\r)\n/.test(text)) return '\r\n'
-    return text.includes('\r') ? null : '\n'
-}
-
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
 function isTab(tabId: string | null, path: string): boolean {
     return tabId !== null && samePath(tabId, path)
 }
 
-function languageForTab(tab: DocumentTab) {
-    if (tab.readOnly) return 'markdown'
-    const kind = documentKind(tab.name)
-    return kind === 'markdown' || kind === 'mermaid' ? 'markdown' : 'plaintext'
+function isMarkdownTab(tab: DocumentTab | null): boolean {
+    return tab !== null && documentKind(tab.name) === 'markdown'
 }
 
-export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
+function languageForTab(tab: DocumentTab) {
+    const kind = documentKind(tab.name)
+    if (kind === 'mermaid') return MERMAID_LANGUAGE_ID
+    return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
+}
+
+export function CodeEditorPanel({ open = true, fill = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
+    const { workspaceRoot } = useWorkspaceSession()
     // The panel also works on its own (without a palette above it, the right-click entry does nothing).
     const openPalette = useOptionalCommandPalette()?.open
     // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
@@ -175,6 +184,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     const [rowWidth, setRowWidth] = useState(0)
     const monacoRef = useRef<Monaco | null>(null)
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+    // The same editor as editorRef, kept as state so the Edit menu and the palette follow it.
+    const [mountedEditor, setMountedEditor] = useState<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
     const activeTabRef = useRef<DocumentTab | null>(null)
     const suppressChangeRef = useRef(false)
@@ -231,6 +242,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         activeTabRef.current = activeTab
     }, [activeTab])
 
+    // Read when an image is pasted or dropped, so the editor's handlers never hold an old one.
+    const workspaceRootRef = useRef(workspaceRoot)
+    useEffect(() => {
+        workspaceRootRef.current = workspaceRoot
+    }, [workspaceRoot])
+
     // A hidden editor keeps its buffer, but can't take focus and has no visible selection.
     const openRef = useRef(open)
 
@@ -272,6 +289,18 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 if (!openRef.current) return
                 pendingFocusRef.current = path
                 setFocusRequest((n) => n + 1)
+            }),
+        []
+    )
+
+    // Focus Editor and F6 (pane-focus.ts) put the keyboard here at once, while the editor shows a file.
+    useEffect(
+        () =>
+            registerEditorFocusNow(() => {
+                const editor = editorRef.current
+                if (!openRef.current || !editor?.getModel()) return false
+                editor.focus()
+                return true
             }),
         []
     )
@@ -393,7 +422,10 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
+    const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
+    // The Edit menu and the palette's editor commands act on this editor while it shows a file.
+    useEditorCommands(editorPath ? mountedEditor : null, { shown: open, readOnly: isReadOnly, markdown: isMarkdownTab(activeTab) })
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
@@ -419,9 +451,18 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             domReadOnly: isReadOnly,
             ariaLabel,
             unicodeHighlight: { ...BASE_EDITOR_OPTIONS.unicodeHighlight, invisibleCharacters: isMermaid },
+            // Diagram files offer a starter for each diagram type on Ctrl+Space (lib/monaco/mermaid-snippets.ts).
+            // Nothing pops up while typing, so Enter can pick from the list the user asked for.
+            ...(isMermaid ? { snippetSuggestions: 'inline' as const, acceptSuggestionOnEnter: 'on' as const } : {}),
         }),
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
+
+    // Read through a ref, so the link to the preview always sees the current settings.
+    const previewLinkRef = useRef({ scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview })
+    useEffect(() => {
+        previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
+    }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
 
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
@@ -473,8 +514,11 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             // The change goes on the undo stack as its own step, as VS Code does: Ctrl+Z first puts the
             // old line endings back, then undoes earlier edits. Don't use setEOL: it skips the undo
             // stack, so undoing an earlier edit would land in the wrong place and garble the text.
-            const eol = lineEndingOf(tab.content)
-            if (eol === null || model.getEOL() === eol) return
+            // Monaco gives a buffer one line ending, so a file that mixes them is evened out on purpose and left that way.
+            const endings = lineEndingsOf(tab.content)
+            if (endings === null || endings === 'mixed') return
+            const eol = endings === 'CRLF' ? '\r\n' : '\n'
+            if (model.getEOL() === eol) return
             suppressChangeRef.current = true
             try {
                 model.pushStackElement()
@@ -560,10 +604,12 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
             editorRef.current = editor
             monacoRef.current = monaco
+            setMountedEditor(editor)
             // Closing the last tab throws the editor away. Forget it, so a search hit picked
             // before the next one is ready waits for it instead of going to the old one.
             editor.onDidDispose(() => {
                 if (editorRef.current === editor) editorRef.current = null
+                setMountedEditor((current) => (current === editor ? null : current))
                 setEditorFocused(false)
             })
             editor.onDidFocusEditorText(() => {
@@ -571,6 +617,8 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 showHintAgain()
             })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
+            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away.
+            trackEditorCursor(editor)
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
             // or the cursor and selection drift away from the text.
@@ -580,6 +628,21 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
                 .catch(() => {})
             const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
             editor.onDidDispose(() => paletteBinding.dispose())
+            // A picture pasted or dropped into a Markdown file is saved next to it, with a link at the cursor.
+            const images = attachEditorImages(editor, () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current))
+            editor.onDidDispose(() => images.dispose())
+            const spelling = attachEditorSpellcheck(editor, monaco)
+            editor.onDidDispose(() => spelling.dispose())
+            // Enter continues (or ends) a list in Markdown files.
+            bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
+            // Scrolls the Markdown preview with the editor, and the other way round.
+            const scrollSync = bindEditorScrollSync(editor, {
+                tabId: () => activeTabIdRef.current,
+                scrollEnabled: () => previewLinkRef.current.scroll,
+                jumpEnabled: () => previewLinkRef.current.jump,
+                canFocus: () => openRef.current,
+            })
+            editor.onDidDispose(() => scrollSync.dispose())
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -595,7 +658,7 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
     )
 
     useEffect(() => {
@@ -607,14 +670,17 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
         <div
             ref={rootRef}
             data-slot="code-editor"
+            // A pane for F6 and Focus Editor (pane-focus.ts).
+            data-pane="editor"
             className={cn(
-                'flex h-full shrink-0 flex-col border-r border-border bg-code',
+                'flex h-full flex-col bg-code',
+                fill ? 'min-w-0 flex-1' : 'shrink-0 border-r border-border',
                 // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
                 // would lay out and wrap the whole file one character per line on every hide,
                 // show and tab switch.
                 open ? 'relative' : 'invisible absolute inset-y-0 left-0'
             )}
-            style={{ width: shownWidth }}
+            style={fill ? undefined : { width: shownWidth }}
             inert={!open}
         >
             <ReadOnlyReasonBar />
@@ -654,25 +720,27 @@ export function CodeEditorPanel({ open = true, width, onWidthChange, onResetWidt
 
             {/* Straddles the border and sits above Monaco's scrollbar (z-index 11), so it can be
                 grabbed from the text side too. */}
-            <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize editor"
-                aria-valuenow={shownWidth}
-                aria-valuemin={minEditorWidth(availableWidth)}
-                aria-valuemax={maxEditorWidth(availableWidth)}
-                aria-valuetext={`${shownWidth} pixels wide`}
-                tabIndex={0}
-                className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30 focus-visible:bg-ring/60
-                    active:bg-ring/50"
-                onKeyDown={onResizeKeyDown}
-                onDoubleClick={onResetWidth}
-                onPointerDown={onResizePointerDown}
-                onPointerMove={onResizePointerMove}
-                onPointerUp={endResize}
-                onPointerCancel={endResize}
-                onLostPointerCapture={endResize}
-            />
+            {!fill && (
+                <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize editor"
+                    aria-valuenow={shownWidth}
+                    aria-valuemin={minEditorWidth(availableWidth)}
+                    aria-valuemax={maxEditorWidth(availableWidth)}
+                    aria-valuetext={`${shownWidth} pixels wide`}
+                    tabIndex={0}
+                    className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none hover:bg-ring/30
+                        focus-visible:bg-ring/60 active:bg-ring/50"
+                    onKeyDown={onResizeKeyDown}
+                    onDoubleClick={onResetWidth}
+                    onPointerDown={onResizePointerDown}
+                    onPointerMove={onResizePointerMove}
+                    onPointerUp={endResize}
+                    onPointerCancel={endResize}
+                    onLostPointerCapture={endResize}
+                />
+            )}
         </div>
     )
 }

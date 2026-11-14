@@ -9,7 +9,7 @@ import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-export type ExportFormat = 'pdf' | 'docx'
+export type ExportFormat = 'pdf' | 'docx' | 'html'
 
 export type BuildExportDocumentOptions = {
     profile?: PdfExportProfile
@@ -68,10 +68,9 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     }
 
     // Only leading blank lines go: trimming the first line's indent would turn an opening indented code block into a paragraph.
-    const tree = unified()
-        .use(remarkParse)
-        .use(markdownRemarkPlugins)
-        .parse(body.replace(/^(?:[ \t]*\r?\n)+/, '')) as Root
+    const text = body.replace(/^(?:[ \t]*\r?\n)+/, '')
+    const processor = unified().use(remarkParse).use(markdownRemarkPlugins)
+    const tree = processor.runSync(processor.parse(text), text) as Root
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
 

@@ -39,14 +39,20 @@ const T: string[] = [
     "(The MIT License)\n\nCopyright (c) 2016 Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "(The MIT License)\n\nCopyright (c) Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "(The MIT License)\n\nCopyright (c) 2023 Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "en_US Hunspell Dictionary\nVersion 2020.12.07\nMon Dec 7 20:14:35 2020 -0500 [5ef55f9]\nhttp://wordlist.sourceforge.net\n\nREADME file for English Hunspell dictionaries derived from SCOWL.\n\nThese dictionaries are created using the speller/make-hunspell-dict\nscript in SCOWL.\n\nThe following dictionaries are available:\n\n  en_US (American)\n  en_CA (Canadian)\n  en_GB-ise (British with \"ise\" spelling)\n  en_GB-ize (British with \"ize\" spelling)\n  en_AU (Australian)\n\n  en_US-large\n  en_CA-large\n  en_GB-large (with both \"ise\" and \"ize\" spelling)\n  en_AU-large\n\nThe normal (non-large) dictionaries correspond to SCOWL size 60 and,\nto encourage consistent spelling, generally only include one spelling\nvariant for a word.  The large dictionaries correspond to SCOWL size\n70 and may include multiple spelling for a word when both variants are\nconsidered almost equal.  The larger dictionaries however (1) have not\nbeen as carefully checked for errors as the normal dictionaries and\nthus may contain misspelled or invalid words; and (2) contain\nuncommon, yet valid, words that might cause problems as they are\nlikely to be misspellings of more common words (for example, \"ort\" and\n\"calender\").\n\nTo get an idea of the difference in size, here are 25 random words\nonly found in the large dictionary for American English:\n\n  Bermejo Freyr's Guenevere Hatshepsut Nottinghamshire arrestment\n  crassitudes crural dogwatches errorless fetial flaxseeds godroon\n  incretion jalapeño's kelpie kishkes neuroglias pietisms pullulation\n  stemwinder stenoses syce thalassic zees\n\nThe en_US, en_CA and en_AU are the official dictionaries for Hunspell.\nThe en_GB and large dictionaries are made available on an experimental\nbasis.  If you find them useful please send me a quick email at\nkevina@gnu.org.\n\nIf none of these dictionaries suite you (for example, maybe you want\nthe normal dictionary that also includes common variants) additional\ndictionaries can be generated at http://app.aspell.net/create or by\nmodifying speller/make-hunspell-dict in SCOWL.  Please do let me know\nif you end up publishing a customized dictionary.\n\nIf a word is not found in the dictionary or a word is there you think\nshouldn't be, you can lookup the word up at http://app.aspell.net/lookup\nto help determine why that is.\n\nGeneral comments on these list can be sent directly to me at\nkevina@gnu.org or to the wordlist-devel mailing lists\n(https://lists.sourceforge.net/lists/listinfo/wordlist-devel).  If you\nhave specific issues with any of these dictionaries please file a bug\nreport at https://github.com/kevina/wordlist/issues.\n\nIMPORTANT CHANGES INTRODUCED In 2016.11.20:\n\nNew Australian dictionaries thanks to the work of Benjamin Titze\n(btitze@protonmail.ch).\n\nIMPORTANT CHANGES INTRODUCED IN 2016.04.24:\n\nThe dictionaries are now in UTF-8 format instead of ISO-8859-1.  This\nwas required to handle smart quotes correctly.\n\nIMPORTANT CHANGES INTRODUCED IN 2016.01.19:\n\n\"SET UTF8\" was changes to \"SET UTF-8\" in the affix file as some\nversions of Hunspell do not recognize \"UTF8\".\n\nADDITIONAL NOTES:\n\nThe NOSUGGEST flag was added to certain taboo words.  While I made an\nhonest attempt to flag the strongest taboo words with the NOSUGGEST\nflag, I MAKE NO GUARANTEE THAT I FLAGGED EVERY POSSIBLE TABOO WORD.\nThe list was originally derived from Németh László, however I removed\nsome words which, while being considered taboo by some dictionaries,\nare not really considered swear words in today's society.\n\nCOPYRIGHT, SOURCES, and CREDITS:\n\nThe English dictionaries come directly from SCOWL\nand is thus under the same copyright of SCOWL.  The affix file is\na heavily modified version of the original english.aff file which was\nreleased as part of Geoff Kuenning's Ispell and as such is covered by\nhis BSD license.  Part of SCOWL is also based on Ispell thus the\nIspell copyright is included with the SCOWL copyright.\n\nThe collective work is Copyright 2000-2018 by Kevin Atkinson as well\nas any of the copyrights mentioned below:\n\n  Copyright 2000-2018 by Kevin Atkinson\n\n  Permission to use, copy, modify, distribute and sell these word\n  lists, the associated scripts, the output created from the scripts,\n  and its documentation for any purpose is hereby granted without fee,\n  provided that the above copyright notice appears in all copies and\n  that both that copyright notice and this permission notice appear in\n  supporting documentation. Kevin Atkinson makes no representations\n  about the suitability of this array for any purpose. It is provided\n  \"as is\" without express or implied warranty.\n\nAlan Beale <biljir@pobox.com> also deserves special credit as he has,\nin addition to providing the 12Dicts package and being a major\ncontributor to the ENABLE word list, given me an incredible amount of\nfeedback and created a number of special lists (those found in the\nSupplement) in order to help improve the overall quality of SCOWL.\n\nThe 10 level includes the 1000 most common English words (according to\nthe Moby (TM) Words II [MWords] package), a subset of the 1000 most\ncommon words on the Internet (again, according to Moby Words II), and\nfrequently class 16 from Brian Kelk's \"UK English Wordlist\nwith Frequency Classification\".\n\nThe MWords package was explicitly placed in the public domain:\n\n    The Moby lexicon project is complete and has\n    been place into the public domain. Use, sell,\n    rework, excerpt and use in any way on any platform.\n\n    Placing this material on internal or public servers is\n    also encouraged. The compiler is not aware of any\n    export restrictions so freely distribute world-wide.\n\n    You can verify the public domain status by contacting\n\n    Grady Ward\n    3449 Martha Ct.\n    Arcata, CA  95521-4884\n\n    grady@netcom.com\n    grady@northcoast.com\n\nThe \"UK English Wordlist With Frequency Classification\" is also in the\nPublic Domain:\n\n  Date: Sat, 08 Jul 2000 20:27:21 +0100\n  From: Brian Kelk <Brian.Kelk@cl.cam.ac.uk>\n\n  > I was wondering what the copyright status of your \"UK English\n  > Wordlist With Frequency Classification\" word list as it seems to\n  > be lacking any copyright notice.\n\n  There were many many sources in total, but any text marked\n  \"copyright\" was avoided. Locally-written documentation was one\n  source. An earlier version of the list resided in a filespace called\n  PUBLIC on the University mainframe, because it was considered public\n  domain.\n\n  Date: Tue, 11 Jul 2000 19:31:34 +0100\n\n  > So are you saying your word list is also in the public domain?\n\n  That is the intention.\n\nThe 20 level includes frequency classes 7-15 from Brian's word list.\n\nThe 35 level includes frequency classes 2-6 and words appearing in at\nleast 11 of 12 dictionaries as indicated in the 12Dicts package.  All\nwords from the 12Dicts package have had likely inflections added via\nmy inflection database.\n\nThe 12Dicts package and Supplement is in the Public Domain.\n\nThe WordNet database, which was used in the creation of the\nInflections database, is under the following copyright:\n\n  This software and database is being provided to you, the LICENSEE,\n  by Princeton University under the following license.  By obtaining,\n  using and/or copying this software and database, you agree that you\n  have read, understood, and will comply with these terms and\n  conditions.:\n\n  Permission to use, copy, modify and distribute this software and\n  database and its documentation for any purpose and without fee or\n  royalty is hereby granted, provided that you agree to comply with\n  the following copyright notice and statements, including the\n  disclaimer, and that the same appear on ALL copies of the software,\n  database and documentation, including modifications that you make\n  for internal use or for distribution.\n\n  WordNet 1.6 Copyright 1997 by Princeton University.  All rights\n  reserved.\n\n  THIS SOFTWARE AND DATABASE IS PROVIDED \"AS IS\" AND PRINCETON\n  UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR\n  IMPLIED.  BY WAY OF EXAMPLE, BUT NOT LIMITATION, PRINCETON\n  UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES OF MERCHANT-\n  ABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE\n  LICENSED SOFTWARE, DATABASE OR DOCUMENTATION WILL NOT INFRINGE ANY\n  THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS.\n\n  The name of Princeton University or Princeton may not be used in\n  advertising or publicity pertaining to distribution of the software\n  and/or database.  Title to copyright in this software, database and\n  any associated documentation shall at all times remain with\n  Princeton University and LICENSEE agrees to preserve same.\n\nThe 40 level includes words from Alan's 3esl list found in version 4.0\nof his 12dicts package.  Like his other stuff the 3esl list is also in the\npublic domain.\n\nThe 50 level includes Brian's frequency class 1, words appearing\nin at least 5 of 12 of the dictionaries as indicated in the 12Dicts\npackage, and uppercase words in at least 4 of the previous 12\ndictionaries.  A decent number of proper names is also included: The\ntop 1000 male, female, and Last names from the 1990 Census report; a\nlist of names sent to me by Alan Beale; and a few names that I added\nmyself.  Finally a small list of abbreviations not commonly found in\nother word lists is included.\n\nThe name files form the Census report is a government document which I\ndon't think can be copyrighted.\n\nThe file special-jargon.50 uses common.lst and word.lst from the\n\"Unofficial Jargon File Word Lists\" which is derived from \"The Jargon\nFile\".  All of which is in the Public Domain.  This file also contain\na few extra UNIX terms which are found in the file \"unix-terms\" in the\nspecial/ directory.\n\nThe 55 level includes words from Alan's 2of4brif list found in version\n4.0 of his 12dicts package.  Like his other stuff the 2of4brif is also\nin the public domain.\n\nThe 60 level includes all words appearing in at least 2 of the 12\ndictionaries as indicated by the 12Dicts package.\n\nThe 70 level includes Brian's frequency class 0 and the 74,550 common\ndictionary words from the MWords package.  The common dictionary words,\nlike those from the 12Dicts package, have had all likely inflections\nadded.  The 70 level also included the 5desk list from version 4.0 of\nthe 12Dics package which is in the public domain.\n\nThe 80 level includes the ENABLE word list, all the lists in the\nENABLE supplement package (except for ABLE), the \"UK Advanced Cryptics\nDictionary\" (UKACD), the list of signature words from the YAWL package,\nand the 10,196 places list from the MWords package.\n\nThe ENABLE package, mainted by M\\Cooper <thegrendel@theriver.com>,\nis in the Public Domain:\n\n  The ENABLE master word list, WORD.LST, is herewith formally released\n  into the Public Domain. Anyone is free to use it or distribute it in\n  any manner they see fit. No fee or registration is required for its\n  use nor are \"contributions\" solicited (if you feel you absolutely\n  must contribute something for your own peace of mind, the authors of\n  the ENABLE list ask that you make a donation on their behalf to your\n  favorite charity). This word list is our gift to the Scrabble\n  community, as an alternate to \"official\" word lists. Game designers\n  may feel free to incorporate the WORD.LST into their games. Please\n  mention the source and credit us as originators of the list. Note\n  that if you, as a game designer, use the WORD.LST in your product,\n  you may still copyright and protect your product, but you may *not*\n  legally copyright or in any way restrict redistribution of the\n  WORD.LST portion of your product. This *may* under law restrict your\n  rights to restrict your users' rights, but that is only fair.\n\nUKACD, by J Ross Beresford <ross@bryson.demon.co.uk>, is under the\nfollowing copyright:\n\n  Copyright (c) J Ross Beresford 1993-1999. All Rights Reserved.\n\n  The following restriction is placed on the use of this publication:\n  if The UK Advanced Cryptics Dictionary is used in a software package\n  or redistributed in any form, the copyright notice must be\n  prominently displayed and the text of this document must be included\n  verbatim.\n\n  There are no other restrictions: I would like to see the list\n  distributed as widely as possible.\n\nThe 95 level includes the 354,984 single words, 256,772 compound\nwords, 4,946 female names and the 3,897 male names, and 21,986 names\nfrom the MWords package, ABLE.LST from the ENABLE Supplement, and some\nadditional words found in my part-of-speech database that were not\nfound anywhere else.\n\nAccent information was taken from UKACD.\n\nThe VarCon package was used to create the American, British, Canadian,\nand Australian word list.  It is under the following copyright:\n\n  Copyright 2000-2016 by Kevin Atkinson\n\n  Permission to use, copy, modify, distribute and sell this array, the\n  associated software, and its documentation for any purpose is hereby\n  granted without fee, provided that the above copyright notice appears\n  in all copies and that both that copyright notice and this permission\n  notice appear in supporting documentation. Kevin Atkinson makes no\n  representations about the suitability of this array for any\n  purpose. It is provided \"as is\" without express or implied warranty.\n\n  Copyright 2016 by Benjamin Titze\n\n  Permission to use, copy, modify, distribute and sell this array, the\n  associated software, and its documentation for any purpose is hereby\n  granted without fee, provided that the above copyright notice appears\n  in all copies and that both that copyright notice and this permission\n  notice appear in supporting documentation. Benjamin Titze makes no\n  representations about the suitability of this array for any\n  purpose. It is provided \"as is\" without express or implied warranty.\n\n  Since the original words lists come from the Ispell distribution:\n\n  Copyright 1993, Geoff Kuenning, Granada Hills, CA\n  All rights reserved.\n\n  Redistribution and use in source and binary forms, with or without\n  modification, are permitted provided that the following conditions\n  are met:\n\n  1. Redistributions of source code must retain the above copyright\n     notice, this list of conditions and the following disclaimer.\n  2. Redistributions in binary form must reproduce the above copyright\n     notice, this list of conditions and the following disclaimer in the\n     documentation and/or other materials provided with the distribution.\n  3. All modifications to the source code must be clearly marked as\n     such.  Binary redistributions based on modified source code\n     must be clearly marked as modified versions in the documentation\n     and/or other materials provided with the distribution.\n  (clause 4 removed with permission from Geoff Kuenning)\n  5. The name of Geoff Kuenning may not be used to endorse or promote\n     products derived from this software without specific prior\n     written permission.\n\n  THIS SOFTWARE IS PROVIDED BY GEOFF KUENNING AND CONTRIBUTORS ``AS IS'' AND\n  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n  ARE DISCLAIMED.  IN NO EVENT SHALL GEOFF KUENNING OR CONTRIBUTORS BE LIABLE\n  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS\n  OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)\n  HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT\n  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY\n  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF\n  SUCH DAMAGE.\n\nBuild Date: Mon Dec  7 20:19:27 EST 2020\nWordlist Command: mk-list --accents=strip en_US 60",
+    "en_GB-ise Hunspell Dictionary\nVersion 2020.12.07\nMon Dec 7 20:14:35 2020 -0500 [5ef55f9]\nhttp://wordlist.sourceforge.net\n\nREADME file for English Hunspell dictionaries derived from SCOWL.\n\nThese dictionaries are created using the speller/make-hunspell-dict\nscript in SCOWL.\n\nThe following dictionaries are available:\n\n  en_US (American)\n  en_CA (Canadian)\n  en_GB-ise (British with \"ise\" spelling)\n  en_GB-ize (British with \"ize\" spelling)\n  en_AU (Australian)\n\n  en_US-large\n  en_CA-large\n  en_GB-large (with both \"ise\" and \"ize\" spelling)\n  en_AU-large\n\nThe normal (non-large) dictionaries correspond to SCOWL size 60 and,\nto encourage consistent spelling, generally only include one spelling\nvariant for a word.  The large dictionaries correspond to SCOWL size\n70 and may include multiple spelling for a word when both variants are\nconsidered almost equal.  The larger dictionaries however (1) have not\nbeen as carefully checked for errors as the normal dictionaries and\nthus may contain misspelled or invalid words; and (2) contain\nuncommon, yet valid, words that might cause problems as they are\nlikely to be misspellings of more common words (for example, \"ort\" and\n\"calender\").\n\nTo get an idea of the difference in size, here are 25 random words\nonly found in the large dictionary for American English:\n\n  Bermejo Freyr's Guenevere Hatshepsut Nottinghamshire arrestment\n  crassitudes crural dogwatches errorless fetial flaxseeds godroon\n  incretion jalapeño's kelpie kishkes neuroglias pietisms pullulation\n  stemwinder stenoses syce thalassic zees\n\nThe en_US, en_CA and en_AU are the official dictionaries for Hunspell.\nThe en_GB and large dictionaries are made available on an experimental\nbasis.  If you find them useful please send me a quick email at\nkevina@gnu.org.\n\nIf none of these dictionaries suite you (for example, maybe you want\nthe normal dictionary that also includes common variants) additional\ndictionaries can be generated at http://app.aspell.net/create or by\nmodifying speller/make-hunspell-dict in SCOWL.  Please do let me know\nif you end up publishing a customized dictionary.\n\nIf a word is not found in the dictionary or a word is there you think\nshouldn't be, you can lookup the word up at http://app.aspell.net/lookup\nto help determine why that is.\n\nGeneral comments on these list can be sent directly to me at\nkevina@gnu.org or to the wordlist-devel mailing lists\n(https://lists.sourceforge.net/lists/listinfo/wordlist-devel).  If you\nhave specific issues with any of these dictionaries please file a bug\nreport at https://github.com/kevina/wordlist/issues.\n\nIMPORTANT CHANGES INTRODUCED In 2016.11.20:\n\nNew Australian dictionaries thanks to the work of Benjamin Titze\n(btitze@protonmail.ch).\n\nIMPORTANT CHANGES INTRODUCED IN 2016.04.24:\n\nThe dictionaries are now in UTF-8 format instead of ISO-8859-1.  This\nwas required to handle smart quotes correctly.\n\nIMPORTANT CHANGES INTRODUCED IN 2016.01.19:\n\n\"SET UTF8\" was changes to \"SET UTF-8\" in the affix file as some\nversions of Hunspell do not recognize \"UTF8\".\n\nADDITIONAL NOTES:\n\nThe NOSUGGEST flag was added to certain taboo words.  While I made an\nhonest attempt to flag the strongest taboo words with the NOSUGGEST\nflag, I MAKE NO GUARANTEE THAT I FLAGGED EVERY POSSIBLE TABOO WORD.\nThe list was originally derived from Németh László, however I removed\nsome words which, while being considered taboo by some dictionaries,\nare not really considered swear words in today's society.\n\nCOPYRIGHT, SOURCES, and CREDITS:\n\nThe English dictionaries come directly from SCOWL\nand is thus under the same copyright of SCOWL.  The affix file is\na heavily modified version of the original english.aff file which was\nreleased as part of Geoff Kuenning's Ispell and as such is covered by\nhis BSD license.  Part of SCOWL is also based on Ispell thus the\nIspell copyright is included with the SCOWL copyright.\n\nThe collective work is Copyright 2000-2018 by Kevin Atkinson as well\nas any of the copyrights mentioned below:\n\n  Copyright 2000-2018 by Kevin Atkinson\n\n  Permission to use, copy, modify, distribute and sell these word\n  lists, the associated scripts, the output created from the scripts,\n  and its documentation for any purpose is hereby granted without fee,\n  provided that the above copyright notice appears in all copies and\n  that both that copyright notice and this permission notice appear in\n  supporting documentation. Kevin Atkinson makes no representations\n  about the suitability of this array for any purpose. It is provided\n  \"as is\" without express or implied warranty.\n\nAlan Beale <biljir@pobox.com> also deserves special credit as he has,\nin addition to providing the 12Dicts package and being a major\ncontributor to the ENABLE word list, given me an incredible amount of\nfeedback and created a number of special lists (those found in the\nSupplement) in order to help improve the overall quality of SCOWL.\n\nThe 10 level includes the 1000 most common English words (according to\nthe Moby (TM) Words II [MWords] package), a subset of the 1000 most\ncommon words on the Internet (again, according to Moby Words II), and\nfrequently class 16 from Brian Kelk's \"UK English Wordlist\nwith Frequency Classification\".\n\nThe MWords package was explicitly placed in the public domain:\n\n    The Moby lexicon project is complete and has\n    been place into the public domain. Use, sell,\n    rework, excerpt and use in any way on any platform.\n\n    Placing this material on internal or public servers is\n    also encouraged. The compiler is not aware of any\n    export restrictions so freely distribute world-wide.\n\n    You can verify the public domain status by contacting\n\n    Grady Ward\n    3449 Martha Ct.\n    Arcata, CA  95521-4884\n\n    grady@netcom.com\n    grady@northcoast.com\n\nThe \"UK English Wordlist With Frequency Classification\" is also in the\nPublic Domain:\n\n  Date: Sat, 08 Jul 2000 20:27:21 +0100\n  From: Brian Kelk <Brian.Kelk@cl.cam.ac.uk>\n\n  > I was wondering what the copyright status of your \"UK English\n  > Wordlist With Frequency Classification\" word list as it seems to\n  > be lacking any copyright notice.\n\n  There were many many sources in total, but any text marked\n  \"copyright\" was avoided. Locally-written documentation was one\n  source. An earlier version of the list resided in a filespace called\n  PUBLIC on the University mainframe, because it was considered public\n  domain.\n\n  Date: Tue, 11 Jul 2000 19:31:34 +0100\n\n  > So are you saying your word list is also in the public domain?\n\n  That is the intention.\n\nThe 20 level includes frequency classes 7-15 from Brian's word list.\n\nThe 35 level includes frequency classes 2-6 and words appearing in at\nleast 11 of 12 dictionaries as indicated in the 12Dicts package.  All\nwords from the 12Dicts package have had likely inflections added via\nmy inflection database.\n\nThe 12Dicts package and Supplement is in the Public Domain.\n\nThe WordNet database, which was used in the creation of the\nInflections database, is under the following copyright:\n\n  This software and database is being provided to you, the LICENSEE,\n  by Princeton University under the following license.  By obtaining,\n  using and/or copying this software and database, you agree that you\n  have read, understood, and will comply with these terms and\n  conditions.:\n\n  Permission to use, copy, modify and distribute this software and\n  database and its documentation for any purpose and without fee or\n  royalty is hereby granted, provided that you agree to comply with\n  the following copyright notice and statements, including the\n  disclaimer, and that the same appear on ALL copies of the software,\n  database and documentation, including modifications that you make\n  for internal use or for distribution.\n\n  WordNet 1.6 Copyright 1997 by Princeton University.  All rights\n  reserved.\n\n  THIS SOFTWARE AND DATABASE IS PROVIDED \"AS IS\" AND PRINCETON\n  UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR\n  IMPLIED.  BY WAY OF EXAMPLE, BUT NOT LIMITATION, PRINCETON\n  UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES OF MERCHANT-\n  ABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE\n  LICENSED SOFTWARE, DATABASE OR DOCUMENTATION WILL NOT INFRINGE ANY\n  THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS.\n\n  The name of Princeton University or Princeton may not be used in\n  advertising or publicity pertaining to distribution of the software\n  and/or database.  Title to copyright in this software, database and\n  any associated documentation shall at all times remain with\n  Princeton University and LICENSEE agrees to preserve same.\n\nThe 40 level includes words from Alan's 3esl list found in version 4.0\nof his 12dicts package.  Like his other stuff the 3esl list is also in the\npublic domain.\n\nThe 50 level includes Brian's frequency class 1, words appearing\nin at least 5 of 12 of the dictionaries as indicated in the 12Dicts\npackage, and uppercase words in at least 4 of the previous 12\ndictionaries.  A decent number of proper names is also included: The\ntop 1000 male, female, and Last names from the 1990 Census report; a\nlist of names sent to me by Alan Beale; and a few names that I added\nmyself.  Finally a small list of abbreviations not commonly found in\nother word lists is included.\n\nThe name files form the Census report is a government document which I\ndon't think can be copyrighted.\n\nThe file special-jargon.50 uses common.lst and word.lst from the\n\"Unofficial Jargon File Word Lists\" which is derived from \"The Jargon\nFile\".  All of which is in the Public Domain.  This file also contain\na few extra UNIX terms which are found in the file \"unix-terms\" in the\nspecial/ directory.\n\nThe 55 level includes words from Alan's 2of4brif list found in version\n4.0 of his 12dicts package.  Like his other stuff the 2of4brif is also\nin the public domain.\n\nThe 60 level includes all words appearing in at least 2 of the 12\ndictionaries as indicated by the 12Dicts package.\n\nThe 70 level includes Brian's frequency class 0 and the 74,550 common\ndictionary words from the MWords package.  The common dictionary words,\nlike those from the 12Dicts package, have had all likely inflections\nadded.  The 70 level also included the 5desk list from version 4.0 of\nthe 12Dics package which is in the public domain.\n\nThe 80 level includes the ENABLE word list, all the lists in the\nENABLE supplement package (except for ABLE), the \"UK Advanced Cryptics\nDictionary\" (UKACD), the list of signature words from the YAWL package,\nand the 10,196 places list from the MWords package.\n\nThe ENABLE package, mainted by M\\Cooper <thegrendel@theriver.com>,\nis in the Public Domain:\n\n  The ENABLE master word list, WORD.LST, is herewith formally released\n  into the Public Domain. Anyone is free to use it or distribute it in\n  any manner they see fit. No fee or registration is required for its\n  use nor are \"contributions\" solicited (if you feel you absolutely\n  must contribute something for your own peace of mind, the authors of\n  the ENABLE list ask that you make a donation on their behalf to your\n  favorite charity). This word list is our gift to the Scrabble\n  community, as an alternate to \"official\" word lists. Game designers\n  may feel free to incorporate the WORD.LST into their games. Please\n  mention the source and credit us as originators of the list. Note\n  that if you, as a game designer, use the WORD.LST in your product,\n  you may still copyright and protect your product, but you may *not*\n  legally copyright or in any way restrict redistribution of the\n  WORD.LST portion of your product. This *may* under law restrict your\n  rights to restrict your users' rights, but that is only fair.\n\nUKACD, by J Ross Beresford <ross@bryson.demon.co.uk>, is under the\nfollowing copyright:\n\n  Copyright (c) J Ross Beresford 1993-1999. All Rights Reserved.\n\n  The following restriction is placed on the use of this publication:\n  if The UK Advanced Cryptics Dictionary is used in a software package\n  or redistributed in any form, the copyright notice must be\n  prominently displayed and the text of this document must be included\n  verbatim.\n\n  There are no other restrictions: I would like to see the list\n  distributed as widely as possible.\n\nThe 95 level includes the 354,984 single words, 256,772 compound\nwords, 4,946 female names and the 3,897 male names, and 21,986 names\nfrom the MWords package, ABLE.LST from the ENABLE Supplement, and some\nadditional words found in my part-of-speech database that were not\nfound anywhere else.\n\nAccent information was taken from UKACD.\n\nThe VarCon package was used to create the American, British, Canadian,\nand Australian word list.  It is under the following copyright:\n\n  Copyright 2000-2016 by Kevin Atkinson\n\n  Permission to use, copy, modify, distribute and sell this array, the\n  associated software, and its documentation for any purpose is hereby\n  granted without fee, provided that the above copyright notice appears\n  in all copies and that both that copyright notice and this permission\n  notice appear in supporting documentation. Kevin Atkinson makes no\n  representations about the suitability of this array for any\n  purpose. It is provided \"as is\" without express or implied warranty.\n\n  Copyright 2016 by Benjamin Titze\n\n  Permission to use, copy, modify, distribute and sell this array, the\n  associated software, and its documentation for any purpose is hereby\n  granted without fee, provided that the above copyright notice appears\n  in all copies and that both that copyright notice and this permission\n  notice appear in supporting documentation. Benjamin Titze makes no\n  representations about the suitability of this array for any\n  purpose. It is provided \"as is\" without express or implied warranty.\n\n  Since the original words lists come from the Ispell distribution:\n\n  Copyright 1993, Geoff Kuenning, Granada Hills, CA\n  All rights reserved.\n\n  Redistribution and use in source and binary forms, with or without\n  modification, are permitted provided that the following conditions\n  are met:\n\n  1. Redistributions of source code must retain the above copyright\n     notice, this list of conditions and the following disclaimer.\n  2. Redistributions in binary form must reproduce the above copyright\n     notice, this list of conditions and the following disclaimer in the\n     documentation and/or other materials provided with the distribution.\n  3. All modifications to the source code must be clearly marked as\n     such.  Binary redistributions based on modified source code\n     must be clearly marked as modified versions in the documentation\n     and/or other materials provided with the distribution.\n  (clause 4 removed with permission from Geoff Kuenning)\n  5. The name of Geoff Kuenning may not be used to endorse or promote\n     products derived from this software without specific prior\n     written permission.\n\n  THIS SOFTWARE IS PROVIDED BY GEOFF KUENNING AND CONTRIBUTORS ``AS IS'' AND\n  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n  ARE DISCLAIMED.  IN NO EVENT SHALL GEOFF KUENNING OR CONTRIBUTORS BE LIABLE\n  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS\n  OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)\n  HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT\n  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY\n  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF\n  SUCH DAMAGE.\n\nBuild Date: Mon Dec  7 20:19:30 EST 2020\nWordlist Command: mk-list --accents=strip en_GB-ise 60",
     "The MIT License (MIT)\n\nCopyright (c) 2016 Dolan\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "# Eclipse Public License - v 2.0\n\nTHE ACCOMPANYING PROGRAM IS PROVIDED UNDER THE TERMS OF THIS ECLIPSE\nPUBLIC LICENSE (“AGREEMENT”). ANY USE, REPRODUCTION OR DISTRIBUTION OF\nTHE PROGRAM CONSTITUTES RECIPIENT'S ACCEPTANCE OF THIS AGREEMENT.\n\n## 1. DEFINITIONS\n\n“Contribution” means:\n\n-   a\\) in the case of the initial Contributor, the initial content\n    Distributed under this Agreement, and\n-   b\\) in the case of each subsequent Contributor:\n    -   i\\) changes to the Program, and\n    -   ii\\) additions to the Program;\n\n    where such changes and/or additions to the Program originate from\n    and are Distributed by that particular Contributor. A Contribution\n    “originates” from a Contributor if it was added to the Program by\n    such Contributor itself or anyone acting on such Contributor's\n    behalf. Contributions do not include changes or additions to the\n    Program that are not Modified Works.\n\n“Contributor” means any person or entity that Distributes the Program.\n\n“Licensed Patents” mean patent claims licensable by a Contributor which\nare necessarily infringed by the use or sale of its Contribution alone\nor when combined with the Program.\n\n“Program” means the Contributions Distributed in accordance with this\nAgreement.\n\n“Recipient” means anyone who receives the Program under this Agreement\nor any Secondary License (as applicable), including Contributors.\n\n“Derivative Works” shall mean any work, whether in Source Code or other\nform, that is based on (or derived from) the Program and for which the\neditorial revisions, annotations, elaborations, or other modifications\nrepresent, as a whole, an original work of authorship.\n\n“Modified Works” shall mean any work in Source Code or other form that\nresults from an addition to, deletion from, or modification of the\ncontents of the Program, including, for purposes of clarity any new file\nin Source Code form that contains any contents of the Program. Modified\nWorks shall not include works that contain only declarations,\ninterfaces, types, classes, structures, or files of the Program solely\nin each case in order to link to, bind by name, or subclass the Program\nor Modified Works thereof.\n\n“Distribute” means the acts of a) distributing or b) making available in\nany manner that enables the transfer of a copy.\n\n“Source Code” means the form of a Program preferred for making\nmodifications, including but not limited to software source code,\ndocumentation source, and configuration files.\n\n“Secondary License” means either the GNU General Public License, Version\n2.0, or any later versions of that license, including any exceptions or\nadditional permissions as identified by the initial Contributor.\n\n## 2. GRANT OF RIGHTS\n\n-   a\\) Subject to the terms of this Agreement, each Contributor hereby\n    grants Recipient a non-exclusive, worldwide, royalty-free copyright\n    license to reproduce, prepare Derivative Works of, publicly display,\n    publicly perform, Distribute and sublicense the Contribution of such\n    Contributor, if any, and such Derivative Works.\n-   b\\) Subject to the terms of this Agreement, each Contributor hereby\n    grants Recipient a non-exclusive, worldwide, royalty-free patent license\n    under Licensed Patents to make, use, sell, offer to sell, import and\n    otherwise transfer the Contribution of such Contributor, if any, in\n    Source Code or other form. This patent license shall apply to the\n    combination of the Contribution and the Program if, at the time the\n    Contribution is added by the Contributor, such addition of the\n    Contribution causes such combination to be covered by the\n    Licensed Patents. The patent license shall not apply to any other\n    combinations which include the Contribution. No hardware per se is\n    licensed hereunder.\n-   c\\) Recipient understands that although each Contributor grants the\n    licenses to its Contributions set forth herein, no assurances are\n    provided by any Contributor that the Program does not infringe the\n    patent or other intellectual property rights of any other entity. Each\n    Contributor disclaims any liability to Recipient for claims brought by\n    any other entity based on infringement of intellectual property rights\n    or otherwise. As a condition to exercising the rights and licenses\n    granted hereunder, each Recipient hereby assumes sole responsibility to\n    secure any other intellectual property rights needed, if any. For\n    example, if a third party patent license is required to allow Recipient\n    to Distribute the Program, it is Recipient's responsibility to acquire\n    that license before distributing the Program.\n-   d\\) Each Contributor represents that to its knowledge it has sufficient\n    copyright rights in its Contribution, if any, to grant the copyright\n    license set forth in this Agreement.\n-   e\\) Notwithstanding the terms of any Secondary License, no Contributor\n    makes additional grants to any Recipient (other than those set forth in\n    this Agreement) as a result of such Recipient's receipt of the Program\n    under the terms of a Secondary License (if permitted under the terms of\n    Section 3).\n\n## 3. REQUIREMENTS\n\n3.1 If a Contributor Distributes the Program in any form, then:\n\n-   a\\) the Program must also be made available as Source Code, in accordance\n    with section 3.2, and the Contributor must accompany the Program with a\n    statement that the Source Code for the Program is available under this\n    Agreement, and informs Recipients how to obtain it in a reasonable\n    manner on or through a medium customarily used for software exchange;\n    and\n-   b\\) the Contributor may Distribute the Program under a license different\n    than this Agreement, provided that such license:\n    -   i\\) effectively disclaims on behalf of all other Contributors all\n        warranties and conditions, express and implied, including warranties or\n        conditions of title and non-infringement, and implied warranties or\n        conditions of merchantability and fitness for a particular purpose;\n    -   ii\\) effectively excludes on behalf of all other Contributors all\n        liability for damages, including direct, indirect, special, incidental\n        and consequential damages, such as lost profits;\n    -   iii\\) does not attempt to limit or alter the recipients' rights in the\n        Source Code under section 3.2; and\n    -   iv\\) requires any subsequent distribution of the Program by any party to\n        be under a license that satisfies the requirements of this section 3.\n\n3.2 When the Program is Distributed as Source Code:\n\n-   a\\) it must be made available under this Agreement, or if the Program (i)\n    is combined with other material in a separate file or files made\n    available under a Secondary License, and (ii) the initial Contributor\n    attached to the Source Code the notice described in Exhibit A of this\n    Agreement, then the Program may be made available under the terms of\n    such Secondary Licenses, and\n-   b\\) a copy of this Agreement must be included with each copy of\n    the Program.\n\n3.3 Contributors may not remove or alter any copyright, patent,\ntrademark, attribution notices, disclaimers of warranty, or limitations\nof liability (‘notices’) contained within the Program from any copy of\nthe Program which they Distribute, provided that Contributors may add\ntheir own appropriate notices.\n\n## 4. COMMERCIAL DISTRIBUTION\n\nCommercial distributors of software may accept certain responsibilities\nwith respect to end users, business partners and the like. While this\nlicense is intended to facilitate the commercial use of the Program, the\nContributor who includes the Program in a commercial product offering\nshould do so in a manner which does not create potential liability for\nother Contributors. Therefore, if a Contributor includes the Program in\na commercial product offering, such Contributor (“Commercial\nContributor”) hereby agrees to defend and indemnify every other\nContributor (“Indemnified Contributor”) against any losses, damages and\ncosts (collectively “Losses”) arising from claims, lawsuits and other\nlegal actions brought by a third party against the Indemnified\nContributor to the extent caused by the acts or omissions of such\nCommercial Contributor in connection with its distribution of the\nProgram in a commercial product offering. The obligations in this\nsection do not apply to any claims or Losses relating to any actual or\nalleged intellectual property infringement. In order to qualify, an\nIndemnified Contributor must: a) promptly notify the Commercial\nContributor in writing of such claim, and b) allow the Commercial\nContributor to control, and cooperate with the Commercial Contributor\nin, the defense and any related settlement negotiations. The Indemnified\nContributor may participate in any such claim at its own expense.\n\nFor example, a Contributor might include the Program in a commercial\nproduct offering, Product X. That Contributor is then a Commercial\nContributor. If that Commercial Contributor then makes performance\nclaims, or offers warranties related to Product X, those performance\nclaims and warranties are such Commercial Contributor's responsibility\nalone. Under this section, the Commercial Contributor would have to\ndefend claims against the other Contributors related to those\nperformance claims and warranties, and if a court requires any other\nContributor to pay any damages as a result, the Commercial Contributor\nmust pay those damages.\n\n## 5. NO WARRANTY {#warranty}\n\nEXCEPT AS EXPRESSLY SET FORTH IN THIS AGREEMENT, AND TO THE EXTENT\nPERMITTED BY APPLICABLE LAW, THE PROGRAM IS PROVIDED ON AN “AS IS”\nBASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR\nIMPLIED INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OR CONDITIONS OF\nTITLE, NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR\nPURPOSE. Each Recipient is solely responsible for determining the\nappropriateness of using and distributing the Program and assumes all\nrisks associated with its exercise of rights under this Agreement,\nincluding but not limited to the risks and costs of program errors,\ncompliance with applicable laws, damage to or loss of data, programs or\nequipment, and unavailability or interruption of operations.\n\n## 6. DISCLAIMER OF LIABILITY {#disclaimer}\n\nEXCEPT AS EXPRESSLY SET FORTH IN THIS AGREEMENT, AND TO THE EXTENT\nPERMITTED BY APPLICABLE LAW, NEITHER RECIPIENT NOR ANY CONTRIBUTORS\nSHALL HAVE ANY LIABILITY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,\nEXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING WITHOUT LIMITATION LOST\nPROFITS), HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\nCONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\nARISING IN ANY WAY OUT OF THE USE OR DISTRIBUTION OF THE PROGRAM OR THE\nEXERCISE OF ANY RIGHTS GRANTED HEREUNDER, EVEN IF ADVISED OF THE\nPOSSIBILITY OF SUCH DAMAGES.\n\n## 7. GENERAL\n\nIf any provision of this Agreement is invalid or unenforceable under\napplicable law, it shall not affect the validity or enforceability of\nthe remainder of the terms of this Agreement, and without further action\nby the parties hereto, such provision shall be reformed to the minimum\nextent necessary to make such provision valid and enforceable.\n\nIf Recipient institutes patent litigation against any entity (including\na cross-claim or counterclaim in a lawsuit) alleging that the Program\nitself (excluding combinations of the Program with other software or\nhardware) infringes such Recipient's patent(s), then such Recipient's\nrights granted under Section 2(b) shall terminate as of the date such\nlitigation is filed.\n\nAll Recipient's rights under this Agreement shall terminate if it fails\nto comply with any of the material terms or conditions of this Agreement\nand does not cure such failure in a reasonable period of time after\nbecoming aware of such noncompliance. If all Recipient's rights under\nthis Agreement terminate, Recipient agrees to cease use and distribution\nof the Program as soon as reasonably practicable. However, Recipient's\nobligations under this Agreement and any licenses granted by Recipient\nrelating to the Program shall continue and survive.\n\nEveryone is permitted to copy and distribute copies of this Agreement,\nbut in order to avoid inconsistency the Agreement is copyrighted and may\nonly be modified in the following manner. The Agreement Steward reserves\nthe right to publish new versions (including revisions) of this\nAgreement from time to time. No one other than the Agreement Steward has\nthe right to modify this Agreement. The Eclipse Foundation is the\ninitial Agreement Steward. The Eclipse Foundation may assign the\nresponsibility to serve as the Agreement Steward to a suitable separate\nentity. Each new version of the Agreement will be given a distinguishing\nversion number. The Program (including Contributions) may always be\nDistributed subject to the version of the Agreement under which it was\nreceived. In addition, after a new version of the Agreement is\npublished, Contributor may elect to Distribute the Program (including\nits Contributions) under the new version.\n\nExcept as expressly stated in Sections 2(a) and 2(b) above, Recipient\nreceives no rights or licenses to the intellectual property of any\nContributor under this Agreement, whether expressly, by implication,\nestoppel or otherwise. All rights in the Program not expressly granted\nunder this Agreement are reserved. Nothing in this Agreement is intended\nto be enforceable by any entity that is not a Contributor or Recipient.\nNo third-party beneficiary rights are created under this Agreement.\n\n## Exhibit A – Form of Secondary Licenses Notice {#exhibit-a}\n\n“This Source Code may also be made available under the following\nSecondary Licenses when the conditions for such availability set forth\nin the Eclipse Public License, v. 2.0 are satisfied: {name license(s),\nversion(s), and exceptions or additional permissions here}.”\n\n> Simply including a copy of this Agreement, including this Exhibit A is\n> not sufficient to license the Source Code under Secondary Licenses.\n>\n> If it is not possible or desirable to put the notice in a particular\n> file, then You may include the notice in a location (such as a LICENSE\n> file in a relevant directory) where a recipient would be likely to\n> look for such a notice.\n>\n> You may add additional accurate notices of copyright ownership.",
     "Copyright (c) Felix Böhm\nAll rights reserved.\n\nRedistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:\n\nRedistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.\n\nRedistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.\n\nTHIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS,\nEVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
     "(The MIT License)\n\nCopyright (c) 2020 Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "The MIT License (MIT)\n\nCopyright (c) 2014 Stefan Thomas\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "MIT License\n\nCopyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "(ISC License)\n\nCopyright (c) Keith McKnight <keith@mcknig.ht>\n\nPermission to use, copy, modify, and/or distribute this software for any purpose\nwith or without fee is hereby granted, provided that the above copyright notice\nand this permission notice appear in all copies.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH\nREGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND\nFITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,\nINDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS\nOF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER\nTORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF\nTHIS SOFTWARE.",
+    "(The MIT License)\n\nCopyright (c) 2023 Remco Haszing <remcohaszing@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "(The MIT License)\n\nCopyright (c) Titus Wormer\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "(The MIT License)\n\nCopyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "The MIT License (MIT)\n\nCopyright (c) Feross Aboukhadijeh\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
+    "The MIT License (MIT)\n\nCopyright (c) 2013-2020 Khan Academy and other contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "(The MIT License)\n\nCopyright (c) 2015 Titus Wormer <mailto:tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "ISC License\n\nCopyright (c) 2026 Lucide Icons and Contributors\n\nPermission to use, copy, modify, and/or distribute this software for any\npurpose with or without fee is hereby granted, provided that the above\ncopyright notice and this permission notice appear in all copies.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES\nWITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF\nMERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR\nANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES\nWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN\nACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF\nOR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.\n\n---\n\nThe following Lucide icons are derived from the Feather project:\n\nairplay, alert-circle, alert-octagon, alert-triangle, aperture, arrow-down-circle, arrow-down-left, arrow-down-right, arrow-down, arrow-left-circle, arrow-left, arrow-right-circle, arrow-right, arrow-up-circle, arrow-up-left, arrow-up-right, arrow-up, at-sign, calendar, cast, check, chevron-down, chevron-left, chevron-right, chevron-up, chevrons-down, chevrons-left, chevrons-right, chevrons-up, circle, clipboard, clock, code, columns, command, compass, corner-down-left, corner-down-right, corner-left-down, corner-left-up, corner-right-down, corner-right-up, corner-up-left, corner-up-right, crosshair, database, divide-circle, divide-square, dollar-sign, download, external-link, feather, frown, hash, headphones, help-circle, info, italic, key, layout, life-buoy, link-2, link, loader, lock, log-in, log-out, maximize, meh, minimize, minimize-2, minus-circle, minus-square, minus, monitor, moon, more-horizontal, more-vertical, move, music, navigation-2, navigation, octagon, pause-circle, percent, plus-circle, plus-square, plus, power, radio, rss, search, server, share, shopping-bag, sidebar, smartphone, smile, square, table-2, tablet, target, terminal, trash-2, trash, triangle, tv, type, upload, x-circle, x-octagon, x-square, x, zoom-in, zoom-out\n\nThe MIT License (MIT) (for the icons listed above)\n\nCopyright (c) 2013-present Cole Bemis\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "(The MIT License)\n\nCopyright (c) 2017 Titus Wormer <tituswormer@gmail.com>\nCopyright (c) 2017 Victor Felder <victor@draft.li>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
@@ -62,6 +68,7 @@ const T: string[] = [
     "(The MIT License)\n\nCopyright (c) Titus Wormer <mailto:tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n'Software'), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "MIT License\n\nCopyright (c) Meta Platforms, Inc. and affiliates.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "The MIT License (MIT)\n\nCopyright (c) Espen Hovlandsdal\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
+    "rehype-katex doesn't include its own licence file, so the standard MIT text is shown below.\nAuthors: Junyoung Choi",
     "(The MIT License)\n\nCopyright (c) 2014 Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "MIT License\n\nCopyright (c) 2020 Suren Atoyan\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "The MIT License (MIT)\n\nCopyright (c) 2017 Menglin \"Mark\" Xu <mark@remarkablemark.org>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
@@ -136,6 +143,7 @@ const T: string[] = [
     "encoding_rs is copyright Mozilla Foundation.\n\nLicensed under the Apache License, Version 2.0\n<LICENSE-APACHE or\nhttps://www.apache.org/licenses/LICENSE-2.0> or the MIT\nlicense <LICENSE-MIT or https://opensource.org/licenses/MIT>,\nat your option. All files in the project carrying such\nnotice may not be copied, modified, or distributed except\naccording to those terms.\n\nThis crate includes data derived from the data files supplied\nwith the WHATWG Encoding Standard, which, when incorporated into\nsource code, are licensed under the BSD 3-Clause License\n<LICENSE-WHATWG>.\n\nTest code within encoding_rs is dedicated to the Public Domain when so\ndesignated (see the individual files for PD/CC0-dedicated sections).",
     "Copyright (c) 2016--2023\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "MIT License\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
+    "Copyright (c) 2014-2017 David Ross\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "Apache License\n                        Version 2.0, January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work.\n\n   To apply the Apache License to your work, attach the following\n   boilerplate notice, with the fields enclosed by brackets \"[]\"\n   replaced with your own identifying information. (Don't include\n   the brackets!)  The text should be enclosed in the appropriate\n   comment syntax for the file format. We also recommend that a\n   file or class name and description of purpose be included on the\n   same \"printed page\" as the copyright notice for easier\n   identification within third-party archives.\n\nCopyright 2023 Notify Contributors\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n\thttp://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.",
     "Copyright (c) 2023 Notify Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2014-2026 Alex Crichton\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
@@ -148,8 +156,8 @@ const T: string[] = [
     "The MIT License (MIT)\n\nCopyright (c) 2015 Bartłomiej Kamiński\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "Apache License\n                        Version 2.0, January 2004\n                     https://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work.\n\n   To apply the Apache License to your work, attach the following\n   boilerplate notice, with the fields enclosed by brackets \"[]\"\n   replaced with your own identifying information. (Don't include\n   the brackets!)  The text should be enclosed in the appropriate\n   comment syntax for the file format. We also recommend that a\n   file or class name and description of purpose be included on the\n   same \"printed page\" as the copyright notice for easier\n   identification within third-party archives.\n\nCopyright [yyyy] [name of copyright owner]\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n\thttps://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.",
     "Copyright (c) 2018-2026 The rust-random Project Developers\nCopyright (c) 2014 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
-    "Copyright (c) 2018-2024 The rust-random Project Developers\nCopyright (c) 2014 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2018-2025 The rust-random Project Developers\nCopyright (c) 2014 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
+    "Copyright (c) 2018-2024 The rust-random Project Developers\nCopyright (c) 2014 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2016 Amanieu d'Antras\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2015 The Rust Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2013-2014 The Rust Project Developers.\nCopyright (c) 2015-2020 The rust-hex Developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
@@ -261,6 +269,7 @@ const T: string[] = [
     "Copyright (c) 2019 Tower Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2019-2021 Tower Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "Copyright (c) 2019 Tokio Contributors\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
+    "Copyright 2019 Artúr Barnabás Kovács\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and\nassociated documentation files (the \"Software\"), to deal in the Software without restriction,\nincluding without limitation the rights to use, copy, modify, merge, publish, distribute,\nsublicense, and/or sell copies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or\nsubstantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT\nNOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,\nDAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT\nOF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "SPDXVersion: SPDX-2.1\nDataLicense: CC0-1.0\nPackageName: tray-icon\nDataFormat: SPDXRef-1\nPackageSupplier: Organization: The Tauri Programme in the Commons Conservancy\nPackageHomePage: https://tauri.app\nPackageLicenseDeclared: Apache-2.0\nPackageLicenseDeclared: MIT\nPackageCopyrightText: 2020-2022, The Tauri Programme in the Commons Conservancy\nPackageSummary: <text>Create tray icons for desktop applications.\n                </text>\nPackageComment: <text>The package includes the following libraries; see\nRelationship information.\n                </text>\nCreated: 2022-12-05T09:00:00Z\nPackageDownloadLocation: git://github.com/tauri-apps/tray-icon\nPackageDownloadLocation: git+https://github.com/tauri-apps/tray-icon.git\nPackageDownloadLocation: git+ssh://github.com/tauri-apps/tray-icon.git\nCreator: Person: Daniel Thompson-Yvetot",
     "Copyright (c) 2018-2023 Sean McArthur\nCopyright (c) 2016 Alex Crichton\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "MIT OR Apache-2.0",
@@ -564,12 +573,28 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[25]
     },
     {
+        "name": "dictionary-en",
+        "version": "4.0.0",
+        "license": "(MIT AND BSD)",
+        "repository": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/en",
+        "ecosystem": "npm",
+        "licenseText": T[26]
+    },
+    {
+        "name": "dictionary-en-gb",
+        "version": "3.0.0",
+        "license": "(MIT AND BSD)",
+        "repository": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/en-GB",
+        "ecosystem": "npm",
+        "licenseText": T[27]
+    },
+    {
         "name": "docx",
         "version": "9.15.3",
         "license": "MIT",
         "repository": "https://github.com/dolanmiu/docx",
         "ecosystem": "npm",
-        "licenseText": T[26]
+        "licenseText": T[28]
     },
     {
         "name": "elkjs",
@@ -577,7 +602,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "EPL-2.0",
         "repository": "https://github.com/kieler/elkjs",
         "ecosystem": "npm",
-        "licenseText": T[27]
+        "licenseText": T[29]
     },
     {
         "name": "entities",
@@ -585,7 +610,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-2-Clause",
         "repository": "https://github.com/fb55/entities",
         "ecosystem": "npm",
-        "licenseText": T[28]
+        "licenseText": T[30]
     },
     {
         "name": "estree-util-is-identifier-name",
@@ -593,7 +618,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/syntax-tree/estree-util-is-identifier-name",
         "ecosystem": "npm",
-        "licenseText": T[29]
+        "licenseText": T[31]
     },
     {
         "name": "extend",
@@ -601,7 +626,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/justmoon/node-extend",
         "ecosystem": "npm",
-        "licenseText": T[30]
+        "licenseText": T[32]
     },
     {
         "name": "get-east-asian-width",
@@ -609,7 +634,23 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/sindresorhus/get-east-asian-width",
         "ecosystem": "npm",
-        "licenseText": T[31]
+        "licenseText": T[33]
+    },
+    {
+        "name": "hast-util-from-dom",
+        "version": "5.0.1",
+        "license": "ISC",
+        "repository": "https://github.com/syntax-tree/hast-util-from-dom",
+        "ecosystem": "npm",
+        "licenseText": T[34]
+    },
+    {
+        "name": "hast-util-from-html-isomorphic",
+        "version": "2.0.0",
+        "license": "MIT",
+        "repository": "https://github.com/syntax-tree/hast-util-from-html-isomorphic",
+        "ecosystem": "npm",
+        "licenseText": T[35]
     },
     {
         "name": "hast-util-from-parse5",
@@ -668,6 +709,14 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[24]
     },
     {
+        "name": "hast-util-to-text",
+        "version": "4.0.3",
+        "license": "MIT",
+        "repository": "https://github.com/syntax-tree/hast-util-to-text",
+        "ecosystem": "npm",
+        "licenseText": T[24]
+    },
+    {
         "name": "hast-util-whitespace",
         "version": "3.0.0",
         "license": "MIT",
@@ -689,7 +738,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rehypejs/rehype-minify/tree/main/packages/html-url-attributes",
         "ecosystem": "npm",
-        "licenseText": T[32]
+        "licenseText": T[36]
     },
     {
         "name": "html-void-elements",
@@ -705,7 +754,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/remarkablemark/inline-style-parser",
         "ecosystem": "npm",
-        "licenseText": T[33]
+        "licenseText": T[37]
+    },
+    {
+        "name": "is-buffer",
+        "version": "2.0.5",
+        "license": "MIT",
+        "repository": "https://github.com/feross/is-buffer",
+        "ecosystem": "npm",
+        "licenseText": T[38]
     },
     {
         "name": "is-plain-obj",
@@ -713,7 +770,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/sindresorhus/is-plain-obj",
         "ecosystem": "npm",
-        "licenseText": T[31]
+        "licenseText": T[33]
+    },
+    {
+        "name": "katex",
+        "version": "0.16.47",
+        "license": "MIT",
+        "repository": "https://github.com/KaTeX/KaTeX",
+        "ecosystem": "npm",
+        "licenseText": T[39]
     },
     {
         "name": "longest-streak",
@@ -721,7 +786,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wooorm/longest-streak",
         "ecosystem": "npm",
-        "licenseText": T[34]
+        "licenseText": T[40]
     },
     {
         "name": "lucide-react",
@@ -729,7 +794,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "ISC",
         "repository": "https://github.com/lucide-icons/lucide",
         "ecosystem": "npm",
-        "licenseText": T[35]
+        "licenseText": T[41]
     },
     {
         "name": "markdown-table",
@@ -804,12 +869,20 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[24]
     },
     {
+        "name": "mdast-util-math",
+        "version": "3.0.0",
+        "license": "MIT",
+        "repository": "https://github.com/syntax-tree/mdast-util-math",
+        "ecosystem": "npm",
+        "licenseText": T[31]
+    },
+    {
         "name": "mdast-util-phrasing",
         "version": "4.1.0",
         "license": "MIT",
         "repository": "https://github.com/syntax-tree/mdast-util-phrasing",
         "ecosystem": "npm",
-        "licenseText": T[36]
+        "licenseText": T[42]
     },
     {
         "name": "mdast-util-to-hast",
@@ -833,7 +906,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[37]
+        "licenseText": T[43]
     },
     {
         "name": "mdast-util-to-markdown-cjk-friendly-gfm-strikethrough",
@@ -841,7 +914,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[37]
+        "licenseText": T[43]
     },
     {
         "name": "mdast-util-to-string",
@@ -873,7 +946,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[38]
+        "licenseText": T[44]
     },
     {
         "name": "micromark-extension-cjk-friendly-gfm-strikethrough",
@@ -881,7 +954,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[39]
+        "licenseText": T[45]
     },
     {
         "name": "micromark-extension-cjk-friendly-util",
@@ -889,7 +962,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[40]
+        "licenseText": T[46]
     },
     {
         "name": "micromark-extension-gfm",
@@ -897,7 +970,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/micromark/micromark-extension-gfm",
         "ecosystem": "npm",
-        "licenseText": T[29]
+        "licenseText": T[31]
     },
     {
         "name": "micromark-extension-gfm-autolink-literal",
@@ -905,7 +978,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/micromark/micromark-extension-gfm-autolink-literal",
         "ecosystem": "npm",
-        "licenseText": T[29]
+        "licenseText": T[31]
     },
     {
         "name": "micromark-extension-gfm-footnote",
@@ -913,7 +986,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/micromark/micromark-extension-gfm-footnote",
         "ecosystem": "npm",
-        "licenseText": T[41]
+        "licenseText": T[47]
     },
     {
         "name": "micromark-extension-gfm-strikethrough",
@@ -921,7 +994,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/micromark/micromark-extension-gfm-strikethrough",
         "ecosystem": "npm",
-        "licenseText": T[29]
+        "licenseText": T[31]
     },
     {
         "name": "micromark-extension-gfm-table",
@@ -937,7 +1010,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/micromark/micromark-extension-gfm-task-list-item",
         "ecosystem": "npm",
-        "licenseText": T[29]
+        "licenseText": T[31]
+    },
+    {
+        "name": "micromark-extension-math",
+        "version": "3.1.0",
+        "license": "MIT",
+        "repository": "https://github.com/micromark/micromark-extension-math",
+        "ecosystem": "npm",
+        "licenseText": T[31]
     },
     {
         "name": "micromark-factory-destination",
@@ -1089,7 +1170,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/microsoft/monaco-editor",
         "ecosystem": "npm",
-        "licenseText": T[42] + SEP + T[43]
+        "licenseText": T[48] + SEP + T[49]
     },
     {
         "name": "next",
@@ -1097,7 +1178,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/vercel/next.js",
         "ecosystem": "npm",
-        "licenseText": T[44]
+        "licenseText": T[50]
+    },
+    {
+        "name": "nspell",
+        "version": "2.1.5",
+        "license": "MIT",
+        "repository": "https://github.com/wooorm/nspell",
+        "ecosystem": "npm",
+        "licenseText": T[23]
     },
     {
         "name": "parse5",
@@ -1105,7 +1194,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/inikulin/parse5",
         "ecosystem": "npm",
-        "licenseText": T[45]
+        "licenseText": T[51]
     },
     {
         "name": "property-information",
@@ -1113,7 +1202,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wooorm/property-information",
         "ecosystem": "npm",
-        "licenseText": T[46]
+        "licenseText": T[52]
     },
     {
         "name": "react",
@@ -1121,7 +1210,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/react/react",
         "ecosystem": "npm",
-        "licenseText": T[47]
+        "licenseText": T[53]
     },
     {
         "name": "react-dom",
@@ -1129,7 +1218,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/react/react",
         "ecosystem": "npm",
-        "licenseText": T[47]
+        "licenseText": T[53]
     },
     {
         "name": "react-markdown",
@@ -1137,7 +1226,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/remarkjs/react-markdown",
         "ecosystem": "npm",
-        "licenseText": T[48]
+        "licenseText": T[54]
+    },
+    {
+        "name": "rehype-katex",
+        "version": "7.0.1",
+        "license": "MIT",
+        "repository": "https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex",
+        "ecosystem": "npm",
+        "licenseText": T[55] + SEP + T[12]
     },
     {
         "name": "rehype-raw",
@@ -1161,7 +1258,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[37]
+        "licenseText": T[43]
     },
     {
         "name": "remark-cjk-friendly-gfm-strikethrough",
@@ -1169,7 +1266,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tats-u/markdown-cjk-friendly",
         "ecosystem": "npm",
-        "licenseText": T[37]
+        "licenseText": T[43]
     },
     {
         "name": "remark-gfm",
@@ -1185,7 +1282,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/remarkjs/remark/tree/main/packages/remark-parse",
         "ecosystem": "npm",
-        "licenseText": T[49]
+        "licenseText": T[56]
     },
     {
         "name": "remark-rehype",
@@ -1201,7 +1298,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/react/react",
         "ecosystem": "npm",
-        "licenseText": T[47]
+        "licenseText": T[53]
     },
     {
         "name": "shiki",
@@ -1225,7 +1322,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/suren-atoyan/state-local",
         "ecosystem": "npm",
-        "licenseText": T[50]
+        "licenseText": T[57]
     },
     {
         "name": "stringify-entities",
@@ -1233,7 +1330,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wooorm/stringify-entities",
         "ecosystem": "npm",
-        "licenseText": T[34]
+        "licenseText": T[40]
     },
     {
         "name": "style-to-object",
@@ -1241,7 +1338,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/remarkablemark/style-to-object",
         "ecosystem": "npm",
-        "licenseText": T[51]
+        "licenseText": T[58]
     },
     {
         "name": "tailwind-merge",
@@ -1249,7 +1346,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/dcastil/tailwind-merge",
         "ecosystem": "npm",
-        "licenseText": T[52]
+        "licenseText": T[59]
     },
     {
         "name": "trim-lines",
@@ -1257,7 +1354,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wooorm/trim-lines",
         "ecosystem": "npm",
-        "licenseText": T[34]
+        "licenseText": T[40]
     },
     {
         "name": "trough",
@@ -1265,7 +1362,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wooorm/trough",
         "ecosystem": "npm",
-        "licenseText": T[53]
+        "licenseText": T[60]
     },
     {
         "name": "unified",
@@ -1273,7 +1370,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/unifiedjs/unified",
         "ecosystem": "npm",
-        "licenseText": T[54]
+        "licenseText": T[61]
     },
     {
         "name": "unist-util-is",
@@ -1281,7 +1378,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/syntax-tree/unist-util-is",
         "ecosystem": "npm",
-        "licenseText": T[55]
+        "licenseText": T[62]
     },
     {
         "name": "unist-util-position",
@@ -1321,7 +1418,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/react/react",
         "ecosystem": "npm",
-        "licenseText": T[47]
+        "licenseText": T[53]
     },
     {
         "name": "vfile",
@@ -1329,7 +1426,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/vfile/vfile",
         "ecosystem": "npm",
-        "licenseText": T[54]
+        "licenseText": T[61]
     },
     {
         "name": "vfile-location",
@@ -1369,7 +1466,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "OFL-1.1",
         "repository": "https://github.com/vercel/geist-font",
         "ecosystem": "font",
-        "licenseText": T[56]
+        "licenseText": T[63]
     },
     {
         "name": "Inter",
@@ -1377,7 +1474,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "OFL-1.1",
         "repository": "https://github.com/rsms/inter",
         "ecosystem": "font",
-        "licenseText": T[57]
+        "licenseText": T[64]
     },
     {
         "name": "adler2",
@@ -1385,7 +1482,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "0BSD OR MIT OR Apache-2.0",
         "repository": "https://github.com/oyvindln/adler2",
         "ecosystem": "rust",
-        "licenseText": T[58] + SEP + T[59] + SEP + T[60]
+        "licenseText": T[65] + SEP + T[66] + SEP + T[67]
     },
     {
         "name": "aes",
@@ -1393,7 +1490,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/block-ciphers",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[62]
+        "licenseText": T[68] + SEP + T[69]
     },
     {
         "name": "aho-corasick",
@@ -1401,7 +1498,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/aho-corasick",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "alloc-no-stdlib",
@@ -1409,7 +1506,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause",
         "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
         "ecosystem": "rust",
-        "licenseText": T[66]
+        "licenseText": T[73]
     },
     {
         "name": "alloc-stdlib",
@@ -1417,7 +1514,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause",
         "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
         "ecosystem": "rust",
-        "licenseText": T[67] + SEP + T[68]
+        "licenseText": T[74] + SEP + T[75]
     },
     {
         "name": "anyhow",
@@ -1425,7 +1522,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/anyhow",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "atomic-waker",
@@ -1433,7 +1530,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/smol-rs/atomic-waker",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60] + SEP + T[71]
+        "licenseText": T[77] + SEP + T[67] + SEP + T[78]
     },
     {
         "name": "base64",
@@ -1441,7 +1538,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/marshallpierce/rust-base64",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[72]
+        "licenseText": T[77] + SEP + T[79]
     },
     {
         "name": "bit-set",
@@ -1449,7 +1546,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/contain-rs/bit-set",
         "ecosystem": "rust",
-        "licenseText": T[73] + SEP + T[74]
+        "licenseText": T[80] + SEP + T[81]
     },
     {
         "name": "bit-vec",
@@ -1457,7 +1554,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/contain-rs/bit-vec",
         "ecosystem": "rust",
-        "licenseText": T[73] + SEP + T[74]
+        "licenseText": T[80] + SEP + T[81]
     },
     {
         "name": "bitflags",
@@ -1465,7 +1562,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0; MIT/Apache-2.0",
         "repository": "https://github.com/bitflags/bitflags",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "block-buffer",
@@ -1473,7 +1570,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[76] + SEP + T[77]
+        "licenseText": T[68] + SEP + T[83] + SEP + T[84]
     },
     {
         "name": "block-padding",
@@ -1481,7 +1578,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[77]
+        "licenseText": T[68] + SEP + T[84]
     },
     {
         "name": "brotli",
@@ -1489,7 +1586,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause AND MIT",
         "repository": "https://github.com/dropbox/rust-brotli",
         "ecosystem": "rust",
-        "licenseText": T[66] + SEP + T[78]
+        "licenseText": T[73] + SEP + T[85]
     },
     {
         "name": "brotli-decompressor",
@@ -1497,7 +1594,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause/MIT",
         "repository": "https://github.com/dropbox/rust-brotli-decompressor",
         "ecosystem": "rust",
-        "licenseText": T[66]
+        "licenseText": T[73]
     },
     {
         "name": "bs58",
@@ -1505,7 +1602,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/Nullus157/bs58-rs",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[79]
+        "licenseText": T[77] + SEP + T[86]
     },
     {
         "name": "byteorder",
@@ -1513,7 +1610,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/byteorder",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "bytes",
@@ -1521,7 +1618,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/bytes",
         "ecosystem": "rust",
-        "licenseText": T[80]
+        "licenseText": T[87]
     },
     {
         "name": "camino",
@@ -1529,7 +1626,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/camino-rs/camino",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "cargo-platform",
@@ -1537,7 +1634,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/cargo",
         "ecosystem": "rust",
-        "licenseText": T[59] + SEP + T[60]
+        "licenseText": T[66] + SEP + T[67]
     },
     {
         "name": "cargo_metadata",
@@ -1545,7 +1642,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/oli-obk/cargo_metadata",
         "ecosystem": "rust",
-        "licenseText": T[60]
+        "licenseText": T[67]
     },
     {
         "name": "cbc",
@@ -1553,7 +1650,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/block-modes",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[81]
+        "licenseText": T[68] + SEP + T[88]
     },
     {
         "name": "cfb",
@@ -1561,7 +1658,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mdsteele/rust-cfb",
         "ecosystem": "rust",
-        "licenseText": T[82]
+        "licenseText": T[89]
     },
     {
         "name": "cfg-if",
@@ -1569,7 +1666,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/cfg-if",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[83]
+        "licenseText": T[77] + SEP + T[90]
     },
     {
         "name": "chacha20",
@@ -1577,7 +1674,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/stream-ciphers",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[84]
+        "licenseText": T[68] + SEP + T[91]
     },
     {
         "name": "chrono",
@@ -1585,7 +1682,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chronotope/chrono",
         "ecosystem": "rust",
-        "licenseText": T[85]
+        "licenseText": T[92]
     },
     {
         "name": "cipher",
@@ -1593,7 +1690,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/traits",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[86]
+        "licenseText": T[68] + SEP + T[93]
     },
     {
         "name": "const-oid",
@@ -1601,7 +1698,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/RustCrypto/formats",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[87]
+        "licenseText": T[68] + SEP + T[94]
     },
     {
         "name": "cookie",
@@ -1609,7 +1706,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/SergioBenitez/cookie-rs",
         "ecosystem": "rust",
-        "licenseText": T[88] + SEP + T[89]
+        "licenseText": T[95] + SEP + T[96]
     },
     {
         "name": "core_detect",
@@ -1617,7 +1714,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/thomcc/core_detect",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[90]
+        "licenseText": T[77] + SEP + T[97]
     },
     {
         "name": "cpubits",
@@ -1625,7 +1722,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[91]
+        "licenseText": T[68] + SEP + T[98]
     },
     {
         "name": "cpufeatures",
@@ -1633,7 +1730,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[92] + SEP + T[87]
+        "licenseText": T[68] + SEP + T[99] + SEP + T[94]
     },
     {
         "name": "crc32fast",
@@ -1641,7 +1738,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/srijs/rust-crc32fast",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[94]
+        "licenseText": T[100] + SEP + T[101]
     },
     {
         "name": "crossbeam-channel",
@@ -1649,7 +1746,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[95] + SEP + T[96]
+        "licenseText": T[77] + SEP + T[102] + SEP + T[103]
     },
     {
         "name": "crossbeam-deque",
@@ -1657,7 +1754,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[95]
+        "licenseText": T[77] + SEP + T[102]
     },
     {
         "name": "crossbeam-epoch",
@@ -1665,7 +1762,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[95]
+        "licenseText": T[77] + SEP + T[102]
     },
     {
         "name": "crossbeam-utils",
@@ -1673,7 +1770,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/crossbeam-rs/crossbeam",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[95]
+        "licenseText": T[77] + SEP + T[102]
     },
     {
         "name": "crypto-common",
@@ -1681,7 +1778,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/traits",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[97] + SEP + T[98]
+        "licenseText": T[68] + SEP + T[104] + SEP + T[105]
     },
     {
         "name": "cssparser",
@@ -1689,7 +1786,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/rust-cssparser",
         "ecosystem": "rust",
-        "licenseText": T[99]
+        "licenseText": T[106]
     },
     {
         "name": "cssparser-macros",
@@ -1697,7 +1794,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/rust-cssparser",
         "ecosystem": "rust",
-        "licenseText": T[99]
+        "licenseText": T[106]
     },
     {
         "name": "ctor",
@@ -1705,7 +1802,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/mmastrac/linktime",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[100]
+        "licenseText": T[100] + SEP + T[107]
     },
     {
         "name": "darling",
@@ -1713,7 +1810,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/TedDriggs/darling",
         "ecosystem": "rust",
-        "licenseText": T[101]
+        "licenseText": T[108]
     },
     {
         "name": "darling_core",
@@ -1721,7 +1818,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/TedDriggs/darling",
         "ecosystem": "rust",
-        "licenseText": T[101]
+        "licenseText": T[108]
     },
     {
         "name": "darling_macro",
@@ -1729,7 +1826,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/TedDriggs/darling",
         "ecosystem": "rust",
-        "licenseText": T[101]
+        "licenseText": T[108]
     },
     {
         "name": "defmt",
@@ -1737,7 +1834,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/knurling-rs/defmt",
         "ecosystem": "rust",
-        "licenseText": T[73] + SEP + T[102]
+        "licenseText": T[80] + SEP + T[109]
     },
     {
         "name": "defmt-macros",
@@ -1745,7 +1842,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/knurling-rs/defmt",
         "ecosystem": "rust",
-        "licenseText": T[73] + SEP + T[102]
+        "licenseText": T[80] + SEP + T[109]
     },
     {
         "name": "defmt-parser",
@@ -1753,7 +1850,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/knurling-rs/defmt",
         "ecosystem": "rust",
-        "licenseText": T[73] + SEP + T[102]
+        "licenseText": T[80] + SEP + T[109]
     },
     {
         "name": "deranged",
@@ -1761,7 +1858,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jhpratt/deranged",
         "ecosystem": "rust",
-        "licenseText": T[103] + SEP + T[104]
+        "licenseText": T[110] + SEP + T[111]
     },
     {
         "name": "derive_more",
@@ -1769,7 +1866,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/JelteF/derive_more",
         "ecosystem": "rust",
-        "licenseText": T[105]
+        "licenseText": T[112]
     },
     {
         "name": "derive_more-impl",
@@ -1777,7 +1874,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/JelteF/derive_more",
         "ecosystem": "rust",
-        "licenseText": T[105]
+        "licenseText": T[112]
     },
     {
         "name": "digest",
@@ -1785,7 +1882,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/traits",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[106] + SEP + T[107]
+        "licenseText": T[68] + SEP + T[113] + SEP + T[114]
     },
     {
         "name": "dirs",
@@ -1793,7 +1890,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://codeberg.org/dirs/dirs-rs",
         "ecosystem": "rust",
-        "licenseText": T[108] + SEP + T[109]
+        "licenseText": T[115] + SEP + T[116]
     },
     {
         "name": "dirs-sys",
@@ -1801,7 +1898,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dirs-dev/dirs-sys-rs",
         "ecosystem": "rust",
-        "licenseText": T[108] + SEP + T[109]
+        "licenseText": T[115] + SEP + T[116]
     },
     {
         "name": "displaydoc",
@@ -1809,7 +1906,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/yaahc/displaydoc",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "dom_query",
@@ -1817,7 +1914,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/niklak/dom_query",
         "ecosystem": "rust",
-        "licenseText": T[110]
+        "licenseText": T[117]
     },
     {
         "name": "dpi",
@@ -1825,7 +1922,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 AND MIT",
         "repository": "https://github.com/rust-windowing/winit",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[111]
+        "licenseText": T[100] + SEP + T[118]
     },
     {
         "name": "dtoa",
@@ -1833,7 +1930,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/dtoa",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "dtoa-short",
@@ -1841,7 +1938,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/upsuper/dtoa-short",
         "ecosystem": "rust",
-        "licenseText": T[99]
+        "licenseText": T[106]
     },
     {
         "name": "dunce",
@@ -1849,7 +1946,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
         "repository": "https://gitlab.com/kornelski/dunce",
         "ecosystem": "rust",
-        "licenseText": T[112]
+        "licenseText": T[119]
     },
     {
         "name": "dwrote",
@@ -1857,7 +1954,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/dwrote-rs",
         "ecosystem": "rust",
-        "licenseText": T[113] + SEP + T[114]
+        "licenseText": T[120] + SEP + T[121]
     },
     {
         "name": "dyn-clone",
@@ -1865,7 +1962,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/dyn-clone",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "ecb",
@@ -1873,7 +1970,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/block-modes",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[115]
+        "licenseText": T[68] + SEP + T[122]
     },
     {
         "name": "either",
@@ -1881,7 +1978,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rayon-rs/either",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[116]
+        "licenseText": T[77] + SEP + T[123]
     },
     {
         "name": "encoding_rs",
@@ -1889,7 +1986,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
         "repository": "https://github.com/hsivonen/encoding_rs",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[118] + SEP + T[119] + SEP + T[120]
+        "licenseText": T[124] + SEP + T[125] + SEP + T[126] + SEP + T[127]
     },
     {
         "name": "equivalent",
@@ -1897,7 +1994,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/indexmap-rs/equivalent",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[121]
+        "licenseText": T[77] + SEP + T[128]
     },
     {
         "name": "erased-serde",
@@ -1905,7 +2002,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/erased-serde",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "fastrand",
@@ -1913,7 +2010,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/smol-rs/fastrand",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "fdeflate",
@@ -1921,7 +2018,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/fdeflate",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[122]
+        "licenseText": T[7] + SEP + T[129]
+    },
+    {
+        "name": "fern",
+        "version": "0.7.1",
+        "license": "MIT",
+        "repository": "https://github.com/daboross/fern",
+        "ecosystem": "rust",
+        "licenseText": T[130]
     },
     {
         "name": "file-id",
@@ -1929,7 +2034,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/notify-rs/notify",
         "ecosystem": "rust",
-        "licenseText": T[123] + SEP + T[124]
+        "licenseText": T[131] + SEP + T[132]
     },
     {
         "name": "flate2",
@@ -1937,7 +2042,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/flate2-rs",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[125]
+        "licenseText": T[77] + SEP + T[133]
     },
     {
         "name": "float-ord",
@@ -1945,7 +2050,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT / Apache-2.0",
         "repository": "https://github.com/notriddle/rust-float-ord",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[126]
+        "licenseText": T[100] + SEP + T[134]
     },
     {
         "name": "fnv",
@@ -1953,7 +2058,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 / MIT",
         "repository": "https://github.com/servo/rust-fnv",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[127]
+        "licenseText": T[77] + SEP + T[135]
     },
     {
         "name": "foldhash",
@@ -1961,7 +2066,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Zlib",
         "repository": "https://github.com/orlp/foldhash",
         "ecosystem": "rust",
-        "licenseText": T[128]
+        "licenseText": T[136]
     },
     {
         "name": "font-kit",
@@ -1969,7 +2074,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/font-kit",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "form_urlencoded",
@@ -1977,7 +2082,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[129]
+        "licenseText": T[77] + SEP + T[137]
     },
     {
         "name": "futures-channel",
@@ -1985,7 +2090,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "futures-core",
@@ -1993,7 +2098,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "futures-io",
@@ -2001,7 +2106,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "futures-macro",
@@ -2009,7 +2114,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "futures-sink",
@@ -2017,7 +2122,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "futures-task",
@@ -2025,7 +2130,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "futures-util",
@@ -2033,7 +2138,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/futures-rs",
         "ecosystem": "rust",
-        "licenseText": T[130] + SEP + T[131]
+        "licenseText": T[138] + SEP + T[139]
     },
     {
         "name": "generic-array",
@@ -2041,7 +2146,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/fizyk20/generic-array",
         "ecosystem": "rust",
-        "licenseText": T[132]
+        "licenseText": T[140]
     },
     {
         "name": "getrandom",
@@ -2049,7 +2154,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/getrandom",
         "ecosystem": "rust",
-        "licenseText": T[133] + SEP + T[134] + SEP + T[135] + SEP + T[136]
+        "licenseText": T[141] + SEP + T[142] + SEP + T[143] + SEP + T[144]
     },
     {
         "name": "glob",
@@ -2057,7 +2162,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/glob",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "hashbrown",
@@ -2065,7 +2170,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/hashbrown",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[137]
+        "licenseText": T[77] + SEP + T[145]
     },
     {
         "name": "heck",
@@ -2073,7 +2178,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/withoutboats/heck",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[138]
+        "licenseText": T[77] + SEP + T[146]
     },
     {
         "name": "hex",
@@ -2081,7 +2186,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/KokaKiwi/rust-hex",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[139]
+        "licenseText": T[100] + SEP + T[147]
     },
     {
         "name": "html5ever",
@@ -2089,7 +2194,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[140]
+        "licenseText": T[77] + SEP + T[148]
     },
     {
         "name": "http",
@@ -2097,7 +2202,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/hyperium/http",
         "ecosystem": "rust",
-        "licenseText": T[141] + SEP + T[142]
+        "licenseText": T[149] + SEP + T[150]
     },
     {
         "name": "http-body",
@@ -2105,7 +2210,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/http-body",
         "ecosystem": "rust",
-        "licenseText": T[143]
+        "licenseText": T[151]
     },
     {
         "name": "http-body-util",
@@ -2113,7 +2218,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/http-body",
         "ecosystem": "rust",
-        "licenseText": T[143]
+        "licenseText": T[151]
     },
     {
         "name": "httparse",
@@ -2121,7 +2226,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/seanmonstar/httparse",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[144]
+        "licenseText": T[77] + SEP + T[152]
     },
     {
         "name": "hybrid-array",
@@ -2129,7 +2234,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/hybrid-array",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[145]
+        "licenseText": T[68] + SEP + T[153]
     },
     {
         "name": "hyper",
@@ -2137,7 +2242,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/hyper",
         "ecosystem": "rust",
-        "licenseText": T[146]
+        "licenseText": T[154]
     },
     {
         "name": "hyper-rustls",
@@ -2145,7 +2250,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR ISC OR MIT",
         "repository": "https://github.com/rustls/hyper-rustls",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[147] + SEP + T[148]
+        "licenseText": T[77] + SEP + T[155] + SEP + T[156]
     },
     {
         "name": "hyper-util",
@@ -2153,7 +2258,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/hyperium/hyper-util",
         "ecosystem": "rust",
-        "licenseText": T[149]
+        "licenseText": T[157]
     },
     {
         "name": "ico",
@@ -2161,7 +2266,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mdsteele/rust-ico",
         "ecosystem": "rust",
-        "licenseText": T[150]
+        "licenseText": T[158]
     },
     {
         "name": "icu_collections",
@@ -2169,7 +2274,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "icu_locale_core",
@@ -2177,7 +2282,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "icu_normalizer",
@@ -2185,7 +2290,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "icu_normalizer_data",
@@ -2193,7 +2298,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "icu_properties",
@@ -2201,7 +2306,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "icu_properties_data",
@@ -2209,7 +2314,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "icu_provider",
@@ -2217,7 +2322,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "ident_case",
@@ -2225,7 +2330,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/TedDriggs/ident_case",
         "ecosystem": "rust",
-        "licenseText": T[152]
+        "licenseText": T[160]
     },
     {
         "name": "idna",
@@ -2233,7 +2338,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url/",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[153]
+        "licenseText": T[77] + SEP + T[161]
     },
     {
         "name": "idna_adapter",
@@ -2241,7 +2346,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/idna_adapter",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[154]
+        "licenseText": T[77] + SEP + T[162]
     },
     {
         "name": "indexmap",
@@ -2249,7 +2354,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/indexmap-rs/indexmap",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[155]
+        "licenseText": T[77] + SEP + T[163]
     },
     {
         "name": "infer",
@@ -2257,7 +2362,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/bojand/infer",
         "ecosystem": "rust",
-        "licenseText": T[156]
+        "licenseText": T[164]
     },
     {
         "name": "inout",
@@ -2265,7 +2370,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[157]
+        "licenseText": T[68] + SEP + T[165]
     },
     {
         "name": "ipnet",
@@ -2273,7 +2378,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/krisprice/ipnet",
         "ecosystem": "rust",
-        "licenseText": T[158] + SEP + T[159]
+        "licenseText": T[166] + SEP + T[167]
     },
     {
         "name": "itertools",
@@ -2281,7 +2386,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-itertools/itertools",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[116]
+        "licenseText": T[77] + SEP + T[123]
     },
     {
         "name": "itoa",
@@ -2289,7 +2394,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/itoa",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "jiff",
@@ -2297,7 +2402,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/jiff",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "jiff-core",
@@ -2305,7 +2410,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/jiff",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "jiff-tzdb",
@@ -2313,7 +2418,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/jiff",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "jiff-tzdb-platform",
@@ -2321,7 +2426,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/jiff",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "json-patch",
@@ -2329,7 +2434,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/idubrov/json-patch",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[160]
+        "licenseText": T[100] + SEP + T[168]
     },
     {
         "name": "jsonptr",
@@ -2337,7 +2442,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chanced/jsonptr",
         "ecosystem": "rust",
-        "licenseText": T[161] + SEP + T[162]
+        "licenseText": T[169] + SEP + T[170]
     },
     {
         "name": "keyboard-types",
@@ -2345,7 +2450,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-windowing/keyboard-types",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[163]
+        "licenseText": T[77] + SEP + T[171]
     },
     {
         "name": "lazy_static",
@@ -2353,7 +2458,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang-nursery/lazy-static.rs",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "libc",
@@ -2361,7 +2466,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/libc",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[164]
+        "licenseText": T[76] + SEP + T[172]
     },
     {
         "name": "litemap",
@@ -2369,7 +2474,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "lock_api",
@@ -2377,7 +2482,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Amanieu/parking_lot",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[165]
+        "licenseText": T[77] + SEP + T[173]
     },
     {
         "name": "log",
@@ -2385,7 +2490,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/log",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "lopdf",
@@ -2393,7 +2498,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/J-F-Liu/lopdf",
         "ecosystem": "rust",
-        "licenseText": T[166]
+        "licenseText": T[174]
     },
     {
         "name": "markup5ever",
@@ -2401,7 +2506,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[140]
+        "licenseText": T[77] + SEP + T[148]
     },
     {
         "name": "md-5",
@@ -2409,7 +2514,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/hashes",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[167]
+        "licenseText": T[68] + SEP + T[175]
     },
     {
         "name": "memchr",
@@ -2417,7 +2522,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/memchr",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "mime",
@@ -2425,7 +2530,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/hyperium/mime",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[168]
+        "licenseText": T[77] + SEP + T[176]
     },
     {
         "name": "minisign-verify",
@@ -2433,7 +2538,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/jedisct1/rust-minisign-verify",
         "ecosystem": "rust",
-        "licenseText": T[169]
+        "licenseText": T[177]
     },
     {
         "name": "miniz_oxide",
@@ -2441,7 +2546,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Zlib OR Apache-2.0",
         "repository": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide",
         "ecosystem": "rust",
-        "licenseText": T[170] + SEP + T[7] + SEP + T[171] + SEP + T[172]
+        "licenseText": T[178] + SEP + T[7] + SEP + T[179] + SEP + T[180]
     },
     {
         "name": "mio",
@@ -2449,7 +2554,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/mio",
         "ecosystem": "rust",
-        "licenseText": T[173]
+        "licenseText": T[181]
     },
     {
         "name": "muda",
@@ -2457,7 +2562,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/muda",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[174] + SEP + T[175]
+        "licenseText": T[77] + SEP + T[182] + SEP + T[183]
     },
     {
         "name": "multiversion_no_op",
@@ -2465,7 +2570,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/multiversion_no_op",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[118] + SEP + T[176]
+        "licenseText": T[124] + SEP + T[125] + SEP + T[184]
     },
     {
         "name": "new_debug_unreachable",
@@ -2473,7 +2578,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mbrubeck/rust-debug-unreachable",
         "ecosystem": "rust",
-        "licenseText": T[177]
+        "licenseText": T[185]
     },
     {
         "name": "nom",
@@ -2481,7 +2586,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-bakery/nom",
         "ecosystem": "rust",
-        "licenseText": T[178]
+        "licenseText": T[186]
     },
     {
         "name": "notify",
@@ -2489,7 +2594,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "CC0-1.0",
         "repository": "https://github.com/notify-rs/notify",
         "ecosystem": "rust",
-        "licenseText": T[179]
+        "licenseText": T[187]
     },
     {
         "name": "notify-debouncer-full",
@@ -2497,7 +2602,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/notify-rs/notify",
         "ecosystem": "rust",
-        "licenseText": T[123] + SEP + T[124]
+        "licenseText": T[131] + SEP + T[132]
     },
     {
         "name": "notify-types",
@@ -2505,7 +2610,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/notify-rs/notify",
         "ecosystem": "rust",
-        "licenseText": T[123] + SEP + T[124]
+        "licenseText": T[131] + SEP + T[132]
     },
     {
         "name": "num-conv",
@@ -2513,7 +2618,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jhpratt/num-conv",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[180]
+        "licenseText": T[7] + SEP + T[188]
     },
     {
         "name": "num-traits",
@@ -2521,7 +2626,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-num/num-traits",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "once_cell",
@@ -2529,7 +2634,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/matklad/once_cell",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "open",
@@ -2537,7 +2642,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/Byron/open-rs",
         "ecosystem": "rust",
-        "licenseText": T[181]
+        "licenseText": T[189]
     },
     {
         "name": "option-ext",
@@ -2545,7 +2650,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/soc/option-ext",
         "ecosystem": "rust",
-        "licenseText": T[114]
+        "licenseText": T[121]
     },
     {
         "name": "parking_lot",
@@ -2553,7 +2658,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Amanieu/parking_lot",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[165]
+        "licenseText": T[77] + SEP + T[173]
     },
     {
         "name": "parking_lot_core",
@@ -2561,7 +2666,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Amanieu/parking_lot",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[165]
+        "licenseText": T[77] + SEP + T[173]
     },
     {
         "name": "pathfinder_geometry",
@@ -2569,7 +2674,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/servo/pathfinder",
         "ecosystem": "rust",
-        "licenseText": T[182] + SEP + T[12] + SEP + T[13]
+        "licenseText": T[190] + SEP + T[12] + SEP + T[13]
     },
     {
         "name": "pathfinder_simd",
@@ -2577,7 +2682,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/pathfinder",
         "ecosystem": "rust",
-        "licenseText": T[183] + SEP + T[12] + SEP + T[13]
+        "licenseText": T[191] + SEP + T[12] + SEP + T[13]
     },
     {
         "name": "percent-encoding",
@@ -2585,7 +2690,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url/",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[153]
+        "licenseText": T[77] + SEP + T[161]
     },
     {
         "name": "phf",
@@ -2593,7 +2698,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[184]
+        "licenseText": T[192]
     },
     {
         "name": "phf_generator",
@@ -2601,7 +2706,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[184]
+        "licenseText": T[192]
     },
     {
         "name": "phf_macros",
@@ -2609,7 +2714,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[184]
+        "licenseText": T[192]
     },
     {
         "name": "phf_shared",
@@ -2617,7 +2722,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rust-phf/rust-phf",
         "ecosystem": "rust",
-        "licenseText": T[184]
+        "licenseText": T[192]
     },
     {
         "name": "pin-project-lite",
@@ -2625,7 +2730,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/taiki-e/pin-project-lite",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[60]
+        "licenseText": T[7] + SEP + T[67]
     },
     {
         "name": "plist",
@@ -2633,7 +2738,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/ebarnard/rust-plist/",
         "ecosystem": "rust",
-        "licenseText": T[185]
+        "licenseText": T[193]
     },
     {
         "name": "png",
@@ -2641,7 +2746,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/image-png",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[186]
+        "licenseText": T[77] + SEP + T[194]
     },
     {
         "name": "potential_utf",
@@ -2649,7 +2754,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "powerfmt",
@@ -2657,7 +2762,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jhpratt/powerfmt",
         "ecosystem": "rust",
-        "licenseText": T[187] + SEP + T[188]
+        "licenseText": T[195] + SEP + T[196]
     },
     {
         "name": "precomputed-hash",
@@ -2665,7 +2770,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/emilio/precomputed-hash",
         "ecosystem": "rust",
-        "licenseText": T[189]
+        "licenseText": T[197]
     },
     {
         "name": "proc-macro2",
@@ -2673,7 +2778,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/proc-macro2",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "quick-xml",
@@ -2681,7 +2786,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tafia/quick-xml",
         "ecosystem": "rust",
-        "licenseText": T[190]
+        "licenseText": T[198]
     },
     {
         "name": "quote",
@@ -2689,7 +2794,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/quote",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "rand",
@@ -2697,7 +2802,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/rand",
         "ecosystem": "rust",
-        "licenseText": T[191] + SEP + T[192] + SEP + T[193]
+        "licenseText": T[199] + SEP + T[200] + SEP + T[201]
     },
     {
         "name": "rand_core",
@@ -2705,7 +2810,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-random/rand_core",
         "ecosystem": "rust",
-        "licenseText": T[194] + SEP + T[195] + SEP + T[196]
+        "licenseText": T[202] + SEP + T[203] + SEP + T[204]
     },
     {
         "name": "rangemap",
@@ -2713,7 +2818,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/jeffparsons/rangemap",
         "ecosystem": "rust",
-        "licenseText": T[197] + SEP + T[198]
+        "licenseText": T[205] + SEP + T[206]
     },
     {
         "name": "raw-window-handle",
@@ -2721,7 +2826,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0 OR Zlib",
         "repository": "https://github.com/rust-windowing/raw-window-handle",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[199] + SEP + T[200]
+        "licenseText": T[7] + SEP + T[207] + SEP + T[208]
     },
     {
         "name": "rayon",
@@ -2729,7 +2834,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rayon-rs/rayon",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[201]
+        "licenseText": T[77] + SEP + T[209]
     },
     {
         "name": "rayon-core",
@@ -2737,7 +2842,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rayon-rs/rayon",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[201]
+        "licenseText": T[77] + SEP + T[209]
     },
     {
         "name": "ref-cast",
@@ -2745,7 +2850,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/ref-cast",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "ref-cast-impl",
@@ -2753,7 +2858,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/ref-cast",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "regex",
@@ -2761,7 +2866,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/regex",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "regex-automata",
@@ -2769,7 +2874,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/regex",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "regex-syntax",
@@ -2777,7 +2882,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/regex",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[75]
+        "licenseText": T[77] + SEP + T[82]
     },
     {
         "name": "reqwest",
@@ -2785,7 +2890,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/seanmonstar/reqwest",
         "ecosystem": "rust",
-        "licenseText": T[202] + SEP + T[203]
+        "licenseText": T[210] + SEP + T[211]
     },
     {
         "name": "rfd",
@@ -2793,7 +2898,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/PolyMeilex/rfd",
         "ecosystem": "rust",
-        "licenseText": T[204]
+        "licenseText": T[212]
     },
     {
         "name": "ring",
@@ -2801,7 +2906,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 AND ISC",
         "repository": "https://github.com/briansmith/ring",
         "ecosystem": "rust",
-        "licenseText": T[205] + SEP + T[206] + SEP + T[207]
+        "licenseText": T[213] + SEP + T[214] + SEP + T[215]
     },
     {
         "name": "rustc-hash",
@@ -2809,7 +2914,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/rust-lang/rustc-hash",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "rustls",
@@ -2817,7 +2922,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR ISC OR MIT",
         "repository": "https://github.com/rustls/rustls",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[147] + SEP + T[148]
+        "licenseText": T[77] + SEP + T[155] + SEP + T[156]
     },
     {
         "name": "rustls-pki-types",
@@ -2825,7 +2930,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rustls/pki-types",
         "ecosystem": "rust",
-        "licenseText": T[208] + SEP + T[209]
+        "licenseText": T[216] + SEP + T[217]
     },
     {
         "name": "rustls-platform-verifier",
@@ -2833,7 +2938,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rustls/rustls-platform-verifier",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[210]
+        "licenseText": T[124] + SEP + T[218]
     },
     {
         "name": "rustls-webpki",
@@ -2841,7 +2946,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "ISC",
         "repository": "https://github.com/rustls/webpki",
         "ecosystem": "rust",
-        "licenseText": T[211]
+        "licenseText": T[219]
     },
     {
         "name": "same-file",
@@ -2849,7 +2954,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense/MIT",
         "repository": "https://github.com/BurntSushi/same-file",
         "ecosystem": "rust",
-        "licenseText": T[212] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[220] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "schemars",
@@ -2857,7 +2962,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/GREsau/schemars",
         "ecosystem": "rust",
-        "licenseText": T[213]
+        "licenseText": T[221]
     },
     {
         "name": "schemars_derive",
@@ -2865,7 +2970,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/GREsau/schemars",
         "ecosystem": "rust",
-        "licenseText": T[213]
+        "licenseText": T[221]
     },
     {
         "name": "scopeguard",
@@ -2873,7 +2978,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/bluss/scopeguard",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[214]
+        "licenseText": T[77] + SEP + T[222]
     },
     {
         "name": "selectors",
@@ -2881,7 +2986,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MPL-2.0",
         "repository": "https://github.com/servo/stylo",
         "ecosystem": "rust",
-        "licenseText": T[215] + SEP + T[114]
+        "licenseText": T[223] + SEP + T[121]
     },
     {
         "name": "semver",
@@ -2889,7 +2994,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/semver",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde",
@@ -2897,7 +3002,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/serde-rs/serde",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde-untagged",
@@ -2905,7 +3010,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/serde-untagged",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde_core",
@@ -2913,7 +3018,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/serde-rs/serde",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde_derive",
@@ -2921,7 +3026,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/serde-rs/serde",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde_derive_internals",
@@ -2929,7 +3034,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/serde-rs/serde",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde_json",
@@ -2937,7 +3042,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/serde-rs/json",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde_repr",
@@ -2945,7 +3050,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/serde-repr",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "serde_spanned",
@@ -2953,7 +3058,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[216] + SEP + T[217]
+        "licenseText": T[224] + SEP + T[225]
     },
     {
         "name": "serde_with",
@@ -2961,7 +3066,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jonasbb/serde_with/",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[116]
+        "licenseText": T[77] + SEP + T[123]
     },
     {
         "name": "serde_with_macros",
@@ -2969,7 +3074,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jonasbb/serde_with/",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[116]
+        "licenseText": T[77] + SEP + T[123]
     },
     {
         "name": "serialize-to-javascript",
@@ -2977,7 +3082,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chippers/serialize-to-javascript",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[218]
+        "licenseText": T[124] + SEP + T[226]
     },
     {
         "name": "serialize-to-javascript-impl",
@@ -2985,7 +3090,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chippers/serialize-to-javascript",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[218]
+        "licenseText": T[124] + SEP + T[226]
     },
     {
         "name": "servo_arc",
@@ -2993,7 +3098,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/stylo",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[60]
+        "licenseText": T[77] + SEP + T[67]
     },
     {
         "name": "sha2",
@@ -3001,7 +3106,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/RustCrypto/hashes",
         "ecosystem": "rust",
-        "licenseText": T[61] + SEP + T[219] + SEP + T[167]
+        "licenseText": T[68] + SEP + T[227] + SEP + T[175]
     },
     {
         "name": "simd-adler32",
@@ -3009,7 +3114,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mcountryman/simd-adler32",
         "ecosystem": "rust",
-        "licenseText": T[220]
+        "licenseText": T[228]
     },
     {
         "name": "simdutf8",
@@ -3017,7 +3122,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rusticstuff/simdutf8",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[152]
+        "licenseText": T[7] + SEP + T[160]
     },
     {
         "name": "siphasher",
@@ -3025,7 +3130,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/jedisct1/rust-siphash",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[221] + SEP + T[222]
+        "licenseText": T[124] + SEP + T[229] + SEP + T[230]
     },
     {
         "name": "slab",
@@ -3033,7 +3138,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/slab",
         "ecosystem": "rust",
-        "licenseText": T[223]
+        "licenseText": T[231]
     },
     {
         "name": "smallvec",
@@ -3041,7 +3146,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-smallvec",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[224]
+        "licenseText": T[77] + SEP + T[232]
     },
     {
         "name": "socket2",
@@ -3049,7 +3154,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-lang/socket2",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[83]
+        "licenseText": T[77] + SEP + T[90]
     },
     {
         "name": "softbuffer",
@@ -3057,7 +3162,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rust-windowing/softbuffer",
         "ecosystem": "rust",
-        "licenseText": T[225] + SEP + T[226]
+        "licenseText": T[233] + SEP + T[234]
     },
     {
         "name": "stable_deref_trait",
@@ -3065,7 +3170,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/storyyeller/stable_deref_trait",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[227]
+        "licenseText": T[77] + SEP + T[235]
     },
     {
         "name": "string_cache",
@@ -3073,7 +3178,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/string-cache",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[228]
+        "licenseText": T[77] + SEP + T[236]
     },
     {
         "name": "stringprep",
@@ -3081,7 +3186,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/sfackler/rust-stringprep",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[229]
+        "licenseText": T[100] + SEP + T[237]
     },
     {
         "name": "strsim",
@@ -3089,7 +3194,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/rapidfuzz/strsim-rs",
         "ecosystem": "rust",
-        "licenseText": T[230]
+        "licenseText": T[238]
     },
     {
         "name": "strum",
@@ -3097,7 +3202,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/Peternator7/strum",
         "ecosystem": "rust",
-        "licenseText": T[231]
+        "licenseText": T[239]
     },
     {
         "name": "strum_macros",
@@ -3105,7 +3210,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/Peternator7/strum",
         "ecosystem": "rust",
-        "licenseText": T[231]
+        "licenseText": T[239]
     },
     {
         "name": "subtle",
@@ -3113,7 +3218,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "BSD-3-Clause",
         "repository": "https://github.com/dalek-cryptography/subtle",
         "ecosystem": "rust",
-        "licenseText": T[232]
+        "licenseText": T[240]
     },
     {
         "name": "syn",
@@ -3121,7 +3226,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/syn",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "sync_wrapper",
@@ -3137,7 +3242,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/mystor/synstructure",
         "ecosystem": "rust",
-        "licenseText": T[233]
+        "licenseText": T[241]
     },
     {
         "name": "tao",
@@ -3145,7 +3250,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0",
         "repository": "https://github.com/tauri-apps/tao",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[234]
+        "licenseText": T[100] + SEP + T[242]
     },
     {
         "name": "tauri",
@@ -3188,6 +3293,14 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "licenseText": T[7] + SEP + T[8] + SEP + T[10]
     },
     {
+        "name": "tauri-plugin-log",
+        "version": "2.10.2",
+        "license": "Apache-2.0 OR MIT",
+        "repository": "https://github.com/tauri-apps/plugins-workspace",
+        "ecosystem": "rust",
+        "licenseText": T[7] + SEP + T[8] + SEP + T[10]
+    },
+    {
         "name": "tauri-plugin-opener",
         "version": "2.7.2",
         "license": "Apache-2.0 OR MIT",
@@ -3201,7 +3314,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/ferreira-tb/tauri-plugin-prevent-default",
         "ecosystem": "rust",
-        "licenseText": T[235]
+        "licenseText": T[243]
     },
     {
         "name": "tauri-plugin-process",
@@ -3217,7 +3330,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/plugins-workspace",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[236] + SEP + T[10]
+        "licenseText": T[7] + SEP + T[244] + SEP + T[10]
     },
     {
         "name": "tauri-plugin-store",
@@ -3265,7 +3378,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/Stebalien/tempfile",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[237]
+        "licenseText": T[77] + SEP + T[245]
     },
     {
         "name": "tendril",
@@ -3273,7 +3386,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[238]
+        "licenseText": T[77] + SEP + T[246]
     },
     {
         "name": "thiserror",
@@ -3281,7 +3394,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/thiserror",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "thiserror-impl",
@@ -3289,7 +3402,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/thiserror",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "time",
@@ -3297,7 +3410,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/time-rs/time",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[239]
+        "licenseText": T[7] + SEP + T[247]
     },
     {
         "name": "time-core",
@@ -3305,7 +3418,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/time-rs/time",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[239]
+        "licenseText": T[7] + SEP + T[247]
     },
     {
         "name": "time-macros",
@@ -3313,7 +3426,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/time-rs/time",
         "ecosystem": "rust",
-        "licenseText": T[7] + SEP + T[239]
+        "licenseText": T[7] + SEP + T[247]
     },
     {
         "name": "tinystr",
@@ -3321,7 +3434,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "tinyvec",
@@ -3329,7 +3442,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Zlib OR Apache-2.0 OR MIT",
         "repository": "https://github.com/Lokathor/tinyvec",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[100] + SEP + T[240]
+        "licenseText": T[124] + SEP + T[107] + SEP + T[248]
     },
     {
         "name": "tokio",
@@ -3337,7 +3450,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tokio",
         "ecosystem": "rust",
-        "licenseText": T[241]
+        "licenseText": T[249]
     },
     {
         "name": "tokio-macros",
@@ -3345,7 +3458,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tokio",
         "ecosystem": "rust",
-        "licenseText": T[242]
+        "licenseText": T[250]
     },
     {
         "name": "tokio-rustls",
@@ -3353,7 +3466,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/rustls/tokio-rustls",
         "ecosystem": "rust",
-        "licenseText": T[243] + SEP + T[244]
+        "licenseText": T[251] + SEP + T[252]
     },
     {
         "name": "tokio-util",
@@ -3361,7 +3474,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tokio",
         "ecosystem": "rust",
-        "licenseText": T[241]
+        "licenseText": T[249]
     },
     {
         "name": "toml",
@@ -3369,7 +3482,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[216] + SEP + T[217]
+        "licenseText": T[224] + SEP + T[225]
     },
     {
         "name": "toml_datetime",
@@ -3377,7 +3490,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[216] + SEP + T[217]
+        "licenseText": T[224] + SEP + T[225]
     },
     {
         "name": "toml_parser",
@@ -3385,7 +3498,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[216] + SEP + T[217]
+        "licenseText": T[224] + SEP + T[225]
     },
     {
         "name": "toml_writer",
@@ -3393,7 +3506,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/toml-rs/toml",
         "ecosystem": "rust",
-        "licenseText": T[216] + SEP + T[217]
+        "licenseText": T[224] + SEP + T[225]
     },
     {
         "name": "tower",
@@ -3401,7 +3514,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower",
         "ecosystem": "rust",
-        "licenseText": T[245]
+        "licenseText": T[253]
     },
     {
         "name": "tower-http",
@@ -3409,7 +3522,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower-http",
         "ecosystem": "rust",
-        "licenseText": T[246]
+        "licenseText": T[254]
     },
     {
         "name": "tower-layer",
@@ -3417,7 +3530,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower",
         "ecosystem": "rust",
-        "licenseText": T[245]
+        "licenseText": T[253]
     },
     {
         "name": "tower-service",
@@ -3425,7 +3538,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tower-rs/tower",
         "ecosystem": "rust",
-        "licenseText": T[245]
+        "licenseText": T[253]
     },
     {
         "name": "tracing",
@@ -3433,7 +3546,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tracing",
         "ecosystem": "rust",
-        "licenseText": T[247]
+        "licenseText": T[255]
     },
     {
         "name": "tracing-attributes",
@@ -3441,7 +3554,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tracing",
         "ecosystem": "rust",
-        "licenseText": T[247]
+        "licenseText": T[255]
     },
     {
         "name": "tracing-core",
@@ -3449,7 +3562,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/tokio-rs/tracing",
         "ecosystem": "rust",
-        "licenseText": T[247]
+        "licenseText": T[255]
+    },
+    {
+        "name": "trash",
+        "version": "5.3.0",
+        "license": "MIT",
+        "repository": "https://github.com/ArturKovacs/trash",
+        "ecosystem": "rust",
+        "licenseText": T[256]
     },
     {
         "name": "tray-icon",
@@ -3457,7 +3578,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/tauri-apps/tray-icon",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[174] + SEP + T[248]
+        "licenseText": T[77] + SEP + T[182] + SEP + T[257]
     },
     {
         "name": "try-lock",
@@ -3465,7 +3586,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/seanmonstar/try-lock",
         "ecosystem": "rust",
-        "licenseText": T[249]
+        "licenseText": T[258]
     },
     {
         "name": "typed-path",
@@ -3473,7 +3594,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/chipsenkbeil/typed-path",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "typeid",
@@ -3481,7 +3602,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/dtolnay/typeid",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60]
+        "licenseText": T[76] + SEP + T[67]
     },
     {
         "name": "typenum",
@@ -3489,7 +3610,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/paholg/typenum",
         "ecosystem": "rust",
-        "licenseText": T[250] + SEP + T[251] + SEP + T[252]
+        "licenseText": T[259] + SEP + T[260] + SEP + T[261]
     },
     {
         "name": "unicode-bidi",
@@ -3497,7 +3618,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/unicode-bidi",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[138] + SEP + T[253]
+        "licenseText": T[77] + SEP + T[146] + SEP + T[262]
     },
     {
         "name": "unicode-ident",
@@ -3505,7 +3626,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/dtolnay/unicode-ident",
         "ecosystem": "rust",
-        "licenseText": T[69] + SEP + T[60] + SEP + T[254]
+        "licenseText": T[76] + SEP + T[67] + SEP + T[263]
     },
     {
         "name": "unicode-normalization",
@@ -3513,7 +3634,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/unicode-rs/unicode-normalization",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[138] + SEP + T[254] + SEP + T[255]
+        "licenseText": T[77] + SEP + T[146] + SEP + T[263] + SEP + T[264]
     },
     {
         "name": "unicode-properties",
@@ -3521,7 +3642,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
         "repository": "https://github.com/unicode-rs/unicode-properties",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[138] + SEP + T[256] + SEP + T[255]
+        "licenseText": T[77] + SEP + T[146] + SEP + T[265] + SEP + T[264]
     },
     {
         "name": "unicode-segmentation",
@@ -3529,7 +3650,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/unicode-rs/unicode-segmentation",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[138] + SEP + T[255]
+        "licenseText": T[77] + SEP + T[146] + SEP + T[264]
     },
     {
         "name": "untrusted",
@@ -3537,7 +3658,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "ISC",
         "repository": "https://github.com/briansmith/untrusted",
         "ecosystem": "rust",
-        "licenseText": T[257]
+        "licenseText": T[266]
     },
     {
         "name": "url",
@@ -3545,7 +3666,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/rust-url",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[153]
+        "licenseText": T[77] + SEP + T[161]
     },
     {
         "name": "urlpattern",
@@ -3553,7 +3674,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/denoland/rust-urlpattern",
         "ecosystem": "rust",
-        "licenseText": T[258]
+        "licenseText": T[267]
     },
     {
         "name": "utf8_iter",
@@ -3561,7 +3682,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/utf8_iter",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[118] + SEP + T[259]
+        "licenseText": T[124] + SEP + T[125] + SEP + T[268]
     },
     {
         "name": "utf_types",
@@ -3569,7 +3690,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/hsivonen/utf_types",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[118] + SEP + T[260]
+        "licenseText": T[124] + SEP + T[125] + SEP + T[269]
     },
     {
         "name": "uuid",
@@ -3577,7 +3698,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/uuid-rs/uuid",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[261]
+        "licenseText": T[77] + SEP + T[270]
     },
     {
         "name": "walkdir",
@@ -3585,7 +3706,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense/MIT",
         "repository": "https://github.com/BurntSushi/walkdir",
         "ecosystem": "rust",
-        "licenseText": T[63] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[70] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "want",
@@ -3593,7 +3714,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/seanmonstar/want",
         "ecosystem": "rust",
-        "licenseText": T[262]
+        "licenseText": T[271]
     },
     {
         "name": "web-time",
@@ -3601,7 +3722,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/daxpedda/web-time",
         "ecosystem": "rust",
-        "licenseText": T[263] + SEP + T[264]
+        "licenseText": T[272] + SEP + T[273]
     },
     {
         "name": "web_atoms",
@@ -3609,7 +3730,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/servo/html5ever",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[140]
+        "licenseText": T[77] + SEP + T[148]
     },
     {
         "name": "webview2-com",
@@ -3617,7 +3738,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[265] + SEP + T[12]
+        "licenseText": T[274] + SEP + T[12]
     },
     {
         "name": "webview2-com-macros",
@@ -3625,7 +3746,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[266] + SEP + T[12]
+        "licenseText": T[275] + SEP + T[12]
     },
     {
         "name": "webview2-com-sys",
@@ -3633,7 +3754,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wravery/webview2-rs",
         "ecosystem": "rust",
-        "licenseText": T[267] + SEP + T[12]
+        "licenseText": T[276] + SEP + T[12]
     },
     {
         "name": "weezl",
@@ -3641,7 +3762,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/image-rs/weezl",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[268]
+        "licenseText": T[77] + SEP + T[277]
     },
     {
         "name": "winapi",
@@ -3649,7 +3770,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/retep998/winapi-rs",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[269]
+        "licenseText": T[100] + SEP + T[278]
     },
     {
         "name": "winapi-util",
@@ -3657,7 +3778,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unlicense OR MIT",
         "repository": "https://github.com/BurntSushi/winapi-util",
         "ecosystem": "rust",
-        "licenseText": T[212] + SEP + T[64] + SEP + T[65]
+        "licenseText": T[220] + SEP + T[71] + SEP + T[72]
     },
     {
         "name": "window-vibrancy",
@@ -3665,7 +3786,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/tauri-plugin-vibrancy",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[270] + SEP + T[271]
+        "licenseText": T[77] + SEP + T[279] + SEP + T[280]
     },
     {
         "name": "windows",
@@ -3673,7 +3794,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-collections",
@@ -3681,7 +3802,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-core",
@@ -3689,7 +3810,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-future",
@@ -3697,7 +3818,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-implement",
@@ -3705,7 +3826,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-interface",
@@ -3713,7 +3834,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-link",
@@ -3721,7 +3842,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-numerics",
@@ -3729,7 +3850,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-registry",
@@ -3737,7 +3858,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-result",
@@ -3745,7 +3866,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-strings",
@@ -3753,23 +3874,23 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-sys",
-        "version": "0.60.2, 0.61.2",
+        "version": "0.52.0, 0.60.2, 0.61.2",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-targets",
-        "version": "0.53.5",
+        "version": "0.52.6, 0.53.5",
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-threading",
@@ -3777,7 +3898,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows-version",
@@ -3785,7 +3906,15 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
+    },
+    {
+        "name": "windows_aarch64_msvc",
+        "version": "0.52.6, 0.53.1",
+        "license": "MIT OR Apache-2.0",
+        "repository": "https://github.com/microsoft/windows-rs",
+        "ecosystem": "rust",
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "windows_x86_64_msvc",
@@ -3793,7 +3922,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT OR Apache-2.0",
         "repository": "https://github.com/microsoft/windows-rs",
         "ecosystem": "rust",
-        "licenseText": T[272] + SEP + T[273]
+        "licenseText": T[281] + SEP + T[282]
     },
     {
         "name": "winnow",
@@ -3801,7 +3930,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/winnow-rs/winnow",
         "ecosystem": "rust",
-        "licenseText": T[274]
+        "licenseText": T[283]
     },
     {
         "name": "wio",
@@ -3809,7 +3938,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT/Apache-2.0",
         "repository": "https://github.com/retep998/wio-rs",
         "ecosystem": "rust",
-        "licenseText": T[93] + SEP + T[275]
+        "licenseText": T[100] + SEP + T[284]
     },
     {
         "name": "writeable",
@@ -3817,7 +3946,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "wry",
@@ -3825,7 +3954,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/tauri-apps/wry",
         "ecosystem": "rust",
-        "licenseText": T[70] + SEP + T[276] + SEP + T[277]
+        "licenseText": T[77] + SEP + T[285] + SEP + T[286]
     },
     {
         "name": "yoke",
@@ -3833,7 +3962,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "yoke-derive",
@@ -3841,7 +3970,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "zerofrom",
@@ -3849,7 +3978,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "zerofrom-derive",
@@ -3857,7 +3986,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "zeroize",
@@ -3865,7 +3994,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Apache-2.0 OR MIT",
         "repository": "https://github.com/RustCrypto/utils",
         "ecosystem": "rust",
-        "licenseText": T[117] + SEP + T[278]
+        "licenseText": T[124] + SEP + T[287]
     },
     {
         "name": "zerotrie",
@@ -3873,7 +4002,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "zerovec",
@@ -3881,7 +4010,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "zerovec-derive",
@@ -3889,7 +4018,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Unicode-3.0",
         "repository": "https://github.com/unicode-org/icu4x",
         "ecosystem": "rust",
-        "licenseText": T[151]
+        "licenseText": T[159]
     },
     {
         "name": "zip",
@@ -3897,7 +4026,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/zip-rs/zip2",
         "ecosystem": "rust",
-        "licenseText": T[279]
+        "licenseText": T[288]
     },
     {
         "name": "zlib-rs",
@@ -3905,7 +4034,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "Zlib",
         "repository": "https://github.com/trifectatechfoundation/zlib-rs",
         "ecosystem": "rust",
-        "licenseText": T[280]
+        "licenseText": T[289]
     },
     {
         "name": "zmij",
@@ -3913,6 +4042,6 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/dtolnay/zmij",
         "ecosystem": "rust",
-        "licenseText": T[60]
+        "licenseText": T[67]
     }
 ]

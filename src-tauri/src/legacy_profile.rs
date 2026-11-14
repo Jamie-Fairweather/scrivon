@@ -70,7 +70,7 @@ fn migrate_folders(folders: &Folders, settings_retry: Duration) {
     let new_store = folders.new_roaming.join(STORE_FILE);
     if old_store.is_file() && !new_store.exists() {
         if let Err(err) = copy_into_place(&old_store, &new_store, copy_file) {
-            eprintln!("Could not copy the recent folders from {OLD_IDENTIFIER}: {err}");
+            log::warn!("Could not copy the recent folders from {OLD_IDENTIFIER}: {err}");
             copied_all = false;
         }
     }
@@ -82,7 +82,7 @@ fn migrate_folders(folders: &Folders, settings_retry: Duration) {
             copy_into_place(&old_storage, &new_storage, copy_dir)
         });
         if let Err(err) = copied {
-            eprintln!("Could not copy the settings from {OLD_IDENTIFIER}: {err}");
+            log::warn!("Could not copy the settings from {OLD_IDENTIFIER}: {err}");
             copied_all = false;
         }
     }
@@ -95,7 +95,7 @@ fn migrate_folders(folders: &Folders, settings_retry: Duration) {
         if let Err(err) =
             fs::create_dir_all(&folders.new_roaming).and_then(|()| fs::write(&marker, b""))
         {
-            eprintln!("Could not note that the old settings were copied: {err}");
+            log::warn!("Could not note that the old settings were copied: {err}");
         }
     }
 }

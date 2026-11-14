@@ -1,20 +1,26 @@
 'use client'
 
-import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Copy, FolderInput, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, type RefObject } from 'react'
-import { useFileTreeActions, useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
+import { NewItemMenuItems } from '@/components/studio/explorer/new-item-menu-items'
+import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
+import { useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { openFile, duplicateFile } = useWorkspaceSession()
-    const { renameWithPrompt, deleteWithConfirm } = useRowEntryActions()
-    const parentPath = node.kind === 'directory' ? node.path : null
-    const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
+    const { renameWithPrompt, deleteWithConfirm, moveWithPicker } = useRowEntryActions()
+    const moveTo = (
+        <MenuItem onClick={() => void moveWithPicker(node)}>
+            <FolderInput />
+            Move to…
+        </MenuItem>
+    )
 
     if (node.kind === 'file') {
         return (
@@ -30,6 +36,10 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                     <Copy />
                     Duplicate
                 </MenuItem>
+                {moveTo}
+                <MenuSeparator />
+                <PathMenuItems path={node.path} />
+                <MenuSeparator />
                 <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                     <Trash2 />
                     Delete
@@ -40,22 +50,15 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
 
     return (
         <>
-            <MenuItem onClick={() => void createMermaidFileInParent()}>
-                <Plus />
-                New Diagram (.mmd)
-            </MenuItem>
-            <MenuItem onClick={() => void createMarkdownFileInParent()}>
-                <Plus />
-                New Document (.md)
-            </MenuItem>
-            <MenuItem onClick={() => void createFolderInParent()}>
-                <Plus />
-                New Folder
-            </MenuItem>
+            <NewItemMenuItems folder={node.path} />
             <MenuItem onClick={() => void renameWithPrompt(node)}>
                 <Pencil />
                 Rename
             </MenuItem>
+            {moveTo}
+            <MenuSeparator />
+            <PathMenuItems path={node.path} />
+            <MenuSeparator />
             <MenuItem variant="destructive" onClick={() => void deleteWithConfirm(node)}>
                 <Trash2 />
                 Delete

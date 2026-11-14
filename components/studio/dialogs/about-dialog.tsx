@@ -1,34 +1,22 @@
 'use client'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { APP_AFFILIATION, APP_COPYRIGHT, APP_NAME, APP_REPO_URL, APP_TAGLINE } from '@/lib/app-branding'
 import { APP_VERSION } from '@/lib/legal/app-version'
-import { notifyError, notifySuccess } from '@/lib/notify'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
+import { isPrereleaseVersion } from '@/lib/updater/version'
 
 type AboutDialogProps = {
     open: boolean
     onOpenChange: (open: boolean) => void
     onOpenLicenses: () => void
+    /** The same as Help > Copy Diagnostic Info. */
+    onCopyDiagnosticInfo: () => void
 }
 
-/** App name, version and platform, for pasting into bug reports. */
-function versionInfo(): string {
-    const platform = typeof navigator === 'undefined' ? '' : navigator.userAgent
-    return [`${APP_NAME} ${APP_VERSION}`, platform].filter(Boolean).join('\n')
-}
-
-async function copyVersionInfo() {
-    try {
-        await navigator.clipboard.writeText(versionInfo())
-        notifySuccess('Version info copied')
-    } catch (error) {
-        notifyError("Couldn't copy version info", error)
-    }
-}
-
-export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogProps) {
+export function AboutDialog({ open, onOpenChange, onOpenLicenses, onCopyDiagnosticInfo }: AboutDialogProps) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogPopup className="max-w-md">
@@ -36,7 +24,14 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogP
                     <DialogTitle>About {APP_NAME}</DialogTitle>
                     <DialogDescription>
                         {APP_TAGLINE}
-                        <span className="mt-1 block text-muted-foreground">Version {APP_VERSION}</span>
+                        <span className="mt-1 flex items-center gap-2 text-muted-foreground">
+                            Version {APP_VERSION}
+                            {isPrereleaseVersion(APP_VERSION) ? (
+                                <Badge variant="warning" size="sm">
+                                    Pre-release
+                                </Badge>
+                            ) : null}
+                        </span>
                     </DialogDescription>
                 </DialogHeader>
                 <DialogPanel className="space-y-3 pt-0">
@@ -62,8 +57,8 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogP
                     <p className="text-xs text-muted-foreground">{APP_COPYRIGHT}</p>
                 </DialogPanel>
                 <DialogFooter variant="bare">
-                    <Button type="button" variant="ghost" onClick={() => void copyVersionInfo()}>
-                        Copy version info
+                    <Button type="button" variant="ghost" onClick={onCopyDiagnosticInfo}>
+                        Copy diagnostic info
                     </Button>
                     <Button
                         type="button"

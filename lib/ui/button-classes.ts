@@ -6,7 +6,7 @@
 export const toggleButtonClassName = 'hover:bg-accent/50 aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:hover:bg-accent'
 
 /**
- * For an outline Button that floats over a diagram. The outline variant's fill is see-through in dark themes, so
- * the diagram would show through it; this keeps it solid, with a shadow to lift it off the picture.
+ * For an outline Button that floats over a diagram or code block. The outline variant's fill is see-through in dark
+ * themes, so what's under it would show through; this keeps it solid, with a shadow to lift it off.
  */
 export const overlayButtonClassName = 'shadow-sm dark:bg-popover'

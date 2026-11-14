@@ -84,6 +84,7 @@ export function createDefaultPdfExportProfile(overrides: Partial<Pick<PdfExportP
             ignoreMargins: false,
             hideOnFirstPages: 'title',
             pageNumbers: 'none',
+            numberFromBody: false,
         },
         flow: {
             newPageFromHeading: 0,

@@ -3,6 +3,8 @@ import { isSupportedDocument, supportedExtensionsLabel } from '@/lib/workspace/f
 import type { FileNode } from '@/lib/workspace/types'
 
 const INVALID_CHARS = /[<>:"|?*\x00-\x1f]/
+/** Runs of characters a name can't hold: the invalid ones plus the path separators. */
+const UNSAFE_CHARS = new RegExp(`(?:${INVALID_CHARS.source}|[/\\\\])+`, 'g')
 /** Device names Windows won't use for a file or folder, with or without an extension (`con`, `nul.md`). */
 const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i
 const MAX_NAME_LENGTH = 255
@@ -20,6 +22,22 @@ export function validateFileName(name: string): string | null {
     if (WINDOWS_RESERVED_NAME.test(stem)) return `"${stem}" is a reserved name on Windows`
     if (trimmed.length > MAX_NAME_LENGTH) return `Name is too long (${MAX_NAME_LENGTH} characters at most)`
     return null
+}
+
+/**
+ * Turns a title or tab name into a file name (without extension) Windows accepts: 'CI/CD Pipeline' ->
+ * 'CI-CD Pipeline', 'Inheritance (<|--)' -> 'Inheritance (-)', 'CON' -> 'CON_'. `fallback` when nothing is left.
+ */
+export function safeFileStem(name: string, fallback: string): string {
+    const stem = name
+        .replace(UNSAFE_CHARS, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s.-]+|[\s.-]+$/g, '')
+    if (!stem) return fallback
+    // Windows reserves the part before the first dot ('nul.backup' too), so mark that part.
+    const head = stem.split('.')[0]!
+    return WINDOWS_RESERVED_NAME.test(head.trim()) ? `${head}_${stem.slice(head.length)}` : stem
 }
 
 /**
@@ -43,11 +61,12 @@ export function uniqueFileName(base: string, existing: Iterable<string>): string
 /**
  * A name for a new file or folder that no sibling uses: `diagram.mmd`, then `diagram 2.mmd`, `diagram 3.mmd`…
  * Names are compared ignoring letter case, because Windows treats `Diagram.mmd` and `diagram.mmd` as one file.
+ * A folder's name has no extension, so its number goes at the end (`v1.2 2`).
  */
-export function uniqueNewName(base: string, existing: Iterable<string>): string {
+export function uniqueNewName(base: string, existing: Iterable<string>, kind: FileNode['kind'] = 'file'): string {
     const taken = new Set([...existing].map((name) => name.toLowerCase()))
     if (!taken.has(base.toLowerCase())) return base
-    const dot = base.lastIndexOf('.')
+    const dot = kind === 'directory' ? -1 : base.lastIndexOf('.')
     const stem = dot > 0 ? base.slice(0, dot) : base
     const ext = dot > 0 ? base.slice(dot) : ''
     let i = 2

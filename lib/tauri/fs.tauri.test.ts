@@ -57,6 +57,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 import {
     classifyWatchEvent,
+    copyWorkspaceEntry,
     createWorkspaceDirectory,
     createWorkspaceFile,
     DiskChangedError,
@@ -67,13 +68,15 @@ import {
     joinPath,
     listFolderNames,
     listWorkspaceTree,
+    PartialCopyError,
     PathExistsError,
+    readEntryKind,
     readStamp,
     readWorkspaceFile,
     readWorkspaceTextFile,
-    removeWorkspacePath,
     renameWorkspacePath,
     stampChanged,
+    trashWorkspacePath,
     watchWorkspace,
     writeWorkspaceFile,
 } from './fs'
@@ -292,24 +295,28 @@ describe('workspace fs (Tauri)', () => {
         expect(mkdirMock).not.toHaveBeenCalled()
     })
 
-    it('renames, removes, and duplicates paths', async () => {
+    it('renames and duplicates paths', async () => {
         const bytes = new Uint8Array([0xff, 0xfe, 0x41, 0x00])
         readFileMock.mockResolvedValue(bytes)
         statMock.mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: bytes.length, mtime: null })
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
-        await removeWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
         expect(invokeMock).toHaveBeenCalledWith('rename_workspace_path', { oldPath: '/ws/old.mmd', newPath: '/ws/new.mmd' })
-        expect(removeMock).toHaveBeenCalledWith('/ws/new.mmd', { recursive: false })
         // A byte-for-byte copy that refuses to replace an existing file (copyFile would replace it).
         expect(readFileMock).toHaveBeenCalledWith('/ws/source.mmd')
         expect(writeFileMock).toHaveBeenCalledWith('/ws/copy.mmd', bytes, { createNew: true })
         expect(copyFileMock).not.toHaveBeenCalled()
     })
 
-    it('deletes a folder with everything in it only when asked to', async () => {
-        await removeWorkspacePath('C:\\ws\\docs', { recursive: true })
-        expect(removeMock).toHaveBeenCalledWith('C:\\ws\\docs', { recursive: true })
+    it('deletes by moving to the Recycle Bin through the app, never erasing it outright', async () => {
+        await trashWorkspacePath('C:/ws/docs/')
+        expect(invokeMock).toHaveBeenCalledWith('trash_workspace_path', { path: 'C:\\ws\\docs' })
+        expect(removeMock).not.toHaveBeenCalled()
+    })
+
+    it('passes on why the Recycle Bin would not take it', async () => {
+        invokeMock.mockRejectedValueOnce('It is open in another program. Close it there and try again.')
+        await expect(trashWorkspacePath('C:\\ws\\notes.md')).rejects.toBe('It is open in another program. Close it there and try again.')
     })
 
     it('duplicates unsaved text when given, and never over an existing file', async () => {
@@ -337,6 +344,84 @@ describe('workspace fs (Tauri)', () => {
         existsMock.mockResolvedValue(true)
         await expect(duplicateWorkspaceFile('C:\\ws\\film.mp4', 'C:\\ws\\film copy.mp4')).rejects.toBeInstanceOf(PathExistsError)
         expect(copyFileMock).toHaveBeenCalledTimes(1)
+    })
+
+    describe('copying a file or folder in', () => {
+        const file = { isFile: true, isDirectory: false, isSymlink: false, size: 1, mtime: null }
+        const folder = { isFile: false, isDirectory: true, isSymlink: false, size: 0, mtime: null }
+        const entry = (name: string, kind: 'file' | 'folder' | 'link') => ({
+            name,
+            isFile: kind === 'file',
+            isDirectory: kind === 'folder',
+            isSymlink: kind === 'link',
+        })
+
+        beforeEach(() => {
+            // What stat finds, following links: one link leads to a file, the other back up to the folder itself.
+            const stats: Record<string, object> = {
+                '/in/docs': folder,
+                '/in/docs/a.md': file,
+                '/in/docs/sub': folder,
+                '/in/docs/sub/b.md': file,
+                '/in/docs/to-file': file,
+                '/in/docs/to-folder': folder,
+            }
+            statMock.mockImplementation(async (path: string) => {
+                if (!(path in stats)) throw 'The system cannot find the file specified. (os error 2)'
+                return stats[path]
+            })
+            readDirMock.mockImplementation(async (path: string) => {
+                if (path === '/in/docs') return [entry('a.md', 'file'), entry('sub', 'folder'), entry('to-file', 'link'), entry('to-folder', 'link')]
+                if (path === '/in/docs/sub') return [entry('b.md', 'file')]
+                throw new Error(`not listed: ${path}`)
+            })
+            readFileMock.mockImplementation(async (path: string) => new TextEncoder().encode(path))
+        })
+
+        const written = () => writeFileMock.mock.calls.map(([path]) => path)
+
+        it('copies a folder with everything in it; a link to a file as that file, and never a link to a folder', async () => {
+            await copyWorkspaceEntry('/in/docs', '/ws/docs')
+
+            expect(mkdirMock.mock.calls.map(([path]) => path)).toEqual(['/ws/docs', '/ws/docs/sub'])
+            expect(written()).toEqual(['/ws/docs/a.md', '/ws/docs/sub/b.md', '/ws/docs/to-file'])
+            expect(writeFileMock).toHaveBeenCalledWith('/ws/docs/to-file', new TextEncoder().encode('/in/docs/to-file'), { createNew: true })
+            // Following it would copy the folder into itself, again and again.
+            expect(readDirMock).not.toHaveBeenCalledWith('/in/docs/to-folder')
+        })
+
+        it('copies a single file, and tells a file from a folder', async () => {
+            await copyWorkspaceEntry('/in/docs/a.md', '/ws/a.md')
+            expect(written()).toEqual(['/ws/a.md'])
+            expect(mkdirMock).not.toHaveBeenCalled()
+
+            await expect(readEntryKind('/in/docs')).resolves.toBe('directory')
+            await expect(readEntryKind('/in/docs/to-file')).resolves.toBe('file')
+            await expect(readEntryKind('/in/gone.md')).rejects.toMatch('os error 2')
+        })
+
+        it('says when a folder was copied only in part, and keeps what was copied', async () => {
+            readFileMock.mockImplementation(async (path: string) => {
+                if (path === '/in/docs/sub/b.md') throw 'The process cannot access the file. (os error 32)'
+                return new TextEncoder().encode(path)
+            })
+
+            const failure = await copyWorkspaceEntry('/in/docs', '/ws/docs').catch((err: unknown) => err)
+
+            expect(failure).toBeInstanceOf(PartialCopyError)
+            // The folder dropped, not the one inside it where the copy stopped.
+            expect(failure).toMatchObject({ path: '/ws/docs', cause: 'The process cannot access the file. (os error 32)' })
+            expect((failure as Error).message).toBe('The process cannot access the file. (os error 32)')
+            expect(written()).toEqual(['/ws/docs/a.md'])
+        })
+
+        it('copies nothing over a file or folder already there', async () => {
+            existsMock.mockResolvedValue(true)
+            await expect(copyWorkspaceEntry('/in/docs', '/ws/docs')).rejects.toBeInstanceOf(PathExistsError)
+            await expect(copyWorkspaceEntry('/in/docs/a.md', '/ws/a.md')).rejects.toBeInstanceOf(PathExistsError)
+            expect(mkdirMock).not.toHaveBeenCalled()
+            expect(writeFileMock).not.toHaveBeenCalled()
+        })
     })
 
     it('lists the names in a folder straight from disk', async () => {
@@ -716,8 +801,10 @@ describe('workspace fs (Tauri)', () => {
         await createWorkspaceDirectory('/ws/docs')
         await createWorkspaceFile('/ws/docs/readme.md', '# Hello')
         await renameWorkspacePath('/ws/old.mmd', '/ws/new.mmd')
-        await removeWorkspacePath('/ws/new.mmd')
+        await trashWorkspacePath('/ws/new.mmd')
         await duplicateWorkspaceFile('/ws/source.mmd', '/ws/copy.mmd')
+        await copyWorkspaceEntry('/in/docs', '/ws/docs')
+        await expect(readEntryKind('/in/docs')).resolves.toBe('file')
         await expect(listFolderNames('/ws')).resolves.toEqual([])
         expect(writeTextFileMock).not.toHaveBeenCalled()
         expect(writeFileMock).not.toHaveBeenCalled()

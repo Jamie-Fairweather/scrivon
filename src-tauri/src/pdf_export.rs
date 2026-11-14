@@ -10,6 +10,7 @@ use tauri_plugin_fs::FsExt;
 use crate::page_numbers::Stamped;
 
 mod export_image_access;
+pub mod preview;
 
 /// Print-engine settings that accompany the export HTML. Mirrors
 /// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
@@ -33,6 +34,21 @@ pub struct PdfPrintOptions {
     pub author: String,
     #[serde(default)]
     pub subject: String,
+    /// Every heading in order, for the PDF's bookmarks. The export marks the
+    /// heading at index `i` with `SFH` and `i + 1` in four digits.
+    #[serde(default)]
+    pub headings: Vec<PdfHeading>,
+    /// Page 1 is the first body page: the title and contents pages get no number.
+    #[serde(default)]
+    pub number_from_body: bool,
+}
+
+/// One heading of the exported document, for its bookmark.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PdfHeading {
+    /// 1 for H1 up to 6 for H6.
+    pub level: u8,
+    pub text: String,
 }
 
 /// How long to wait for the export page's images and web fonts before
@@ -181,6 +197,8 @@ async fn export_html_to_pdf_impl(
         ),
     )
     .visible(false)
+    // A preview prints while the user types in the export dialog: don't take the keyboard.
+    .focused(false)
     .inner_size(794.0, 1123.0)
     .build()
     .map_err(|e| e.to_string())?;
@@ -204,7 +222,7 @@ async fn export_html_to_pdf_impl(
     .await;
     match readiness {
         PageReadiness::Ready => {}
-        PageReadiness::TimedOut => eprintln!(
+        PageReadiness::TimedOut => log::warn!(
             "PDF export: the page wasn't ready after {READY_TIMEOUT:?}; printing it anyway."
         ),
         // Printing now would replace the chosen file with a blank page.
@@ -379,7 +397,7 @@ fn place_printed_pdf(
     if !numbered {
         if let Err(err) = std::fs::rename(printed, output) {
             let _ = std::fs::remove_file(printed);
-            eprintln!("Could not move the printed PDF into place: {err}");
+            log::error!("Could not move the printed PDF into place: {err}");
             return Err(could_not_save_message(&output.to_string_lossy()));
         }
     }
@@ -527,9 +545,9 @@ pub async fn export_html_to_pdf(
     export_html_to_pdf_impl(app, html, output_path, options).await
 }
 
-const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+pub(crate) const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 /// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
-const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
+pub(crate) const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
 /// The image type for an export image path, or `None` for anything else.
 fn mime_from_path(path: &str) -> Option<&'static str> {
@@ -551,7 +569,7 @@ fn mime_from_path(path: &str) -> Option<&'static str> {
 
 /// True when the file's first bytes match its image type, so a renamed text
 /// file (a key, a config file) is never handed back.
-fn content_matches(mime: &str, bytes: &[u8]) -> bool {
+pub(crate) fn content_matches(mime: &str, bytes: &[u8]) -> bool {
     match mime {
         "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
         "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
@@ -628,8 +646,84 @@ pub async fn adopt_export_images(
         .map_err(|_| "Could not take on the profile images.".to_string())
 }
 
+/// Where images that came embedded in an imported export profile are kept,
+/// inside the app's data folder.
+const PROFILE_IMAGES_DIR: &str = "profile-images";
+/// The image types an imported profile may embed, and the extension each is saved with.
+const EMBEDDED_IMAGE_TYPES: [(&str, &str); 5] = [
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/gif", "gif"),
+    ("image/webp", "webp"),
+    ("image/svg+xml", "svg"),
+];
+
+/// Saves an image that came embedded in an imported export profile (a
+/// `data:` URL) as a file in the app's data folder, and lets the export read
+/// it. Returns its path, which the profile then names. Images stay out of the
+/// saved settings that way, as web storage only holds a few MB.
+#[tauri::command]
+pub async fn save_profile_image(app: tauri::AppHandle, data_url: String) -> Result<String, String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|err| err.to_string())?
+            .join(PROFILE_IMAGES_DIR);
+        save_embedded_image(export_image_access::access(&app), &dir, &data_url)
+    })
+    .await
+    .map_err(|_| "Could not save the image.".to_string())?
+}
+
+/// `save_profile_image` without the app: writes the image into `dir` under a
+/// new name, and records it as one the export may read.
+fn save_embedded_image(
+    access: &export_image_access::ExportImageAccess,
+    dir: &Path,
+    data_url: &str,
+) -> Result<String, String> {
+    let (extension, bytes) = decode_embedded_image(data_url)?;
+    let could_not_save = |err: std::io::Error| format!("Could not save the image: {err}");
+    std::fs::create_dir_all(dir).map_err(could_not_save)?;
+    let path = dir.join(format!("{}.{extension}", uuid::Uuid::new_v4()));
+    std::fs::write(&path, bytes).map_err(could_not_save)?;
+    let path = path.to_string_lossy().into_owned();
+    access.remember_saved(&path);
+    Ok(path)
+}
+
+/// The extension and bytes of a `data:<type>;base64,<data>` image, checked
+/// the way `read_image_as_data_url` checks a file.
+fn decode_embedded_image(data_url: &str) -> Result<(&'static str, Vec<u8>), String> {
+    let (mime, data) = data_url
+        .trim()
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(";base64,"))
+        .ok_or("This image isn't embedded in the file.")?;
+    let (mime, extension) = EMBEDDED_IMAGE_TYPES
+        .into_iter()
+        .find(|(known, _)| known.eq_ignore_ascii_case(mime))
+        .ok_or("Only PNG, JPEG, GIF, WebP and SVG images can be used.")?;
+    // Checked before decoding, so a huge one isn't decoded first.
+    if data.len() > MAX_EXPORT_IMAGE_BYTES.div_ceil(3) * 4 {
+        return Err(IMAGE_TOO_LARGE.into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|_| "This image is damaged.")?;
+    if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
+        return Err(IMAGE_TOO_LARGE.into());
+    }
+    if !content_matches(mime, &bytes) {
+        return Err("This file isn't a valid image.".into());
+    }
+    Ok((extension, bytes))
+}
+
 /// The image type of an export image path, or why it can't be one.
-fn export_image_mime(path: &str) -> Result<&'static str, String> {
+pub(crate) fn export_image_mime(path: &str) -> Result<&'static str, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("Image path is empty.".into());
@@ -639,17 +733,23 @@ fn export_image_mime(path: &str) -> Result<&'static str, String> {
 }
 
 fn read_image_as_data_url(path: &str) -> Result<String, String> {
+    read_image_data_url(path, IMAGE_TOO_LARGE)
+}
+
+/// Reads a real image file (PNG, JPEG, GIF, WebP or SVG, checked by its first
+/// bytes) as a data URL. An image over MAX_EXPORT_IMAGE_BYTES gets `too_large`.
+pub(crate) fn read_image_data_url(path: &str, too_large: &str) -> Result<String, String> {
     let path = path.trim();
     let mime = export_image_mime(path)?;
     let size = std::fs::metadata(path)
         .map_err(|e| format!("Could not read image: {e}"))?
         .len();
     if size > MAX_EXPORT_IMAGE_BYTES as u64 {
-        return Err(IMAGE_TOO_LARGE.into());
+        return Err(too_large.into());
     }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read image: {e}"))?;
     if bytes.len() > MAX_EXPORT_IMAGE_BYTES {
-        return Err(IMAGE_TOO_LARGE.into());
+        return Err(too_large.into());
     }
     if !content_matches(mime, &bytes) {
         return Err("This file isn't a valid image.".into());
@@ -670,8 +770,8 @@ mod tests {
     use super::{
         check_output_path, check_output_writable, could_not_save_message, finish_export,
         mime_from_path, place_printed_pdf, read_chosen_image, read_image_as_data_url,
-        save_printed_pdf, temp_sibling, wait_until_ready, PageReadiness, PdfPrintOptions,
-        MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
+        save_embedded_image, save_printed_pdf, temp_sibling, wait_until_ready, PageReadiness,
+        PdfPrintOptions, MAX_EXPORT_IMAGE_BYTES, MAX_REWRITES,
     };
 
     #[test]
@@ -697,6 +797,18 @@ mod tests {
         .unwrap();
         assert_eq!(with_properties.author, "Ada");
         assert_eq!(with_properties.subject, "Q3");
+        // Older callers send no headings and number every page.
+        assert!(with_properties.headings.is_empty());
+        assert!(!with_properties.number_from_body);
+
+        let with_headings: PdfPrintOptions = serde_json::from_str(
+            r##"{"pageWidthMm":210,"pageHeightMm":297,"landscape":false,"marginTopMm":10,"marginRightMm":10,"marginBottomMm":10,"marginLeftMm":10,"pageNumberFormat":"number","pageNumberColor":"","headings":[{"level":2,"text":"Résumé"}],"numberFromBody":true}"##,
+        )
+        .unwrap();
+        assert_eq!(with_headings.headings.len(), 1);
+        assert_eq!(with_headings.headings[0].level, 2);
+        assert_eq!(with_headings.headings[0].text, "Résumé");
+        assert!(with_headings.number_from_body);
     }
 
     #[test]
@@ -788,6 +900,60 @@ mod tests {
         let _ = std::fs::remove_file(&photo);
         assert_eq!(unchosen.unwrap_err(), NOT_CHOSEN);
         assert_eq!(chosen.unwrap(), "data:image/png;base64,iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn an_imported_profile_image_is_saved_and_can_be_exported() {
+        let access = ExportImageAccess::default();
+        let dir =
+            std::env::temp_dir().join(format!("scrivon-{}-profile-images", uuid::Uuid::new_v4()));
+
+        let saved = save_embedded_image(&access, &dir, "data:image/png;base64,iVBORw0KGgo=");
+        let svg = save_embedded_image(&access, &dir, "data:image/svg+xml;base64,PHN2Zy8+");
+        // The user never chose it with Browse, but the export may read it.
+        let exported = saved
+            .clone()
+            .and_then(|path| read_chosen_image(&access, &path, |_| false));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let saved = saved.unwrap();
+        assert!(saved.starts_with(&*dir.to_string_lossy()));
+        assert!(saved.ends_with(".png"));
+        assert!(svg.unwrap().ends_with(".svg"));
+        assert_eq!(exported.unwrap(), "data:image/png;base64,iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn an_imported_profile_image_must_be_a_real_image() {
+        let access = ExportImageAccess::default();
+        let dir =
+            std::env::temp_dir().join(format!("scrivon-{}-profile-images", uuid::Uuid::new_v4()));
+        let save = |data_url: &str| save_embedded_image(&access, &dir, data_url);
+
+        let not_embedded = save(r"C:\Users\me\logo.png").unwrap_err();
+        let other_type = save("data:text/html;base64,PGI+").unwrap_err();
+        let damaged = save("data:image/png;base64,%%%").unwrap_err();
+        let renamed = save("data:image/png;base64,LS0tLS1CRUdJTg==").unwrap_err();
+        let huge = format!(
+            "data:image/png;base64,{}",
+            "A".repeat(MAX_EXPORT_IMAGE_BYTES / 3 * 4 + 8)
+        );
+        let too_large = save(&huge).unwrap_err();
+        let made_folder = dir.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(not_embedded, "This image isn't embedded in the file.");
+        assert_eq!(
+            other_type,
+            "Only PNG, JPEG, GIF, WebP and SVG images can be used."
+        );
+        assert_eq!(damaged, "This image is damaged.");
+        assert_eq!(renamed, "This file isn't a valid image.");
+        assert_eq!(
+            too_large,
+            "Image is too large to embed in the export (limit 12 MB)."
+        );
+        assert!(!made_folder);
     }
 
     #[test]
@@ -955,6 +1121,8 @@ mod tests {
             page_number_color: String::new(),
             author: String::new(),
             subject: String::new(),
+            headings: Vec::new(),
+            number_from_body: false,
         }
     }
 

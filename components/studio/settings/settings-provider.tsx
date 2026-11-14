@@ -1,16 +1,19 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isSettingsSection } from '@/components/studio/settings/settings-nav'
 import { notifyWarning } from '@/lib/notify'
 import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { chordsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
-import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { canShareKeys, getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { adoptExportImages } from '@/lib/tauri/export-image-access'
+import type { AppThemeId } from '@/lib/theme/catalog'
+import { systemPrefersDark, withFollowSystem, withSystemTheme } from '@/lib/theme/system-theme'
 
 /** Why a shortcut change was refused. */
 export type KeybindRefusal = {
@@ -21,6 +24,27 @@ export type KeybindRefusal = {
 
 export type SettingsSection = 'general' | 'appearance' | 'editor' | 'pdf-export' | 'keyboard' | 'advanced'
 
+/** Where the section Settings last showed is kept, so it opens there again after a restart. Not a setting, so not reset or exported. */
+export const SETTINGS_SECTION_STORAGE_KEY = 'scrivon-settings-section'
+
+function loadLastSection(): SettingsSection {
+    try {
+        const saved = localStorage.getItem(SETTINGS_SECTION_STORAGE_KEY)
+        if (saved && isSettingsSection(saved)) return saved
+    } catch {
+        // storage blocked
+    }
+    return 'general'
+}
+
+function saveLastSection(section: SettingsSection): void {
+    try {
+        localStorage.setItem(SETTINGS_SECTION_STORAGE_KEY, section)
+    } catch {
+        // storage blocked or full; it only matters until the app closes
+    }
+}
+
 type AppSettingsContextValue = {
     settings: AppSettings
     settingsOpen: boolean
@@ -29,11 +53,15 @@ type AppSettingsContextValue = {
     openSettings: (section?: SettingsSection) => void
     closeSettings: () => void
     updateSettings: (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => void
-    setThemeId: (id: AppSettings['theme']['id']) => void
+    /** Uses this theme all the time (leaves System mode). */
+    setThemeId: (id: AppThemeId) => void
+    /** Turns following the Windows light/dark setting on or off. On keeps the current theme as the pick for its kind; off keeps the theme on screen. */
+    setFollowSystem: (on: boolean) => void
+    /** Sets the theme System mode uses when Windows is light (a light theme) or dark (a dark theme). */
+    setSystemThemeId: (id: AppThemeId) => void
     setAutosaveEnabled: (enabled: boolean) => void
     setAutosaveDelayMs: (delayMs: number) => void
     setLayoutExplorerOpen: (open: boolean) => void
-    setLayoutEditorOpen: (open: boolean) => void
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
     setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
@@ -58,10 +86,10 @@ const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {
     reset: 'Most settings were reset to their defaults. Your theme and layout were kept.',
 }
 
-/** Why one of these chords can't be an app shortcut at all, whatever else uses it. */
-function describeUnusableChords(chords: KeybindChord[]): string | null {
+/** Why one of these chords can't be this action's shortcut at all, whatever else uses it. */
+function describeUnusableChords(actionId: KeybindActionId, chords: KeybindChord[]): string | null {
     for (const chord of chords) {
-        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord)
+        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord, isMacPlatform(), actionId)
         if (problem) return problem
     }
     return null
@@ -74,11 +102,18 @@ function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
+/** With Restore panel layout off, every start shows the panels as on a first launch: explorer, editor and preview, no outline. */
+function withStartupLayout(settings: AppSettings): AppSettings {
+    if (settings.layout.restorePanelsOnOpen) return settings
+    const { explorerOpen, editorOpen, previewOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
+    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, previewOpen, outlineOpen } }
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
     const [loaded] = useState(loadSettingsWithRecovery)
-    const [settings, setSettingsState] = useState<AppSettings>(loaded.settings)
+    const [settings, setSettingsState] = useState<AppSettings>(() => withStartupLayout(loaded.settings))
     const [settingsOpen, setSettingsOpen] = useState(false)
-    const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+    const [activeSection, setActiveSectionState] = useState<SettingsSection>(loadLastSection)
     // Latest settings, updated straight away so back-to-back updates build on each other.
     // React may defer a state updater until render, so the next value is never read out of one.
     const settingsRef = useRef(settings)
@@ -134,7 +169,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const updateSettings = useCallback(
         (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
             const current = settingsRef.current
-            persist(typeof patch === 'function' ? patch(current) : { ...current, ...patch })
+            const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
+            // An update that hands back the same settings (zoom already at 200%) has nothing to save.
+            if (next !== current) persist(next)
         },
         [persist]
     )
@@ -151,11 +188,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         void adoptExportImages(loaded.settings.pdfExport)
     }, [loaded])
 
-    // Without a section, reopen on the one last used rather than jumping back to General.
-    const openSettings = useCallback((section?: SettingsSection) => {
-        if (section) setActiveSection(section)
-        setSettingsOpen(true)
+    const setActiveSection = useCallback((section: SettingsSection) => {
+        setActiveSectionState(section)
+        saveLastSection(section)
     }, [])
+
+    // Without a section, reopen on the one last used (even after a restart) rather than jumping back to General.
+    const openSettings = useCallback(
+        (section?: SettingsSection) => {
+            if (section) setActiveSection(section)
+            setSettingsOpen(true)
+        },
+        [setActiveSection]
+    )
 
     // Changes made in Settings are written as it closes, not a moment later.
     const closeSettings = useCallback(() => {
@@ -164,8 +209,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }, [flushPendingSettings])
 
     const setThemeId = useCallback(
-        (id: AppSettings['theme']['id']) => {
-            updateSettings((current) => ({ ...current, theme: { id } }))
+        (id: AppThemeId) => {
+            updateSettings((current) => ({ ...current, theme: { ...current.theme, id } }))
+        },
+        [updateSettings]
+    )
+
+    const setFollowSystem = useCallback(
+        (on: boolean) => {
+            updateSettings((current) => ({ ...current, theme: withFollowSystem(current.theme, on, systemPrefersDark()) }))
+        },
+        [updateSettings]
+    )
+
+    const setSystemThemeId = useCallback(
+        (id: AppThemeId) => {
+            updateSettings((current) => ({ ...current, theme: withSystemTheme(current.theme, id) }))
         },
         [updateSettings]
     )
@@ -190,13 +249,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const setLayoutExplorerOpen = useCallback(
         (open: boolean) => {
             updateSettings((current) => ({ ...current, layout: { ...current.layout, explorerOpen: open } }))
-        },
-        [updateSettings]
-    )
-
-    const setLayoutEditorOpen = useCallback(
-        (open: boolean) => {
-            updateSettings((current) => ({ ...current, layout: { ...current.layout, editorOpen: open } }))
         },
         [updateSettings]
     )
@@ -235,7 +287,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
     const setKeybindChords = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
-            const unusable = describeUnusableChords(chords)
+            const unusable = describeUnusableChords(actionId, chords)
             if (unusable) return { message: unusable }
 
             for (const chord of chords) {
@@ -270,13 +322,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
     const reassignKeybind = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
-            const unusable = describeUnusableChords(chords)
+            const unusable = describeUnusableChords(actionId, chords)
             if (unusable) return { message: unusable }
 
             // Actions on their default lose the chord while it's taken; changed ones lose it for good.
+            // An action that may share keys with this one keeps them.
             changeKeybinds((overrides) => {
                 const next = { ...overrides }
                 for (const id of Object.keys(next) as KeybindActionId[]) {
+                    if (canShareKeys(id, actionId)) continue
                     next[id] = next[id]?.filter((existing) => !chords.some((chord) => chordsEqual(existing, chord)))
                 }
                 next[actionId] = chords
@@ -294,9 +348,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }))
     }, [updateSettings])
 
-    // Export profiles are the user's own work (logos, headers, fonts), not preferences, so they're kept.
+    // Export profiles (logos, headers, fonts) and the words added to the dictionary are the user's own
+    // work, not preferences, so they're kept.
     const resetAllSettings = useCallback(() => {
-        updateSettings((current) => ({ ...createDefaultSettings(isMacPlatform()), pdfExport: current.pdfExport }))
+        updateSettings((current) => {
+            const defaults = createDefaultSettings(isMacPlatform())
+            return { ...defaults, pdfExport: current.pdfExport, spellcheck: { ...defaults.spellcheck, words: current.spellcheck.words } }
+        })
         flushPendingSettings()
     }, [updateSettings, flushPendingSettings])
 
@@ -310,10 +368,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             closeSettings,
             updateSettings,
             setThemeId,
+            setFollowSystem,
+            setSystemThemeId,
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,
@@ -327,14 +386,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             settings,
             settingsOpen,
             activeSection,
+            setActiveSection,
             openSettings,
             closeSettings,
             updateSettings,
             setThemeId,
+            setFollowSystem,
+            setSystemThemeId,
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,

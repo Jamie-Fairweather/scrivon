@@ -166,6 +166,7 @@ describe('fallbackPdfExportTitle', () => {
     it('prefers the first heading, then tab basename, then Document', () => {
         expect(fallbackPdfExportTitle('# Title\n\nHi', 'x.md')).toBe('Title')
         expect(fallbackPdfExportTitle('No heading', 'notes.md')).toBe('notes')
+        expect(fallbackPdfExportTitle('No heading', 'notes.markdown')).toBe('notes')
         expect(fallbackPdfExportTitle('No heading', '.md')).toBe('Document')
         expect(fallbackPdfExportTitle('No heading', undefined)).toBe('Document')
     })
@@ -179,6 +180,11 @@ describe('fallbackPdfExportTitle', () => {
         expect(fallbackPdfExportTitle('# Using `foo` **bold** [link](http://x)', 'x.md')).toBe('Using foo bold link')
         expect(fallbackPdfExportTitle('# Title #', 'x.md')).toBe('Title')
         expect(fallbackPdfExportTitle('# ![logo](logo.png) Project', 'x.md')).toBe('Project')
+    })
+
+    it('keeps prices in the heading, and gives math its text', () => {
+        expect(fallbackPdfExportTitle('# Plans from $5 to $10', 'x.md')).toBe('Plans from $5 to $10')
+        expect(fallbackPdfExportTitle('# Why $E = mc^2$', 'x.md')).toBe('Why E = mc^2')
     })
 
     it('leaves an HTML comment or tag in the heading off the title page (S03)', () => {

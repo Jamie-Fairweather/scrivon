@@ -197,7 +197,7 @@ export async function confirmDeleteHiddenFolders(folderName: string, hidden: str
               ? shown[0]!
               : `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
     const title = 'Delete hidden folders too?'
-    const body = `${folderName} also has ${names} in it, which Scrivon doesn't show in the file list.\n\nDeleting ${folderName} deletes them too. This can't be undone.`
+    const body = `${folderName} also has ${names} in it, which Scrivon doesn't show in the file list.\n\nDeleting ${folderName} moves them to the Recycle Bin too.`
     const confirm = 'Delete All'
 
     if (!isTauri()) {
@@ -206,6 +206,23 @@ export async function confirmDeleteHiddenFolders(folderName: string, hidden: str
     }
 
     return (await askThreeWay(title, body, { yes: 'Keep Folder', no: confirm, cancel: 'Cancel' })) === 'no'
+}
+
+/**
+ * Asks before Revert File drops a tab's unsaved changes. Resolves true only for Revert, which sits in the
+ * middle so Enter or Esc keep the changes.
+ */
+export async function confirmRevert(fileName: string): Promise<boolean> {
+    const title = 'Revert file'
+    const body = `Put back the saved version of ${fileName}?\n\nYour unsaved changes will be lost.`
+    const confirm = 'Revert'
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
+        return window.confirm(`${title}\n\n${body}\n\nOK: ${confirm}.`)
+    }
+
+    return (await askThreeWay(title, body, { yes: 'Keep Changes', no: confirm, cancel: 'Cancel' })) === 'no'
 }
 
 export type KeptChangesChoice = 'save' | 'discard' | 'keep'
@@ -225,4 +242,32 @@ export async function confirmKeptChangesWithoutFolder(folderName: string, fileNa
     if (choice === 'yes') return 'save'
     if (choice === 'no') return 'discard'
     return 'keep'
+}
+
+export type NameClashChoice = 'keep-both' | 'skip' | 'cancel'
+
+/**
+ * Asks what to do when entries being moved or copied into `folderName` have the names of entries already there
+ * (`names`). Nothing is ever replaced: Keep Both gives each a new name (`notes 2.md`), and Skip, offered when
+ * other entries go too (`canSkip`), leaves those out.
+ */
+export async function confirmNameClash(names: string[], folderName: string, action: 'move' | 'copy', canSkip: boolean): Promise<NameClashChoice> {
+    const one = names.length === 1
+    const doing = action === 'move' ? "you're moving" : "you're copying in"
+    const title = 'Name already used'
+    const body =
+        (one ? `${folderName} already has something named ${names[0]}.` : `${folderName} already has things named:\n\n${listFiles(names)}`) +
+        `\n\nKeep Both adds a number to the ${one ? 'name of the one' : 'names of the ones'} ${doing}.`
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return 'cancel'
+        return window.confirm(`${title}\n\n${body}\n\nOK: Keep Both.`) ? 'keep-both' : 'cancel'
+    }
+
+    if (canSkip) {
+        const choice = await askThreeWay(title, body, { yes: 'Keep Both', no: 'Skip', cancel: 'Cancel' })
+        return choice === 'yes' ? 'keep-both' : choice === 'no' ? 'skip' : 'cancel'
+    }
+    const result = await message(body, { title, kind: 'warning', buttons: { ok: 'Keep Both', cancel: 'Cancel' } })
+    return result === 'Keep Both' || result === 'Ok' ? 'keep-both' : 'cancel'
 }

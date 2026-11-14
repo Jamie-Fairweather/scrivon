@@ -13,6 +13,9 @@ import {
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
 
+const mirrorSettingsFile = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/settings/settings-file', () => ({ mirrorSettingsFile }))
+
 describe('loadSettings', () => {
     it('returns defaults when window is unavailable', () => {
         expect(loadSettings()).toEqual(createDefaultSettings(false))
@@ -125,21 +128,15 @@ describe('loadSettings and saveSettings with localStorage', () => {
         expect(corrupt.map((key) => store.get(key))).toEqual(['{"editor": {"fontSize": 2'])
     })
 
-    it('follows the OS light or dark setting on first launch, and saves it', () => {
-        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
-        expect(loadSettingsWithRecovery().settings.theme.id).toBe('scrivon-light')
-        expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}').theme.id).toBe('scrivon-light')
-
-        store.clear()
-        vi.stubGlobal('window', { matchMedia: () => ({ matches: true }) })
-        expect(loadSettings().theme.id).toBe('scrivon-dark')
+    it('follows the OS light or dark setting on first launch, and saves that choice', () => {
+        expect(loadSettingsWithRecovery().settings.theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+        expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY) ?? '{}').theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
     })
 
     it('follows the OS for a saved theme this version does not know', () => {
-        vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
         store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: { id: 'theme-from-a-newer-version' } }))
 
-        expect(loadSettings().theme.id).toBe('scrivon-light')
+        expect(loadSettings().theme.id).toBe('system')
     })
 
     it('keeps a saved theme whatever the OS setting', () => {
@@ -199,7 +196,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
                 theme: { id: 'future-theme' },
                 editor: { ...settings.editor, futureOption: true },
                 pdfExport: { ...settings.pdfExport, profiles: [profile] },
-                keybinds: { 'tabs.close': [{ key: 'w', ctrl: true }] },
+                keybinds: { 'future.action': [{ key: 'w', ctrl: true, alt: true }] },
             }
         }
 
@@ -234,7 +231,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
             expect(after.editor.futureOption).toBe(true)
             expect(after.pdfExport?.profiles[0]?.page.size).toBe('b5')
             expect(after.pdfExport?.profiles[0]?.futureField).toBe('kept')
-            expect(after.keybinds['tabs.close']).toEqual([{ key: 'w', ctrl: true }])
+            expect(after.keybinds['future.action']).toEqual([{ key: 'w', ctrl: true, alt: true }])
             expect(after.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
             // The newer version's settings are also kept untouched.
             expect(store.get(`${SETTINGS_NEWER_COPY_KEY_PREFIX}2`)).toBe(text)
@@ -244,11 +241,11 @@ describe('loadSettings and saveSettings with localStorage', () => {
             store.set(SETTINGS_STORAGE_KEY, JSON.stringify(newerSettings()))
             const loaded = loadSettings()
 
-            saveSettings({ ...loaded, theme: { id: 'tokyo-night' } })
+            saveSettings({ ...loaded, theme: { ...loaded.theme, id: 'tokyo-night' } })
             expect(saved().theme.id).toBe('tokyo-night')
 
             // Changed back within the same session: saved as chosen, not as first read.
-            saveSettings({ ...loaded, theme: { id: loaded.theme.id } })
+            saveSettings({ ...loaded, theme: { ...loaded.theme, id: loaded.theme.id } })
             expect(saved().theme.id).toBe(loaded.theme.id)
         })
 
@@ -272,6 +269,47 @@ describe('loadSettings and saveSettings with localStorage', () => {
             store.set(SETTINGS_STORAGE_KEY, JSON.stringify(older))
 
             expect(loadSettings().pdfExport.profiles.map((profile) => profile.name)).toContain('Company report')
+        })
+    })
+
+    describe('the copy in settings.json', () => {
+        beforeEach(() => {
+            mirrorSettingsFile.mockReset()
+        })
+
+        it('gets what is saved', () => {
+            const settings = createDefaultSettings(false)
+            settings.editor.fontSize = 19
+
+            saveSettings(settings)
+
+            expect(mirrorSettingsFile).toHaveBeenCalledTimes(1)
+            expect(mirrorSettingsFile).toHaveBeenCalledWith(JSON.parse(store.get(SETTINGS_STORAGE_KEY)!))
+        })
+
+        it('is written at startup too, so there is one before the first change', () => {
+            const settings = createDefaultSettings(false)
+            settings.pdfExport = createPdfExportProfile(settings.pdfExport, 'Company report')
+            saveSettings(settings)
+            const text = store.get(SETTINGS_STORAGE_KEY)!
+            mirrorSettingsFile.mockReset()
+
+            loadSettingsWithRecovery()
+
+            expect(mirrorSettingsFile).toHaveBeenCalledWith(JSON.parse(text))
+        })
+
+        it('is left alone when the settings could not be saved', () => {
+            vi.stubGlobal('localStorage', {
+                getItem: (key: string) => store.get(key) ?? null,
+                setItem: () => {
+                    throw new Error('QuotaExceededError')
+                },
+            })
+
+            saveSettings(createDefaultSettings(false))
+
+            expect(mirrorSettingsFile).not.toHaveBeenCalled()
         })
     })
 
