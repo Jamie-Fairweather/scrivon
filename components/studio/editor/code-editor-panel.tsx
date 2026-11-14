@@ -13,13 +13,14 @@ import { leaveF1ToAppKeybinds } from '@/lib/monaco/editor-keybindings'
 import { bindMarkdownListEnter } from '@/lib/monaco/markdown-editing'
 import { WORD_SEGMENTER_LOCALES } from '@/lib/markdown/inline-format'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
+import { takeOverEditorPaste } from '@/lib/monaco/paste-command'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
-import { attachEditorImages, imageDocumentFor } from '@/components/studio/editor/editor-images'
+import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
@@ -633,8 +634,13 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 .catch(() => {})
             leaveF1ToAppKeybinds(editor, monaco)
             // A picture pasted or dropped into a Markdown file is saved next to it, with a link at the cursor.
-            const images = attachEditorImages(editor, () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current))
+            const imageDocument = () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current)
+            const images = attachEditorImages(editor, imageDocument)
             editor.onDidDispose(() => images.dispose())
+            // Edit > Paste, the palette's Paste and the right-click Paste read the clipboard through Tauri, so
+            // WebView2 never asks for access (#208). They paste its text, or else its picture, as Ctrl+V does.
+            const paste = takeOverEditorPaste(editor, () => pasteClipboardPicture(editor, imageDocument))
+            editor.onDidDispose(() => paste.dispose())
             const spelling = attachEditorSpellcheck(editor, monaco)
             editor.onDidDispose(() => spelling.dispose())
             // Enter continues (or ends) a list in Markdown files.

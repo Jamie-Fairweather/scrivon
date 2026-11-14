@@ -1,0 +1,12 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "clipboard",
+    "description": "Lets the main window read and write the clipboard through Tauri (Paste from the menus, Copy Path, code and diagram copy), so WebView2 never asks the user for clipboard access. Only the commands lib/tauri/clipboard.ts uses.",
+    "windows": ["main"],
+    "permissions": [
+        "clipboard-manager:allow-read-text",
+        "clipboard-manager:allow-read-image",
+        "clipboard-manager:allow-write-text",
+        "clipboard-manager:allow-write-image"
+    ]
+}

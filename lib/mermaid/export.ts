@@ -2,6 +2,7 @@ import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
 import { downloadBlob } from '@/lib/download'
 import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { notifyFileSaved, showInFolderAction } from '@/lib/saved-file-notice'
+import { writeClipboardPng, writeClipboardSvg } from '@/lib/tauri/clipboard'
 import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
@@ -280,24 +281,11 @@ const COPY_PNG_SCALE = 2
 const COPY_FAILED = "Couldn't copy the diagram"
 const PNG_TOO_LARGE_TO_COPY_MESSAGE = 'This diagram is too big to copy as a PNG. Copy it as SVG instead.'
 
-/** Throws where the page isn't allowed to use the clipboard, before any drawing is done. */
-function checkClipboard(): void {
-    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-        throw new Error('The clipboard is not available.')
-    }
-}
-
-/** Puts one item on the clipboard, in each format given (MIME type -> data of that type). */
-async function writeClipboard(formats: Record<string, Blob>): Promise<void> {
-    await navigator.clipboard.write([new ClipboardItem(formats)])
-}
-
 /** Copies the diagram as a PNG, ready to paste into slides or a chat. */
 export async function copyPng(source: string, look: DiagramLook): Promise<void> {
     try {
-        checkClipboard()
         const { blob, smallerSize } = await diagramPng(source, look, COPY_PNG_SCALE, PNG_TOO_LARGE_TO_COPY_MESSAGE)
-        await writeClipboard({ 'image/png': blob })
+        await writeClipboardPng(new Uint8Array(await blob.arrayBuffer()))
         if (smallerSize) {
             notifyWarning('Copied a smaller PNG', {
                 description: `This diagram is too big for ${COPY_PNG_SCALE}×, so it was copied at ${smallerSize}.`,
@@ -310,17 +298,15 @@ export async function copyPng(source: string, look: DiagramLook): Promise<void> 
     }
 }
 
-/** Copies the diagram as SVG: a picture for apps that take one (Office), and the markup as text for the rest. */
+/**
+ * Copies the diagram as SVG: the markup as text (for a web page, a .svg file or an app that reads SVG text) and, on
+ * Windows, as an SVG picture that Word and PowerPoint paste as a picture.
+ */
 export async function copySvg(source: string, { themeId, transparent }: DiagramLook): Promise<void> {
     try {
-        checkClipboard()
         // Pasted into other apps, like a saved .svg file (see exportSvg).
         const svg = buildExportSvg(source, themeId, { labelHalo: false, transparent })
-        const formats: Record<string, Blob> = { 'text/plain': new Blob([svg], { type: 'text/plain' }) }
-        if (ClipboardItem.supports?.('image/svg+xml')) {
-            formats['image/svg+xml'] = new Blob([svg], { type: 'image/svg+xml' })
-        }
-        await writeClipboard(formats)
+        await writeClipboardSvg(svg)
         notifySuccess('Diagram copied as SVG')
     } catch (err) {
         notifyError(COPY_FAILED, err)

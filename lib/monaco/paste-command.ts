@@ -1,31 +1,50 @@
 import type { IDisposable, editor } from 'monaco-editor'
+import { InMemoryClipboardMetadataManager } from 'monaco-editor/editor/browser/controller/editContext/clipboardUtils.js'
 import { CommandsRegistry } from 'monaco-editor/platform/commands/common/commands.js'
+import { notifyError } from '@/lib/notify'
+import { readClipboardText } from '@/lib/tauri/clipboard'
 
 /** Monaco's Paste. Edit > Paste, the palette's Paste and the editor's right-click Paste run it; Ctrl+V doesn't (the browser pastes). */
 export const MONACO_PASTE_COMMAND_ID = 'editor.action.clipboardPasteAction'
 
-/** True for the re-run marked to go straight to Monaco's paste. Monaco's paste ignores what it's given. */
-function isPassOn(payload: unknown): boolean {
-    return typeof payload === 'object' && payload !== null && 'scrivonPassOn' in payload && payload.scrivonPassOn === true
+/** The editor calls Paste makes. */
+export type PasteEditor = Pick<editor.ICodeEditor, 'hasTextFocus' | 'trigger'>
+
+/** Pastes `text` with Monaco's paste handler, the one Ctrl+V uses, so it undoes in one step like a typed paste. */
+function pasteText(editor: PasteEditor, text: string): void {
+    // What the editor noted when it copied this text: from several cursors (one line each when pasted into as
+    // many), or a whole line copied with nothing selected (pasted on a line of its own).
+    const copied = InMemoryClipboardMetadataManager.INSTANCE.get(text)
+    editor.trigger('keyboard', 'paste', {
+        text,
+        pasteOnNewLine: copied?.isFromEmptySelection === true,
+        multicursorText: copied?.multicursorText ?? null,
+        mode: copied?.mode ?? null,
+    })
+}
+
+/** Pastes the clipboard's text, or `pastePicture` when it has none. Never rejects: a failure is shown instead. */
+async function pasteFromClipboard(editor: PasteEditor, pastePicture: () => Promise<void>): Promise<void> {
+    // As Monaco's own Paste: into the text only, not into the find box.
+    if (!editor.hasTextFocus()) return
+    try {
+        const text = await readClipboardText()
+        // Text wins, as with Ctrl+V: Word and web pages put a picture of copied text alongside it.
+        if (text !== '') pasteText(editor, text)
+        else await pastePicture()
+    } catch (error) {
+        notifyError("Couldn't paste", error)
+    }
 }
 
 /**
- * Lets `pasteFirst` have Monaco's Paste command before Monaco does. In a web view Monaco's Paste reads only the
- * clipboard's text (no paste event fires), so a copied picture never arrives. `pasteFirst` returns null to let
- * Monaco paste at once, or a promise of whether it pasted, which never rejects. When it didn't paste, Monaco does.
+ * Replaces Monaco's Paste command for `editor`. Monaco's own reads the clipboard through the browser, which makes
+ * WebView2 ask the user for clipboard access (#208); this reads it through Tauri (lib/tauri/clipboard.ts) and
+ * pastes the text, or, when there is none, has `pastePicture` paste the picture there.
  *
  * The command is shared by every editor, and the newest registration wins (as in editor-keybindings.ts), so the
  * menus pick this one up. Dispose with the editor.
  */
-export function takeOverEditorPaste(editor: Pick<editor.ICodeEditor, 'trigger'>, pasteFirst: () => Promise<boolean> | null): IDisposable {
-    const monacoPaste = CommandsRegistry.getCommand(MONACO_PASTE_COMMAND_ID)
-    return CommandsRegistry.registerCommand(MONACO_PASTE_COMMAND_ID, (accessor, ...args) => {
-        const pasting = isPassOn(args[0]) ? null : pasteFirst()
-        if (!pasting) return monacoPaste?.handler(accessor, ...args)
-        return pasting.then((pasted) => {
-            // Monaco's paste needs the editor's services, which are only to hand while a command runs: run it again,
-            // marked so it goes straight to Monaco however late it arrives.
-            if (!pasted) editor.trigger('scrivon', MONACO_PASTE_COMMAND_ID, { scrivonPassOn: true })
-        })
-    })
+export function takeOverEditorPaste(editor: PasteEditor, pastePicture: () => Promise<void>): IDisposable {
+    return CommandsRegistry.registerCommand(MONACO_PASTE_COMMAND_ID, () => pasteFromClipboard(editor, pastePicture))
 }

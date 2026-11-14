@@ -18,8 +18,9 @@ vi.mock('monaco-editor/languages/definitions/markdown/register', () => ({}))
 vi.mock('@/lib/monaco/code-block-languages', () => ({}))
 vi.mock('@/lib/monaco/mermaid-language', () => ({ registerMermaidLanguage }))
 vi.mock('monaco-editor/platform/opener/common/opener.js', () => ({ IOpenerService: OPENER_SERVICE_ID }))
+// The clipboard handed to Monaco here is checked against the real Monaco in setup-monaco-clipboard.test.ts.
 vi.mock('monaco-editor/editor/standalone/browser/standaloneServices.js', () => ({
-    StandaloneServices: { get: (id: unknown) => (id === OPENER_SERVICE_ID ? openerService : undefined) },
+    StandaloneServices: { get: (id: unknown) => (id === OPENER_SERVICE_ID ? openerService : undefined), initialize: () => {} },
 }))
 
 describe('setup-monaco', () => {

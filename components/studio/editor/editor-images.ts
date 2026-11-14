@@ -1,7 +1,7 @@
 import type { IDisposable, IRange, editor } from 'monaco-editor'
 import { isExampleTabId } from '@/lib/examples/example-tab'
-import { takeOverEditorPaste } from '@/lib/monaco/paste-command'
 import { notifyError, notifyInfo } from '@/lib/notify'
+import { readClipboardPng } from '@/lib/tauri/clipboard'
 import { registerFileDropTarget } from '@/lib/tauri/file-drop'
 import { getBaseName, isMarkdownFile, isPathInside } from '@/lib/tauri/fs'
 import {
@@ -29,7 +29,6 @@ export type ImageEditor = Pick<
     | 'executeEdits'
     | 'pushUndoStop'
     | 'focus'
-    | 'trigger'
 >
 
 /** The tab as a document images can go into: a Markdown file in the open folder that can be edited. */
@@ -112,29 +111,19 @@ function addPastedImages(editor: ImageEditor, doc: ImageDocument, selection: IRa
 }
 
 /**
- * Adds the pictures on the clipboard, for the Paste command. Resolves false, for Monaco to paste instead, when the
- * clipboard has text (which wins, as with Ctrl+V), has no picture, or can't be read.
+ * Adds the picture on the clipboard where the cursor is, as Ctrl+V does: for the menus' Paste
+ * (lib/monaco/paste-command.ts) when the clipboard has no text. `documentNow` is as for attachEditorImages. Does
+ * nothing when the clipboard has no picture either, or the file showing can't take one. Rejects when the clipboard
+ * can't be read.
  */
-async function pasteClipboardImages(editor: ImageEditor, documentNow: () => ImageDocument | null): Promise<boolean> {
-    let files: File[]
-    try {
-        // Text first: read() may fetch every format, and Word and Excel put a picture of copied text alongside it.
-        if ((await navigator.clipboard.readText()) !== '') return false
-        const items = await navigator.clipboard.read()
-        files = await Promise.all(
-            items.flatMap((item) => {
-                const type = item.types.find((t) => t.startsWith('image/'))
-                return type ? [item.getType(type).then((blob) => new File([blob], 'pasted image', { type }))] : []
-            })
-        )
-    } catch {
-        return false
-    }
+export async function pasteClipboardPicture(editor: ImageEditor, documentNow: () => ImageDocument | null): Promise<void> {
+    // Not read at all where it can't go: a picture can be big.
+    if (!documentNow()) return
+    const png = await readClipboardPng()
     const doc = documentNow()
     const selection = editor.getSelection()
-    if (!doc || !selection || files.length === 0) return false
-    addPastedImages(editor, doc, selection, files)
-    return true
+    if (!png || !doc || !selection) return
+    addPastedImages(editor, doc, selection, [new File([png], 'pasted image', { type: 'image/png' })])
 }
 
 /**
@@ -158,12 +147,9 @@ export function attachEditorImages(editor: ImageEditor, documentNow: () => Image
         event.stopPropagation()
         addPastedImages(editor, doc, selection, files)
     }
+    // Ctrl+V. Edit > Paste, the palette's Paste and the right-click Paste fire no paste event: they add a picture
+    // with pasteClipboardPicture.
     container.addEventListener('paste', onPaste, true)
-
-    // Edit > Paste, the palette's Paste and the right-click Paste fire no paste event: read the clipboard instead.
-    const pasteCommand = takeOverEditorPaste(editor, () =>
-        documentNow() && editor.hasTextFocus() ? pasteClipboardImages(editor, documentNow) : null
-    )
 
     const stopDrops = registerFileDropTarget(container, async ({ paths, x, y }) => {
         const doc = documentNow()
@@ -188,7 +174,6 @@ export function attachEditorImages(editor: ImageEditor, documentNow: () => Image
     return {
         dispose: () => {
             container.removeEventListener('paste', onPaste, true)
-            pasteCommand.dispose()
             stopDrops()
         },
     }

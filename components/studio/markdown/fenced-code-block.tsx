@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import type { BundledTheme } from 'shiki'
 import { highlightFencedCode, highlightFencedCodeNow, previewCodeTheme } from '@/lib/markdown/shiki-highlighter'
 import { notifyError } from '@/lib/notify'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
@@ -249,7 +250,7 @@ function CodeBlockToolbar({ code, language }: { code: string; language?: string 
 
     const copy = async () => {
         try {
-            await navigator.clipboard.writeText(code)
+            await writeClipboardText(code)
         } catch (error) {
             notifyError("Couldn't copy the code", error)
             return

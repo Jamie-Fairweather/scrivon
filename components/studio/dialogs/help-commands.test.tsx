@@ -48,7 +48,9 @@ async function run(id: string) {
     })
 }
 
-const writeText = vi.fn<(text: string) => Promise<void>>()
+/** The clipboard, written through Tauri. */
+const writeText = vi.hoisted(() => vi.fn<(text: string) => Promise<void>>())
+vi.mock('@/lib/tauri/clipboard', () => ({ writeClipboardText: writeText }))
 
 /** Plays the desktop app: system_info answers, and open_logs_folder does `openLogs`. */
 function onDesktop(openLogs: () => Promise<void> = async () => {}) {
@@ -66,7 +68,7 @@ beforeEach(() => {
     mockUpdates({ checking: false, checkForUpdates: vi.fn(async () => {}) })
     vi.mocked(useAppSettings).mockReturnValue({ settings: createDefaultSettings(false) } as unknown as ReturnType<typeof useAppSettings>)
     writeText.mockReset().mockResolvedValue(undefined)
-    vi.stubGlobal('navigator', { ...navigator, userAgent: 'TestBrowser/1.0', clipboard: { writeText } })
+    vi.stubGlobal('navigator', { ...navigator, userAgent: 'TestBrowser/1.0' })
 })
 
 afterEach(() => {
@@ -176,12 +178,15 @@ describe('Copy Diagnostic Info', () => {
     })
 
     it('says so when the clipboard refuses', async () => {
-        writeText.mockRejectedValue(new Error('Clipboard blocked'))
+        writeText.mockRejectedValue('The native clipboard is not accessible due to being held by another party.')
         renderHelp()
 
         await run('copy-diagnostic-info')
 
-        expect(notifyError).toHaveBeenCalledWith("Couldn't copy the diagnostic info", new Error('Clipboard blocked'))
+        expect(notifyError).toHaveBeenCalledWith(
+            "Couldn't copy the diagnostic info",
+            'The native clipboard is not accessible due to being held by another party.'
+        )
         expect(notifySuccess).not.toHaveBeenCalled()
     })
 })

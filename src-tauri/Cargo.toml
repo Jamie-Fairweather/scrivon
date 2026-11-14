@@ -24,7 +24,10 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# image-png: the clipboard takes a diagram copied as PNG bytes (lib/tauri/clipboard.ts).
+tauri = { version = "2", features = ["image-png"] }
+# All clipboard reads and writes, so WebView2 never asks the user for clipboard access (#208).
+tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
 # watch: lets the app notice files changed by other programs (D10).
 tauri-plugin-fs = { version = "2", features = ["watch"] }
@@ -70,9 +73,17 @@ strip = true
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
+# Copy as SVG puts an SVG picture on the clipboard for Word and PowerPoint (src/svg_clipboard.rs). The
+# clipboard plugin already builds it (through arboard), so nothing new is compiled.
+clipboard-win = "5.3.1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 # One Scrivon process at a time, so two windows can't overwrite each other's files and sessions (B60, D20).
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+
+[dev-dependencies]
+# The clipboard plugin's errors, checked in tests/clipboard_errors.rs. The plugin already builds it, so
+# nothing new is compiled.
+arboard = { version = "3", default-features = false }
 

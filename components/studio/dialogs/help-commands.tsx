@@ -13,6 +13,7 @@ import { APP_NAME } from '@/lib/app-branding'
 import { formatDiagnosticInfo, getSystemInfo, newIssueUrl } from '@/lib/diagnostics/diagnostic-info'
 import { notifyError, notifySuccess } from '@/lib/notify'
 import type { AppSettings } from '@/lib/settings/types'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import { isTauri } from '@/lib/tauri/platform'
 
 async function diagnosticInfo(settings: AppSettings): Promise<string> {
@@ -21,7 +22,7 @@ async function diagnosticInfo(settings: AppSettings): Promise<string> {
 
 async function copyDiagnosticInfo(settings: AppSettings): Promise<void> {
     try {
-        await navigator.clipboard.writeText(await diagnosticInfo(settings))
+        await writeClipboardText(await diagnosticInfo(settings))
         notifySuccess('Diagnostic info copied', { description: 'Paste it into your bug report.' })
     } catch (err) {
         notifyError("Couldn't copy the diagnostic info", err)

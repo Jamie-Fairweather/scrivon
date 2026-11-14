@@ -345,12 +345,26 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 const session: { workspaceRoot: string | null } = { workspaceRoot: '/w' }
 
 /** Pasting and dropping pictures, which editor-images.test.ts covers; here only what the panel hands it. */
-const editorImages = vi.hoisted(() => ({ attach: vi.fn(), dispose: vi.fn() }))
+const editorImages = vi.hoisted(() => ({
+    attach: vi.fn(),
+    dispose: vi.fn(),
+    pastePicture: vi.fn<(editor: unknown, documentNow: () => unknown) => Promise<void>>(async () => {}),
+}))
 vi.mock('@/components/studio/editor/editor-images', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/components/studio/editor/editor-images')>()),
     attachEditorImages: (...args: unknown[]) => {
         editorImages.attach(...args)
         return { dispose: editorImages.dispose }
+    },
+    pasteClipboardPicture: editorImages.pastePicture,
+}))
+/** The menus' Paste, which paste-command.test.ts covers; here only what the panel hands it. */
+const editorPaste = vi.hoisted(() => ({ takeOver: vi.fn(), dispose: vi.fn() }))
+vi.mock('@/lib/monaco/paste-command', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/monaco/paste-command')>()),
+    takeOverEditorPaste: (...args: unknown[]) => {
+        editorPaste.takeOver(...args)
+        return { dispose: editorPaste.dispose }
     },
 }))
 
@@ -481,6 +495,29 @@ describe('CodeEditorPanel images', () => {
 
         act(() => editor.dispose())
         expect(editorImages.dispose).toHaveBeenCalled()
+    })
+
+    it("takes over the menus' Paste, which adds a picture to the file showing when there's no text, until the editor goes", async () => {
+        editorPaste.takeOver.mockClear()
+        editorPaste.dispose.mockClear()
+        editorImages.pastePicture.mockClear()
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, '# A')], activeTabId: a }
+        const { editor } = await mountEditor()
+
+        // Not through the picture code: the text Paste works whether or not pictures are hooked up.
+        expect(editorPaste.takeOver).toHaveBeenCalledTimes(1)
+        const [pastedInto, pastePicture] = editorPaste.takeOver.mock.calls[0] as [unknown, () => Promise<void>]
+        expect(pastedInto).toBe(editor)
+
+        await pastePicture()
+        const [pictureInto, documentNow] = editorImages.pastePicture.mock.calls[0]!
+        expect(pictureInto).toBe(editor)
+        expect(documentNow()).toEqual({ path: a, workspaceRoot: '/w' })
+
+        expect(editorPaste.dispose).not.toHaveBeenCalled()
+        act(() => editor.dispose())
+        expect(editorPaste.dispose).toHaveBeenCalled()
     })
 })
 

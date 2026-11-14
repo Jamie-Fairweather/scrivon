@@ -15,7 +15,9 @@ import 'monaco-editor/languages/definitions/markdown/register'
 // The languages Markdown code blocks are coloured with.
 import '@/lib/monaco/code-block-languages'
 import { StandaloneServices } from 'monaco-editor/editor/standalone/browser/standaloneServices.js'
+import { IClipboardService } from 'monaco-editor/platform/clipboard/common/clipboardService.js'
 import { IOpenerService } from 'monaco-editor/platform/opener/common/opener.js'
+import { createMonacoClipboardService } from '@/lib/monaco/clipboard-service'
 import { registerExternalLinkOpener } from '@/lib/monaco/link-opener'
 import { registerMermaidLanguage } from '@/lib/monaco/mermaid-language'
 
@@ -26,6 +28,10 @@ globalThis.MonacoEnvironment = {
 }
 
 loader.config({ monaco })
+
+// The editor's clipboard goes through Tauri, so WebView2 never asks for clipboard access (#208). Monaco only
+// takes this the first time it sets its services up, so it comes before anything below asks it for one.
+StandaloneServices.initialize({ [String(IClipboardService)]: createMonacoClipboardService() })
 
 // .mmd and .mermaid files, and ```mermaid blocks in Markdown.
 registerMermaidLanguage(monaco)
