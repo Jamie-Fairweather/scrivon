@@ -10,12 +10,12 @@ import {
     createSpellcheckWorkerCore,
     type DictionaryFiles,
     type SpellcheckRequest,
-    type SpellcheckResponse,
+    type SpellcheckWorkerMessage,
 } from '@/lib/spellcheck/spellcheck-worker-core'
 
 type WorkerScope = {
     addEventListener(type: 'message', listener: (event: MessageEvent<SpellcheckRequest>) => void): void
-    postMessage(message: SpellcheckResponse): void
+    postMessage(message: SpellcheckWorkerMessage): void
 }
 
 const DICTIONARIES: Record<SpellcheckLanguage, DictionaryFiles> = {
@@ -29,3 +29,7 @@ const core = createSpellcheckWorkerCore((language) => DICTIONARIES[language])
 scope.addEventListener('message', (event) => {
     void core.handle(event.data).then((response) => scope.postMessage(response))
 })
+
+// Last, so it's only sent once all the code above has loaded. A worker that fails to load sends no
+// error the page can see, so the client waits for this instead.
+scope.postMessage({ type: 'ready' })

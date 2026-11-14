@@ -9,17 +9,29 @@ export const SPELLCHECK_MARKER_OWNER = 'scrivon-spelling'
 export const ADD_TO_DICTIONARY_COMMAND = 'scrivon.spelling.addToDictionary'
 /** How long typing must pause before the text is checked again. */
 export const SPELLCHECK_DELAY_MS = 400
-/** True while the caret is on a misspelt word: shows the spelling entries in the right-click menu. */
-const ON_MISSPELT_WORD_KEY = 'scrivonOnMisspeltWord'
 /** More marks than anyone would fix one by one; a file full of another language would otherwise slow the editor. */
 const MAX_MARKS = 2000
 
 /** What to check: the file showing (by its model's URI), in which language, and the user's own words. */
 export type SpellcheckConfig = { modelUri: string; language: SpellcheckLanguage; words: readonly string[] }
 
+/** An underlined word, as the editor's right-click menu offers to fix it. */
+export type MisspeltWord = {
+    /** The word as it is written in the file. */
+    word: string
+    /** The dictionary's suggestions, best first. None when the spell check can't answer. */
+    suggestions(): Promise<string[]>
+    /** Puts `suggestion` in place of the word, as one step to undo. Does nothing if the word has changed since. */
+    replaceWith(suggestion: string): void
+    /** Saves the word to the user's dictionary, and takes its underline away at once. */
+    addToDictionary(): void
+}
+
 export type SpellcheckSession = IDisposable & {
     /** Null turns the check off for the file showing (a diagram, a read-only file, or spelling switched off). */
     setConfig(config: SpellcheckConfig | null): void
+    /** The underlined word at a place in the file showing, or null. */
+    misspeltWordAt(position: IPosition): MisspeltWord | null
 }
 
 type Options = {
@@ -44,7 +56,6 @@ export function attachSpellcheck(
     let config = initial
     let timer: ReturnType<typeof setTimeout> | null = null
     const marks = new WeakMap<editor.ITextModel, Mark[]>()
-    const onMisspeltWord = editorInstance.createContextKey<boolean>(ON_MISSPELT_WORD_KEY, false)
 
     const toMarker = ({ word, range }: Mark): editor.IMarkerData => ({
         ...range,
@@ -67,18 +78,9 @@ export function attachSpellcheck(
                     model.getValueInRange(range) === word
             )
 
-    const markAtCaret = (): Mark | undefined => {
-        const model = editorInstance.getModel()
-        const position = editorInstance.getPosition()
-        return model && position ? markAt(model, position) : undefined
-    }
-
-    const updateMenu = () => onMisspeltWord.set(markAtCaret() !== undefined)
-
     const show = (model: editor.ITextModel, found: Mark[]) => {
         marks.set(model, found)
         monaco.editor.setModelMarkers(model, SPELLCHECK_MARKER_OWNER, found.map(toMarker))
-        updateMenu()
     }
 
     /** Saves the word, and takes its marks away now rather than after the next check. */
@@ -94,6 +96,9 @@ export function attachSpellcheck(
             )
     }
 
+    /** The dictionary's suggestions for a word, in the language and with the words of the check. */
+    const suggest = (word: string, asked: SpellcheckConfig): Promise<string[]> => client.suggest(word, asked.language, asked.words).catch(() => [])
+
     const noActions: languages.CodeActionList = { actions: [], dispose: () => {} }
 
     const codeActions: languages.CodeActionProvider = {
@@ -101,19 +106,17 @@ export function attachSpellcheck(
             const mark = markAt(model, { lineNumber: range.startLineNumber, column: range.startColumn })
             const asked = config
             if (!mark || !asked) return noActions
-            const suggestions = await client.suggest(mark.word, asked.language, asked.words).catch(() => [])
+            const suggestions = await suggest(mark.word, asked)
             if (token.isCancellationRequested) return noActions
             const diagnostics = [toMarker(mark)]
             const versionId = model.getVersionId()
-            const changes = suggestions.map(
-                (suggestion, index): languages.CodeAction => ({
-                    title: `Change to “${suggestion}”`,
-                    kind: 'quickfix',
-                    diagnostics,
-                    isPreferred: index === 0,
-                    edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
-                })
-            )
+            const changes = suggestions.map((suggestion, index): languages.CodeAction => ({
+                title: `Change to “${suggestion}”`,
+                kind: 'quickfix',
+                diagnostics,
+                isPreferred: index === 0,
+                edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
+            }))
             const addTitle = `Add “${dictionaryForm(mark.word)}” to Dictionary`
             const add: languages.CodeAction = {
                 title: addTitle,
@@ -162,36 +165,36 @@ export function attachSpellcheck(
         timer = setTimeout(check, delay)
     }
 
+    const misspeltWordAt = (position: IPosition): MisspeltWord | null => {
+        const model = editorInstance.getModel()
+        const asked = config
+        // Spell check may have just been turned off for the file, before the next check takes its marks away.
+        if (!model || !asked || model.uri.toString() !== asked.modelUri) return null
+        const mark = markAt(model, position)
+        if (!mark) return null
+        const { word, range } = mark
+        return {
+            word,
+            suggestions: () => suggest(word, asked),
+            replaceWith(suggestion) {
+                if (model.isDisposed() || editorInstance.getModel() !== model || model.getValueInRange(range) !== word) return
+                editorInstance.pushUndoStop()
+                editorInstance.executeEdits('scrivon-spelling', [{ range, text: suggestion }])
+                editorInstance.pushUndoStop()
+                editorInstance.setPosition({ lineNumber: range.startLineNumber, column: range.startColumn + suggestion.length })
+                // Its underline goes as soon as the check has run, without waiting for typing to pause.
+                schedule(0)
+            },
+            addToDictionary: () => addToDictionary(word),
+        }
+    }
+
     const subscriptions: IDisposable[] = [
         editorInstance.onDidChangeModelContent(() => schedule(SPELLCHECK_DELAY_MS)),
         // Another tab: check it again, or clear its marks when spell check was turned off while it was hidden.
-        editorInstance.onDidChangeModel(() => {
-            updateMenu()
-            schedule(0)
-        }),
-        editorInstance.onDidChangeCursorPosition(updateMenu),
+        editorInstance.onDidChangeModel(() => schedule(0)),
         monaco.languages.registerCodeActionProvider('markdown', codeActions, { providedCodeActionKinds: ['quickfix'] }),
         monaco.editor.registerCommand(ADD_TO_DICTIONARY_COMMAND, (_accessor: unknown, word: string) => addToDictionary(word)),
-        // Right-clicking a word puts the caret on it first, so these act on the word clicked.
-        editorInstance.addAction({
-            id: 'scrivon.spelling.suggestions',
-            label: 'Spelling Suggestions',
-            precondition: ON_MISSPELT_WORD_KEY,
-            contextMenuGroupId: 'navigation',
-            contextMenuOrder: 0,
-            run: (target) => target.getAction('editor.action.quickFix')?.run(),
-        }),
-        editorInstance.addAction({
-            id: 'scrivon.spelling.addToDictionary',
-            label: 'Add to Dictionary',
-            precondition: ON_MISSPELT_WORD_KEY,
-            contextMenuGroupId: 'navigation',
-            contextMenuOrder: 0.1,
-            run: () => {
-                const mark = markAtCaret()
-                if (mark) addToDictionary(mark.word)
-            },
-        }),
     ]
     schedule(0)
 
@@ -200,6 +203,7 @@ export function attachSpellcheck(
             config = next
             schedule(0)
         },
+        misspeltWordAt,
         dispose() {
             if (timer !== null) clearTimeout(timer)
             subscriptions.forEach((subscription) => subscription.dispose())

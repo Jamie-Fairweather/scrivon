@@ -20,6 +20,7 @@
         "format": "prettier --write \"**/*.{ts,tsx,md,mjs,json,css}\"",
         "generate:examples": "node scripts/generate-examples.mjs",
         "generate:licenses": "node scripts/generate-licenses.mjs",
+        "check:workers": "node scripts/check-workers.mjs",
         "release": "semantic-release",
         "prepare": "husky"
     },

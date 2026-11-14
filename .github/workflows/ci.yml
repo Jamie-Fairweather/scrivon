@@ -66,6 +66,12 @@ jobs:
             - name: Build Next.js app
               run: bun run build
 
+            # Loads each web worker from out/ without a page around it. A worker that fails as it loads
+            # (a package's "browser" build that needs `document`) tells the app nothing, so the unit
+            # tests can't catch it and the feature just silently stops (spell check did).
+            - name: Check the web workers load
+              run: bun run check:workers
+
             # The build regenerates these and always ships the fresh copy. A diff only means the
             # committed copy is stale (for example after a Dependabot bump), so this warns instead of failing.
             - name: Check generated files are committed

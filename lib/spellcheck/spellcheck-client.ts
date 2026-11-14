@@ -1,7 +1,14 @@
+import { logWarning } from '@/lib/diagnostics/app-log'
 import type { SpellcheckLanguage } from '@/lib/spellcheck/languages'
-import type { Misspelling, SpellcheckRequest, SpellcheckResponse } from '@/lib/spellcheck/spellcheck-worker-core'
+import type { Misspelling, SpellcheckRequest, SpellcheckResponse, SpellcheckWorkerMessage } from '@/lib/spellcheck/spellcheck-worker-core'
 
 export type { Misspelling }
+
+/**
+ * How long a new worker has to say it's ready. Its code fails to load without telling the page (no
+ * error event), so without this the checks would wait for ever. Loading takes a second or two.
+ */
+export const SPELLCHECK_START_TIMEOUT_MS = 20_000
 
 /**
  * Talks to the spell check worker. Its dictionary and the user's words go with every request. A check
@@ -19,18 +26,24 @@ type RequestBody = { type: 'check'; text: string; document: string } | { type: '
 
 /**
  * A client for a worker made by `createWorker`, started with the first request. A worker that fails
- * to start isn't tried again: spelling just isn't checked until the app restarts.
+ * to start (an error, or not ready in time) isn't tried again: spelling just isn't checked until the
+ * app restarts. The reason goes in the console and the app's log file.
  */
 export function createSpellcheckClient(createWorker: () => Worker): SpellcheckClient {
     let worker: Worker | null = null
     let broken: Error | null = null
+    let startTimer: ReturnType<typeof setTimeout> | null = null
     let nextId = 1
     const pending = new Map<number, Pending>()
 
     /** Stops using the worker. `cause` is logged with the warning, when there is one. */
     const giveUp = (...cause: unknown[]): Error => {
+        if (broken) return broken
         broken = new Error("The spell check couldn't start.")
         console.warn(broken.message, ...cause)
+        logWarning(broken.message, cause[0])
+        if (startTimer !== null) clearTimeout(startTimer)
+        worker?.terminate()
         for (const waiting of pending.values()) waiting.reject(broken)
         pending.clear()
         return broken
@@ -38,12 +51,21 @@ export function createSpellcheckClient(createWorker: () => Worker): SpellcheckCl
 
     const start = (): Worker => {
         const started = createWorker()
-        started.addEventListener('message', (event: MessageEvent<SpellcheckResponse>) => {
+        started.addEventListener('message', (event: MessageEvent<SpellcheckWorkerMessage>) => {
+            if (event.data.type === 'ready') {
+                if (startTimer !== null) clearTimeout(startTimer)
+                startTimer = null
+                return
+            }
             const waiting = pending.get(event.data.id)
             pending.delete(event.data.id)
             waiting?.resolve(event.data)
         })
         started.addEventListener('error', () => giveUp())
+        startTimer = setTimeout(
+            () => giveUp(new Error(`The spell check worker didn't load within ${SPELLCHECK_START_TIMEOUT_MS / 1000} seconds.`)),
+            SPELLCHECK_START_TIMEOUT_MS
+        )
         return started
     }
 

@@ -18,6 +18,9 @@ export type SpellcheckResponse =
     | { type: 'suggested'; id: number; suggestions: string[] }
     | { type: 'failed'; id: number; message: string }
 
+/** Everything the worker sends: answers, and "ready" once its code has loaded. */
+export type SpellcheckWorkerMessage = SpellcheckResponse | { type: 'ready' }
+
 type Checker = {
     spell: ReturnType<typeof nspell>
     /** The user's words that were added to the dictionary (ones it already knew are not). */

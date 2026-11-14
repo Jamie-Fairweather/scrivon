@@ -1,16 +1,25 @@
-import { describe, expect, it, vi } from 'vitest'
-import { createSpellcheckClient } from './spellcheck-client'
-import type { SpellcheckRequest, SpellcheckResponse } from './spellcheck-worker-core'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createSpellcheckClient, SPELLCHECK_START_TIMEOUT_MS } from './spellcheck-client'
+import type { SpellcheckRequest, SpellcheckWorkerMessage } from './spellcheck-worker-core'
 
 const DOC = 'inmemory://scrivon/document-1'
 
-type Answer = (request: SpellcheckRequest) => SpellcheckResponse | null
+type Answer = (request: SpellcheckRequest) => SpellcheckWorkerMessage | null
 
-/** A stand-in for the worker: answers each message with `answer`, a moment later, as a real one would. */
+/**
+ * A stand-in for the worker: says it's ready once it has loaded, and answers each message with
+ * `answer`, a moment later, as a real one would. With `ready: false` it is one that failed to load.
+ */
 class FakeWorker {
     private readonly listeners = { message: new Set<(event: MessageEvent) => void>(), error: new Set<(event: Event) => void>() }
     readonly received: SpellcheckRequest[] = []
-    constructor(private readonly answer: Answer) {}
+    terminated = false
+    constructor(
+        private readonly answer: Answer,
+        ready: boolean
+    ) {
+        if (ready) queueMicrotask(() => this.reply({ type: 'ready' }))
+    }
     addEventListener(type: 'message' | 'error', listener: (event: never) => void) {
         this.listeners[type].add(listener as never)
     }
@@ -19,23 +28,30 @@ class FakeWorker {
         const response = this.answer(request)
         if (response) queueMicrotask(() => this.reply(response))
     }
-    reply(response: SpellcheckResponse) {
-        this.listeners.message.forEach((l) => l({ data: response } as MessageEvent))
+    reply(message: SpellcheckWorkerMessage) {
+        this.listeners.message.forEach((l) => l({ data: message } as MessageEvent))
     }
     fail() {
         this.listeners.error.forEach((l) => l(new Event('error')))
     }
+    terminate() {
+        this.terminated = true
+    }
 }
 
-function setup(answer: Answer) {
+function setup(answer: Answer, { ready = true } = {}) {
     const workers: FakeWorker[] = []
     const createWorker = vi.fn(() => {
-        const worker = new FakeWorker(answer)
+        const worker = new FakeWorker(answer, ready)
         workers.push(worker)
         return worker as unknown as Worker
     })
     return { client: createSpellcheckClient(createWorker), createWorker, workers }
 }
+
+afterEach(() => {
+    vi.useRealTimers()
+})
 
 describe('spell check client', () => {
     it('starts the worker on the first request only, and gives each request its own answer', async () => {
@@ -101,5 +117,34 @@ describe('spell check client', () => {
         expect(createWorker).toHaveBeenCalledTimes(1)
         expect(warn).toHaveBeenCalledExactlyOnceWith("The spell check couldn't start.", failure)
         warn.mockRestore()
+    })
+
+    // A worker whose code fails as it loads (one of its packages needs a page's `document`, say) sends
+    // no error event: it just never answers, so the checks would wait for ever with no sign of why.
+    it("gives up on a worker that never says it's ready, and stops it", async () => {
+        vi.useFakeTimers()
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const { client, createWorker, workers } = setup(() => null, { ready: false })
+        const waiting = client.check('x', 'en-US', [], DOC)
+        const failed = expect(waiting).rejects.toThrow("couldn't start")
+
+        await vi.advanceTimersByTimeAsync(SPELLCHECK_START_TIMEOUT_MS)
+        await failed
+        expect(workers[0]!.terminated).toBe(true)
+        await expect(client.check('y', 'en-US', [], DOC)).rejects.toThrow("couldn't start")
+        expect(createWorker).toHaveBeenCalledTimes(1)
+        expect(warn).toHaveBeenCalledTimes(1)
+        warn.mockRestore()
+    })
+
+    it('keeps a ready worker past the start-up wait, even with a slow first answer', async () => {
+        vi.useFakeTimers()
+        const { client, workers } = setup(() => null)
+        const waiting = client.check('x', 'en-US', [], DOC)
+        await vi.advanceTimersByTimeAsync(SPELLCHECK_START_TIMEOUT_MS * 2)
+
+        workers[0]!.reply({ type: 'checked', id: workers[0]!.received[0]!.id, misspellings: [] })
+        expect(await waiting).toEqual([])
+        expect(workers[0]!.terminated).toBe(false)
     })
 })
