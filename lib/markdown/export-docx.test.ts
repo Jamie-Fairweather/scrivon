@@ -565,8 +565,11 @@ describe('renderExportDocx', () => {
             source === 'empty' ? '<svg viewBox="0 0 0 0" width="0" height="0"></svg>' : draw(source)
         )
         try {
-            const source = ['png-ok', 'throw-error', 'empty', 'png-fail', 'pie\n  "Dogs" : 3'].map((text) => fence('mermaid', text)).join('\n\n')
-            expect((await render(source)).diagramsNotDrawn).toBe(4)
+            // png-garbage: a picture came back, but its size can't be read, so the source is shown.
+            const source = ['png-ok', 'throw-error', 'empty', 'png-fail', 'png-garbage', 'pie\n  "Dogs" : 3']
+                .map((text) => fence('mermaid', text))
+                .join('\n\n')
+            expect((await render(source)).diagramsNotDrawn).toBe(5)
             expect((await render(fence('js', 'const a = 1'))).diagramsNotDrawn).toBe(0)
         } finally {
             renderMermaidDiagramForExport.mockImplementation(draw)

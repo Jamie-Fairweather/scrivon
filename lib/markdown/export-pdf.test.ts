@@ -564,7 +564,8 @@ describe('export-pdf helpers', () => {
         notifyExportSaved({ status: 'saved', diagramsNotDrawn: 2 })
         expect(notifyWarning).toHaveBeenLastCalledWith("Some diagrams couldn't be drawn", { description: "2 diagrams couldn't be drawn." })
         notifyExportSaved({ status: 'saved', missingImages: [MISSING_LOGO], diagramsNotDrawn: 1 })
-        expect(notifyWarning).toHaveBeenLastCalledWith('Some images were left out', {
+        // The title names both.
+        expect(notifyWarning).toHaveBeenLastCalledWith('Some images and diagrams were left out', {
             description: "Cover image (logo.png): Could not read image: not found. 1 diagram couldn't be drawn.",
         })
 

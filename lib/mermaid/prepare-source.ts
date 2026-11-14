@@ -15,8 +15,8 @@ export const SUPPORTED_DIAGRAMS = [
     { name: 'XY charts', header: 'xychart-beta' },
 ] as const
 
-/** Other Mermaid diagram types, by their header in lower case without `-beta`. */
-const UNSUPPORTED_DIAGRAMS = new Map(
+/** Other Mermaid diagram types, by their header in lower case without `-beta`. Each name is a plural ending in s. */
+export const UNSUPPORTED_DIAGRAMS: ReadonlyMap<string, string> = new Map(
     Object.entries({
         pie: 'Pie charts',
         gantt: 'Gantt charts',

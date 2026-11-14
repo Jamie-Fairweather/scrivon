@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { prepareMermaidSource, readFrontMatterTitle, supportedDiagramsSentence, unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
+import {
+    prepareMermaidSource,
+    readFrontMatterTitle,
+    supportedDiagramsSentence,
+    UNSUPPORTED_DIAGRAMS,
+    unsupportedDiagramNote,
+} from '@/lib/mermaid/prepare-source'
 
 describe('supportedDiagramsSentence', () => {
     it('names the supported types for a sentence', () => {
@@ -116,6 +122,35 @@ describe('unsupportedDiagramNote', () => {
         ['treemap\n  "A": 1', 'Treemap: not supported in Scrivon yet'],
     ])('gives readers of an export one short line for %j, without the help', (source, note) => {
         expect(unsupportedDiagramNote(source)).toBe(note)
+    })
+
+    it("names every type it can't draw in the singular", () => {
+        // A new type fails here until its note is checked and added.
+        const notes = Object.fromEntries([...UNSUPPORTED_DIAGRAMS.keys()].map((header) => [header, unsupportedDiagramNote(header)]))
+        const note = (name: string) => `${name}: not supported in Scrivon yet`
+        expect(notes).toEqual({
+            pie: note('Pie chart'),
+            gantt: note('Gantt chart'),
+            mindmap: note('Mind map'),
+            journey: note('User journey'),
+            gitgraph: note('Git graph'),
+            timeline: note('Timeline'),
+            quadrantchart: note('Quadrant chart'),
+            requirementdiagram: note('Requirement diagram'),
+            c4context: note('C4 diagram'),
+            c4container: note('C4 diagram'),
+            c4component: note('C4 diagram'),
+            c4dynamic: note('C4 diagram'),
+            c4deployment: note('C4 diagram'),
+            sankey: note('Sankey diagram'),
+            block: note('Block diagram'),
+            packet: note('Packet diagram'),
+            kanban: note('Kanban board'),
+            architecture: note('Architecture diagram'),
+            radar: note('Radar chart'),
+            treemap: note('Treemap'),
+            zenuml: note('ZenUML diagram'),
+        })
     })
 
     it.each(['graph TD\n  A --> B', 'sequenceDiagram\n  A->>B: hi', '', '%% just a note', 'graf TD'])('has nothing to say about %j', (source) => {

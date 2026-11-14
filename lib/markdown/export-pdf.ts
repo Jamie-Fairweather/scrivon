@@ -348,7 +348,14 @@ export function notifyExportSaved({
     const toc = tocSkipped ? TOC_SKIPPED : ''
     if (!path) {
         // The print dialog or the browser's download took over; only what was left out needs a word.
-        const warning = images ? 'Some images were left out' : diagrams ? "Some diagrams couldn't be drawn" : ''
+        const warning =
+            images && diagrams
+                ? 'Some images and diagrams were left out'
+                : images
+                  ? 'Some images were left out'
+                  : diagrams
+                    ? "Some diagrams couldn't be drawn"
+                    : ''
         if (warning) notifyWarning(warning, { description: joinSentences([images, diagrams, toc]) })
         else if (toc) notifyInfo('No contents page was added', { description: toc })
         return

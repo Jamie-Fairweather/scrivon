@@ -2811,7 +2811,9 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
 
 /** Whether a block is a diagram that came out as a note, an error or its source instead of a picture. */
 function diagramNotDrawn(prepared: PreparedCode): boolean {
-    return prepared.kind === 'error' || prepared.kind === 'unsupported' || (prepared.kind === 'diagram' && !prepared.png)
+    if (prepared.kind === 'error' || prepared.kind === 'unsupported') return true
+    // The same test renderPrepared uses: no picture, or one whose size can't be read, shows the source.
+    return prepared.kind === 'diagram' && (!prepared.png || !imageSize('png', prepared.png))
 }
 
 /** Word can't draw MathML, so math is written as its TeX source in the code font: a block as code, inline math as inline code. */
