@@ -275,7 +275,9 @@ export function StudioMenuBar() {
                             <MenuGroup>
                                 {item('edit.find')}
                                 {item('edit.replace')}
+                                {item('find-in-workspace')}
                                 {item('edit.go-to-line')}
+                                {item('go-to-file')}
                             </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
@@ -294,12 +296,18 @@ export function StudioMenuBar() {
                                 {item('toggle-editor')}
                                 {item('toggle-preview')}
                                 {item('toggle-outline')}
+                                {item('toggle-status-bar')}
                             </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
                                 {item('layout-all-panels')}
                                 {item('layout-editor-preview')}
                                 {item('preview-only')}
+                            </MenuGroup>
+                            <MenuSeparator />
+                            <MenuGroup>
+                                {item('reveal-active-file')}
+                                {item('collapse-all-folders')}
                             </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
@@ -320,12 +328,22 @@ export function StudioMenuBar() {
                     <MenuBarEntry label="Options" focusAfterCommand={focusAfterCommand}>
                         {item('open-settings')}
                         <MenuSeparator />
-                        {item('toggle-autosave', 'switch')}
+                        <MenuGroup>
+                            {item('toggle-autosave', 'switch')}
+                            {item('toggle-spellcheck', 'switch')}
+                        </MenuGroup>
                         <MenuSeparator />
                         <ThemeMenu />
                     </MenuBarEntry>
 
                     <MenuBarEntry label="Help" focusAfterCommand={focusAfterCommand}>
+                        {/* In Help, which always shows, so the mouse can open it on the welcome screen too. */}
+                        {byId.has('command-palette') && (
+                            <>
+                                {item('command-palette')}
+                                <MenuSeparator />
+                            </>
+                        )}
                         {/* Only the desktop app registers it. */}
                         {byId.has('check-for-updates') && (
                             <>

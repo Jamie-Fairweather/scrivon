@@ -1,7 +1,9 @@
 'use client'
 
+import { usePaletteCommands } from '@/components/studio/command-palette/palette-commands'
 import { useExplorerCommands } from '@/components/studio/explorer/explorer-commands'
 import { useNewItemCommands } from '@/components/studio/explorer/new-item-commands'
+import { useSettingSwitchCommands } from '@/components/studio/settings/setting-switch-commands'
 import { usePaneFocusCommands } from '@/components/studio/shell/pane-focus-commands'
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
 import { useThemeCommands } from '@/components/studio/theme/theme-commands'
@@ -25,6 +27,8 @@ export function StudioCommands() {
     useNewItemCommands()
     useDocumentCommands()
     useLayoutCommands()
+    useSettingSwitchCommands()
+    usePaletteCommands()
     usePaneFocusCommands()
     useExplorerCommands()
     useAppZoomCommands()

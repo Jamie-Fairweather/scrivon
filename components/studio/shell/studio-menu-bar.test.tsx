@@ -45,6 +45,10 @@ vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () =
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: vi.fn() }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))
+const openPaletteMode = vi.hoisted(() => vi.fn())
+vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
+    useOptionalCommandPalette: () => ({ open: vi.fn(), openMode: openPaletteMode }),
+}))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
 vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn() }))
 vi.mock('@/components/studio/dialogs/open-source-licenses-dialog', () => ({ OpenSourceLicensesDialog: () => null }))
@@ -72,6 +76,8 @@ function mockContexts({
     outlineOpen = false,
     activeTab = null as { name: string; isDirty: boolean } | null,
     zoom = 1,
+    statusBarVisible = true,
+    spellcheckEnabled = true,
 } = {}) {
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView, zoomDiagram: vi.fn() } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
@@ -130,6 +136,9 @@ function mockContexts({
             keybinds,
             appearance: { zoom, previewFontSize: 14 },
             theme: { id: 'scrivon-dark', light: 'scrivon-light', dark: 'scrivon-dark' },
+            statusBar: { visible: statusBarVisible },
+            spellcheck: { enabled: spellcheckEnabled, language: 'en-GB', words: [] },
+            editor: { scrollSync: true, jumpFromPreview: true },
         },
         updateSettings: vi.fn(),
         openSettings: vi.fn(),
@@ -253,14 +262,29 @@ describe('StudioMenuBar', () => {
         expect(screen.getByRole('menuitem', { name: 'File' })).toHaveFocus()
     })
 
-    it('lists the bug report helpers, About and Licences directly in the Help menu', async () => {
+    it('lists the command palette, the bug report helpers, About and Licences directly in the Help menu', async () => {
         render(<Studio />)
 
         const menu = await openMenu('Help')
         // The browser build has no updates to check for.
-        expect(menuLabels(menu)).toEqual(['Report an Issue', 'Copy Diagnostic Info', 'Open Logs Folder', 'About Scrivon…', 'Licences…'])
-        // Just the one between the two groups, with no stray one on top.
-        expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(1)
+        expect(menuLabels(menu)).toEqual([
+            'Command Palette…F1',
+            'Report an Issue',
+            'Copy Diagnostic Info',
+            'Open Logs Folder',
+            'About Scrivon…',
+            'Licences…',
+        ])
+        // One under the palette and one between the two groups, with no stray one for the missing update check.
+        expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(2)
+    })
+
+    it('opens the command palette from the Help menu with no folder open', async () => {
+        render(<Studio />)
+
+        await userEvent.setup().click(within(await openMenu('Help')).getByRole('menuitem', { name: 'Command Palette… F1' }))
+
+        expect(openPaletteMode).toHaveBeenCalledWith('all')
     })
 
     it('checks for updates from the Help menu of the desktop app', async () => {
@@ -269,6 +293,7 @@ describe('StudioMenuBar', () => {
 
         const menu = await openMenu('Help')
         expect(menuLabels(menu)).toEqual([
+            'Command Palette…F1',
             'Check for Updates…',
             'Report an Issue',
             'Copy Diagnostic Info',
@@ -615,7 +640,9 @@ describe('StudioMenuBar Edit menu', () => {
             'Select AllCtrl+A',
             'FindCtrl+F',
             'ReplaceCtrl+H',
+            'Find in Workspace…Ctrl+Shift+F',
             'Go to Line…Ctrl+G',
+            'Go to File…Ctrl+Shift+N',
             'BoldCtrl+B',
             'ItalicCtrl+I',
             'Inline CodeCtrl+E',
@@ -641,12 +668,28 @@ describe('StudioMenuBar Edit menu', () => {
         expect(formatMarkdown).toHaveBeenCalledWith(fakeEditor, 'bold')
     })
 
-    it.each<EditorState>(['none', 'hidden'])('turns every item off when the editor is %s', async (state) => {
+    it.each([
+        ['Find in Workspace… Ctrl+Shift+F', 'text'],
+        ['Go to File… Ctrl+Shift+N', 'files'],
+    ])('opens the palette from %s', async (name, mode) => {
+        render(<Studio editor="ready" />)
+
+        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name }))
+
+        expect(openPaletteMode).toHaveBeenCalledWith(mode)
+    })
+
+    it.each<EditorState>(['none', 'hidden'])('turns every editor item off when the editor is %s, but not the palette ones', async (state) => {
         render(<Studio editor={state} />)
 
-        const items = within(await openMenu('Edit')).getAllByRole('menuitem')
-        expect(items).toHaveLength(13)
-        expect(items.every((item) => item.getAttribute('aria-disabled') === 'true')).toBe(true)
+        const menu = await openMenu('Edit')
+        const palette = ['Find in Workspace… Ctrl+Shift+F', 'Go to File… Ctrl+Shift+N'].map((name) => within(menu).getByRole('menuitem', { name }))
+        const editorItems = within(menu)
+            .getAllByRole('menuitem')
+            .filter((item) => !palette.includes(item))
+        expect(editorItems).toHaveLength(13)
+        expect(editorItems.every((item) => item.getAttribute('aria-disabled') === 'true')).toBe(true)
+        expect(palette.every((item) => item.getAttribute('aria-disabled') !== 'true')).toBe(true)
     })
 })
 
@@ -669,11 +712,61 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(47)
+        expect(compared).toBe(54)
     })
 })
 
 describe('StudioMenuBar View menu', () => {
+    it('lists the panels with the Status Bar, the layouts, and the explorer helpers', async () => {
+        mockContexts({ workspaceRoot: 'C:/work' })
+        render(<Studio />)
+
+        const view = await openMenu('View')
+        const groups = Array.from(view.querySelectorAll('[role="group"]')).map((group) =>
+            Array.from(group.querySelectorAll('[role^="menuitem"]')).map((item) => item.textContent)
+        )
+        expect(groups.slice(0, 3)).toEqual([
+            ['ExplorerCtrl+Shift+B', 'EditorCtrl+E', 'PreviewCtrl+Alt+P', 'Outline', 'Status Bar'],
+            ['Show All Panels', 'Editor and Preview', 'Preview OnlyCtrl+Shift+O'],
+            ['Reveal Active File in Explorer', 'Collapse All Folders'],
+        ])
+    })
+
+    it('shows and hides the status bar from its tick box', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', statusBarVisible: true })
+        render(<Studio />)
+
+        const statusBar = within(await openMenu('View')).getByRole('menuitemcheckbox', { name: 'Status Bar' })
+        expect(statusBar).toHaveAttribute('aria-checked', 'true')
+        await userEvent.setup().click(statusBar)
+
+        const update = vi.mocked(useAppSettings)().updateSettings as unknown as ReturnType<typeof vi.fn>
+        const change = update.mock.calls[0]?.[0] as (current: { statusBar: { visible: boolean } }) => { statusBar: { visible: boolean } }
+        expect(change({ statusBar: { visible: true } }).statusBar.visible).toBe(false)
+    })
+
+    it('closes every folder in the explorer', async () => {
+        mockContexts({ workspaceRoot: 'C:/work' })
+        render(<Studio />)
+
+        await userEvent.setup().click(within(await openMenu('View')).getByRole('menuitem', { name: 'Collapse All Folders' }))
+
+        expect(vi.mocked(useWorkspaceSession)().setFoldersExpanded).toHaveBeenCalledWith(expect.arrayContaining(['C:\\work\\docs']), false)
+    })
+
+    it('opens the Outline with all panels and closes it for Editor and Preview', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', outlineOpen: false })
+        render(<Studio />)
+        const user = userEvent.setup()
+
+        await user.click(within(await openMenu('View')).getByRole('menuitem', { name: 'Show All Panels' }))
+        expect(vi.mocked(useStudioLayout)().setOutlineOpen).toHaveBeenLastCalledWith(true)
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+
+        await user.click(within(await openMenu('View')).getByRole('menuitem', { name: 'Editor and Preview' }))
+        expect(vi.mocked(useStudioLayout)().setOutlineOpen).toHaveBeenLastCalledWith(false)
+    })
+
     it('turns off Fit Diagram to Screen when there is no diagram to fit', async () => {
         mockContexts({ workspaceRoot: 'C:/work', canFitToView: false })
         render(<Studio />)
@@ -760,6 +853,23 @@ describe('StudioMenuBar View menu', () => {
     })
 })
 
+describe('StudioMenuBar Options menu', () => {
+    it('switches spell check on and off next to Autosave', async () => {
+        mockContexts({ spellcheckEnabled: false })
+        render(<Studio />)
+
+        const options = await openMenu('Options')
+        expect(menuLabels(options)).toEqual(['Settings…Ctrl+,', 'Autosave', 'Spell Check'])
+        const spelling = within(options).getByRole('menuitemcheckbox', { name: 'Spell Check' })
+        expect(spelling).toHaveAttribute('aria-checked', 'false')
+        await userEvent.setup().click(spelling)
+
+        const update = vi.mocked(useAppSettings)().updateSettings as unknown as ReturnType<typeof vi.fn>
+        const change = update.mock.calls[0]?.[0] as (current: { spellcheck: { enabled: boolean } }) => { spellcheck: { enabled: boolean } }
+        expect(change({ spellcheck: { enabled: false } }).spellcheck.enabled).toBe(true)
+    })
+})
+
 describe('StudioMenuBar focus after a command', () => {
     beforeEach(() => {
         mockContexts({ workspaceRoot: 'C:/work' })
@@ -837,11 +947,11 @@ describe('StudioMenuBar when a feature adds a command later', () => {
     it('shows it without the menu bar changing', async () => {
         mockContexts({ workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
         const view = render(<Studio editor="none" />)
-        expect(within(await openMenu('Edit')).getByRole('menuitem', { name: /^Find/ })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Find Ctrl+F' })).toHaveAttribute('aria-disabled', 'true')
         await userEvent.setup().keyboard('{Escape}')
 
         view.rerender(<Studio editor="ready" />)
         await act(async () => {})
-        expect(within(await openMenu('Edit')).getByRole('menuitem', { name: /^Find/ })).not.toHaveAttribute('aria-disabled', 'true')
+        expect(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Find Ctrl+F' })).not.toHaveAttribute('aria-disabled', 'true')
     })
 })
