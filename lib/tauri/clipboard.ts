@@ -14,9 +14,21 @@ function browserClipboard(): Clipboard {
     return clipboard
 }
 
-/** What the plugin rejects with when the clipboard has nothing of the kind asked for, or nothing at all. */
+// The plugin rejects with the English text of arboard's errors (arboard 3, src/common.rs), so they are told apart
+// by their words. src-tauri/tests/clipboard_errors.rs fails if an arboard update changes these words.
+/** arboard's ContentNotAvailable: the clipboard has nothing of the kind asked for, or nothing at all. */
+const NOTHING_THERE = /not available in the requested format|clipboard is empty/i
+/** arboard's ClipboardOccupied: another app has the clipboard open. */
+const HELD_BY_ANOTHER_APP = /held by another party/i
+
 function isNothingThere(error: unknown): boolean {
-    return /not available in the requested format|clipboard is empty/i.test(String(error))
+    return NOTHING_THERE.test(String(error))
+}
+
+/** The plugin's error, in plain words where arboard's aren't. */
+function plainError(error: unknown): unknown {
+    if (HELD_BY_ANOTHER_APP.test(String(error))) return new Error('Another app is using the clipboard. Try again.', { cause: error })
+    return error
 }
 
 /** The clipboard's text, or '' when it has none (a picture, say). Rejects when the clipboard can't be read. */
@@ -26,7 +38,7 @@ export async function readClipboardText(): Promise<string> {
         return await readText()
     } catch (error) {
         if (isNothingThere(error)) return ''
-        throw error
+        throw plainError(error)
     }
 }
 
@@ -57,7 +69,7 @@ export async function readClipboardPng(): Promise<Uint8Array<ArrayBuffer> | null
         picture = await readImage()
     } catch (error) {
         if (isNothingThere(error)) return null
-        throw error
+        throw plainError(error)
     }
     try {
         const [rgba, { width, height }] = await Promise.all([picture.rgba(), picture.size()])
@@ -71,7 +83,11 @@ export async function readClipboardPng(): Promise<Uint8Array<ArrayBuffer> | null
 /** Puts text on the clipboard. */
 export async function writeClipboardText(text: string): Promise<void> {
     if (!isTauri()) return browserClipboard().writeText(text)
-    await writeText(text)
+    try {
+        await writeText(text)
+    } catch (error) {
+        throw plainError(error)
+    }
 }
 
 /** Puts a PNG picture on the clipboard. */
@@ -80,5 +96,9 @@ export async function writeClipboardPng(png: Uint8Array<ArrayBuffer>): Promise<v
         const clipboard = browserClipboard()
         return clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })])
     }
-    await writeImage(png)
+    try {
+        await writeImage(png)
+    } catch (error) {
+        throw plainError(error)
+    }
 }

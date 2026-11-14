@@ -15,6 +15,10 @@ const { readClipboardPng, readClipboardText, writeClipboardPng, writeClipboardTe
 
 /** What the plugin rejects with when the clipboard has nothing of the kind asked for (arboard's ContentNotAvailable). */
 const NOTHING_THERE = 'The clipboard contents were not available in the requested format or the clipboard is empty.'
+/** What it rejects with when another app has the clipboard open (arboard's ClipboardOccupied). */
+const HELD = 'The native clipboard is not accessible due to being held by another party.'
+/** What the user is told then, with arboard's words kept for the log. */
+const IN_USE = new Error('Another app is using the clipboard. Try again.', { cause: HELD })
 
 /** The start of a PNG file: what the drawing surface below turns pixels into. */
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
@@ -67,8 +71,11 @@ describe('in the app', () => {
         plugin.readText.mockRejectedValueOnce(NOTHING_THERE)
         await expect(readClipboardText()).resolves.toBe('')
 
-        plugin.readText.mockRejectedValueOnce('The native clipboard is not accessible due to being held by another party.')
-        await expect(readClipboardText()).rejects.toBe('The native clipboard is not accessible due to being held by another party.')
+        plugin.readText.mockRejectedValueOnce(HELD)
+        await expect(readClipboardText()).rejects.toEqual(IN_USE)
+
+        plugin.readText.mockRejectedValueOnce('Unknown error while interacting with the clipboard: 5')
+        await expect(readClipboardText()).rejects.toBe('Unknown error while interacting with the clipboard: 5')
     })
 
     it('reads a picture as PNG bytes, from the pixels Tauri gives', async () => {
@@ -89,6 +96,9 @@ describe('in the app', () => {
 
         plugin.readImage.mockRejectedValueOnce('failed to read clipboard PNG data')
         await expect(readClipboardPng()).rejects.toBe('failed to read clipboard PNG data')
+
+        plugin.readImage.mockRejectedValueOnce(HELD)
+        await expect(readClipboardPng()).rejects.toEqual(IN_USE)
     })
 
     it('writes text and PNG pictures through Tauri', async () => {
@@ -99,10 +109,15 @@ describe('in the app', () => {
         expect(plugin.writeImage).toHaveBeenCalledWith(PNG)
     })
 
-    it('says why when the clipboard refuses a write', async () => {
-        plugin.writeText.mockRejectedValueOnce('The native clipboard is not accessible due to being held by another party.')
+    it('says why when the clipboard refuses a write, in plain words when another app has it', async () => {
+        plugin.writeText.mockRejectedValueOnce(HELD)
+        await expect(writeClipboardText('x')).rejects.toEqual(IN_USE)
 
-        await expect(writeClipboardText('x')).rejects.toBe('The native clipboard is not accessible due to being held by another party.')
+        plugin.writeImage.mockRejectedValueOnce(HELD)
+        await expect(writeClipboardPng(PNG)).rejects.toEqual(IN_USE)
+
+        plugin.writeImage.mockRejectedValueOnce('failed to write the image')
+        await expect(writeClipboardPng(PNG)).rejects.toBe('failed to write the image')
     })
 })
 

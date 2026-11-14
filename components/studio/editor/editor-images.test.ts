@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IDisposable, IRange } from 'monaco-editor'
 import { CommandsRegistry } from 'monaco-editor/platform/commands/common/commands.js'
-import { MONACO_PASTE_COMMAND_ID } from '@/lib/monaco/paste-command'
+import { MONACO_PASTE_COMMAND_ID, takeOverEditorPaste } from '@/lib/monaco/paste-command'
 import { ImageTooBigError, MAX_IMAGE_BYTES } from '@/lib/workspace/image-assets'
 
 const assets = vi.hoisted(() => ({
@@ -37,7 +37,7 @@ vi.mock('@tauri-apps/api/webview', () => ({
 }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
 
-const { attachEditorImages, imageDocumentFor } = await import('./editor-images')
+const { attachEditorImages, imageDocumentFor, pasteClipboardPicture } = await import('./editor-images')
 const { listenForFileDrops } = await import('@/lib/tauri/file-drop')
 
 const ROOT = 'C:\\notes'
@@ -193,7 +193,12 @@ beforeEach(() => {
     editor = new FakeEditor(new FakeModel('# Setup\nSee: \nDone.'))
     doc = { path: DOC, workspaceRoot: ROOT }
     const attached = attachEditorImages(editor as never, () => doc)
-    detach = () => attached.dispose()
+    // The menus' Paste, set up as the editor panel does.
+    const pasteCommand = takeOverEditorPaste(editor as never, () => pasteClipboardPicture(editor as never, () => doc))
+    detach = () => {
+        attached.dispose()
+        pasteCommand.dispose()
+    }
 })
 
 afterEach(() => {
@@ -389,7 +394,7 @@ describe('Paste from the Edit menu, the palette or the right-click menu', () => 
         expect(monacoPaste).not.toHaveBeenCalled()
     })
 
-    it('still pastes text where pictures can’t go (a diagram, a read-only file), and doesn’t read a picture there', async () => {
+    it('still pastes text where pictures can’t go (a diagram, a file outside the folder), and doesn’t read a picture there', async () => {
         doc = null
         copy({ text: 'Hello', png: PNG })
         await choosePaste()
@@ -418,6 +423,16 @@ describe('Paste from the Edit menu, the palette or the right-click menu', () => 
 
         expect(monacoPaste).toHaveBeenCalledTimes(1)
         expect(clipboard.readText).not.toHaveBeenCalled()
+    })
+
+    it('leaves the Paste command itself to the editor panel, so pasting text doesn’t depend on the picture code', () => {
+        detach()
+        const picturesOnly = attachEditorImages(editor as never, () => doc)
+
+        choosePaste()
+
+        expect(monacoPaste).toHaveBeenCalledTimes(1)
+        picturesOnly.dispose()
     })
 })
 

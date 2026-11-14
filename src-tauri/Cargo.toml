@@ -79,3 +79,8 @@ windows-core = "0.62.2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 
+[dev-dependencies]
+# The clipboard plugin's errors, checked in tests/clipboard_errors.rs. The plugin already builds it, so
+# nothing new is compiled.
+arboard = { version = "3", default-features = false }
+

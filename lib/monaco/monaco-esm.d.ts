@@ -89,6 +89,11 @@ declare module 'monaco-editor/editor/browser/editorExtensions.js' {
 declare module 'monaco-editor/editor/standalone/browser/standaloneServices.js' {
     export namespace StandaloneServices {
         function get<T>(serviceId: { readonly type: T }): T
+        /**
+         * Sets Monaco's services up, with each of `overrides` (keyed by the service's name) in place of Monaco's
+         * own. Only the first call does anything, and `get` makes that call when nothing has yet.
+         */
+        function initialize(overrides: Record<string, unknown>): unknown
     }
 }
 
@@ -194,4 +199,26 @@ declare module 'monaco-editor/editor/contrib/snippet/browser/snippetParser.js' {
     export class SnippetParser {
         parse(value: string): { toString(): string }
     }
+}
+
+// Monaco's clipboard service, which lib/monaco/clipboard-service.ts replaces so the editor uses Tauri's clipboard.
+declare module 'monaco-editor/platform/clipboard/common/clipboardService.js' {
+    import type { Uri } from 'monaco-editor'
+    export interface IClipboardService {
+        readonly _serviceBrand: undefined
+        /** The menus' Paste, where the host can paste (a desktop app); undefined to have the editor read the text. */
+        triggerPaste(targetWindowId: number): Promise<void> | undefined
+        /** With `type`, kept in memory under that name instead of put on the clipboard. */
+        writeText(text: string, type?: string): Promise<void>
+        readText(type?: string): Promise<string>
+        readFindText(): Promise<string>
+        writeFindText(text: string): Promise<void>
+        writeResources(resources: Uri[]): Promise<void>
+        readResources(): Promise<Uri[]>
+        hasResources(): Promise<boolean>
+        clearInternalState?(): void
+        readImage(): Promise<Uint8Array>
+    }
+    /** The id StandaloneServices looks the service up by; its toString() is the service's name. */
+    export const IClipboardService: { readonly type: IClipboardService }
 }
