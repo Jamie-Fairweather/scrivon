@@ -12,6 +12,10 @@ function tab(path: string): DocumentTab {
     return { id: path, path, name: path.split(/[/\\]/).pop()!, content: '', isDirty: false, isSaving: false }
 }
 
+function paths(tabs: DocumentTab[]): string[] {
+    return tabs.map((t) => t.path)
+}
+
 describe('createModelKey', () => {
     it('never repeats a key', () => {
         const a = createModelKey()
@@ -61,6 +65,38 @@ describe('syncModelKeys', () => {
         expect(after.keys.has('C:\\w\\a.md')).toBe(false)
     })
 
+    it('keeps the key of a file moved into another folder', () => {
+        const newKey = counter()
+        const prev = [tab('/w/a.md'), tab('/w/b.md')]
+        const before = syncModelKeys(EMPTY_MODEL_KEYS, paths(prev), newKey)
+        const after = syncModelKeys(before, paths(remapTabsAfterRename(prev, '/w/a.md', '/w/archive/a.md', 'a.md')), newKey)
+        expect(after.keys.get('/w/archive/a.md')).toBe('key-1')
+        expect(after.keys.get('/w/b.md')).toBe('key-2')
+    })
+
+    it('keeps the keys of a moved file and of the tabs left in its old folder', () => {
+        const newKey = counter()
+        const prev = [tab('/w/notes/a.md'), tab('/w/notes/b.md')]
+        const before = syncModelKeys(EMPTY_MODEL_KEYS, paths(prev), newKey)
+        const after = syncModelKeys(before, paths(remapTabsAfterRename(prev, '/w/notes/a.md', '/w/archive/a.md', 'a.md')), newKey)
+        expect([...after.keys.entries()]).toEqual([
+            ['/w/archive/a.md', 'key-1'],
+            ['/w/notes/b.md', 'key-2'],
+        ])
+    })
+
+    it('keeps the keys of every open file inside a moved folder', () => {
+        const newKey = counter()
+        const prev = [tab('C:\\w\\docs\\a.md'), tab('C:\\w\\top.md'), tab('C:\\w\\docs\\sub\\b.md')]
+        const before = syncModelKeys(EMPTY_MODEL_KEYS, paths(prev), newKey)
+        const after = syncModelKeys(before, paths(remapTabsAfterRename(prev, 'C:\\w\\docs', 'C:\\w\\old\\docs', 'docs')), newKey)
+        expect([...after.keys.entries()]).toEqual([
+            ['C:\\w\\old\\docs\\a.md', 'key-1'],
+            ['C:\\w\\top.md', 'key-2'],
+            ['C:\\w\\old\\docs\\sub\\b.md', 'key-3'],
+        ])
+    })
+
     it('gives a new key when a file is deleted and another with the same name is created', () => {
         const newKey = counter()
         const open = syncModelKeys(EMPTY_MODEL_KEYS, ['/w/a.md'], newKey)
@@ -98,6 +134,11 @@ describe('detectRenamedPaths', () => {
         )
     })
 
+    it('finds nothing when no tab changed', () => {
+        expect(detectRenamedPaths(['/w/a.md'], ['/w/a.md']).size).toBe(0)
+        expect(detectRenamedPaths([], []).size).toBe(0)
+    })
+
     it('ignores tabs being opened, closed or replaced', () => {
         expect(detectRenamedPaths(['/w/a.md'], ['/w/a.md', '/w/b.md']).size).toBe(0)
         expect(detectRenamedPaths(['/w/a.md', '/w/b.md'], ['/w/b.md']).size).toBe(0)
@@ -105,12 +146,18 @@ describe('detectRenamedPaths', () => {
         expect(detectRenamedPaths(['/w/a.md', '/w/b.md'], ['/w/b.md', '/w/a.md']).size).toBe(0)
         // Changes in different places are not one rename.
         expect(detectRenamedPaths(['/w/x/a.md', '/w/y/b.md'], ['/w/x/c.md', '/w/z/b.md']).size).toBe(0)
-        // A different depth is not a rename.
-        expect(detectRenamedPaths(['/w/a.md'], ['/w/sub/a.md']).size).toBe(0)
+        // Files that keep their names but end up in different folders did not move together.
+        expect(detectRenamedPaths(['/w/x/a.md', '/w/x/b.md'], ['/w/y/a.md', '/w/z/b.md']).size).toBe(0)
     })
 
-    it('rejects a folder "rename" that leaves one of its tabs behind', () => {
-        expect(detectRenamedPaths(['/w/docs/a.md', '/w/docs/b.md'], ['/w/notes/a.md', '/w/docs/b.md']).size).toBe(0)
+    it('rejects a folder move that leaves one of its tabs behind', () => {
+        expect(detectRenamedPaths(['/w/docs/a.md', '/w/docs/b.md', '/w/docs/c.md'], ['/w/notes/a.md', '/w/notes/b.md', '/w/docs/c.md']).size).toBe(0)
+    })
+
+    it('matches what remapTabsAfterRename does when a file moves and gets a new name to avoid a clash', () => {
+        const prev = [tab('/w/notes/a.md'), tab('/w/notes/b.md')]
+        const next = remapTabsAfterRename(prev, '/w/notes/a.md', '/w/archive/a (1).md', 'a (1).md')
+        expect(detectRenamedPaths(paths(prev), paths(next))).toEqual(new Map([['/w/archive/a (1).md', '/w/notes/a.md']]))
     })
 })
 

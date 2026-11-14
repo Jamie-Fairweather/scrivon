@@ -35,6 +35,12 @@ describe('searchSettings', () => {
         expect(searchSettings('color', BROWSER).map((entry) => entry.label)).toContain('Brand colour')
     })
 
+    it('finds the export profile by each export format', () => {
+        for (const format of ['pdf', 'word', 'html']) {
+            expect(searchSettings(format, BROWSER).map((entry) => entry.label)).toContain('Default export profile')
+        }
+    })
+
     it('finds keyboard shortcuts and themes', () => {
         expect(searchSettings('go to file', BROWSER)).toEqual([expect.objectContaining({ section: 'keyboard', label: 'Go to file' })])
         expect(searchSettings('nord', BROWSER)).toEqual([
