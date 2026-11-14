@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import type { AppSettings } from '@/lib/settings/types'
+import { isPreviewShown } from '@/lib/workspace/layout'
 import type { StudioLayoutState } from '@/lib/workspace/types'
 
 type StudioLayoutContextValue = {
@@ -34,15 +35,10 @@ function withPaneOpen(settings: AppSettings, pane: Pane, open: boolean): AppSett
 export function StudioLayoutProvider({ children }: { children: ReactNode }) {
     const { settings, updateSettings, setLayoutExplorerOpen } = useAppSettings()
 
+    const { explorerOpen, editorOpen, previewOpen, outlineOpen } = settings.layout
     const layout = useMemo<StudioLayoutState>(
-        () => ({
-            explorerOpen: settings.layout.explorerOpen,
-            editorOpen: settings.layout.editorOpen,
-            // With the editor hidden too, the preview shows anyway.
-            previewOpen: settings.layout.previewOpen || !settings.layout.editorOpen,
-            outlineOpen: settings.layout.outlineOpen,
-        }),
-        [settings.layout.explorerOpen, settings.layout.editorOpen, settings.layout.previewOpen, settings.layout.outlineOpen]
+        () => ({ explorerOpen, editorOpen, previewOpen: isPreviewShown({ previewOpen, editorOpen }), outlineOpen }),
+        [explorerOpen, editorOpen, previewOpen, outlineOpen]
     )
 
     const setEditorOpen = useCallback((open: boolean) => updateSettings((current) => withPaneOpen(current, 'editorOpen', open)), [updateSettings])

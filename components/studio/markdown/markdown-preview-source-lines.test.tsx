@@ -67,6 +67,25 @@ describe('MarkdownPreview source lines', () => {
         expect(lineOf(container, '[data-mermaid-block-id]')).toBe(7)
     })
 
+    it('marks display equations, $$ and ```math, so double-click can jump to them (#182)', () => {
+        const { container } = preview('Before\n\n$$\nE = mc^2\n$$\n\nMiddle\n\n```math\na^2 + b^2 = c^2\n```\n\nAfter $x$ inline\n')
+        const equations = container.querySelectorAll<HTMLElement>('math[display="block"]')
+        expect(equations).toHaveLength(2)
+        expect(equations[0]!.closest('[data-source-line]')).toHaveAttribute('data-source-line', '3')
+        expect(equations[1]!.closest('[data-source-line]')).toHaveAttribute('data-source-line', '9')
+        expect(lineOf(container, 'p', 'After')).toBe(13)
+    })
+
+    it('gives an alert’s text the line it starts on, not the [!NOTE] line (#182)', () => {
+        const { container } = preview(
+            '---\ntitle: T\n---\n# Title\n\n> [!NOTE]\n> Alert line one\n> line two\n\n> [!TIP]  \n> After two spaces\n\n> [!WARNING]\n> **Bold** first\n'
+        )
+        expect(lineOf(container, '[role="note"]', 'Alert line one')).toBe(6)
+        expect(lineOf(container, 'p', 'Alert line one')).toBe(7)
+        expect(lineOf(container, 'p', 'After two spaces')).toBe(11)
+        expect(lineOf(container, 'p', 'Bold first')).toBe(14)
+    })
+
     it('marks each table row', () => {
         const { container } = preview('| A | B |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n')
         expect(lineOf(container, 'table')).toBe(1)

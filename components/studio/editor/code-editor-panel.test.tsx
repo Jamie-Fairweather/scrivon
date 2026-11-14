@@ -2,6 +2,7 @@ import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/re
 import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
+import { remapTabsAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 // --- A small stand-in for Monaco: one text buffer per URI, like the real thing. ---
@@ -955,6 +956,64 @@ describe('CodeEditorPanel keeps editing state', () => {
         expect(model!.disposed).toBe(false)
         act(() => editor.type('!'))
         expect(updateTabContent).toHaveBeenLastCalledWith(c, 'A edited!')
+    })
+
+    it('keeps the buffer (and its undo history) and the caret when the open file is moved to another folder', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type(' edited'))
+        const caret = { startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 3 }
+        act(() => editor.setSelection(caret))
+        const model = editor.getModel()
+
+        const moved = '/w/archive/a.md'
+        setTabs(view, { tabs: remapTabsAfterRename([tab(a, 'A edited')], a, moved, 'a.md'), activeTabId: moved })
+
+        expect(editor.getModel()).toBe(model)
+        expect(model!.disposed).toBe(false)
+        // A new buffer would put the caret back at the top.
+        expect(editor.getSelection()).toMatchObject(caret)
+        act(() => editor.type('!'))
+        expect(updateTabContent).toHaveBeenLastCalledWith(moved, 'A edited!')
+    })
+
+    it('keeps the buffers of a moved file and of the tabs left in its old folder', async () => {
+        const a = '/w/notes/a.md'
+        const b = '/w/notes/b.md'
+        tabsState = { tabs: [tab(a, 'A'), tab(b, 'B')], activeTabId: b }
+        const { view, editor } = await mountEditor()
+        const modelB = editor.getModel()!
+        setTabs(view, { ...tabsState, activeTabId: a })
+        const modelA = editor.getModel()!
+
+        const moved = remapTabsAfterRename(tabsState.tabs, a, '/w/archive/a.md', 'a.md')
+        setTabs(view, { tabs: moved, activeTabId: '/w/archive/a.md' })
+        expect(editor.getModel()).toBe(modelA)
+        expect(modelA.disposed).toBe(false)
+        expect(modelB.disposed).toBe(false)
+
+        setTabs(view, { tabs: moved, activeTabId: b })
+        expect(editor.getModel()).toBe(modelB)
+    })
+
+    it('keeps the buffer of every open file inside a moved folder', async () => {
+        const a = '/w/docs/a.md'
+        const b = '/w/docs/sub/b.md'
+        tabsState = { tabs: [tab(a, 'A'), tab('/w/top.md', 'Top'), tab(b, 'B')], activeTabId: b }
+        const { view, editor } = await mountEditor()
+        const modelB = editor.getModel()!
+        setTabs(view, { ...tabsState, activeTabId: a })
+        const modelA = editor.getModel()!
+
+        const moved = remapTabsAfterRename(tabsState.tabs, '/w/docs', '/w/old/docs', 'docs')
+        setTabs(view, { tabs: moved, activeTabId: '/w/old/docs/a.md' })
+        expect(editor.getModel()).toBe(modelA)
+        expect(modelA.disposed).toBe(false)
+        expect(modelB.disposed).toBe(false)
+
+        setTabs(view, { tabs: moved, activeTabId: '/w/old/docs/sub/b.md' })
+        expect(editor.getModel()).toBe(modelB)
     })
 
     it('keeps the editor and its buffer when the editor pane is hidden and shown again', async () => {

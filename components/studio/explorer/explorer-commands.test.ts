@@ -25,7 +25,7 @@ describe('buildExplorerCommands', () => {
 
     it('shows the open file in the explorer', () => {
         const ctx = context()
-        expect(find(ctx, 'reveal-active-file')).toMatchObject({ label: 'Reveal Active File in Explorer', disabled: false })
+        expect(find(ctx, 'reveal-active-file')).toMatchObject({ label: 'Reveal Active File in Sidebar', disabled: false })
 
         void find(ctx, 'reveal-active-file')!.run()
         expect(ctx.revealActiveFile).toHaveBeenCalledTimes(1)

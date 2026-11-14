@@ -74,7 +74,7 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'editor', group: 'Spelling', label: 'Spelling language', keywords: 'spellcheck dictionary english' },
     { section: 'editor', group: 'Spelling', label: 'Your dictionary', keywords: 'spellcheck words added remove' },
 
-    { section: 'pdf-export', label: 'Default export profile', keywords: 'pdf word new duplicate delete' },
+    { section: 'pdf-export', label: 'Default export profile', keywords: 'pdf word html new duplicate delete' },
     { section: 'pdf-export', label: 'Profile name', keywords: 'rename' },
     // Custom size's width and height boxes are found through Page size, the way Wrap column is through Word wrap.
     { section: 'pdf-export', group: 'Page', label: 'Page size', keywords: 'a3 a4 a5 letter legal custom paper width height' },

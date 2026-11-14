@@ -10,6 +10,9 @@ export type PaneId = 'explorer' | 'outline' | 'editor' | 'preview'
  */
 const PANE_FOCUS_ATTRIBUTE = 'data-pane-focus'
 
+/** In the preview, an element that takes focus itself, not the first Tab stop inside it: the diagram canvas. */
+const PANE_FOCUS_SELF_ATTRIBUTE = 'data-pane-focus-self'
+
 /** What Tab stops on: links, enabled controls and elements with a tabIndex, but not those taken out of the Tab order. */
 const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]']
     .map((selector) => `${selector}:not([tabindex^="-"])`)
@@ -22,6 +25,19 @@ function isShown(element: Element): boolean {
 
 function tabbables(root: Element): HTMLElement[] {
     return [...root.querySelectorAll<HTMLElement>(TABBABLE)].filter(isShown)
+}
+
+/** The notifications (Base UI's toast viewport). Its own F6 shortcut can't run while ours takes the key. */
+const NOTIFICATIONS = '[data-slot="toast-viewport"]'
+
+/** A notification that is showing, not one animating out. Base UI makes each one a non-modal dialog. */
+const SHOWING_NOTIFICATION = ':is([role="dialog"], [role="alertdialog"]):not([data-ending-style])'
+
+/** The notifications, while one shows: the last stop for F6, after the panes. */
+function shownNotifications(doc: Document): HTMLElement[] {
+    const region = doc.querySelector<HTMLElement>(NOTIFICATIONS)
+    const showing = region !== null && isShown(region) && [...region.querySelectorAll(SHOWING_NOTIFICATION)].some(isShown)
+    return showing ? [region] : []
 }
 
 function shownPanes(doc: Document): HTMLElement[] {
@@ -41,11 +57,16 @@ function paneItself(pane: HTMLElement): HTMLElement[] {
 
 /** Where focus may go in a pane, best first. */
 function focusTargets(pane: HTMLElement): HTMLElement[] {
+    // The region itself, as Base UI's F6 does. Tab goes on from there to the notifications and their buttons.
+    if (pane.matches(NOTIFICATIONS)) return [pane]
     if (pane.dataset.pane === 'preview') {
-        // Its scroll box when it scrolls, else the preview itself: never a link or button partway down the page.
+        // A diagram's canvas itself (marked data-pane-focus-self), so its zoom and arrow keys work: a Mermaid tab's, or
+        // the full-size one over a Markdown page. Else the scroll box when it scrolls, else the preview itself: never a
+        // link or button partway down the page.
+        const canvas = [...pane.querySelectorAll<HTMLElement>(`[${PANE_FOCUS_SELF_ATTRIBUTE}]`)].filter(isShown)
         const viewport = pane.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
         const scrolls = viewport !== null && viewport.tabIndex >= 0 && isShown(viewport)
-        return [...(scrolls ? [viewport] : []), ...paneItself(pane)]
+        return [...canvas, ...(scrolls ? [viewport] : []), ...paneItself(pane)]
     }
     const preferred = pane.querySelector(`[${PANE_FOCUS_ATTRIBUTE}]`)
     return [...(preferred ? tabbables(preferred) : []), ...tabbables(pane), ...paneItself(pane)]
@@ -80,9 +101,12 @@ export function focusPane(id: PaneId, doc: Document = document): boolean {
     return pane ? focusInPane(pane) : false
 }
 
-/** F6 and Shift+F6: moves focus to the next (1) or previous (-1) pane on screen, skipping closed and hidden ones. */
+/**
+ * F6 and Shift+F6: moves focus to the next (1) or previous (-1) pane on screen, skipping closed and hidden ones.
+ * While a notification shows, the notifications are a stop too, after the last pane.
+ */
 export function cyclePaneFocus(direction: 1 | -1, doc: Document = document): boolean {
-    const panes = shownPanes(doc)
+    const panes = [...shownPanes(doc), ...shownNotifications(doc)]
     if (panes.length === 0) return false
     return cycleOrder(panes, doc.activeElement, direction).some(focusInPane)
 }
@@ -102,7 +126,26 @@ export function focusPaneSoon(id: PaneId): void {
     requestAnimationFrame(attempt)
 }
 
-/** cyclePaneFocus for a command: a frame later, like focusPaneSoon. */
+/** How long a command waits for a closing palette or menu to give focus back. The palette fades out for 200 ms. */
+const CLOSE_WAIT_MS = 500
+
+/**
+ * A palette, menu or dialog that is closing: Base UI marks it data-closed while it fades out. Not any data-closed,
+ * since a closed Collapsible (an Examples category) has it too.
+ */
+const CLOSING_POPUP = ':is([role="dialog"], [role="alertdialog"], [role="menu"])[data-closed]'
+
+/**
+ * cyclePaneFocus for a command, once the menu or palette it was picked from has given focus back, so it moves on from
+ * the pane that had focus before. That's a frame later, or longer for the palette: it keeps focus while it fades out.
+ */
 export function cyclePaneFocusSoon(direction: 1 | -1): void {
-    requestAnimationFrame(() => cyclePaneFocus(direction))
+    // Timed, not counted in frames: a high-refresh screen draws more frames in the same time.
+    const giveUpAt = performance.now() + CLOSE_WAIT_MS
+    const attempt = () => {
+        const closing = document.activeElement?.closest(CLOSING_POPUP)
+        if (closing && performance.now() < giveUpAt) requestAnimationFrame(attempt)
+        else cyclePaneFocus(direction)
+    }
+    requestAnimationFrame(attempt)
 }

@@ -2,6 +2,7 @@
 
 import { useExplorerCommands } from '@/components/studio/explorer/explorer-commands'
 import { useNewItemCommands } from '@/components/studio/explorer/new-item-commands'
+import { usePathCommands } from '@/components/studio/explorer/path-commands'
 import { usePaneFocusCommands } from '@/components/studio/shell/pane-focus-commands'
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
 import { useThemeCommands } from '@/components/studio/theme/theme-commands'
@@ -27,6 +28,7 @@ export function StudioCommands() {
     useLayoutCommands()
     usePaneFocusCommands()
     useExplorerCommands()
+    usePathCommands()
     useAppZoomCommands()
     useThemeCommands()
     useExitCommand()

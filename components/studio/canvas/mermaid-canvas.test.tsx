@@ -279,6 +279,34 @@ describe('MermaidCanvas zoom (F06)', () => {
         expect(level()).toBe('120%')
     })
 
+    it('still zooms with the keys after a toolbar button is clicked and keeps focus (#178)', () => {
+        const { toolbar, level } = renderDiagram()
+        const zoomIn = within(toolbar).getByRole('button', { name: 'Zoom in' })
+        fireEvent.click(zoomIn)
+        act(() => zoomIn.focus())
+        expect(level()).toBe('188%')
+
+        expect(fireEvent.keyDown(zoomIn, { key: '-', ctrlKey: true })).toBe(false)
+        expect(level()).toBe('150%')
+        fireEvent.keyDown(zoomIn, { key: '=', ctrlKey: true })
+        expect(level()).toBe('188%')
+        fireEvent.keyDown(zoomIn, { key: '0', ctrlKey: true })
+        expect(level()).toBe('100%')
+        fireEvent.keyDown(zoomIn, { key: '+' })
+        expect(level()).toBe('125%')
+    })
+
+    it('leaves Enter, Space and the arrow keys to a focused toolbar button (#178)', () => {
+        const { toolbar, transform } = renderDiagram()
+        const zoomIn = within(toolbar).getByRole('button', { name: 'Zoom in' })
+        act(() => zoomIn.focus())
+
+        expect(fireEvent.keyDown(zoomIn, { key: 'Enter' })).toBe(true)
+        expect(fireEvent.keyDown(zoomIn, { key: ' ' })).toBe(true)
+        expect(fireEvent.keyDown(zoomIn, { key: 'ArrowLeft' })).toBe(true)
+        expect(transform()).toBe('translate(0px, 0px) scale(1.5)')
+    })
+
     it('takes focus when clicked, so the zoom keys work straight away', () => {
         renderDiagram()
         const canvas = screen.getByRole('group', { name: 'Diagram canvas' })

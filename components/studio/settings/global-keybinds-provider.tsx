@@ -16,7 +16,7 @@ type GlobalKeybindsProviderProps = {
 /**
  * Runs the app's shortcuts. Each runs the shared command that names it as its `keybind`, so the keys
  * do what the menu item and the palette row do, and nothing while the command is greyed out there.
- * A greyed-out editor command (Bold outside a Markdown file) passes its keys on instead.
+ * A greyed-out editor command (Bold outside a Markdown file) passes its keys on instead, unless it keeps them.
  */
 export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps) {
     const { isDesktop, workspaceRoot } = useWorkspaceSession()
@@ -45,7 +45,7 @@ export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps
             const editorCommand = isEditorAction(command.keybind)
             result[command.keybind] = () => {
                 // To the app shortcut on the same keys, or to the editor.
-                if (command.disabled && editorCommand) return false
+                if (command.disabled && editorCommand && !command.keepsKeysWhenOff) return false
                 if (!command.disabled) void command.run()
                 // Taken even while the command is off, so the keys never reach the web view (Ctrl+R reloads it).
                 return true
