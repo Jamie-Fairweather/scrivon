@@ -1,10 +1,11 @@
 'use client'
 
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
+import { DiagramZoomToolbar } from '@/components/studio/canvas/diagram-zoom-toolbar'
 import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/studio/canvas/use-canvas-fit-on-load'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
-import { usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import { stopCanvasGesture, usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
@@ -22,10 +23,6 @@ type MermaidCanvasProps = {
     canvasKey?: string
     /** Keeps each tab's pan and zoom while this canvas is unmounted (see usePanZoomMemory). */
     viewMemory?: PanZoomMemory
-}
-
-function stopCanvasGesture(event: React.SyntheticEvent) {
-    event.stopPropagation()
 }
 
 /** Shown when there is no earlier diagram. The message can be selected, copied and scrolled. */
@@ -109,10 +106,17 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
     // A diagram can name and describe itself with accTitle and accDescr; otherwise it's named after the tab.
     const accessibility = useMemo(() => readDiagramAccessibility(source), [source])
     const diagramLabel = accessibility.title ?? (tabName ? `Diagram: ${tabName}` : 'Diagram')
-    const { reset, fitToView, hasViewStateForTab, handlers } = usePanZoom(containerRef, transformRef, viewKey, openTabIds, viewMemory)
-    const { registerFitToView, setCanFitToView } = useCanvasControls()
+    const { reset, zoom, zoomLevel, fitToView, hasViewStateForTab, handlers } = usePanZoom(
+        containerRef,
+        transformRef,
+        viewKey,
+        openTabIds,
+        viewMemory
+    )
+    const { registerFitToView, registerZoomDiagram, setCanFitToView } = useCanvasControls()
     const hasSource = source.trim().length > 0
     const { svgForDisplay, dimensions, currentError: error, isPending, isEmpty } = useMermaidSvg(source, viewKey)
+    const keysHintId = useId()
 
     useEffect(() => {
         pruneSvgCache(openTabIds)
@@ -127,12 +131,13 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
         return () => setCanFitToView(false)
     }, [dimensions, setCanFitToView])
 
-    useEffect(() => {
-        return registerFitToView(() => {
-            const d = dimensionsRef.current
-            if (d) fitToView(d.width, d.height)
-        })
-    }, [registerFitToView, fitToView])
+    const fitDiagram = useCallback(() => {
+        const d = dimensionsRef.current
+        if (d) fitToView(d.width, d.height)
+    }, [fitToView])
+
+    useEffect(() => registerFitToView(fitDiagram), [registerFitToView, fitDiagram])
+    useEffect(() => registerZoomDiagram(zoom), [registerZoomDiagram, zoom])
 
     useCanvasFitOnRequest(canvasFitRequestId, viewKey, dimensions, fitToView)
     useCanvasFitOnFirstView(dimensions, svgForDisplay, viewKey, hasViewStateForTab, fitToView)
@@ -150,7 +155,18 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
     return (
         <div
             ref={containerRef}
-            className={cn('relative isolate min-h-0 flex-1 cursor-grab touch-none overflow-hidden bg-background select-none', className)}
+            role="group"
+            aria-label="Diagram canvas"
+            aria-describedby={showDiagram ? keysHintId : undefined}
+            // A Tab stop only while there is a diagram to zoom; a click still focuses it.
+            tabIndex={showDiagram ? 0 : -1}
+            className={cn(
+                'relative isolate min-h-0 flex-1 cursor-grab touch-none overflow-hidden bg-background outline-none select-none',
+                // The focus ring is drawn on top, so a zoomed-in diagram can't cover it.
+                `after:pointer-events-none after:absolute after:inset-0 after:z-30 focus-visible:after:ring-2 focus-visible:after:ring-ring
+                focus-visible:after:ring-inset`,
+                className
+            )}
             onDoubleClick={reset}
             {...handlers}
         >
@@ -179,6 +195,14 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
                 </div>
             ) : null}
             {showDiagram && error ? <DiagramErrorBanner message={error} /> : null}
+            {showDiagram ? (
+                <>
+                    <DiagramZoomToolbar zoomLevel={zoomLevel} onZoom={zoom} onFit={fitDiagram} />
+                    <span id={keysHintId} hidden>
+                        + and - zoom, 0 goes back to 100%, and the arrow keys move the diagram.
+                    </span>
+                </>
+            ) : null}
         </div>
     )
 }

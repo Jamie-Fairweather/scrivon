@@ -2,6 +2,7 @@ import { getKeybindActionMeta, type KeybindActionMeta } from '@/lib/settings/key
 import {
     chordsEqual,
     hasCommandModifier,
+    isAltCodeKey,
     isComposingKeyEvent,
     isFunctionKey,
     isModifierKey,
@@ -61,8 +62,8 @@ export type MatchKeybindOptions = {
 export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
     // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
     if (event.repeat || isModifierKey(event.key)) return null
-    // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
-    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return null
+    // Keys that are part of IME input, characters typed with AltGr, and Alt codes are text, not shortcuts.
+    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event) || isAltCodeKey(event)) return null
 
     const pressed = eventToChords(event)
     if (pressed.length === 0) return null

@@ -162,6 +162,36 @@ describe('matchKeybind', () => {
             expect(matchKeybind(russian, withCtrlAlt, { hasWorkspace: true })).toBe('view.toggleExplorer')
         })
 
+        it('fires the diagram zoom defaults on plain Alt, which AltGr keyboards like UK and German leave alone', () => {
+            // Left Alt is never AltGr, so these work on every layout that has the key.
+            expect(matchKeybind(keyEvent('=', { code: 'Equal', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.zoomDiagramIn'
+            )
+            expect(matchKeybind(keyEvent('-', { code: 'Minus', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.zoomDiagramOut'
+            )
+            expect(matchKeybind(keyEvent('0', { code: 'Digit0', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.resetDiagramZoom'
+            )
+            // German has - where US has /.
+            expect(matchKeybind(keyEvent('-', { code: 'Slash', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.zoomDiagramOut'
+            )
+            // AltGr (Ctrl+Alt) with the same keys is still left for typing.
+            for (const [key, code] of [
+                ['=', 'Equal'],
+                ['-', 'Minus'],
+                ['0', 'Digit0'],
+            ]) {
+                const altGr = keyEvent(key, { code, ctrl: true, alt: true, altGraph: true }, editorTarget)
+                expect(matchKeybind(altGr, bindings, { hasWorkspace: true })).toBeNull()
+            }
+        })
+
+        it('leaves Alt with a number-pad digit for Alt codes (Alt+0233 types é)', () => {
+            expect(matchKeybind(keyEvent('0', { code: 'Numpad0', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBeNull()
+        })
+
         it('never fires on AltGr or a lock key on its own', () => {
             const withJunk = {
                 ...bindings,

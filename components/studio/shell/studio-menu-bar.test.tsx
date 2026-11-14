@@ -67,7 +67,7 @@ function mockContexts({
     outlineOpen = false,
     activeTab = null as { name: string; isDirty: boolean } | null,
 } = {}) {
-    vi.mocked(useCanvasControls).mockReturnValue({ canFitToView } as unknown as ReturnType<typeof useCanvasControls>)
+    vi.mocked(useCanvasControls).mockReturnValue({ canFitToView, zoomDiagram: vi.fn() } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
         isDesktop,
         workspaceRoot,
@@ -482,7 +482,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(30)
+        expect(compared).toBe(33)
     })
 })
 
@@ -493,6 +493,28 @@ describe('StudioMenuBar View menu', () => {
 
         const fit = within(await openMenu('View')).getByRole('menuitem', { name: /^Fit Diagram to Screen/ })
         expect(fit).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('zooms the diagram in, out and back to 100%, with their shortcuts (F06)', async () => {
+        mockContexts({ workspaceRoot: 'C:/work' })
+        render(<Studio />)
+
+        const view = await openMenu('View')
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram In Alt+=' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram Out Alt+-' })).toBeInTheDocument()
+        await userEvent.setup().click(within(view).getByRole('menuitem', { name: 'Reset Diagram Zoom Alt+0' }))
+
+        expect(vi.mocked(useCanvasControls)().zoomDiagram).toHaveBeenCalledWith('reset')
+    })
+
+    it('turns diagram zoom off when no diagram is shown (F06)', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', canFitToView: false })
+        render(<Studio />)
+
+        const view = await openMenu('View')
+        for (const name of [/^Zoom Diagram In/, /^Zoom Diagram Out/, /^Reset Diagram Zoom/]) {
+            expect(within(view).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
+        }
     })
 
     it('switches the layout', async () => {
