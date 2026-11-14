@@ -20,6 +20,9 @@ export type KeybindActionMeta = {
 const KEYBIND_ACTION_META = {
     'document.save': { label: 'Save active document', category: 'Document', when: 'global' },
     'workspace.saveAll': { label: 'Save all documents', category: 'Document', when: 'workspace' },
+    'workspace.newDiagram': { label: 'New diagram', category: 'Workspace', when: 'workspace' },
+    'workspace.newDocument': { label: 'New document', category: 'Workspace', when: 'workspace' },
+    'workspace.newFolder': { label: 'New folder', category: 'Workspace', when: 'workspace' },
     'settings.open': { label: 'Open settings', category: 'Navigation', when: 'global' },
     'palette.open': { label: 'Open command palette', category: 'Navigation', when: 'global', allowInNativeTextField: true, allowInPalette: true },
     'palette.openText': { label: 'Find in workspace', category: 'Navigation', when: 'global', allowInPalette: true },
@@ -30,8 +33,18 @@ const KEYBIND_ACTION_META = {
     'tabs.reopenClosed': { label: 'Reopen closed tab', category: 'Tabs', when: 'workspace' },
     'view.toggleExplorer': { label: 'Toggle explorer', category: 'View', when: 'workspace' },
     'view.toggleEditor': { label: 'Toggle editor', category: 'View', when: 'workspace' },
+    'view.togglePreview': { label: 'Toggle preview', category: 'View', when: 'workspace' },
     'view.previewOnly': { label: 'Preview only layout', category: 'View', when: 'workspace' },
     'view.fitDiagram': { label: 'Fit diagram to screen', category: 'View', when: 'workspace' },
+    'view.zoomDiagramIn': { label: 'Zoom diagram in', category: 'View', when: 'workspace' },
+    'view.zoomDiagramOut': { label: 'Zoom diagram out', category: 'View', when: 'workspace' },
+    'view.resetDiagramZoom': { label: 'Reset diagram zoom to 100%', category: 'View', when: 'workspace' },
+    'view.focusExplorer': { label: 'Focus explorer', category: 'Navigation', when: 'workspace' },
+    'view.focusEditor': { label: 'Focus editor', category: 'Navigation', when: 'workspace' },
+    'view.focusPreview': { label: 'Focus preview', category: 'Navigation', when: 'workspace' },
+    // F6 never types anything, so it also gets out of a text box.
+    'view.focusNextPane': { label: 'Focus next pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
+    'view.focusPreviousPane': { label: 'Focus previous pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
 
 export const KEYBIND_ACTIONS: KeybindActionMeta[] = (Object.keys(KEYBIND_ACTION_META) as KeybindActionId[]).map((id) => ({

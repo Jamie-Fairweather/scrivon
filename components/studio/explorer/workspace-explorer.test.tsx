@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useState } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState, type ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { focusPane } from '@/components/studio/shell/pane-focus'
 import { WorkspaceExplorer } from './workspace-explorer'
 
 const { useWorkspaceSession } = vi.hoisted(() => ({
@@ -8,10 +9,23 @@ const { useWorkspaceSession } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession }))
-vi.mock('@/components/studio/explorer/file-tree', () => ({ FileTree: () => <div>File tree</div> }))
+vi.mock('@/components/studio/explorer/file-tree', () => ({
+    FileTree: () => (
+        <div role="tree" aria-label="Files">
+            <span>File tree</span>
+            <div role="treeitem" aria-selected={false} tabIndex={0}>
+                a.md
+            </div>
+        </div>
+    ),
+}))
 vi.mock('@/components/studio/explorer/examples-explorer', () => ({ ExamplesExplorer: () => null }))
 vi.mock('@/components/studio/explorer/file-tree-root-actions', () => ({ FileTreeRootActions: () => null }))
+vi.mock('@/components/studio/explorer/explorer-tree-buttons', () => ({ ExplorerTreeButtons: () => null }))
 vi.mock('@/components/studio/command-palette/command-palette-trigger-button', () => ({ CommandPaletteTriggerButton: () => null }))
+vi.mock('@/components/studio/explorer/explorer-background-menu', () => ({
+    ExplorerBackgroundMenu: ({ children }: { children: ReactNode }) => <div data-testid="background-menu">{children}</div>,
+}))
 
 /** Stands in for the studio layout, which draws again on every keystroke. */
 function Layout() {
@@ -38,6 +52,15 @@ describe('WorkspaceExplorer', () => {
         expect(useWorkspaceSession).not.toHaveBeenCalled()
     })
 
+    it('has the empty-space menu around the file list, also when the folder is empty', () => {
+        render(<WorkspaceExplorer />)
+        expect(screen.getByTestId('background-menu')).toContainElement(screen.getByText('File tree'))
+
+        useWorkspaceSession.mockReturnValueOnce({ workspaceName: 'ws', tree: [] })
+        render(<WorkspaceExplorer />)
+        expect(screen.getAllByTestId('background-menu')[1]).toContainElement(screen.getByText('No files in this folder.'))
+    })
+
     it('keeps the scroll box out of the Tab order when the file list is long enough to scroll', async () => {
         // The test DOM lays nothing out, so every box is made taller inside than out, as a long list is.
         const sizes = [
@@ -55,5 +78,16 @@ describe('WorkspaceExplorer', () => {
         } finally {
             for (const size of sizes) size.mockRestore()
         }
+    })
+
+    it('is a named pane that Focus Explorer and F6 reach, landing on the file tree rather than the buttons above it', () => {
+        render(<WorkspaceExplorer />)
+
+        act(() => {
+            expect(focusPane('explorer')).toBe(true)
+        })
+
+        expect(screen.getByRole('treeitem', { name: 'a.md' })).toHaveFocus()
+        expect(screen.getByRole('complementary', { name: 'Explorer' })).toContainElement(screen.getByRole('tree'))
     })
 })

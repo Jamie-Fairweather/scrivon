@@ -1,5 +1,5 @@
 import { renderMermaidSVG, type RenderOptions } from 'beautiful-mermaid'
-import { withoutAccessibilityLines } from '@/lib/mermaid/accessibility'
+import { prepareMermaidSource } from '@/lib/mermaid/prepare-source'
 import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
 
 export function getMermaidRenderOptions(themeId: AppThemeId): RenderOptions {
@@ -53,12 +53,12 @@ export type ExportRenderOptions = {
     labelHalo?: boolean
 }
 
-// accTitle and accDescr name the diagram for screen readers; beautiful-mermaid would draw them as nodes.
+/** Throws the parser's error for text that doesn't draw, or a plain message for a diagram type it can't draw yet. */
 export function renderMermaidDiagram(source: string, themeId: AppThemeId): string {
-    return addMessageLabelHalo(stripRemoteFontImports(renderMermaidSVG(withoutAccessibilityLines(source), getMermaidRenderOptions(themeId))))
+    return addMessageLabelHalo(stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), getMermaidRenderOptions(themeId))))
 }
 
 export function renderMermaidDiagramForExport(source: string, themeId: AppThemeId, { labelHalo = true }: ExportRenderOptions = {}): string {
-    const svg = stripRemoteFontImports(renderMermaidSVG(withoutAccessibilityLines(source), getMermaidExportRenderOptions(themeId)))
+    const svg = stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), getMermaidExportRenderOptions(themeId)))
     return labelHalo ? addMessageLabelHalo(svg) : svg
 }

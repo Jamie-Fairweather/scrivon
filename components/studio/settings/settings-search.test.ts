@@ -58,7 +58,11 @@ describe('searchSettings', () => {
     it('only finds the update check in the desktop app, where it is shown', () => {
         expect(searchSettings('updates', { desktop: false })).toEqual([])
         expect(searchSettings('updates', { desktop: true })).toEqual([
-            expect.objectContaining({ section: 'advanced', label: 'Check for updates on launch' }),
+            expect.objectContaining({ section: 'advanced', label: 'Check for updates automatically' }),
+        ])
+        // The Check for updates now button sits under that switch.
+        expect(searchSettings('check now', { desktop: true })).toEqual([
+            expect.objectContaining({ section: 'advanced', label: 'Check for updates automatically' }),
         ])
     })
 
@@ -67,6 +71,10 @@ describe('searchSettings', () => {
         expect(searchSettings('last folder', { desktop: true })).toEqual([
             expect.objectContaining({ section: 'advanced', label: 'Reopen last folder on startup' }),
         ])
+    })
+
+    it('finds Restore panel layout by the panels it remembers', () => {
+        expect(searchSettings('preview', BROWSER).map((entry) => entry.label)).toContain('Restore panel layout')
     })
 
     it('finds the status bar', () => {

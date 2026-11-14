@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { contrastRatio, ensureContrast, hexColorMix, parseHexColor, relativeLuminance, toHexColor } from './color-mix'
+import { contrastRatio, ensureContrast, hexColorMix, parseHexColor, relativeLuminance, rotateHue, toHexColor } from './color-mix'
+
+describe('rotateHue', () => {
+    it('turns a colour round the colour wheel, keeping its strength and lightness', () => {
+        expect(rotateHue('#ff0000', 120)).toBe('#00ff00')
+        expect(rotateHue('#ff0000', -120)).toBe('#0000ff')
+        expect(rotateHue('#ff0000', 360)).toBe('#ff0000')
+        expect(rotateHue('#336699', 180)).toBe('#996633')
+    })
+
+    it('leaves greys and colours it cannot read as they are', () => {
+        expect(rotateHue('#808080', 90)).toBe('#808080')
+        expect(rotateHue('red', 90)).toBe('red')
+    })
+})
 
 describe('parseHexColor', () => {
     it('parses 6-digit hex with or without hash', () => {

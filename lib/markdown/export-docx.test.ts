@@ -8,6 +8,7 @@ const renderMermaidDiagramForExport = vi.hoisted(() =>
     vi.fn((source: string) => {
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
+        if (source.includes('throw-lines')) throw new Error('Pies are not drawn yet. Scrivon can draw:\n• Flowcharts\r\n• Sequence diagrams')
         // The size of the 1×1 PNG svgToPngBlob hands back.
         return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
@@ -538,6 +539,14 @@ describe('renderExportDocx', () => {
         expect(body).not.toContain('graph TD')
         expect(body).not.toContain('<w:drawing>')
         expect(svgToPngBlob).not.toHaveBeenCalled()
+    })
+
+    it('writes each line of a diagram error on a line of its own, as Word ignores line breaks inside a run', async () => {
+        const { parts } = await render(['Before.', '', fence('mermaid', 'throw-lines'), '', 'After.'].join('\n'))
+        const paragraph = blockWith(parts['word/document.xml']!, '• Sequence diagrams')
+        const texts = [...paragraph.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>|<w:br\/>/g)].map((match) => match[1] ?? 'BREAK')
+        expect(texts).toEqual(['Pies are not drawn yet. Scrivon can draw:', 'BREAK', '• Flowcharts', 'BREAK'])
+        expect(runWith(parts['word/document.xml']!, '• Flowcharts')).toContain('w:ascii="Consolas"')
     })
 
     it('gives each diagram its own alt text, and leaves a picture with none without a made-up one', async () => {

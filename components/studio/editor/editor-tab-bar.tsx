@@ -8,7 +8,7 @@ import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-bu
 import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-context-menu'
 import { getTabFolderHints } from '@/components/studio/editor/tab-labels'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { displayPath } from '@/lib/workspace/display-path'
 import { documentKind } from '@/lib/workspace/file-types'
 import { isExampleTabId } from '@/lib/examples/example-tab'
@@ -73,12 +73,20 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
     const { tabs, activeTabId, setActiveTab, closeTab, activeTab } = useDocumentTabs()
     const { canFitToView, fitToView } = useCanvasControls()
     const { expanded } = useMarkdownExpand()
+    const { layout } = useStudioLayout()
 
     const tabKind = activeTab ? documentKind(activeTab.name) : null
+    const previewHidden = tabKind !== null && !layout.previewOpen
     const markdownNeedsExpand = tabKind === 'markdown' && !expanded
-    const fitDisabled = !canFitToView || markdownNeedsExpand
-    // Says why when Fit can't be used: a diagram that failed to draw, an empty file, no tab.
-    const fitLabel = markdownNeedsExpand ? 'Expand a Mermaid block to fit' : fitDisabled ? 'No diagram to fit' : 'Fit diagram to screen'
+    const fitDisabled = previewHidden || !canFitToView || markdownNeedsExpand
+    // Says why when Fit can't be used: the preview is hidden, a diagram failed to draw, an empty file, no tab.
+    const fitLabel = previewHidden
+        ? 'Show the preview to fit a diagram'
+        : markdownNeedsExpand
+          ? 'Expand a Mermaid block to fit'
+          : fitDisabled
+            ? 'No diagram to fit'
+            : 'Fit diagram to screen'
 
     const stripRef = useRef<HTMLDivElement>(null)
     const tabRefs = useRef(new Map<string, HTMLButtonElement>())

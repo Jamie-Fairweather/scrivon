@@ -2,7 +2,9 @@
 
 import { useMemo } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
+import type { DiagramZoom } from '@/components/studio/canvas/use-pan-zoom'
 import type { AppCommand } from '@/components/studio/commands/app-command'
+import type { KeybindActionId } from '@/lib/settings/types'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { useCanvasFit, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
@@ -10,21 +12,33 @@ export type LayoutCommandsContext = {
     hasWorkspace: boolean
     explorerOpen: boolean
     editorOpen: boolean
+    previewOpen: boolean
     outlineOpen: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
+    setPreviewOpen: (open: boolean) => void
     setOutlineOpen: (open: boolean) => void
     setPreviewOnly: () => void
     requestCanvasFit: () => void
+    zoomDiagram: (how: DiagramZoom) => void
 }
 
 const NO_FOLDER = 'No folder open'
 
-/** Which panes show, the layouts, and fitting the diagram. */
+/** Which panes show, the layouts, and fitting and zooming the diagram. */
 export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
     const off = !ctx.hasWorkspace
+    const zoom = (id: string, label: string, keywords: string, keybind: KeybindActionId, how: DiagramZoom): AppCommand => ({
+        id,
+        label,
+        keywords: `${keywords} diagram canvas`,
+        keybind,
+        disabled: off || !ctx.canFitDiagram,
+        disabledReason: off ? NO_FOLDER : 'No diagram shown',
+        run: () => ctx.zoomDiagram(how),
+    })
     const layout = (id: string, label: string, explorer: boolean, editor: boolean): AppCommand => ({
         id,
         label,
@@ -34,6 +48,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
         run: () => {
             ctx.setExplorerOpen(explorer)
             ctx.setEditorOpen(editor)
+            ctx.setPreviewOpen(true)
         },
     })
 
@@ -56,6 +71,16 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             disabled: off,
             disabledReason: NO_FOLDER,
             run: () => ctx.setEditorOpen(!ctx.editorOpen),
+        },
+        {
+            id: 'toggle-preview',
+            label: 'Preview',
+            keywords: 'diagram editor only full width',
+            keybind: 'view.togglePreview',
+            checked: ctx.previewOpen,
+            disabled: off,
+            disabledReason: NO_FOLDER,
+            run: () => ctx.setPreviewOpen(!ctx.previewOpen),
         },
         {
             id: 'toggle-outline',
@@ -86,15 +111,18 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             disabledReason: off ? NO_FOLDER : 'No diagram to fit',
             run: () => ctx.requestCanvasFit(),
         },
+        zoom('zoom-diagram-in', 'Zoom Diagram In', 'zoom in bigger magnify', 'view.zoomDiagramIn', 'in'),
+        zoom('zoom-diagram-out', 'Zoom Diagram Out', 'zoom out smaller', 'view.zoomDiagramOut', 'out'),
+        zoom('reset-diagram-zoom', 'Reset Diagram Zoom', 'zoom reset 100% actual size', 'view.resetDiagramZoom', 'reset'),
     ]
 }
 
 export function useLayoutCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { layout, setExplorerOpen, setEditorOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
-    const { canFitToView } = useCanvasControls()
+    const { canFitToView, zoomDiagram } = useCanvasControls()
     const hasWorkspace = Boolean(workspaceRoot)
 
     const commands = useMemo(
@@ -103,25 +131,31 @@ export function useLayoutCommands(): void {
                 hasWorkspace,
                 explorerOpen: layout.explorerOpen,
                 editorOpen: layout.editorOpen,
+                previewOpen: layout.previewOpen,
                 outlineOpen: layout.outlineOpen,
                 canFitDiagram: canFitToView,
                 setExplorerOpen,
                 setEditorOpen,
+                setPreviewOpen,
                 setOutlineOpen,
                 setPreviewOnly,
                 requestCanvasFit,
+                zoomDiagram,
             }),
         [
             hasWorkspace,
             layout.explorerOpen,
             layout.editorOpen,
+            layout.previewOpen,
             layout.outlineOpen,
             canFitToView,
             setExplorerOpen,
             setEditorOpen,
+            setPreviewOpen,
             setOutlineOpen,
             setPreviewOnly,
             requestCanvasFit,
+            zoomDiagram,
         ]
     )
     useRegisterCommands(commands)
