@@ -4,6 +4,7 @@ import { CircleAlert, Loader2, Lock } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
+import { useFrameSyncedValue } from '@/components/studio/markdown/use-frame-synced-value'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useDocumentSave, useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,13 @@ function plural(count: number, word: string): string {
 function countLabel(total: number, selected: number | null, word: string): string {
     return selected === null ? plural(total, word) : `${selected.toLocaleString()} of ${plural(total, word)}`
 }
+
+/**
+ * Counting takes about 25 ms a megabyte, all in one go, so above this length the counts wait for a short
+ * pause in typing instead of running again after every key.
+ */
+const LIVE_COUNT_CHARS = 100_000
+const COUNT_PAUSE_MS = 300
 
 const LINE_ENDINGS: Record<LineEndings, { label: string; title: string }> = {
     CRLF: { label: 'CRLF', title: 'Windows line endings (CRLF)' },
@@ -114,12 +122,14 @@ function StatusBarContent() {
     const { activeTab } = useDocumentTabs()
     const { layout } = useStudioLayout()
     const cursor = useEditorCursor()
-    const content = useDeferredValue(activeTab?.content ?? '')
+    const liveContent = activeTab?.content ?? ''
+    // A newly opened tab is counted at once.
+    const content = useFrameSyncedValue(liveContent, activeTab?.id, liveContent.length > LIVE_COUNT_CHARS ? COUNT_PAUSE_MS : 0)
     const lineEndings = useMemo(() => {
         const kind = lineEndingsOf(content)
         return kind ? LINE_ENDINGS[kind] : null
     }, [content])
-    // Counting takes about 25 ms a megabyte, all in one go after each edit, so very large files go without.
+    // Very large files (the ones that open read-only) go without.
     const counts = useMemo(
         () => (content.length > LARGE_FILE_BYTES ? null : { words: countWords(content), characters: countCharacters(content) }),
         [content]

@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEditorCursor, type EditorCursor } from '@/components/studio/editor/editor-cursor'
 import { registerEditorFocus } from '@/components/studio/editor/editor-focus'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -169,6 +169,59 @@ describe('StudioStatusBar', () => {
         // The rest is still there.
         expect(bar.getByText('Ln 1, Col 6')).toBeInTheDocument()
         expect(bar.getByText('LF')).toBeInTheDocument()
+    })
+
+    describe('while typing', () => {
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('counts a small file again as soon as it changes', () => {
+            show({ activeTab: tab({ content: 'one two' }) })
+            const { rerender } = render(<StudioStatusBar />)
+            expect(within(statusBar()).getByText('2 words')).toBeInTheDocument()
+
+            show({ activeTab: tab({ content: 'one two three' }) })
+            rerender(<StudioStatusBar />)
+            // Within a frame.
+            act(() => vi.advanceTimersByTime(20))
+            expect(within(statusBar()).getByText('3 words')).toBeInTheDocument()
+        })
+
+        it('waits for a pause in typing before counting a large file again', () => {
+            // Large enough to be slow to count on every key, but still small enough to edit.
+            const big = 'word '.repeat(50_000)
+            show({ activeTab: tab({ content: big }) })
+            const { rerender } = render(<StudioStatusBar />)
+            expect(within(statusBar()).getByText('50,000 words')).toBeInTheDocument()
+
+            // Three keys, each sooner than the pause: the counts wait.
+            for (const typed of ['a', 'a b', 'a b c']) {
+                show({ activeTab: tab({ content: `${big}${typed}` }) })
+                rerender(<StudioStatusBar />)
+                act(() => vi.advanceTimersByTime(100))
+                expect(within(statusBar()).getByText('50,000 words')).toBeInTheDocument()
+            }
+
+            // Once typing stops, the counts are right.
+            act(() => vi.advanceTimersByTime(1000))
+            expect(within(statusBar()).getByText('50,003 words')).toBeInTheDocument()
+            expect(within(statusBar()).getByText('250,005 characters')).toBeInTheDocument()
+        })
+
+        it('counts a large file at once when switching to it', () => {
+            show({ activeTab: tab({ content: 'one two' }) })
+            const { rerender } = render(<StudioStatusBar />)
+
+            const big = 'word '.repeat(50_000)
+            show({ activeTab: tab({ id: 'C:\\ws\\big.md', path: 'C:\\ws\\big.md', name: 'big.md', content: big }) })
+            rerender(<StudioStatusBar />)
+            expect(within(statusBar()).getByText('50,000 words')).toBeInTheDocument()
+        })
     })
 
     it('says "1 word" rather than "1 words"', () => {
