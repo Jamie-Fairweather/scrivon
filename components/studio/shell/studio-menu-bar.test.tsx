@@ -126,7 +126,11 @@ function mockContexts({
         flushAllSaves: vi.fn(async () => true),
     } as unknown as ReturnType<typeof useDocumentSave>)
     vi.mocked(useAppSettings).mockReturnValue({
-        settings: { keybinds, appearance: { zoom, previewFontSize: 14 } },
+        settings: {
+            keybinds,
+            appearance: { zoom, previewFontSize: 14 },
+            theme: { id: 'scrivon-dark', light: 'scrivon-light', dark: 'scrivon-dark' },
+        },
         updateSettings: vi.fn(),
         openSettings: vi.fn(),
         flushPendingSettings: vi.fn(),

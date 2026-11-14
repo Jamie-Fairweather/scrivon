@@ -443,6 +443,7 @@ describe('usePaletteSearch commands in the default results', () => {
 
     it.each([
         ['dracula', 'action:theme:dracula'],
+        ['follow windows', 'action:theme:follow-windows'],
         ['about', 'action:about'],
         ['licences', 'action:licences'],
         ['refresh', 'action:refresh-explorer'],
