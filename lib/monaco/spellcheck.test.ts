@@ -40,6 +40,10 @@ class FakeModel {
     getValueInRange(range: IRange) {
         return this.text.slice(this.offsetAt(range.startLineNumber, range.startColumn), this.offsetAt(range.endLineNumber, range.endColumn))
     }
+    replaceRange(range: IRange, text: string) {
+        const start = this.offsetAt(range.startLineNumber, range.startColumn)
+        this.setValue(this.text.slice(0, start) + text + this.text.slice(this.offsetAt(range.endLineNumber, range.endColumn)))
+    }
 }
 
 type Listener = () => void
@@ -47,17 +51,12 @@ type Listener = () => void
 class FakeEditor {
     readonly contentListeners = new Set<Listener>()
     readonly modelListeners = new Set<Listener>()
-    readonly cursorListeners = new Set<Listener>()
-    readonly contextKeys = new Map<string, boolean>()
-    readonly actions = new Map<string, editor.IActionDescriptor>()
     position: IPosition = { lineNumber: 1, column: 1 }
-    readonly quickFix = vi.fn()
+    /** Edits made through the editor, and the undo stops between them. */
+    readonly history: string[] = []
     constructor(public model: FakeModel | null) {}
     getModel() {
         return this.model
-    }
-    getPosition() {
-        return this.position
     }
     private listen(set: Set<Listener>, listener: Listener) {
         set.add(listener)
@@ -69,23 +68,20 @@ class FakeEditor {
     onDidChangeModel(listener: Listener) {
         return this.listen(this.modelListeners, listener)
     }
-    onDidChangeCursorPosition(listener: Listener) {
-        return this.listen(this.cursorListeners, listener)
+    pushUndoStop() {
+        this.history.push('undo stop')
+        return true
     }
-    createContextKey(key: string, value: boolean) {
-        this.contextKeys.set(key, value)
-        return {
-            set: (next: boolean) => this.contextKeys.set(key, next),
-            reset: () => this.contextKeys.set(key, value),
-            get: () => this.contextKeys.get(key),
+    executeEdits(_source: string, edits: { range: IRange; text: string }[]) {
+        for (const { range, text } of edits) {
+            this.history.push(`edit “${text}”`)
+            this.model!.replaceRange(range, text)
         }
+        this.contentListeners.forEach((l) => l())
+        return true
     }
-    addAction(action: editor.IActionDescriptor) {
-        this.actions.set(action.id, action)
-        return { dispose: () => this.actions.delete(action.id) }
-    }
-    getAction(id: string) {
-        return id === 'editor.action.quickFix' ? { run: this.quickFix } : null
+    setPosition(position: IPosition) {
+        this.position = position
     }
     /** What typing does: change the text and tell listeners. */
     type(text: string) {
@@ -95,14 +91,6 @@ class FakeEditor {
     switchTo(model: FakeModel) {
         this.model = model
         this.modelListeners.forEach((l) => l())
-    }
-    moveCursor(position: IPosition) {
-        this.position = position
-        this.cursorListeners.forEach((l) => l())
-    }
-    /** The value of the spell check's context key, which shows its right-click menu entries. */
-    get onMisspelling() {
-        return [...this.contextKeys.values()][0]
     }
 }
 
@@ -244,10 +232,9 @@ describe('attachSpellcheck', () => {
 
         // Spell check is off for every file now, so the config doesn't change on the way back.
         editorInstance.switchTo(model)
-        editorInstance.moveCursor({ lineNumber: 2, column: 3 })
         await vi.runAllTimersAsync()
         expect(underlined(markers, model)).toEqual([])
-        expect(editorInstance.onMisspelling).toBe(false)
+        expect(session.misspeltWordAt({ lineNumber: 2, column: 3 })).toBeNull()
     })
 
     it('clears marks an earlier editor left on the file when spell check is off', async () => {
@@ -295,28 +282,65 @@ describe('attachSpellcheck', () => {
         expect(underlined(markers, model)).toEqual(['wrold', 'secnod'])
     })
 
-    it('shows Spelling Suggestions and Add to Dictionary in the right-click menu on a misspelt word', async () => {
-        const { model, editorInstance, markers, addWord } = setup()
-        await vi.runAllTimersAsync()
-        expect(editorInstance.onMisspelling).toBe(false)
+    describe('the misspelt word at a place, for the right-click menu', () => {
+        it('is the underlined word there, with the dictionary’s suggestions for it', async () => {
+            const { session, client } = setup()
+            await vi.runAllTimersAsync()
 
-        editorInstance.moveCursor({ lineNumber: 2, column: 3 })
-        expect(editorInstance.onMisspelling).toBe(true)
-        const suggestions = editorInstance.actions.get('scrivon.spelling.suggestions')!
-        const add = editorInstance.actions.get('scrivon.spelling.addToDictionary')!
-        expect(suggestions).toMatchObject({ label: 'Spelling Suggestions', contextMenuGroupId: 'navigation' })
-        expect(add).toMatchObject({ label: 'Add to Dictionary', contextMenuGroupId: 'navigation' })
-        expect(suggestions.precondition).toBe(add.precondition)
+            const found = session.misspeltWordAt({ lineNumber: 2, column: 3 })
+            expect(found?.word).toBe('secnod')
+            await expect(found!.suggestions()).resolves.toEqual(['SECNOD', 'secnods'])
+            expect(client.suggest).toHaveBeenCalledWith('secnod', 'en-GB', ['Scrivon'])
 
-        void suggestions.run(editorInstance as unknown as editor.ICodeEditor)
-        expect(editorInstance.quickFix).toHaveBeenCalled()
-        void add.run(editorInstance as unknown as editor.ICodeEditor)
-        expect(addWord).toHaveBeenCalledWith('secnod')
-        expect(underlined(markers, model)).toEqual(['wrold'])
-        expect(editorInstance.onMisspelling).toBe(false)
+            expect(session.misspeltWordAt({ lineNumber: 1, column: 2 })).toBeNull()
+        })
 
-        editorInstance.moveCursor({ lineNumber: 1, column: 1 })
-        expect(editorInstance.onMisspelling).toBe(false)
+        it('is nothing once spell check is off for the file, before its underlines have gone', async () => {
+            const { session } = setup()
+            await vi.runAllTimersAsync()
+            session.setConfig(null)
+            expect(session.misspeltWordAt({ lineNumber: 2, column: 3 })).toBeNull()
+        })
+
+        it('has no suggestions when the spell check can’t answer', async () => {
+            const { session, client } = setup()
+            await vi.runAllTimersAsync()
+            client.suggest.mockRejectedValueOnce(new Error("The spell check couldn't start."))
+            await expect(session.misspeltWordAt({ lineNumber: 2, column: 3 })!.suggestions()).resolves.toEqual([])
+        })
+
+        it('is replaced by a suggestion as one undo step, with the caret after it, and checked again at once', async () => {
+            const { model, editorInstance, markers, session } = setup()
+            await vi.runAllTimersAsync()
+
+            session.misspeltWordAt({ lineNumber: 2, column: 3 })!.replaceWith('second')
+            expect(model.getValue()).toBe('Hello wrold\nsecond line')
+            expect(editorInstance.history).toEqual(['undo stop', 'edit “second”', 'undo stop'])
+            expect(editorInstance.position).toEqual({ lineNumber: 2, column: 7 })
+
+            await vi.advanceTimersByTimeAsync(0)
+            expect(underlined(markers, model)).toEqual(['wrold'])
+        })
+
+        it('is left alone if its text changed after the menu opened', async () => {
+            const { model, editorInstance, session } = setup()
+            await vi.runAllTimersAsync()
+            const found = session.misspeltWordAt({ lineNumber: 2, column: 3 })!
+
+            editorInstance.type('Hello wrold\nsecnd line')
+            found.replaceWith('second')
+            expect(model.getValue()).toBe('Hello wrold\nsecnd line')
+            expect(editorInstance.history).toEqual([])
+        })
+
+        it('is added to the dictionary, and its underline goes at once', async () => {
+            const { model, markers, session, addWord } = setup()
+            await vi.runAllTimersAsync()
+
+            session.misspeltWordAt({ lineNumber: 2, column: 3 })!.addToDictionary()
+            expect(addWord).toHaveBeenCalledWith('secnod')
+            expect(underlined(markers, model)).toEqual(['wrold'])
+        })
     })
 
     it('lets go of everything when the editor goes', async () => {
@@ -325,7 +349,6 @@ describe('attachSpellcheck', () => {
         session.dispose()
         expect(commands.size).toBe(0)
         expect(providers.size).toBe(0)
-        expect(editorInstance.actions.size).toBe(0)
         client.check.mockClear()
         editorInstance.type('more text')
         await vi.runAllTimersAsync()

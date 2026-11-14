@@ -1,10 +1,10 @@
 import type { Monaco } from '@monaco-editor/react'
 import { act, renderHook } from '@testing-library/react'
-import type { editor } from 'monaco-editor'
+import type { IPosition, editor } from 'monaco-editor'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
-import type { SpellcheckConfig } from '@/lib/monaco/spellcheck'
+import type { MisspeltWord, SpellcheckConfig } from '@/lib/monaco/spellcheck'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -12,9 +12,12 @@ type Attached = {
     config: SpellcheckConfig | null
     addWord: (word: string) => void
     setConfig: ReturnType<typeof vi.fn>
+    misspeltWordAt: ReturnType<typeof vi.fn>
     dispose: ReturnType<typeof vi.fn>
 }
 const attached: Attached[] = []
+/** What each session says is at line 1, column 2. */
+const helo: MisspeltWord = { word: 'helo', suggestions: async () => [], replaceWith: () => {}, addToDictionary: () => {} }
 
 vi.mock('@/lib/monaco/spellcheck', () => ({
     attachSpellcheck: (_editor: unknown, _monaco: unknown, options: { addWord: (word: string) => void }, config: SpellcheckConfig | null) => {
@@ -22,6 +25,7 @@ vi.mock('@/lib/monaco/spellcheck', () => ({
             config,
             addWord: options.addWord,
             setConfig: vi.fn((next: SpellcheckConfig | null) => (session.config = next)),
+            misspeltWordAt: vi.fn((position: IPosition) => (position.lineNumber === 1 && position.column === 2 ? helo : null)),
             dispose: vi.fn(),
         }
         attached.push(session)
@@ -45,7 +49,7 @@ function wrapper({ children }: { children: ReactNode }) {
 function setup(initialTab: DocumentTab | null) {
     return renderHook(
         ({ activeTab }: { activeTab: DocumentTab | null }) => ({
-            attach: useEditorSpellcheck(activeTab, activeTab ? URI : undefined),
+            spelling: useEditorSpellcheck(activeTab, activeTab ? URI : undefined),
             app: useAppSettings(),
         }),
         { wrapper, initialProps: { activeTab: initialTab } }
@@ -53,7 +57,7 @@ function setup(initialTab: DocumentTab | null) {
 }
 
 function attach(view: ReturnType<typeof setup>) {
-    return view.result.current.attach({} as editor.IStandaloneCodeEditor, {} as Monaco)
+    return view.result.current.spelling.attach({} as editor.IStandaloneCodeEditor, {} as Monaco)
 }
 
 describe('useEditorSpellcheck', () => {
@@ -106,5 +110,18 @@ describe('useEditorSpellcheck', () => {
         expect(attached[0]!.dispose).toHaveBeenCalled()
         view.rerender({ activeTab: tab('flow.mmd') })
         expect(attached[0]!.setConfig).not.toHaveBeenCalled()
+    })
+
+    it('finds the misspelt word at a place in the editor’s file, for the right-click menu', () => {
+        const view = setup(tab('notes.md'))
+        const { misspeltWordAt } = view.result.current.spelling
+        expect(misspeltWordAt({ lineNumber: 1, column: 2 })).toBeNull()
+
+        const session = attach(view)
+        expect(misspeltWordAt({ lineNumber: 1, column: 2 })).toBe(helo)
+        expect(misspeltWordAt({ lineNumber: 1, column: 9 })).toBeNull()
+
+        session.dispose()
+        expect(misspeltWordAt({ lineNumber: 1, column: 2 })).toBeNull()
     })
 })
