@@ -6,9 +6,12 @@ export type PaneId = 'explorer' | 'outline' | 'editor' | 'preview'
 /**
  * Inside a pane, the part focus goes to first, such as the file tree rather than the buttons above it.
  * Without one (or when nothing in it can take focus), focus goes to the first thing in the pane that can,
- * else to the pane itself when it has a tabIndex. In the preview it marks the diagram canvas, which takes focus itself.
+ * else to the pane itself when it has a tabIndex.
  */
 const PANE_FOCUS_ATTRIBUTE = 'data-pane-focus'
+
+/** In the preview, an element that takes focus itself, not the first Tab stop inside it: the diagram canvas. */
+const PANE_FOCUS_SELF_ATTRIBUTE = 'data-pane-focus-self'
 
 /** What Tab stops on: links, enabled controls and elements with a tabIndex, but not those taken out of the Tab order. */
 const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]']
@@ -57,10 +60,10 @@ function focusTargets(pane: HTMLElement): HTMLElement[] {
     // The region itself, as Base UI's F6 does. Tab goes on from there to the notifications and their buttons.
     if (pane.matches(NOTIFICATIONS)) return [pane]
     if (pane.dataset.pane === 'preview') {
-        // A diagram's canvas itself (marked data-pane-focus), so its zoom and arrow keys work: a Mermaid tab's, or the
-        // full-size one over a Markdown page. Else the scroll box when it scrolls, else the preview itself: never a
+        // A diagram's canvas itself (marked data-pane-focus-self), so its zoom and arrow keys work: a Mermaid tab's, or
+        // the full-size one over a Markdown page. Else the scroll box when it scrolls, else the preview itself: never a
         // link or button partway down the page.
-        const canvas = [...pane.querySelectorAll<HTMLElement>(`[${PANE_FOCUS_ATTRIBUTE}]`)].filter(isShown)
+        const canvas = [...pane.querySelectorAll<HTMLElement>(`[${PANE_FOCUS_SELF_ATTRIBUTE}]`)].filter(isShown)
         const viewport = pane.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
         const scrolls = viewport !== null && viewport.tabIndex >= 0 && isShown(viewport)
         return [...canvas, ...(scrolls ? [viewport] : []), ...paneItself(pane)]
@@ -123,19 +126,25 @@ export function focusPaneSoon(id: PaneId): void {
     requestAnimationFrame(attempt)
 }
 
-/** How many frames a command waits for a closing palette or menu to give focus back (about half a second). */
-const CLOSE_WAIT_FRAMES = 30
+/** How long a command waits for a closing palette or menu to give focus back. The palette fades out for 200 ms. */
+const CLOSE_WAIT_MS = 500
+
+/**
+ * A palette, menu or dialog that is closing: Base UI marks it data-closed while it fades out. Not any data-closed,
+ * since a closed Collapsible (an Examples category) has it too.
+ */
+const CLOSING_POPUP = ':is([role="dialog"], [role="alertdialog"], [role="menu"])[data-closed]'
 
 /**
  * cyclePaneFocus for a command, once the menu or palette it was picked from has given focus back, so it moves on from
  * the pane that had focus before. That's a frame later, or longer for the palette: it keeps focus while it fades out.
  */
 export function cyclePaneFocusSoon(direction: 1 | -1): void {
-    let tries = CLOSE_WAIT_FRAMES
+    // Timed, not counted in frames: a high-refresh screen draws more frames in the same time.
+    const giveUpAt = performance.now() + CLOSE_WAIT_MS
     const attempt = () => {
-        // Base UI marks a menu or dialog that is closing with data-closed.
-        const closing = document.activeElement?.closest('[data-closed]')
-        if (closing && --tries > 0) requestAnimationFrame(attempt)
+        const closing = document.activeElement?.closest(CLOSING_POPUP)
+        if (closing && performance.now() < giveUpAt) requestAnimationFrame(attempt)
         else cyclePaneFocus(direction)
     }
     requestAnimationFrame(attempt)

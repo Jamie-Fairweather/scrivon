@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { cyclePaneFocus, cyclePaneFocusSoon, focusPane, focusPaneSoon } from '@/components/studio/shell/pane-focus'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ToastProvider } from '@/components/ui/toast'
 import { dismissNotification, notifyError } from '@/lib/notify'
 
@@ -63,6 +64,27 @@ function Panes({ outline = true, editorInert = false, palette }: { outline?: boo
 }
 
 const focused = () => document.activeElement
+
+/** Animation frames run by hand, `ms` apart, like a screen with that refresh rate. */
+function framesEvery(ms: number) {
+    let now = 0
+    let waiting: FrameRequestCallback[] = []
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
+        waiting.push(callback)
+        return waiting.length
+    })
+    return {
+        run(count: number) {
+            for (let frame = 0; frame < count; frame++) {
+                now += ms
+                const due = waiting
+                waiting = []
+                for (const callback of due) callback(now)
+            }
+        },
+    }
+}
 
 /** Stands in for the editor panel: focuses its text box while it is shown. */
 function registerFakeEditor() {
@@ -268,7 +290,8 @@ describe('focusPane', () => {
             return (
                 <div data-pane="preview" role="region" aria-label="Preview" tabIndex={-1}>
                     <button type="button">Load images</button>
-                    <div inert={expanded || undefined}>
+                    {/* A box marked like the explorer's. The preview only takes data-pane-focus-self (the diagram canvas). */}
+                    <div inert={expanded || undefined} data-pane-focus tabIndex={-1}>
                         <div data-slot="scroll-area-viewport" data-testid="scroll box" tabIndex={scrolls ? 0 : -1}>
                             <a href="#intro">Intro</a>
                         </div>
@@ -355,11 +378,52 @@ describe('focusing from a command', () => {
         await waitFor(() => expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' })))
     })
 
-    it('stops waiting after a while when the palette never gives focus back', async () => {
+    it('waits by time, so a high-refresh screen does not cut the wait short', () => {
+        const frames = framesEvery(1000 / 240)
+        const { rerender } = render(<Panes />)
+        screen.getByRole('textbox', { name: 'Editor' }).focus()
+        rerender(<Panes palette="open" />)
+        rerender(<Panes palette="closing" />)
+
+        cyclePaneFocusSoon(1)
+        frames.run(60) // 250 ms: more than the palette's 200 ms fade-out.
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Search commands' }))
+        rerender(<Panes />)
+        frames.run(1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it('stops waiting after half a second when the palette never gives focus back', () => {
+        const frames = framesEvery(10)
         render(<Panes palette="closing" />)
 
         cyclePaneFocusSoon(1)
-        await waitFor(() => expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' })))
+        frames.run(49)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Search commands' }))
+        frames.run(1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+    })
+
+    it("doesn't wait in a closed Collapsible, which Base UI also marks data-closed", () => {
+        const frames = framesEvery(10)
+        render(
+            <>
+                <aside data-pane="explorer">
+                    <Collapsible>
+                        <CollapsibleTrigger>Flowcharts</CollapsibleTrigger>
+                        <CollapsiblePanel>Examples</CollapsiblePanel>
+                    </Collapsible>
+                </aside>
+                <div data-pane="preview" role="region" aria-label="Preview" tabIndex={-1} />
+            </>
+        )
+        const trigger = screen.getByRole('button', { name: 'Flowcharts' })
+        trigger.focus()
+        expect(trigger.closest('[data-closed]')).not.toBeNull()
+
+        cyclePaneFocusSoon(1)
+        frames.run(1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
     })
 
     it('keeps trying while a pane that was just shown appears', async () => {
