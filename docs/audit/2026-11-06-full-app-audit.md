@@ -1,8 +1,8 @@
 # Scrivon full app audit (6 November 2026)
 
-## Fix status (7 November 2026)
+## Fix status (7 November 2026, missing features updated 14 November 2026)
 
-The fixes were merged into `dev` in PR #66. They were done in three rounds, and each round was checked by independent reviewers. A ✅ before an item's title means it is fixed; ⬜ means it still needs doing.
+The fixes were merged into `dev` in PR #66. They were done in three rounds, and each round was checked by independent reviewers. A ✅ before an item's title means it is fixed (or, for a missing feature, built); ⬜ means it still needs doing.
 
 - **Problems (338, not counting the 50 missing features):** an independent final review confirmed 330 fixed. Of the other 9, it found 7 only partly done, and the third round finished those. Only two are left, and both are yours to decide: code signing (S06) and the installer's publisher name (R16).
 - **New problems found by the final review (75):** 45 of these were caused by the fixes themselves. 72 are fixed. Three need a new Rust command, which that round wasn't allowed to add:
@@ -12,9 +12,70 @@ The fixes were merged into `dev` in PR #66. They were done in three rounds, and 
 - **Known gaps left:**
     - With "Hide footer on title page and contents", the last contents page still shows the footer bar. Fixing it needs a change in the Rust page-number stamper.
     - After renaming or deleting in the explorer, focus waits up to 5 seconds for the tree to update. The proper fix belongs in the workspace session code.
-- **Missing features (F list):** none were built. They're for the owner to pick.
-- **Checks (all passing):** 2378 frontend tests (coverage about 94%; the minimum is now set just under that), 158 Rust tests, type check, ESLint, Clippy with warnings treated as errors, cargo fmt, the Tauri version check, and `next build`.
-- **Still needs a person:** [manual-checklist.md](manual-checklist.md) lists what tests can't cover. It's a one-off click-through in the real Windows app.
+- **Missing features (F list):** 48 of the 50 are built. F39 is half built and F44 is still open; both wait on #124. See [Missing features built](#missing-features-built) below.
+- **Checks (all passing, 7 November):** 2378 frontend tests (coverage about 94%; the minimum is now set just under that), 158 Rust tests, type check, ESLint, Clippy with warnings treated as errors, cargo fmt, the Tauri version check, and `next build`.
+- **Checks (all passing, 14 November, after the missing features):** 3778 frontend tests in 268 files (coverage 96% of statements, 97% of lines), 268 Rust tests, and the same checks as above, including Clippy on the release build. Both Windows installers (x64 and ARM64) build in CI.
+- **Still needs a person:** [manual-checklist.md](manual-checklist.md) lists what tests can't cover. It's a one-off click-through in the real Windows app. Several of the feature PRs also say they weren't tried by hand in the built app; each PR description lists the steps to check.
+
+<a id="missing-features-built"></a>
+
+### Missing features built (14 November 2026)
+
+Each feature had its own ticket and PR, merged into `dev`.
+
+| F items         | What was built                                                               | Ticket | PR   |
+| --------------- | ---------------------------------------------------------------------------- | ------ | ---- |
+| F01             | Delete goes to the Recycle Bin, with a clearer confirm                       | #118   | #138 |
+| F02             | Workspace images show in the Markdown preview                                | #105   | #136 |
+| F03             | Images embedded in PDF and Word exports                                      | #106   | #155 |
+| F04, F08        | Clear message for unsupported diagrams, Mermaid syntax colours, snippets     | #108   | #141 |
+| F05, F49        | Check for updates on demand, and rc installs get updates                     | #110   | #162 |
+| F06             | Diagram zoom buttons, and keyboard zoom and pan                              | #111   | #161 |
+| F07, F17, F46   | Shared command list for the palette and menus, plus an Edit menu             | #96    | #142 |
+| F09             | Paste and drop images and files                                              | #107   | #154 |
+| F10             | Spell checking                                                               | #119   | #144 |
+| F11, F33        | Export from the File menu and palette, HTML export, a saved message          | #113   | #167 |
+| F12             | Explorer shows the active file, plus Collapse All                            | #116   | #160 |
+| F13             | Move files by drag and drop or Move to…                                      | #117   | #171 |
+| F14             | Editor and preview scroll together, with jump to source                      | #103   | #140 |
+| F15             | Editor-only layout (hide the preview)                                        | #104   | #159 |
+| F16, F41        | Status bar, and the current file shown in the title bar                      | #101   | #134 |
+| F16             | Outline panel for Markdown headings                                          | #102   | #139 |
+| F18             | Follow the Windows light/dark setting                                        | #120   | #143 |
+| F19, F38        | Reopen the last folder, remember the window, fix Restore panel layout        | #121   | #135 |
+| F20             | Live PDF preview in the export dialog                                        | #125   | #151 |
+| F21, F34        | Tab shortcuts and more tab actions                                           | #97    | #165 |
+| F22             | Keyboard moves between panes, and F2/Delete in the explorer                  | #100   | #164 |
+| F23, F39 (half) | Settings backup file, and export/import of settings and profiles             | #123   | #148 |
+| F24             | Open files from Windows Explorer                                             | #122   | #157 |
+| F25             | Logs, crash catching and diagnostic info                                     | #127   | #170 |
+| F26             | App zoom and preview text size                                               | #112   | #166 |
+| F27, F50        | ARM64 build, minimum Windows version, uninstall clean-up                     | #132   | #152 |
+| F28, F30        | New file and folder from anywhere; the name prompt no longer reads its title | #99    | #163 |
+| F29             | Palette modes: go to line, jump to heading, help                             | #128   | #169 |
+| F31, F32        | Markdown writing helpers, Ctrl+B for bold, CJK word selection                | #109   | #168 |
+| F35             | Reveal in File Explorer and Copy Path                                        | #98    | #133 |
+| F36, F37        | Copy button on code blocks, GitHub alerts and math                           | #115   | #137 |
+| F40             | Settings dialog remembers its section, plus search                           | #129   | #146 |
+| F42             | Windows 11 Snap Layouts on the maximise button                               | #130   | #150 |
+| F43             | Save examples into the folder, and examples from the welcome screen          | #131   | #149 |
+| F45             | Diagram export options and copy to clipboard                                 | #114   | #172 |
+| F47, F48        | PDF bookmarks, and page numbers that start at the body                       | #126   | #147 |
+
+**Still open:**
+
+- **F39 (half built):** profile export and import are in (#123). More page sizes and code themes are #124, which isn't merged.
+- **F44:** the "Contents title" setting is also #124.
+- **Why #124 isn't in:** its PR #145 passed its checks on 13 November, but the agent workflow building it hit an error before it could merge (it couldn't set up its own working copy of the repo). `dev` has moved on since, so PR #145 now has merge conflicts and needs updating first.
+
+**Small follow-ups the feature PRs left out** (details in each PR's "Left out" notes):
+
+- #153: the palette's theme commands quietly turn off "Follow Windows" (found while reviewing #120).
+- Drag to reorder tabs (F34). The ticket marked it optional.
+- Case, whole-word and regex options for workspace search (F29). The ticket marked them optional.
+- Open with Default App (F35). Skipped because it needs a broad new permission.
+- Math in Word shows its TeX source, not a Word equation (F37).
+- Moving a Markdown file doesn't update the relative links inside it (F13).
 
 ## Overview
 
@@ -22,20 +83,22 @@ Scrivon's main idea works: you open a folder, edit Markdown and Mermaid side by 
 
 ## Counts
 
-| Area                        | Critical | High   | Medium  | Low     | Total   |
-| --------------------------- | -------- | ------ | ------- | ------- | ------- |
-| Data loss & file safety (D) | 8        | 4      | 8       | 4       | 24      |
-| Security (S)                | 0        | 2      | 4       | 8       | 14      |
-| Bugs (B)                    | 0        | 12     | 51      | 63      | 126     |
-| Performance (P)             | 0        | 0      | 8       | 11      | 19      |
-| UI/UX (U)                   | 1        | 3      | 31      | 58      | 93      |
-| Accessibility (A)           | 0        | 0      | 11      | 16      | 27      |
-| Missing features (F)        | 0        | 4      | 22      | 24      | 50      |
-| Build/release/docs (R)      | 0        | 1      | 5       | 10      | 16      |
-| Code health (C)             | 0        | 0      | 2       | 17      | 19      |
-| **Total**                   | **9**    | **26** | **142** | **211** | **388** |
+| Area                        | Critical | High   | Medium  | Low     | Total   | Still open (14 Nov) |
+| --------------------------- | -------- | ------ | ------- | ------- | ------- | ------------------- |
+| Data loss & file safety (D) | 8        | 4      | 8       | 4       | 24      | 0                   |
+| Security (S)                | 0        | 2      | 4       | 8       | 14      | 1 (S06)             |
+| Bugs (B)                    | 0        | 12     | 51      | 63      | 126     | 0                   |
+| Performance (P)             | 0        | 0      | 8       | 11      | 19      | 0                   |
+| UI/UX (U)                   | 1        | 3      | 31      | 58      | 93      | 0                   |
+| Accessibility (A)           | 0        | 0      | 11      | 16      | 27      | 0                   |
+| Missing features (F)        | 0        | 4      | 22      | 24      | 50      | 2 (F39 half, F44)   |
+| Build/release/docs (R)      | 0        | 1      | 5       | 10      | 16      | 1 (R16)             |
+| Code health (C)             | 0        | 0      | 2       | 17      | 19      | 0                   |
+| **Total**                   | **9**    | **26** | **142** | **211** | **388** | **4**               |
 
 The R group holds 10 build/release items and 6 documentation items.
+
+Missing features: 48 of the 50 are now built. F39 is half built and F44 is open, both waiting on #124. [Missing features built](#missing-features-built) lists the ticket and PR for each one.
 
 How to read the labels:
 
@@ -3111,7 +3174,7 @@ Ranked by how much they hurt users.
 
 <a id="f01"></a>
 
-#### ⬜ F01 · [high] Delete is permanent (skips the Recycle Bin), and the confirm dialog gives little detail
+#### ✅ F01 · [high] Delete is permanent (skips the Recycle Bin), and the confirm dialog gives little detail
 
 - **Where:** `lib/tauri/fs.ts:84` (also `components/studio/dialogs/delete-confirm-provider.tsx:62`, `components/studio/workspace/workspace-session-context.tsx:201`)
 - **What happens:** A mistaken delete can't be undone or recovered from the Recycle Bin. The dialog shows only the bare name (ambiguous if several folders have a README.md), not how many files are inside or that open, unsaved tabs will close.
@@ -3122,7 +3185,7 @@ Ranked by how much they hurt users.
 
 <a id="f02"></a>
 
-#### ⬜ F02 · [high] Images from the workspace never load in the preview (relative and absolute paths)
+#### ✅ F02 · [high] Images from the workspace never load in the preview (relative and absolute paths)
 
 - **Where:** `components/studio/markdown/markdown-preview.tsx:128` (plus `studio-layout.tsx:42`, `markdown-to-export-html.ts:205`, `export-docx.ts:445`)
 - **What happens:** `![](diagram.png)` next to your notes shows a broken image, and a full `C:/` path shows only the alt text.
@@ -3133,7 +3196,7 @@ Ranked by how much they hurt users.
 
 <a id="f03"></a>
 
-#### ⬜ F03 · [high] Images in the Markdown are never embedded; local images always break and big ones overflow the page
+#### ✅ F03 · [high] Images in the Markdown are never embedded; local images always break and big ones overflow the page
 
 - **Where:** `lib/markdown/export-pdf.ts:124`
 - **What happens:** Exported PDF and Word files show local images as broken or missing, remote ones only if they load in time, and large ones run off the page.
@@ -3144,7 +3207,7 @@ Ranked by how much they hurt users.
 
 <a id="f04"></a>
 
-#### ⬜ F04 · [high] Common Mermaid diagram types and syntax are rejected with a misleading 'Invalid mermaid header' error
+#### ✅ F04 · [high] Common Mermaid diagram types and syntax are rejected with a misleading 'Invalid mermaid header' error
 
 - **Where:** `lib/mermaid/render.ts:28`
 - **What happens:** Pie charts, Gantt charts, mindmaps, front matter, `graph TD;` with a semicolon, and plain `graph` all fail with "Invalid mermaid header", which suggests a typo. Some unsupported lines are silently dropped.
@@ -3155,7 +3218,7 @@ Ranked by how much they hurt users.
 
 <a id="f05"></a>
 
-#### ⬜ F05 · [medium] No way to check for updates manually (and no re-check in long sessions)
+#### ✅ F05 · [medium] No way to check for updates manually (and no re-check in long sessions)
 
 - **Where:** `components/studio/app-update-provider.tsx:41`
 - **What happens:** There's only one automatic check, 4 seconds after launch. If it's turned off, fails, or you leave the app open for days, you never learn about updates, and failures are silent.
@@ -3166,7 +3229,7 @@ Ranked by how much they hurt users.
 
 <a id="f06"></a>
 
-#### ⬜ F06 · [medium] No zoom controls, zoom level indicator, or keyboard pan/zoom; reset is a hidden double-click
+#### ✅ F06 · [medium] No zoom controls, zoom level indicator, or keyboard pan/zoom; reset is a hidden double-click
 
 - **Where:** `components/studio/canvas/use-pan-zoom.ts:85` (and `components/studio/canvas/mermaid-canvas.tsx:101`)
 - **What happens:** You can only zoom diagrams with a mouse wheel. There are no zoom buttons, no zoom percentage, and no keyboard way to zoom or pan.
@@ -3177,7 +3240,7 @@ Ranked by how much they hurt users.
 
 <a id="f07"></a>
 
-#### ⬜ F07 · [medium] Command list is missing many app actions (new/rename/delete file, exports, specific themes, About, updates, refresh, Go to File)
+#### ✅ F07 · [medium] Command list is missing many app actions (new/rename/delete file, exports, specific themes, About, updates, refresh, Go to File)
 
 - **Where:** `components/studio/command-palette/command-registry.ts:47` (provider order in `components/studio/shell/studio-shell.tsx:37`)
 - **What happens:** Typing "export", "new file", "rename", a theme name or "about" in the command palette finds nothing useful.
@@ -3188,7 +3251,7 @@ Ranked by how much they hurt users.
 
 <a id="f08"></a>
 
-#### ⬜ F08 · [medium] Mermaid files are highlighted with the Markdown tokenizer; there is no Mermaid language
+#### ✅ F08 · [medium] Mermaid files are highlighted with the Markdown tokenizer; there is no Mermaid language
 
 - **Where:** `components/studio/editor/code-editor-panel.tsx:54` (plus a new `lib/monaco/mermaid-language.ts` and `lib/theme/monaco-theme.ts:21`)
 - **What happens:** In `.mmd` files, indented diagram lines show as one flat colour, labels in brackets look like links, and `%%` comments aren't dimmed.
@@ -3199,7 +3262,7 @@ Ranked by how much they hurt users.
 
 <a id="f09"></a>
 
-#### ⬜ F09 · [medium] No image paste/drop and no file drop onto the editor or window
+#### ✅ F09 · [medium] No image paste/drop and no file drop onto the editor or window
 
 - **Where:** `components/studio/editor/code-editor-panel.tsx:175` (plus a window drop hook and `components/studio/markdown/markdown-preview.tsx:50`)
 - **What happens:** Pasting a screenshot into a Markdown file does nothing, and dropping an image or a `.md` file onto the window does nothing.
@@ -3210,7 +3273,7 @@ Ranked by how much they hurt users.
 
 <a id="f10"></a>
 
-#### ⬜ F10 · [medium] No spell checking anywhere, and the native menu that would offer suggestions is turned off
+#### ✅ F10 · [medium] No spell checking anywhere, and the native menu that would offer suggestions is turned off
 
 - **Where:** `components/studio/editor/code-editor-panel.tsx:175` (also `components/disable-native-context-menu.tsx:17`, `src-tauri/src/prevent_browser_shortcuts.rs:29`)
 - **What happens:** Typos aren't flagged in the editor, and right-click spelling suggestions are blocked in text boxes.
@@ -3221,7 +3284,7 @@ Ranked by how much they hurt users.
 
 <a id="f11"></a>
 
-#### ⬜ F11 · [medium] Export gaps: no HTML export or copy to clipboard, no feedback after saving, export only reachable from a small icon
+#### ✅ F11 · [medium] Export gaps: no HTML export or copy to clipboard, no feedback after saving, export only reachable from a small icon
 
 - **Where:** `components/studio/editor/document-export-menu.tsx:92`
 - **What happens:** You can't copy a diagram to paste into chat or slides, there's no Save HTML, code blocks have no copy button, and nothing confirms where an export went.
@@ -3232,7 +3295,7 @@ Ranked by how much they hurt users.
 
 <a id="f12"></a>
 
-#### ⬜ F12 · [medium] Explorer never shows where the active file is (no auto-expand or scroll), and has no Collapse All
+#### ✅ F12 · [medium] Explorer never shows where the active file is (no auto-expand or scroll), and has no Collapse All
 
 - **Where:** `components/studio/explorer/file-tree-node.tsx:18`
 - **What happens:** Open a deeply nested file from the palette and the explorer highlights nothing, because its folder is collapsed. There's no Collapse All.
@@ -3243,7 +3306,7 @@ Ranked by how much they hurt users.
 
 <a id="f13"></a>
 
-#### ⬜ F13 · [medium] No way to move files: no drag-and-drop, no Move command, no dropping files in from the OS
+#### ✅ F13 · [medium] No way to move files: no drag-and-drop, no Move command, no dropping files in from the OS
 
 - **Where:** `components/studio/workspace/workspace-session-context.tsx:180` (and `components/studio/explorer/file-tree-node.tsx:35`)
 - **What happens:** To move a file into another folder you have to use Windows Explorer, then reopen the folder in Scrivon.
@@ -3254,7 +3317,7 @@ Ranked by how much they hurt users.
 
 <a id="f14"></a>
 
-#### ⬜ F14 · [medium] No scroll sync or click-to-source between the editor and the Markdown preview
+#### ✅ F14 · [medium] No scroll sync or click-to-source between the editor and the Markdown preview
 
 - **Where:** `components/studio/markdown/markdown-preview.tsx:50` (plus `code-editor-panel.tsx:175`, `markdown-document-viewer.tsx:86`)
 - **What happens:** Scroll or edit line 800 and the preview stays wherever it was; you have to find your place by hand in both panes.
@@ -3265,7 +3328,7 @@ Ranked by how much they hurt users.
 
 <a id="f15"></a>
 
-#### ⬜ F15 · [medium] No editor-only layout and no editor-preview scroll sync
+#### ✅ F15 · [medium] No editor-only layout and no editor-preview scroll sync
 
 - **Where:** `components/studio/shell/studio-layout.tsx:41`
 - **What happens:** There's "Preview only" but no "Editor only", so you can't write long Markdown full-width; the preview always takes at least 40%.
@@ -3276,7 +3339,7 @@ Ranked by how much they hurt users.
 
 <a id="f16"></a>
 
-#### ⬜ F16 · [medium] Missing editor basics: status bar (word count, cursor position, save state), outline panel, editor-preview scroll sync
+#### ✅ F16 · [medium] Missing editor basics: status bar (word count, cursor position, save state), outline panel, editor-preview scroll sync
 
 - **Where:** `components/studio/shell/studio-layout.tsx:49` (status bar); `components/studio/explorer/workspace-explorer.tsx:16` (outline); `markdown-preview.tsx:51`, `code-editor-panel.tsx:175` (scroll sync)
 - **What happens:** There's no word count, no line and column, no clear save status, and no list of headings to jump between.
@@ -3287,7 +3350,7 @@ Ranked by how much they hurt users.
 
 <a id="f17"></a>
 
-#### ⬜ F17 · [medium] Menu bar is missing most of the app's commands (Edit menu, Save, Export, Command Palette, Check for Updates, Exit)
+#### ✅ F17 · [medium] Menu bar is missing most of the app's commands (Edit menu, Save, Export, Command Palette, Check for Updates, Exit)
 
 - **Where:** `components/studio/shell/studio-menu-bar.tsx:82` (and `components/studio/app-update-provider.tsx:41`)
 - **What happens:** A mouse user looking in the menus finds no Save, no Export, no Edit menu, no Check for Updates and no Exit.
@@ -3298,7 +3361,7 @@ Ranked by how much they hurt users.
 
 <a id="f18"></a>
 
-#### ⬜ F18 · [medium] No 'System' / follow-OS theme mode, and no listener for OS light/dark changes
+#### ✅ F18 · [medium] No 'System' / follow-OS theme mode, and no listener for OS light/dark changes
 
 - **Where:** `lib/settings/types.ts:36` (and `components/theme/app-theme-provider.tsx:21`)
 - **What happens:** Switching Windows between light and dark (including scheduled night mode) doesn't change Scrivon.
@@ -3309,7 +3372,7 @@ Ranked by how much they hurt users.
 
 <a id="f19"></a>
 
-#### ⬜ F19 · [medium] The last folder isn't reopened on launch, and window size/position aren't remembered
+#### ✅ F19 · [medium] The last folder isn't reopened on launch, and window size/position aren't remembered
 
 - **Where:** `components/studio/workspace/workspace-session-context.tsx:71`
 - **What happens:** Every launch, including after an update, lands on the welcome screen in a default-size, un-maximised window.
@@ -3320,7 +3383,7 @@ Ranked by how much they hurt users.
 
 <a id="f20"></a>
 
-#### ⬜ F20 · [medium] No preview of the styled PDF before exporting
+#### ✅ F20 · [medium] No preview of the styled PDF before exporting
 
 - **Where:** `components/studio/editor/pdf-export-dialog.tsx:82` (with a new command next to `export_html_to_pdf` in `src-tauri/src/pdf_export.rs:164`)
 - **What happens:** Tuning margins, headers or the title page means exporting and opening a file every time.
@@ -3331,7 +3394,7 @@ Ranked by how much they hurt users.
 
 <a id="f21"></a>
 
-#### ⬜ F21 · [medium] No keyboard shortcuts for tabs, and no Save / Close Tab entries in the File menu
+#### ✅ F21 · [medium] No keyboard shortcuts for tabs, and no Save / Close Tab entries in the File menu
 
 - **Where:** `lib/settings/keybind-registry.ts:12`
 - **What happens:** Ctrl+W, Ctrl+Tab, Ctrl+PageUp/PageDown and Ctrl+Shift+T do nothing, and the File menu has no Save or Close Tab.
@@ -3342,7 +3405,7 @@ Ranked by how much they hurt users.
 
 <a id="f22"></a>
 
-#### ⬜ F22 · [medium] No keyboard way to move between panes, switch or close tabs, or rename and delete files, and no main landmark
+#### ✅ F22 · [medium] No keyboard way to move between panes, switch or close tabs, or rename and delete files, and no main landmark
 
 - **Where:** `lib/settings/keybind-registry.ts:12` (plus `types.ts`, `defaults.ts:14`, `global-keybinds-provider.tsx`, `file-tree-node.tsx`, `studio-layout.tsx:33`)
 - **What happens:** From the explorer, there's no keyboard way to get to the preview or the next tab, and no F2 or Delete for files.
@@ -3353,7 +3416,7 @@ Ranked by how much they hurt users.
 
 <a id="f23"></a>
 
-#### ⬜ F23 · [medium] Settings and PDF profiles live only in WebView2 localStorage, away from workspace.json, with no export or backup
+#### ✅ F23 · [medium] Settings and PDF profiles live only in WebView2 localStorage, away from workspace.json, with no export or backup
 
 - **Where:** `lib/settings/storage.ts:41`
 - **What happens:** Clearing the WebView2 cache (a common fix for display glitches) wipes all settings and export profiles, and there's no way to share a profile with a colleague.
@@ -3364,7 +3427,7 @@ Ranked by how much they hurt users.
 
 <a id="f24"></a>
 
-#### ⬜ F24 · [medium] Files can't be opened from Explorer: no file associations or command-line path handling
+#### ✅ F24 · [medium] Files can't be opened from Explorer: no file associations or command-line path handling
 
 - **Where:** `src-tauri/src/lib.rs:21` (plus `src-tauri/tauri.conf.json:26` and `workspace-session-context.tsx`)
 - **What happens:** Double-clicking a `.mmd` file or using "Open with Scrivon" just opens the welcome screen without the file.
@@ -3375,7 +3438,7 @@ Ranked by how much they hurt users.
 
 <a id="f25"></a>
 
-#### ⬜ F25 · [medium] No logs, no global error handlers, no diagnostic info: bugs in release builds can't be reported
+#### ✅ F25 · [medium] No logs, no global error handlers, no diagnostic info: bugs in release builds can't be reported
 
 - **Where:** `src-tauri/src/lib.rs:24` (also `components/studio/shell/studio-menu-bar.tsx:145`, `components/studio/app-update-provider.tsx:90`)
 - **What happens:** When something fails in the released app (a recent folder won't open, an update fails), there's nothing to attach to a bug report. A failed update install shows no message at all.
@@ -3386,7 +3449,7 @@ Ranked by how much they hurt users.
 
 <a id="f26"></a>
 
-#### ⬜ F26 · [medium] No way to make the UI or preview text bigger (no zoom, no UI scale, preview fixed at 14px)
+#### ✅ F26 · [medium] No way to make the UI or preview text bigger (no zoom, no UI scale, preview fixed at 14px)
 
 - **Where:** `components/studio/settings/sections/appearance-settings.tsx:41` (plus `lib/settings/types.ts`, `keybind-registry.ts:12`, `src-tauri/capabilities/default.json`)
 - **What happens:** Ctrl+= and Ctrl+mouse wheel do nothing, and there's no text-size option for the app or the preview; only the editor's font size can change.
@@ -3397,7 +3460,7 @@ Ranked by how much they hurt users.
 
 <a id="f27"></a>
 
-#### ⬜ F27 · [low] No ARM64 build, and no stated or enforced minimum Windows version
+#### ✅ F27 · [low] No ARM64 build, and no stated or enforced minimum Windows version
 
 - **Where:** `.github/workflows/release.yml:44-98` (same change in `build-release.yml:17-69`; README Download section)
 - **What happens:** On Snapdragon (Windows on ARM) laptops, Scrivon runs in emulation, which is slower and uses more battery. On Windows 8.1 it installs but won't start.
@@ -3408,7 +3471,7 @@ Ranked by how much they hurt users.
 
 <a id="f28"></a>
 
-#### ⬜ F28 · [low] Explorer is missing standard entry points: no New File shortcut, palette command or File menu item, no Reveal in File Explorer or Copy Path, no right-click on empty space
+#### ✅ F28 · [low] Explorer is missing standard entry points: no New File shortcut, palette command or File menu item, no Reveal in File Explorer or Copy Path, no right-click on empty space
 
 - **Where:** `components/studio/command-palette/command-registry.ts:47`
 - **What happens:** With the explorer hidden there's no way to create a file: no Ctrl+N, no palette command, no File menu item. Right-clicking empty explorer space does nothing, and files have no Reveal or Copy Path.
@@ -3419,7 +3482,7 @@ Ranked by how much they hurt users.
 
 <a id="f29"></a>
 
-#### ⬜ F29 · [low] Only the '>' prefix exists: no go-to-line, no heading jump, no case/word/regex options, and no help listing the prefixes
+#### ✅ F29 · [low] Only the '>' prefix exists: no go-to-line, no heading jump, no case/word/regex options, and no help listing the prefixes
 
 - **Where:** `components/studio/command-palette/parse-palette-query.ts:6`
 - **What happens:** Typing ":120" in the palette searches for the text ":120" instead of jumping to line 120, and you can't jump to a heading or search case-sensitively across the workspace.
@@ -3430,7 +3493,7 @@ Ranked by how much they hurt users.
 
 <a id="f30"></a>
 
-#### ⬜ F30 · [low] No translation structure; some logic depends on the English wording of strings
+#### ✅ F30 · [low] No translation structure; some logic depends on the English wording of strings
 
 - **Where:** `components/studio/dialogs/name-prompt-provider.tsx:50`
 - **What happens:** Nothing visible today, but translating or rewording the "Rename" title would make the prompt's button say "Create".
@@ -3441,7 +3504,7 @@ Ranked by how much they hurt users.
 
 <a id="f31"></a>
 
-#### ⬜ F31 · [low] No Markdown/Mermaid writing helpers; default Ctrl+B is taken by 'Toggle explorer'
+#### ✅ F31 · [low] No Markdown/Mermaid writing helpers; default Ctrl+B is taken by 'Toggle explorer'
 
 - **Where:** `components/studio/editor/code-editor-panel.tsx:175`
 - **What happens:** Selecting a word and pressing Ctrl+B toggles the explorer instead of making it bold. Lists don't continue when you press Enter, and there are no Mermaid snippets.
@@ -3452,7 +3515,7 @@ Ranked by how much they hurt users.
 
 <a id="f32"></a>
 
-#### ⬜ F32 · [low] Ctrl+Left/Right and double-click select whole Chinese/Japanese/Thai sentences in the editor
+#### ✅ F32 · [low] Ctrl+Left/Right and double-click select whole Chinese/Japanese/Thai sentences in the editor
 
 - **Where:** `components/studio/editor/code-editor-panel.tsx:22`
 - **What happens:** In Japanese, Chinese or Thai text, double-click or Ctrl+Right selects or skips a whole clause instead of a word.
@@ -3463,7 +3526,7 @@ Ranked by how much they hurt users.
 
 <a id="f33"></a>
 
-#### ⬜ F33 · [low] Export is only reachable from a small tab-bar icon: no File menu entry, palette command or shortcut
+#### ✅ F33 · [low] Export is only reachable from a small tab-bar icon: no File menu entry, palette command or shortcut
 
 - **Where:** `components/studio/editor/document-export-menu.tsx:37`
 - **What happens:** Pressing F1 and typing "export" or "pdf" finds nothing, and the File menu has no Export.
@@ -3474,7 +3537,7 @@ Ranked by how much they hurt users.
 
 <a id="f34"></a>
 
-#### ⬜ F34 · [low] Tabs lack expected actions: middle-click close, drag to reorder, Close to the Right / Close Saved, Copy Path, Reveal in Explorer, Save As, Revert
+#### ✅ F34 · [low] Tabs lack expected actions: middle-click close, drag to reorder, Close to the Right / Close Saved, Copy Path, Reveal in Explorer, Save As, Revert
 
 - **Where:** `components/studio/editor/editor-tab-context-menu.tsx:28`
 - **What happens:** Middle-clicking a tab doesn't close it, tabs can't be reordered, and there's no way to keep a copy of an example or revert a file to its saved version.
@@ -3485,7 +3548,7 @@ Ranked by how much they hurt users.
 
 <a id="f35"></a>
 
-#### ⬜ F35 · [low] No 'Reveal in File Explorer', 'Copy path' or 'Open with default app', even though the opener plugin is installed
+#### ✅ F35 · [low] No 'Reveal in File Explorer', 'Copy path' or 'Open with default app', even though the opener plugin is installed
 
 - **Where:** `components/studio/explorer/file-tree-context-menu.tsx:32` (also `components/studio/editor/editor-tab-context-menu.tsx:28`)
 - **What happens:** Right-click a file or tab looking for "Show in Explorer" or "Copy path": they aren't there.
@@ -3496,7 +3559,7 @@ Ranked by how much they hurt users.
 
 <a id="f36"></a>
 
-#### ⬜ F36 · [low] No way to copy a code block (no Copy button, and the native right-click menu is disabled)
+#### ✅ F36 · [low] No way to copy a code block (no Copy button, and the native right-click menu is disabled)
 
 - **Where:** `components/studio/markdown/fenced-code-block.tsx:157`
 - **What happens:** To copy a snippet from the preview you have to drag-select it carefully; there's no Copy button and right-click does nothing.
@@ -3507,7 +3570,7 @@ Ranked by how much they hurt users.
 
 <a id="f37"></a>
 
-#### ⬜ F37 · [low] GitHub alerts and math aren't rendered, though the bundled showcase demonstrates them
+#### ✅ F37 · [low] GitHub alerts and math aren't rendered, though the bundled showcase demonstrates them
 
 - **Where:** `components/studio/markdown/markdown-preview.tsx:30` (also `export-document.ts:52`, `export-html-css.ts:252`, `export-docx.ts:668/1123`)
 - **What happens:** `> [!NOTE]` shows as a normal quote with the literal text, and `$E = mc^2$` shows raw. Quote text also isn't greyed as intended.
@@ -3518,7 +3581,7 @@ Ranked by how much they hurt users.
 
 <a id="f38"></a>
 
-#### ⬜ F38 · [low] 'Restore panel layout' setting does nothing
+#### ✅ F38 · [low] 'Restore panel layout' setting does nothing
 
 - **Where:** `components/studio/settings/settings-provider.tsx:41` (switch in `advanced-settings.tsx:48`)
 - **What happens:** Turn "Restore panel layout" off, hide the editor, restart: the editor is still hidden.
@@ -3537,10 +3600,11 @@ Ranked by how much they hurt users.
 - **Why:** The options are hardcoded lists.
 - **Fix:** Add A3, A5, Legal and a custom size, more code themes, profile Export/Import (embedding images), and mention profiles in the Restore defaults warning.
 - **Effort:** medium
+- **Status (14 November 2026):** half built. Profile export and import are in (#123, PR #148). The page sizes and code themes are #124 (PR #145, not merged yet).
 
 <a id="f40"></a>
 
-#### ⬜ F40 · [low] Settings dialog has no search and always opens on General
+#### ✅ F40 · [low] Settings dialog has no search and always opens on General
 
 - **Where:** `components/studio/settings/settings-provider.tsx:59`
 - **What happens:** Finding "minimap" or "page numbers" means clicking through sections, and closing and reopening Settings always starts on General.
@@ -3551,7 +3615,7 @@ Ranked by how much they hurt users.
 
 <a id="f41"></a>
 
-#### ⬜ F41 · [low] No indication of the current file anywhere: window title is always 'Scrivon' and there is no status bar
+#### ✅ F41 · [low] No indication of the current file anywhere: window title is always 'Scrivon' and there is no status bar
 
 - **Where:** `components/studio/shell/studio-menu-bar.tsx:164-168` (plus a new `use-window-title.ts` and `src-tauri/capabilities/default.json`)
 - **What happens:** The taskbar and Alt+Tab always say "Scrivon", so several windows look the same, and there's no status bar.
@@ -3562,7 +3626,7 @@ Ranked by how much they hurt users.
 
 <a id="f42"></a>
 
-#### ⬜ F42 · [low] Custom maximize button doesn't show Windows 11 Snap Layouts
+#### ✅ F42 · [low] Custom maximize button doesn't show Windows 11 Snap Layouts
 
 - **Where:** `components/studio/shell/window-titlebar-controls.tsx:75` (plus `src-tauri/src/lib.rs` setup)
 - **What happens:** Hovering the maximise button on Windows 11 doesn't show the snap layout grid that other apps have.
@@ -3573,7 +3637,7 @@ Ranked by how much they hurt users.
 
 <a id="f43"></a>
 
-#### ⬜ F43 · [low] Examples can't be saved into the workspace and aren't reachable before a folder is opened
+#### ✅ F43 · [low] Examples can't be saved into the workspace and aren't reachable before a folder is opened
 
 - **Where:** `components/studio/editor/editor-tab-context-menu.tsx:28`
 - **What happens:** Example tabs are read-only with no "save a copy" option, and on the welcome screen there's no way to browse examples.
@@ -3592,10 +3656,11 @@ Ranked by how much they hurt users.
 - **Why:** The heading is hardcoded.
 - **Fix:** Add a "Contents title" field to the export profile (and optionally a front-matter override). The custom footer already covers page wording.
 - **Effort:** small
+- **Status (14 November 2026):** not built yet. It's part of #124 (PR #145, not merged yet).
 
 <a id="f45"></a>
 
-#### ⬜ F45 · [low] Diagram export has no options (theme, transparent background), no copy-to-clipboard, and no success feedback
+#### ✅ F45 · [low] Diagram export has no options (theme, transparent background), no copy-to-clipboard, and no success feedback
 
 - **Where:** `lib/mermaid/export.ts:130`
 - **What happens:** In dark mode you can't export a light diagram or a transparent PNG for slides, can't copy a diagram, and nothing confirms the save.
@@ -3606,7 +3671,7 @@ Ranked by how much they hurt users.
 
 <a id="f46"></a>
 
-#### ⬜ F46 · [low] Editor commands are hard to find: no Edit menu, no editor actions in the palette, and Monaco's own palette is still in the context menu
+#### ✅ F46 · [low] Editor commands are hard to find: no Edit menu, no editor actions in the palette, and Monaco's own palette is still in the context menu
 
 - **Where:** `components/studio/editor/code-editor-panel.tsx:99` (also `studio-menu-bar.tsx:108`, `command-registry.ts:47`, `lib/monaco/editor-keybindings.ts:5`)
 - **What happens:** Find, Replace and Go to Line work only if you already know the shortcuts; they're in no menu or palette.
@@ -3617,7 +3682,7 @@ Ranked by how much they hurt users.
 
 <a id="f47"></a>
 
-#### ⬜ F47 · [low] Exported PDFs have no bookmarks/outline even though the stamper already knows every heading's page
+#### ✅ F47 · [low] Exported PDFs have no bookmarks/outline even though the stamper already knows every heading's page
 
 - **Where:** `src-tauri/src/page_numbers.rs:1033`
 - **What happens:** Long exported reports have no bookmarks pane in PDF viewers.
@@ -3628,7 +3693,7 @@ Ranked by how much they hurt users.
 
 <a id="f48"></a>
 
-#### ⬜ F48 · [low] Page numbers always count hidden front matter, so the first visible number can be 'Page 10'
+#### ✅ F48 · [low] Page numbers always count hidden front matter, so the first visible number can be 'Page 10'
 
 - **Where:** `src-tauri/src/page_numbers.rs:1084`
 - **What happens:** With a title page and contents, the body starts at "Page 3" (or "Page 10" with a long contents), and "of total" counts the front pages too.
@@ -3639,7 +3704,7 @@ Ranked by how much they hurt users.
 
 <a id="f49"></a>
 
-#### ⬜ F49 · [low] Pre-release (rc) installs never update, not even to the stable release that replaces them
+#### ✅ F49 · [low] Pre-release (rc) installs never update, not even to the stable release that replaces them
 
 - **Where:** `src-tauri/src/updater.rs:42`
 - **What happens:** Someone who installs a release candidate never hears about the final release or anything after it.
@@ -3650,7 +3715,7 @@ Ranked by how much they hurt users.
 
 <a id="f50"></a>
 
-#### ⬜ F50 · [low] Uninstall leaves user data and old folders behind; the MSI has no 'remove my data' option and the updater piles up installers in %TEMP%
+#### ✅ F50 · [low] Uninstall leaves user data and old folders behind; the MSI has no 'remove my data' option and the updater piles up installers in %TEMP%
 
 - **Where:** `src-tauri/tauri.conf.json:26` (add an installer hook) and `src-tauri/src/lib.rs:21` (startup cleanup)
 - **What happens:** After uninstalling, the old `com.diagram.app` folders and every downloaded update installer (about 13 MB each) stay on disk.
