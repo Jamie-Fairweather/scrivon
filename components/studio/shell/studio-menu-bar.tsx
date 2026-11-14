@@ -332,6 +332,12 @@ export function StudioMenuBar() {
                             </>
                         )}
                         <MenuGroup>
+                            {item('report-issue')}
+                            {item('copy-diagnostic-info')}
+                            {item('open-logs-folder')}
+                        </MenuGroup>
+                        <MenuSeparator />
+                        <MenuGroup>
                             {item('about')}
                             {item('licences')}
                         </MenuGroup>

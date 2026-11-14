@@ -220,7 +220,7 @@ pub fn save(window: &tauri::Window) {
         return;
     };
     if let Err(err) = write_state(&file, &saved) {
-        eprintln!("Could not save the window's size and place: {err}");
+        log::warn!("Could not save the window's size and place: {err}");
     }
 }
 

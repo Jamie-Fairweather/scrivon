@@ -119,7 +119,7 @@ pub fn set_maximize_button_area(
                     let _ = page.emit_to(page.label(), HOVER_EVENT, over);
                 };
                 if let Err(err) = native::place(hwnd as native::Hwnd, area, on_hover) {
-                    eprintln!("Could not set up Snap Layouts: {err}");
+                    log::warn!("Could not set up Snap Layouts: {err}");
                 }
             })
             .map_err(|e| e.to_string())?;

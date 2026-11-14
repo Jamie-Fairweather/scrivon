@@ -248,15 +248,14 @@ describe('StudioMenuBar', () => {
         expect(screen.getByRole('menuitem', { name: 'File' })).toHaveFocus()
     })
 
-    it('lists About and Licences directly in the Help menu', async () => {
+    it('lists the bug report helpers, About and Licences directly in the Help menu', async () => {
         render(<Studio />)
 
         const menu = await openMenu('Help')
-        expect(within(menu).getByRole('menuitem', { name: 'About Scrivon…' })).toBeInTheDocument()
-        expect(within(menu).getByRole('menuitem', { name: 'Licences…' })).toBeInTheDocument()
         // The browser build has no updates to check for.
-        expect(menuLabels(menu)).toEqual(['About Scrivon…', 'Licences…'])
-        expect(menu.querySelector('[role="separator"]')).toBeNull()
+        expect(menuLabels(menu)).toEqual(['Report an Issue', 'Copy Diagnostic Info', 'Open Logs Folder', 'About Scrivon…', 'Licences…'])
+        // Just the one between the two groups, with no stray one on top.
+        expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(1)
     })
 
     it('checks for updates from the Help menu of the desktop app', async () => {
@@ -264,7 +263,14 @@ describe('StudioMenuBar', () => {
         render(<Studio />)
 
         const menu = await openMenu('Help')
-        expect(menuLabels(menu)).toEqual(['Check for Updates…', 'About Scrivon…', 'Licences…'])
+        expect(menuLabels(menu)).toEqual([
+            'Check for Updates…',
+            'Report an Issue',
+            'Copy Diagnostic Info',
+            'Open Logs Folder',
+            'About Scrivon…',
+            'Licences…',
+        ])
         await userEvent.setup().click(within(menu).getByRole('menuitem', { name: 'Check for Updates…' }))
 
         expect(checkForUpdates).toHaveBeenCalledTimes(1)
@@ -631,7 +637,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(44)
+        expect(compared).toBe(47)
     })
 })
 

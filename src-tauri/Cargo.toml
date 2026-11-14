@@ -47,6 +47,9 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Deleting moves files and folders to the Recycle Bin, so a mistake can be undone (F01).
 trash = "5.3.0"
+# A log file to attach to bug reports (F25).
+tauri-plugin-log = "2"
+log = "0.4"
 
 # Page stamping parses every PDF content stream. lopdf's parser is the slow
 # part of export in debug builds; optimize just that crate.

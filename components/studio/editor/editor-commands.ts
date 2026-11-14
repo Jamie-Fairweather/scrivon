@@ -101,15 +101,17 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
         }
     })
     const formatReason = unavailable ?? (!ctx.markdown ? 'Only in Markdown files' : ctx.readOnly ? 'This file is read-only' : null)
-    const formatCommands = FORMAT_COMMANDS.map((spec): AppCommand => ({
-        id: spec.id,
-        label: spec.label,
-        keywords: spec.keywords,
-        keybind: spec.keybind,
-        disabled: formatReason !== null,
-        disabledReason: formatReason ?? undefined,
-        run: () => ctx.runFormat(spec.format),
-    }))
+    const formatCommands = FORMAT_COMMANDS.map(
+        (spec): AppCommand => ({
+            id: spec.id,
+            label: spec.label,
+            keywords: spec.keywords,
+            keybind: spec.keybind,
+            disabled: formatReason !== null,
+            disabledReason: formatReason ?? undefined,
+            run: () => ctx.runFormat(spec.format),
+        })
+    )
     return [...editorCommands, ...formatCommands]
 }
 

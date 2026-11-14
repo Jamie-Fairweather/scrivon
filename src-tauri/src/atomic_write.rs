@@ -461,7 +461,7 @@ fn swap_in(
     // supported, invalid parameter). A rename still swaps the new text in whole,
     // as saves did before; the file just loses its ACLs and other streams.
     if path.exists() && temp.exists() {
-        eprintln!(
+        log::warn!(
             "Couldn't replace {} keeping its identity ({err}), so the new version is renamed over it",
             path.display()
         );

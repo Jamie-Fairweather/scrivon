@@ -1219,7 +1219,7 @@ fn blank_markers(doc: &mut Document, scans: Vec<Walked>) {
         // A stream that can't be rewritten keeps its (invisible) markers; the
         // page numbers still go on.
         if let Err(err) = cut_stream(doc, source, cuts) {
-            eprintln!("Could not remove page-number markers: {err}");
+            log::warn!("Could not remove page-number markers: {err}");
         }
     }
 }
@@ -1902,7 +1902,7 @@ const COULD_NOT_SAVE: &str = "Scrivon couldn't save the numbered copy of this PD
 
 /// Logs `detail` and gives back `message` for the user.
 fn plain_error(message: &str, detail: impl std::fmt::Display) -> String {
-    eprintln!("PDF page numbers: {message} {detail}");
+    log::warn!("PDF page numbers: {message} {detail}");
     message.to_string()
 }
 

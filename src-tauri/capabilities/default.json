@@ -41,6 +41,7 @@
         "store:allow-length",
         "store:allow-reload",
         "store:allow-save",
-        "process:default"
+        "process:default",
+        "log:default"
     ]
 }
