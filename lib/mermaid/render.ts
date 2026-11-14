@@ -51,6 +51,8 @@ export type ExportRenderOptions = {
      * browser engine, which supports it.
      */
     labelHalo?: boolean
+    /** No background colour, for pasting onto slides. Default false. */
+    transparent?: boolean
 }
 
 /** Throws the parser's error for text that doesn't draw, or a plain message for a diagram type it can't draw yet. */
@@ -58,7 +60,12 @@ export function renderMermaidDiagram(source: string, themeId: AppThemeId): strin
     return addMessageLabelHalo(stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), getMermaidRenderOptions(themeId))))
 }
 
-export function renderMermaidDiagramForExport(source: string, themeId: AppThemeId, { labelHalo = true }: ExportRenderOptions = {}): string {
-    const svg = stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), getMermaidExportRenderOptions(themeId)))
+export function renderMermaidDiagramForExport(
+    source: string,
+    themeId: AppThemeId,
+    { labelHalo = true, transparent = false }: ExportRenderOptions = {}
+): string {
+    const options = transparent ? getMermaidRenderOptions(themeId) : getMermaidExportRenderOptions(themeId)
+    const svg = stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), options))
     return labelHalo ? addMessageLabelHalo(svg) : svg
 }

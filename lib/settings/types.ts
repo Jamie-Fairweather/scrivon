@@ -63,6 +63,15 @@ export type ThemeSetting = {
     dark: AppThemeId
 }
 
+/** The theme exported diagrams are drawn in: the app's, or the light or dark version of it. */
+export type DiagramExportTheme = 'app' | 'light' | 'dark'
+
+export type DiagramExportSettings = {
+    theme: DiagramExportTheme
+    /** No background colour, for pasting onto slides. */
+    transparent: boolean
+}
+
 export type AppSettings = {
     autosave: {
         enabled: boolean
@@ -112,6 +121,8 @@ export type AppSettings = {
         visible: boolean
     }
     pdfExport: PdfExportSettings
+    /** How diagrams look when saved or copied as SVG or PNG. */
+    diagramExport: DiagramExportSettings
     spellcheck: SpellcheckSettings
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }

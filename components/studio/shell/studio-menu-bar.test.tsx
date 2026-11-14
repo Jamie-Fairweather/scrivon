@@ -453,7 +453,13 @@ const MARKDOWN: ExportState = {
     isEmpty: false,
     isStale: false,
 }
-const exportActions = { openDialog: vi.fn(), openMenu: vi.fn(), exportDiagram: vi.fn() }
+const exportActions = {
+    openDialog: vi.fn(),
+    openMenu: vi.fn(),
+    exportDiagram: vi.fn(),
+    diagramOptions: { theme: 'app', transparent: false },
+    setDiagramOptions: vi.fn(),
+} as const
 
 /** Stands in for the export provider, which registers the export commands for the active tab. */
 function ExportCommands({ state }: { state: ExportState }) {
@@ -486,7 +492,15 @@ describe('StudioMenuBar File → Export', () => {
         const labels = menuLabels(file)
         const save = labels.indexOf('SaveCtrl+S')
         expect(labels.slice(save, save + 4)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Revert File', 'Export'])
-        expect(menuLabels(exportMenu)).toEqual(['PDF…', 'Word…', 'HTML…', 'Diagram as SVG…', 'Diagram as PNG'])
+        expect(menuLabels(exportMenu)).toEqual([
+            'PDF…',
+            'Word…',
+            'HTML…',
+            'Diagram as SVG…',
+            'Diagram as PNG',
+            'Copy Diagram as SVG',
+            'Copy Diagram as PNG',
+        ])
     })
 
     it('turns on only what the active tab can export', async () => {
@@ -498,7 +512,7 @@ describe('StudioMenuBar File → Export', () => {
 
         const { exportMenu } = await openExportMenu()
         for (const name of ['PDF…', 'Word…', 'HTML…']) expect(within(exportMenu).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled')
-        for (const name of ['Diagram as SVG…', 'Diagram as PNG']) {
+        for (const name of ['Diagram as SVG…', 'Diagram as PNG', 'Copy Diagram as SVG', 'Copy Diagram as PNG']) {
             expect(within(exportMenu).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
     })
@@ -528,6 +542,19 @@ describe('StudioMenuBar File → Export', () => {
         fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'Diagram as PNG' }))
         fireEvent.click(await screen.findByRole('menuitem', { name: '4×…' }))
         expect(exportActions.exportDiagram).toHaveBeenCalledWith(4)
+    })
+
+    it('copies a diagram to the clipboard', async () => {
+        const mermaid: ExportState = { ...MARKDOWN, tabKind: 'mermaid', hasMarkdown: false, hasDiagram: true, hasDiagramSource: true }
+        render(
+            <Studio>
+                <ExportCommands state={mermaid} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'Copy Diagram as PNG' }))
+        expect(exportActions.exportDiagram).toHaveBeenCalledWith('copy-png')
     })
 
     it('is greyed out when the tab can export nothing', async () => {

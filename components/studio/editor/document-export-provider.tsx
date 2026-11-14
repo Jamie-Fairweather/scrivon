@@ -4,15 +4,17 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
+import { diagramExportThemeId } from '@/components/studio/editor/diagram-export-theme'
 import { exportAvailability, type ExportAvailability } from '@/components/studio/editor/export-availability'
 import { buildExportCommands, type DiagramExportKind } from '@/components/studio/editor/export-commands'
 import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import type { ExportFormat } from '@/lib/markdown/export-document'
-import type { DiagramExportTarget } from '@/lib/mermaid/export'
+import type { DiagramExportTarget, DiagramLook } from '@/lib/mermaid/export'
 import { notifyError } from '@/lib/notify'
-import type { AppThemeId } from '@/lib/theme/catalog'
+import type { DiagramExportSettings } from '@/lib/settings/types'
 import { documentKind } from '@/lib/workspace/file-types'
 
 /** Loaded when the user exports, so the export code and the diagram renderer it needs aren't part of every launch. */
@@ -27,16 +29,27 @@ export type DocumentExport = {
     /** Opens the export dialog (Markdown files only) at this format. */
     openDialog: (format: ExportFormat) => void
     exportDiagram: (kind: DiagramExportKind) => void
+    /** How saved and copied diagrams look. Kept in the settings. */
+    diagramOptions: DiagramExportSettings
+    setDiagramOptions: (change: Partial<DiagramExportSettings>) => void
 }
 
 const DocumentExportContext = createContext<DocumentExport | null>(null)
 
 /** What a diagram export needs. */
-type DiagramJob = { source: string; themeId: AppThemeId; target: DiagramExportTarget }
+type DiagramJob = { source: string; look: DiagramLook; target: DiagramExportTarget }
+
+/** Runs one kind of diagram export from the export code. */
+function runDiagramExport(code: Awaited<ReturnType<typeof loadDiagramExport>>, kind: DiagramExportKind, { source, look, target }: DiagramJob) {
+    if (kind === 'svg') return code.exportSvg(source, look, target)
+    if (kind === 'copy-svg') return code.copySvg(source, look)
+    if (kind === 'copy-png') return code.copyPng(source, look)
+    return code.exportPng(source, look, target, kind)
+}
 
 /**
- * Saves the diagram as SVG or PNG. The function stays the same as the text changes, since it reads
- * the diagram only when it runs, so typing doesn't rebuild the export commands.
+ * Saves or copies the diagram as SVG or PNG. The function stays the same as the text changes, since
+ * it reads the diagram only when it runs, so typing doesn't rebuild the export commands.
  */
 function useDiagramExport(job: DiagramJob, setExporting: (exporting: boolean) => void): (kind: DiagramExportKind) => void {
     const jobRef = useRef(job)
@@ -45,10 +58,10 @@ function useDiagramExport(job: DiagramJob, setExporting: (exporting: boolean) =>
     })
     return useCallback(
         (kind: DiagramExportKind) => {
-            const { source, themeId, target } = jobRef.current
+            const current = jobRef.current
             setExporting(true)
             loadDiagramExport()
-                .then(({ exportSvg, exportPng }) => (kind === 'svg' ? exportSvg(source, themeId, target) : exportPng(source, themeId, target, kind)))
+                .then((code) => runDiagramExport(code, kind, current))
                 // The exports report their own failures, so this is the export code failing to load.
                 .catch((err: unknown) => notifyError('Export failed', err))
                 .finally(() => setExporting(false))
@@ -69,6 +82,8 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
     // Web images the user chose to load in this tab's preview go in its export too.
     const { remoteImageTabs } = useMarkdownPreviewMemory()
     const { themeId } = useAppTheme()
+    const { settings, updateSettings } = useAppSettings()
+    const diagramOptions = settings.diagramExport
 
     const tabKind = activeTab ? documentKind(activeTab.name) : null
     const isMarkdownTab = tabKind === 'markdown'
@@ -101,10 +116,15 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
     const exportDiagram = useDiagramExport(
         {
             source: diagramSource,
-            themeId,
+            look: { themeId: diagramExportThemeId(diagramOptions.theme, themeId, settings.theme), transparent: diagramOptions.transparent },
             target: { tabName: activeTab?.name, tabPath: activeTab?.path, markdown: isMarkdownTab ? markdownSource : undefined },
         },
         setExporting
+    )
+    const setDiagramOptions = useCallback(
+        (change: Partial<DiagramExportSettings>) =>
+            updateSettings((current) => ({ ...current, diagramExport: { ...current.diagramExport, ...change } })),
+        [updateSettings]
     )
 
     const openDialog = useCallback((next: ExportFormat) => {
@@ -114,14 +134,14 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
     const openMenu = useCallback(() => setMenuOpen(true), [])
 
     const commands = useMemo(
-        () => buildExportCommands({ availability, lastFormat: format, openDialog, openMenu, exportDiagram }),
-        [availability, format, openDialog, openMenu, exportDiagram]
+        () => buildExportCommands({ availability, lastFormat: format, openDialog, openMenu, exportDiagram, diagramOptions, setDiagramOptions }),
+        [availability, format, openDialog, openMenu, exportDiagram, diagramOptions, setDiagramOptions]
     )
     useRegisterCommands(commands)
 
     const value = useMemo(
-        () => ({ availability, exporting, menuOpen, setMenuOpen, openDialog, exportDiagram }),
-        [availability, exporting, menuOpen, openDialog, exportDiagram]
+        () => ({ availability, exporting, menuOpen, setMenuOpen, openDialog, exportDiagram, diagramOptions, setDiagramOptions }),
+        [availability, exporting, menuOpen, openDialog, exportDiagram, diagramOptions, setDiagramOptions]
     )
 
     return (

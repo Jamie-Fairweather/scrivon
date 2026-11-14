@@ -109,6 +109,10 @@ export function createDefaultSettings(isMac = false): AppSettings {
             visible: true,
         },
         pdfExport: createDefaultPdfExportSettings(),
+        diagramExport: {
+            theme: 'app',
+            transparent: false,
+        },
         spellcheck: createDefaultSpellcheckSettings(),
         keybinds: createDefaultKeybinds(isMac),
     }

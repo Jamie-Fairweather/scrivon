@@ -2,17 +2,31 @@
 
 import { Download, Loader2 } from 'lucide-react'
 import { useDocumentExport } from '@/components/studio/editor/document-export-provider'
-import { PNG_SCALES } from '@/components/studio/editor/export-commands'
+import { DIAGRAM_THEMES, PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
+import type { DiagramExportTheme } from '@/lib/settings/types'
 import { BetaBadge } from '@/components/ui/beta-badge'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
-import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
+import {
+    Menu,
+    MenuCheckboxItem,
+    MenuGroup,
+    MenuItem,
+    MenuPopup,
+    MenuRadioGroup,
+    MenuRadioItem,
+    MenuSeparator,
+    MenuSub,
+    MenuSubPopup,
+    MenuSubTrigger,
+    MenuTrigger,
+} from '@/components/ui/menu'
 
 /** The tab bar's Export button and menu. What it can export, and the export itself, live in DocumentExportProvider. */
 export function DocumentExportMenu() {
-    const { availability, exporting, menuOpen, setMenuOpen, openDialog, exportDiagram } = useDocumentExport()
+    const { availability, exporting, menuOpen, setMenuOpen, openDialog, exportDiagram, diagramOptions, setDiagramOptions } = useDocumentExport()
     const { settings } = useAppSettings()
     const { trigger, document, diagram } = availability
 
@@ -20,6 +34,7 @@ export function DocumentExportMenu() {
     const triggerTitle = trigger.disabled ? trigger.reason : keys ? `Export document (${keys})` : 'Export document'
     // A spinner on the diagram items says they are waiting for the drawing, not broken.
     const drawing = diagram.drawing ? <Loader2 className="animate-spin" aria-hidden /> : null
+    const busy = diagram.drawing || undefined
 
     return (
         // The button is aria-disabled rather than disabled, so it can still be focused or hovered to say why.
@@ -60,12 +75,12 @@ export function DocumentExportMenu() {
                     ) : null}
                     {diagram.shown ? (
                         <>
-                            <MenuItem disabled={diagram.disabled} aria-busy={diagram.drawing || undefined} onClick={() => exportDiagram('svg')}>
+                            <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('svg')}>
                                 Save SVG
                                 {drawing}
                             </MenuItem>
                             <MenuSub>
-                                <MenuSubTrigger disabled={diagram.disabled} aria-busy={diagram.drawing || undefined}>
+                                <MenuSubTrigger disabled={diagram.disabled} aria-busy={busy}>
                                     Save PNG
                                     {drawing}
                                 </MenuSubTrigger>
@@ -79,9 +94,46 @@ export function DocumentExportMenu() {
                                     </MenuGroup>
                                 </MenuSubPopup>
                             </MenuSub>
+                            <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-svg')}>
+                                Copy SVG
+                                {drawing}
+                            </MenuItem>
+                            <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-png')}>
+                                Copy PNG
+                                {drawing}
+                            </MenuItem>
                         </>
                     ) : null}
                 </MenuGroup>
+                {diagram.shown ? (
+                    <>
+                        <MenuSeparator />
+                        {/* How saved and copied diagrams look. Ticking keeps the menu open, to export next. */}
+                        <MenuGroup>
+                            <MenuCheckboxItem
+                                checked={diagramOptions.transparent}
+                                onCheckedChange={(transparent) => setDiagramOptions({ transparent })}
+                            >
+                                Transparent background
+                            </MenuCheckboxItem>
+                            <MenuSub>
+                                <MenuSubTrigger>Diagram theme</MenuSubTrigger>
+                                <MenuSubPopup className="min-w-36">
+                                    <MenuRadioGroup
+                                        value={diagramOptions.theme}
+                                        onValueChange={(theme: DiagramExportTheme) => setDiagramOptions({ theme })}
+                                    >
+                                        {DIAGRAM_THEMES.map(({ theme, name }) => (
+                                            <MenuRadioItem key={theme} value={theme}>
+                                                {name}
+                                            </MenuRadioItem>
+                                        ))}
+                                    </MenuRadioGroup>
+                                </MenuSubPopup>
+                            </MenuSub>
+                        </MenuGroup>
+                    </>
+                ) : null}
             </MenuPopup>
         </Menu>
     )

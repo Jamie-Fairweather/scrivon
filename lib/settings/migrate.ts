@@ -6,6 +6,7 @@ import { normalizeSpellcheckSettings } from '@/lib/spellcheck/spellcheck-setting
 import {
     FOLLOW_SYSTEM,
     type AppSettings,
+    type DiagramExportSettings,
     type EditorLineNumbers,
     type EditorWordWrap,
     type KeybindActionId,
@@ -139,6 +140,14 @@ function normalizeTheme(raw: unknown, defaults: ThemeSetting): ThemeSetting {
     }
 }
 
+function normalizeDiagramExport(raw: unknown, defaults: DiagramExportSettings): DiagramExportSettings {
+    const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    return {
+        theme: source.theme === 'app' || source.theme === 'light' || source.theme === 'dark' ? source.theme : defaults.theme,
+        transparent: typeof source.transparent === 'boolean' ? source.transparent : defaults.transparent,
+    }
+}
+
 function normalizeLineNumbers(value: unknown): EditorLineNumbers {
     if (value === 'on' || value === 'off' || value === 'relative') return value
     return 'on'
@@ -228,6 +237,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             visible: typeof source.statusBar?.visible === 'boolean' ? source.statusBar.visible : defaults.statusBar.visible,
         },
         pdfExport: normalizePdfExportSettings(source.pdfExport),
+        diagramExport: normalizeDiagramExport(source.diagramExport, defaults.diagramExport),
         spellcheck: normalizeSpellcheckSettings(source.spellcheck, defaults.spellcheck),
         keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds),
     }
