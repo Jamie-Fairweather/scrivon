@@ -1,12 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
-import { CommandRegistryProvider, useCommands } from '@/components/studio/commands/command-registry'
+import { CommandRegistryProvider, useCommands, useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { exportAvailability, type ExportState } from '@/components/studio/editor/export-availability'
+import { buildExportCommands } from '@/components/studio/editor/export-commands'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -435,6 +437,113 @@ describe('StudioMenuBar File menu', () => {
         for (const name of [/^Save Ctrl/, /^Save All/, 'Revert File', /^Close Tab/]) {
             expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
+    })
+})
+
+const MARKDOWN: ExportState = {
+    tabKind: 'markdown',
+    exporting: false,
+    hasMarkdown: true,
+    hasDiagram: false,
+    hasDiagramSource: false,
+    diagramError: false,
+    isPending: false,
+    isEmpty: false,
+    isStale: false,
+}
+const exportActions = { openDialog: vi.fn(), openMenu: vi.fn(), exportDiagram: vi.fn() }
+
+/** Stands in for the export provider, which registers the export commands for the active tab. */
+function ExportCommands({ state }: { state: ExportState }) {
+    const commands = useMemo(() => buildExportCommands({ availability: exportAvailability(state), lastFormat: 'pdf', ...exportActions }), [state])
+    useRegisterCommands(commands)
+    return null
+}
+
+async function openExportMenu() {
+    const user = userEvent.setup()
+    const file = await openMenu('File')
+    await user.click(within(file).getByRole('menuitem', { name: 'Export' }))
+    const exportMenu = (await screen.findByRole('menuitem', { name: 'PDF…' })).closest<HTMLElement>('[role="menu"]')!
+    return { file, exportMenu }
+}
+
+describe('StudioMenuBar File → Export', () => {
+    beforeEach(() => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
+    })
+
+    it('sits after the save items, with every kind of export', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+            </Studio>
+        )
+
+        const { file, exportMenu } = await openExportMenu()
+        const labels = menuLabels(file)
+        const save = labels.indexOf('SaveCtrl+S')
+        expect(labels.slice(save, save + 4)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Revert File', 'Export'])
+        expect(menuLabels(exportMenu)).toEqual(['PDF…', 'Word…', 'HTML…', 'Diagram as SVG…', 'Diagram as PNG'])
+    })
+
+    it('turns on only what the active tab can export', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        for (const name of ['PDF…', 'Word…', 'HTML…']) expect(within(exportMenu).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled')
+        for (const name of ['Diagram as SVG…', 'Diagram as PNG']) {
+            expect(within(exportMenu).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
+        }
+    })
+
+    it('opens the export dialog at the chosen format', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'HTML…' }))
+        expect(exportActions.openDialog).toHaveBeenCalledWith('html')
+    })
+
+    it('saves a diagram as SVG, or as PNG at the size picked', async () => {
+        const mermaid: ExportState = { ...MARKDOWN, tabKind: 'mermaid', hasMarkdown: false, hasDiagram: true, hasDiagramSource: true }
+        render(
+            <Studio>
+                <ExportCommands state={mermaid} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        expect(within(exportMenu).getByRole('menuitem', { name: 'PDF…' })).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'Diagram as PNG' }))
+        fireEvent.click(await screen.findByRole('menuitem', { name: '4×…' }))
+        expect(exportActions.exportDiagram).toHaveBeenCalledWith(4)
+    })
+
+    it('is greyed out when the tab can export nothing', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, tabKind: null, hasMarkdown: false }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: 'Export' })).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('is left out with no folder open, as nothing can be exported', async () => {
+        mockContexts()
+        render(<Studio />)
+
+        expect(menuLabels(await openMenu('File'))).not.toContain('Export')
     })
 })
 

@@ -379,6 +379,35 @@ describe('PdfExportDialog', () => {
         await screen.findByLabelText('Title')
         expect(screen.queryByText(/Outside the Windows app/)).toBeNull()
     })
+
+    it('exports a web page when HTML is the format', async () => {
+        exportMarkdown.mockResolvedValue({ status: 'saved', path: 'D:\\docs\\report.html' })
+        const { onOpenChange } = renderDialogWith('html')
+        expect(await screen.findByRole('combobox', { name: 'Format' })).toHaveTextContent('HTML')
+        await exportWithTitle('Report')
+
+        expect(exportMarkdown).toHaveBeenCalledWith('# Report\n\nBody', 'report.md', expect.objectContaining({ format: 'html' }))
+        expect(onOpenChange).toHaveBeenCalledWith(false)
+        expect(notifyExportSaved).toHaveBeenCalledWith({ status: 'saved', path: 'D:\\docs\\report.html' })
+    })
+
+    it('leaves out the notes about pages for a web page, which has none', async () => {
+        platform.windows = false
+        const bar = { enabled: true, heightMm: 100, gapMm: 100, ignoreMargins: true }
+        profiles.edit = (profile) => {
+            profile.frontMatter.toc = true
+            profile.footer = { ...profile.footer, ...bar, pageNumbers: 'number' }
+        }
+        renderDialogWith('html')
+        expect(
+            await screen.findByText(
+                "Subtitle, author and date appear on the title page (off in this profile). Author and subtitle are also saved in the page's details."
+            )
+        ).toBeInTheDocument()
+        expect(screen.queryByText(/Margins, header and footer/)).toBeNull()
+        expect(screen.queryByText(/Outside the Windows app/)).toBeNull()
+    })
+
     describe('PDF preview', () => {
         beforeEach(() => {
             vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -479,12 +508,14 @@ describe('PdfExportDialog', () => {
             expect(screen.queryByRole('alert')).toBeNull()
         })
 
-        it('has no preview for Word files, or outside the Windows app', async () => {
-            const word = render(<Owner format="docx" onOpenChange={vi.fn()} />)
-            await screen.findByLabelText('Title')
-            await waitOutPreviewDelay()
-            expect(screen.queryByRole('region', { name: 'PDF preview' })).toBeNull()
-            word.unmount()
+        it('has no preview for Word files or web pages, or outside the Windows app', async () => {
+            for (const format of ['docx', 'html'] as const) {
+                const other = render(<Owner format={format} onOpenChange={vi.fn()} />)
+                await screen.findByLabelText('Title')
+                await waitOutPreviewDelay()
+                expect(screen.queryByRole('region', { name: 'PDF preview' })).toBeNull()
+                other.unmount()
+            }
 
             platform.windows = false
             render(<Owner onOpenChange={vi.fn()} />)
@@ -495,3 +526,9 @@ describe('PdfExportDialog', () => {
         })
     })
 })
+
+function renderDialogWith(format: ExportFormat) {
+    const onOpenChange = vi.fn()
+    const view = render(<Owner format={format} onOpenChange={onOpenChange} />)
+    return { onOpenChange, view }
+}

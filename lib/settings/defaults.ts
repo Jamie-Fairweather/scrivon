@@ -24,6 +24,8 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
 
     const bindings: KeybindBindings = {
         'document.save': [chord('s', mod)],
+        // X for export. Ctrl+Shift+E is left for showing the explorer, as in VS Code.
+        'document.export': [chord('x', { ...mod, shift: true })],
         'settings.open': [chord(',', mod)],
         'palette.open': [chord('F1')],
         'palette.openText': [chord('f', { ...mod, shift: true })],

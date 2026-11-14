@@ -20,6 +20,7 @@ export type KeybindActionMeta = {
 const KEYBIND_ACTION_META = {
     'document.save': { label: 'Save active document', category: 'Document', when: 'global' },
     'workspace.saveAll': { label: 'Save all documents', category: 'Document', when: 'workspace' },
+    'document.export': { label: 'Export document', category: 'Document', when: 'workspace' },
     'workspace.newDiagram': { label: 'New diagram', category: 'Workspace', when: 'workspace' },
     'workspace.newDocument': { label: 'New document', category: 'Workspace', when: 'workspace' },
     'workspace.newFolder': { label: 'New folder', category: 'Workspace', when: 'workspace' },
