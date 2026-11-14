@@ -167,6 +167,14 @@ describe('physicalKeyFallback', () => {
         expect(physicalKeyFallback({ key: '/', code: 'Digit7', shiftKey: true })).toBe('7')
     })
 
+    it('uses the digit on AZERTY, where the digit keys type symbols without Shift', () => {
+        expect(physicalKeyFallback({ key: '&', code: 'Digit1' })).toBe('1')
+        expect(physicalKeyFallback({ key: 'é', code: 'Digit2' })).toBe('2')
+        expect(physicalKeyFallback({ key: 'à', code: 'Digit0' })).toBe('0')
+        // With Shift, AZERTY types the digit itself.
+        expect(physicalKeyFallback({ key: '1', code: 'Digit1', shiftKey: true })).toBeNull()
+    })
+
     it('keeps the typed key on Latin layouts and for keys that already match', () => {
         expect(physicalKeyFallback({ key: 'o', code: 'KeyS' })).toBeNull()
         expect(physicalKeyFallback({ key: 'ö', code: 'Semicolon' })).toBeNull()

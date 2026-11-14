@@ -54,7 +54,7 @@ export function KeybindCapture({ active, label, onCapture, onCancel, onReject }:
             }
 
             const chord = normalizeChord({
-                // Record the physical key on non-Latin layouts and for Shift+digit, so it matches on any layout.
+                // Record the physical key on non-Latin layouts and for the digit keys, so it matches on any layout.
                 key: physicalKeyFallback(event) ?? event.key,
                 ctrl: event.ctrlKey || undefined,
                 meta: event.metaKey || undefined,

@@ -140,7 +140,7 @@ export function KeyboardSettings() {
                     const isEditing = editingId === action.id
                     const isDefault = chordListsEqual(chords, defaults[action.id] ?? [])
                     const clashes = sharedWith(action.id)
-                    // Saved before editor keys were refused, so it still takes the key from the editor.
+                    // Saved before these keys were refused, so it still takes the key from the editor or explorer.
                     const editorClashes = chords.flatMap((chord) => describeEditorChordClash(chord, isMacPlatform(), action.id) ?? [])
                     // Not a clash: the Markdown action has the keys only while typing in the editor.
                     const takenWhileTyping = editorActionsSharingKeys(settings.keybinds, action.id)

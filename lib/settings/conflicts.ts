@@ -75,7 +75,16 @@ const EDITOR_CHORDS: KeybindChord[] = [
     ...['/', '[', ']', 'k', 'm'].map((key) => ({ key, ctrl: true })),
     // With Shift, a US keyboard reports [ ] \ as { } |, which is what the recorder saves.
     ...['[', ']', '{', '}', '\\', '|', 'k'].map((key) => ({ key, ctrl: true, shift: true })),
+    // Quick fix, which shows spelling suggestions, and the right-click menu
+    { key: '.', ctrl: true },
+    { key: 'F10', shift: true },
 ]
+
+/**
+ * Keys the explorer uses on a focused file: F2 renames it and Shift+F10 opens its menu. A Markdown
+ * action only runs while typing in the editor, so it may have them.
+ */
+const EXPLORER_CHORDS: KeybindChord[] = [{ key: 'F2' }, { key: 'F10', shift: true }]
 
 /**
  * Ctrl+K on its own only starts the editor's two-key shortcuts (Ctrl+K Ctrl+C…). A Markdown action
@@ -83,7 +92,7 @@ const EDITOR_CHORDS: KeybindChord[] = [
  */
 const CHORD_PREFIX: KeybindChord = { key: 'k', ctrl: true }
 
-function sameEditorChord(reserved: KeybindChord, chord: KeybindChord): boolean {
+function sameReservedChord(reserved: KeybindChord, chord: KeybindChord): boolean {
     // Ctrl on Windows and Linux, Cmd on macOS.
     const hasCommand = Boolean(chord.ctrl || chord.meta)
     return (
@@ -93,15 +102,20 @@ function sameEditorChord(reserved: KeybindChord, chord: KeybindChord): boolean {
     )
 }
 
-function usesEditorChord(chord: KeybindChord, editorAction: boolean): boolean {
+function usesReservedChord(reservedChords: KeybindChord[], chord: KeybindChord): boolean {
     if (chord.alt || (chord.ctrl && chord.meta)) return false
-    if (editorAction && sameEditorChord(CHORD_PREFIX, chord)) return false
-    return EDITOR_CHORDS.some((reserved) => sameEditorChord(reserved, chord))
+    return reservedChords.some((reserved) => sameReservedChord(reserved, chord))
 }
 
-/** Why a chord would break an editor or clipboard shortcut for this action, or null when it's free to use. */
+function usesEditorChord(chord: KeybindChord, editorAction: boolean): boolean {
+    if (editorAction && sameReservedChord(CHORD_PREFIX, chord)) return false
+    return usesReservedChord(EDITOR_CHORDS, chord)
+}
+
+/** Why this action can't have a chord the editor or the explorer uses (clipboard, rename…), or null when it's free to use. */
 export function describeEditorChordClash(chord: KeybindChord, isMac = isMacPlatform(), actionId?: KeybindActionId): string | null {
     const editorAction = actionId !== undefined && isEditorAction(actionId)
+    if (!editorAction && usesReservedChord(EXPLORER_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the explorer`
     return usesEditorChord(chord, editorAction) ? `${formatChord(chord, isMac)} is used by the editor` : null
 }
 

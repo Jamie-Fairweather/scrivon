@@ -248,7 +248,7 @@ describe('MermaidCanvas zoom (F06)', () => {
             expect(await screen.findByText(tooltip)).toBeInTheDocument()
         }
 
-        await hover('Zoom in', 'Zoom in (Alt+=)')
+        await hover('Zoom in', 'Zoom in (Alt+= or Alt+Plus)')
         await hover('Zoom out', 'Zoom out (Ctrl+Shift+J)')
         await hover('Reset to 100%', 'Reset to 100% (Alt+0)')
         // No shortcut set: just the name.

@@ -53,10 +53,16 @@ describe('keybind registry', () => {
 
     it('has diagram zoom shortcuts on Alt (Cmd+Option on a Mac), leaving Ctrl+=, Ctrl+- and Ctrl+0 for the app', () => {
         const defaults = createDefaultKeybinds(false)
-        expect(defaults['view.zoomDiagramIn']).toEqual([{ key: '=', alt: true }])
+        expect(defaults['view.zoomDiagramIn']).toEqual([
+            { key: '=', alt: true },
+            { key: '+', alt: true },
+        ])
         expect(defaults['view.zoomDiagramOut']).toEqual([{ key: '-', alt: true }])
         expect(defaults['view.resetDiagramZoom']).toEqual([{ key: '0', alt: true }])
-        expect(createDefaultKeybinds(true)['view.zoomDiagramIn']).toEqual([{ key: '=', meta: true, alt: true }])
+        expect(createDefaultKeybinds(true)['view.zoomDiagramIn']).toEqual([
+            { key: '=', meta: true, alt: true },
+            { key: '+', meta: true, alt: true },
+        ])
 
         expect(getKeybindActionMeta('view.zoomDiagramIn')).toMatchObject({ label: 'Zoom diagram in', category: 'View', when: 'workspace' })
         expect(getKeybindActionMeta('view.zoomDiagramOut')).toMatchObject({ label: 'Zoom diagram out', category: 'View' })
