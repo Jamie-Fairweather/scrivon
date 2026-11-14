@@ -1,5 +1,6 @@
 import type { Root as HastRoot } from 'hast'
 import { toHtml } from 'hast-util-to-html'
+import type { Blockquote, Paragraph, Root } from 'mdast'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
@@ -37,6 +38,20 @@ describe('GitHub alerts', () => {
         expect(html('> [!WARNING]\n>\n> - one\n> - two')).toBe(
             '<div class="markdown-alert markdown-alert-warning"><p class="markdown-alert-title">Warning</p><ul><li>one</li><li>two</li></ul></div>'
         )
+    })
+
+    it('starts the text after a marker line where it is written, so the preview jumps to it (#182)', () => {
+        /** Where the alert's text (after its title) starts, read with or without the source text. */
+        const textStart = (markdown: string, withSource = true) => {
+            const processor = unified().use(remarkParse).use(markdownRemarkPlugins)
+            const tree = processor.runSync(processor.parse(markdown), withSource ? markdown : undefined) as Root
+            return ((tree.children[0] as Blockquote).children[1] as Paragraph).position?.start
+        }
+        expect(textStart('> [!NOTE] \n>  Alert one\n> two')).toEqual({ line: 2, column: 4, offset: 14 })
+        expect(textStart('  > [!NOTE]\r\nlazy line')).toEqual({ line: 2, column: 1, offset: 13 })
+        expect(textStart('> [!NOTE]  \n> After a break')).toEqual({ line: 2, column: 3, offset: 14 })
+        // Without the source, its place on the next line isn't known, so it keeps the marker's.
+        expect(textStart('> [!NOTE]\n> Alert', false)).toEqual({ line: 1, column: 3, offset: 2 })
     })
 
     it('leaves a plain quote alone', () => {

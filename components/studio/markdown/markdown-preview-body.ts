@@ -1,11 +1,28 @@
-import { guessDocumentLanguage, parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
+import type { Element, ElementContent, Root as HastRoot } from 'hast'
+import type { Root } from 'mdast'
+import type { VFile } from 'vfile'
+import { guessProseLanguage, parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
+
+declare module 'vfile' {
+    interface DataMap {
+        /** The language the preview is tagged with. See {@link remarkPreviewLang}. */
+        previewLang: string
+    }
+}
 
 /**
- * The part of a Markdown document the preview shows. YAML front matter is metadata (PDF export reads its title,
- * author and date for the title page), not content, so it is left out, found by the same rule export uses.
+ * What the preview needs from a Markdown document: `body`, the part it shows, and `lang`, the front matter's `lang:`
+ * if it has one. YAML front matter is metadata (PDF export reads its title, author and date for the title page), not
+ * content, so it is left out of the body, found by the same rule export uses.
  */
+export function markdownPreviewDocument(source: string): { body: string; lang?: string } {
+    const { body, lang } = parsePdfExportFrontMatter(source)
+    return { body, lang }
+}
+
+/** The part of a Markdown document the preview shows. See {@link markdownPreviewDocument}. */
 export function markdownPreviewBody(source: string): string {
-    return parsePdfExportFrontMatter(source).body
+    return markdownPreviewDocument(source).body
 }
 
 /** The line of `source` its preview body (see {@link markdownPreviewBody}) starts on, counting from 1. */
@@ -14,20 +31,28 @@ export function markdownBodyFirstLine(source: string, body: string): number {
     return 1 + (frontMatter.match(/\r\n|\r|\n/g)?.length ?? 0)
 }
 
-/** A fenced code block, ``` or ~~~, closed by a fence at least as long, or running to the end when never closed. */
-const FENCED_CODE = /^ {0,3}(([`~])\2{2,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|$(?![\s\S]))/gm
-
-/** How much prose the language guess reads: plenty to tell the language, and cheap enough for every keystroke. */
-const LANGUAGE_SAMPLE_CHARS = 20_000
-
 /**
- * The language to tag the preview with, as PDF export tags the PDF: the front matter's `lang:`, else a guess from
- * the prose (`en` when unsure). The browser picks the glyph shapes of shared Han characters by language, so this
- * makes a Japanese document's kanji look the same in the preview as in the PDF. Code is left out of the guess, as
- * export leaves it out: it reads as English whatever the text is in.
+ * Remark plugin that works out the language to tag the preview with, as PDF export tags the PDF: `lang` (the front
+ * matter's `lang:`), else a guess from the prose ({@link guessProseLanguage}, which export uses too), so code, math
+ * and image links don't count. It reads the tree the preview draws, so the document isn't parsed twice. The browser
+ * picks the glyph shapes of shared Han characters by language, so this makes a Japanese document's kanji look the
+ * same in the preview as in the PDF.
  */
-export function markdownPreviewLang(source: string): string {
-    const { body, lang } = parsePdfExportFrontMatter(source)
-    if (lang) return lang
-    return guessDocumentLanguage(body.replace(FENCED_CODE, '\n').slice(0, LANGUAGE_SAMPLE_CHARS))
+export function remarkPreviewLang(lang: string | undefined) {
+    return () => (tree: Root, file: VFile) => {
+        file.data.previewLang = lang ?? guessProseLanguage(tree)
+    }
+}
+
+/** Rehype plugin that puts the whole document in one `<article>`, tagged with the language {@link remarkPreviewLang} found. */
+export function rehypePreviewArticle(className: string) {
+    return () => (tree: HastRoot, file: VFile) => {
+        const article: Element = {
+            type: 'element',
+            tagName: 'article',
+            properties: { lang: file.data.previewLang ?? 'en', className: className.split(' ') },
+            children: tree.children.filter((node): node is ElementContent => node.type !== 'doctype'),
+        }
+        tree.children = [article]
+    }
 }

@@ -316,9 +316,13 @@ pub fn run() {
             // After an in-app update the installer restarts Scrivon with the
             // arguments it was first started with (tauri-plugin-updater passes
             // them on). Those were opened back then, so skip them and let the
-            // last folder reopen. If the update failed, this skips one launch's
-            // files, and the page then says the update didn't install.
-            if !data_dir.as_deref().is_some_and(updater::attempt_waiting) {
+            // last folder reopen. If the update didn't install, nothing
+            // restarted Scrivon, so this launch's files are the user's.
+            let version = app.package_info().version.to_string();
+            if !data_dir
+                .as_deref()
+                .is_some_and(|dir| updater::restarted_after_update(dir, &version))
+            {
                 // Checked here, though it touches the disk, because the page asks
                 // for them as it starts. Any later, it would reopen the last
                 // folder first and then switch. Explorer has usually just read
