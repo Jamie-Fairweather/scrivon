@@ -1,20 +1,44 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
-import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import type { DiagramZoom, PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import { createDefaultKeybinds } from '@/lib/settings/defaults'
+import type { KeybindBindings } from '@/lib/settings/types'
+import { OWN_ZOOM_SELECTOR } from '@/lib/zoom/app-zoom'
 
 const fit = vi.hoisted(() => ({ requestId: 0 }))
+/** The zoom the canvas hands the View menu and palette. */
+const menu = vi.hoisted(() => ({ zoom: null as ((how: DiagramZoom) => void) | null }))
 
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: vi.fn() }))
 
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
-    useCanvasControls: () => ({ registerFitToView: () => () => {}, setCanFitToView: () => {} }),
+    useCanvasControls: () => ({
+        registerFitToView: () => () => {},
+        registerZoomDiagram: (zoom: (how: DiagramZoom) => void) => {
+            menu.zoom = zoom
+            return () => {
+                if (menu.zoom === zoom) menu.zoom = null
+            }
+        },
+        setCanFitToView: () => {},
+    }),
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTabId: 'a.mmd', tabs: [{ id: 'a.mmd', name: 'flow.mmd' }] }),
     useCanvasFit: () => ({ canvasFitRequestId: fit.requestId }),
+}))
+
+const keybinds = vi.hoisted(() => ({ current: {} as KeybindBindings }))
+
+vi.mock('@/components/studio/settings/settings-provider', () => ({
+    useAppSettings: () => ({ settings: { keybinds: keybinds.current } }),
+}))
+vi.mock('@/lib/settings/chord-utils', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/settings/chord-utils')>()),
+    isMacPlatform: () => false,
 }))
 
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"></svg>'
@@ -35,6 +59,7 @@ function mockHook(result: Partial<ReturnType<typeof useMermaidSvg>>) {
 beforeEach(() => {
     vi.mocked(useMermaidSvg).mockReset()
     fit.requestId = 0
+    keybinds.current = createDefaultKeybinds(false)
 })
 
 afterEach(() => {
@@ -73,6 +98,14 @@ describe('MermaidCanvas', () => {
         expect(message.closest('.origin-center')).toBeNull()
         // The canvas calls preventDefault on pointer down to pan, which would block text selection.
         expect(fireEvent.pointerDown(message, { button: 0, pointerId: 1 })).toBe(true)
+    })
+
+    it('zooms by itself, so Ctrl+wheel and the zoom keys there zoom the diagram, not the whole app', () => {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+
+        render(<MermaidCanvas source="graph TD" />)
+
+        expect(screen.getAllByTitle('Diagram preview')[0]!.closest(OWN_ZOOM_SELECTOR)).not.toBeNull()
     })
 
     it('shows the empty message outside the pan/zoom layer, so zoom never shrinks it (U37)', () => {
@@ -173,5 +206,102 @@ describe('MermaidCanvas', () => {
         const again = render(<MermaidCanvas source="graph TD" viewMemory={memory} />)
 
         expect(again.container.querySelector<HTMLElement>('.origin-center')!.style.transform).toBe('translate(0px, -40px) scale(1.5)')
+    })
+})
+
+describe('MermaidCanvas zoom (F06)', () => {
+    /** Draws the 100×50 diagram in an 800×600 canvas, where fitting it shows it at 150%. */
+    function renderDiagram() {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 600))
+        const view = render(<MermaidCanvas source="graph TD" />)
+        const transform = () => view.container.querySelector<HTMLElement>('.origin-center')!.style.transform
+        const toolbar = screen.getByRole('group', { name: 'Zoom' })
+        return { transform, toolbar, level: () => within(toolbar).getByText(/%$/).textContent }
+    }
+
+    it('has a toolbar that shows the zoom level and zooms out, in, back to 100% and to fit', () => {
+        const { transform, toolbar, level } = renderDiagram()
+        expect(level()).toBe('150%')
+
+        fireEvent.click(within(toolbar).getByRole('button', { name: 'Zoom in' }))
+        expect(level()).toBe('188%')
+        expect(transform()).toBe('translate(0px, 0px) scale(1.875)')
+
+        fireEvent.click(within(toolbar).getByRole('button', { name: 'Zoom out' }))
+        fireEvent.click(within(toolbar).getByRole('button', { name: 'Zoom out' }))
+        expect(level()).toBe('120%')
+
+        fireEvent.click(within(toolbar).getByRole('button', { name: 'Reset to 100%' }))
+        expect(level()).toBe('100%')
+        expect(transform()).toBe('translate(0px, 0px) scale(1)')
+
+        fireEvent.click(within(toolbar).getByRole('button', { name: 'Fit to screen' }))
+        expect(level()).toBe('150%')
+    })
+
+    it("shows each button's shortcut in its tooltip, as set in Keyboard settings", async () => {
+        keybinds.current = { ...keybinds.current, 'view.zoomDiagramOut': [{ key: 'j', ctrl: true, shift: true }], 'view.fitDiagram': [] }
+        const { toolbar } = renderDiagram()
+        const hover = async (name: string, tooltip: string) => {
+            act(() => within(toolbar).getByRole('button', { name }).focus())
+            expect(await screen.findByText(tooltip)).toBeInTheDocument()
+        }
+
+        await hover('Zoom in', 'Zoom in (Alt+=)')
+        await hover('Zoom out', 'Zoom out (Ctrl+Shift+J)')
+        await hover('Reset to 100%', 'Reset to 100% (Alt+0)')
+        // No shortcut set: just the name.
+        await hover('Fit to screen', 'Fit to screen')
+    })
+
+    it('keeps clicks on the toolbar from moving the diagram or resetting it', () => {
+        const { toolbar, level } = renderDiagram()
+        const zoomIn = within(toolbar).getByRole('button', { name: 'Zoom in' })
+
+        // The canvas calls preventDefault on pointer down to start a drag.
+        expect(fireEvent.pointerDown(zoomIn, { button: 0, pointerId: 1 })).toBe(true)
+        fireEvent.click(zoomIn)
+        fireEvent.doubleClick(zoomIn)
+        expect(level()).toBe('188%')
+    })
+
+    it('can take focus, says which keys work, and zooms with them', () => {
+        const { level } = renderDiagram()
+        const canvas = screen.getByRole('group', { name: 'Diagram canvas' })
+
+        expect(canvas).toHaveAttribute('tabindex', '0')
+        expect(canvas).toHaveAccessibleDescription(/\+ and - zoom, 0 goes back to 100%, and the arrow keys move the diagram/)
+        canvas.focus()
+        expect(canvas).toHaveFocus()
+
+        fireEvent.keyDown(canvas, { key: '-' })
+        expect(level()).toBe('120%')
+    })
+
+    it('takes focus when clicked, so the zoom keys work straight away', () => {
+        renderDiagram()
+        const canvas = screen.getByRole('group', { name: 'Diagram canvas' })
+
+        fireEvent.pointerDown(canvas, { button: 0, pointerId: 1 })
+        fireEvent.pointerUp(canvas, { button: 0, pointerId: 1 })
+        expect(canvas).toHaveFocus()
+    })
+
+    it('lets the View menu and palette zoom the diagram on screen', () => {
+        const { level } = renderDiagram()
+
+        act(() => menu.zoom!('reset'))
+        expect(level()).toBe('100%')
+        act(() => menu.zoom!('in'))
+        expect(level()).toBe('125%')
+    })
+
+    it('has no zoom toolbar and no Tab stop when there is no diagram', () => {
+        mockHook({})
+        render(<MermaidCanvas source="" />)
+
+        expect(screen.queryByRole('group', { name: 'Zoom' })).toBeNull()
+        expect(screen.getByRole('group', { name: 'Diagram canvas' })).toHaveAttribute('tabindex', '-1')
     })
 })

@@ -5,22 +5,64 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { getBaseName } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
 import { documentExtension } from '@/lib/workspace/file-types'
+import type { FileNode } from '@/lib/workspace/types'
 
-export type NamePromptOptions = {
-    title: string
-    /** One line under the title, such as which folder a new item goes in. */
-    description?: string
-    /** The confirm button's label. Defaults to 'Create'. */
-    submitLabel?: string
+/**
+ * What a name is asked for. The kind sets the prompt's title, description, placeholder and button (see
+ * namePromptText), so nothing depends on how any of them is worded.
+ */
+export type NamePromptSubject =
+    | {
+          kind: 'new-diagram' | 'new-document' | 'new-folder'
+          /** The folder the new item goes in. */
+          folder: string
+      }
+    | {
+          kind: 'rename'
+          /** The file or folder being renamed. */
+          entry: Pick<FileNode, 'name' | 'kind'>
+      }
+
+export type NamePromptKind = NamePromptSubject['kind']
+
+export type NamePromptText = { title: string; description: string; placeholder: string; submitLabel: string }
+
+const NEW_ITEM_TEXT = {
+    'new-diagram': { what: 'diagram', placeholder: 'diagram.mmd' },
+    'new-document': { what: 'document', placeholder: 'document.md' },
+    'new-folder': { what: 'folder', placeholder: 'Folder name' },
+} as const
+
+/** The prompt's words for each kind, kept in one place for a translation later. */
+export function namePromptText(subject: NamePromptSubject): NamePromptText {
+    if (subject.kind === 'rename') {
+        const { name, kind } = subject.entry
+        return {
+            title: `Rename "${name}"`,
+            description: `Choose a new name for this ${kind === 'directory' ? 'folder' : 'file'}.`,
+            placeholder: name,
+            submitLabel: 'Rename',
+        }
+    }
+    const { what, placeholder } = NEW_ITEM_TEXT[subject.kind]
+    return {
+        title: `New ${what} name`,
+        description: `Creates the ${what} in "${getBaseName(subject.folder)}".`,
+        placeholder,
+        submitLabel: 'Create',
+    }
+}
+
+export type NamePromptOptions = NamePromptSubject & {
     defaultValue?: string
     /**
      * The end of the name left unselected when the field opens, such as `.png`, so typing a new name keeps it.
      * Null selects the whole name. Left out, a document extension the name ends with (`.md`) is left unselected.
      */
     extension?: string | null
-    placeholder?: string
     /**
      * Says why a name can't be used, or null when it can. It runs on the trimmed name as the user types:
      * the reason shows under the field, and the dialog stays open until the name is fixed or cancelled.
@@ -64,10 +106,12 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
     const selectOnFocusRef = useRef(false)
 
     const [open, setOpen] = useState(false)
-    const [request, setRequest] = useState<NamePromptOptions>({ title: '' })
+    // Kept after the prompt closes, so its words stay put while it fades out.
+    const [request, setRequest] = useState<NamePromptOptions | null>(null)
     const [value, setValue] = useState('')
 
-    const { title, description, submitLabel = 'Create', extension, placeholder, validate, note } = request
+    const { extension, validate, note } = request ?? {}
+    const text = request ? namePromptText(request) : null
     const trimmed = value.trim()
     const error = open && validate ? validate(trimmed) : null
     const canSubmit = trimmed.length > 0 && !error
@@ -118,8 +162,8 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                     <DialogHeader>
                         {/* Titles and descriptions can hold long file names; let those wrap instead of overflowing.
                             The title's lines need room between them once it wraps; the shared title sets them tight for one line. */}
-                        <DialogTitle className="leading-snug wrap-anywhere">{title}</DialogTitle>
-                        {description && <DialogDescription className="wrap-anywhere">{description}</DialogDescription>}
+                        <DialogTitle className="leading-snug wrap-anywhere">{text?.title}</DialogTitle>
+                        {text && <DialogDescription className="wrap-anywhere">{text.description}</DialogDescription>}
                     </DialogHeader>
                     <form className="contents" onSubmit={handleSubmit}>
                         <DialogPanel>
@@ -139,7 +183,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                         selectOnFocusRef.current = false
                                         selectNameWithoutExtension(e.target, extension)
                                     }}
-                                    placeholder={placeholder}
+                                    placeholder={text?.placeholder}
                                     value={value}
                                 />
                                 {/* Errors and notes quote names too ('A file named "…" already exists here.'), so they wrap the same way. */}
@@ -160,7 +204,7 @@ export function NamePromptProvider({ children }: { children: ReactNode }) {
                                 Cancel
                             </DialogClose>
                             <Button disabled={!canSubmit} type="submit">
-                                {submitLabel}
+                                {text?.submitLabel}
                             </Button>
                         </DialogFooter>
                     </form>

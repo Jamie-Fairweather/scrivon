@@ -196,7 +196,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
                 theme: { id: 'future-theme' },
                 editor: { ...settings.editor, futureOption: true },
                 pdfExport: { ...settings.pdfExport, profiles: [profile] },
-                keybinds: { 'tabs.close': [{ key: 'w', ctrl: true }] },
+                keybinds: { 'future.action': [{ key: 'w', ctrl: true, alt: true }] },
             }
         }
 
@@ -231,7 +231,7 @@ describe('loadSettings and saveSettings with localStorage', () => {
             expect(after.editor.futureOption).toBe(true)
             expect(after.pdfExport?.profiles[0]?.page.size).toBe('a5')
             expect(after.pdfExport?.profiles[0]?.futureField).toBe('kept')
-            expect(after.keybinds['tabs.close']).toEqual([{ key: 'w', ctrl: true }])
+            expect(after.keybinds['future.action']).toEqual([{ key: 'w', ctrl: true, alt: true }])
             expect(after.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
             // The newer version's settings are also kept untouched.
             expect(store.get(`${SETTINGS_NEWER_COPY_KEY_PREFIX}2`)).toBe(text)

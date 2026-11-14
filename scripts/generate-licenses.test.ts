@@ -2,12 +2,14 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parse } from 'yaml'
 import { THIRD_PARTY_PACKAGES } from '@/lib/legal/third-party-licenses'
 import {
     findLicenseFiles,
     readLicenseTexts,
     removeSourceMaps,
     renderLicensesModule,
+    RUST_TARGETS,
     rustCratesFromMetadata,
     spdxIds,
     updateLicensesModule,
@@ -181,6 +183,35 @@ describe('rustCratesFromMetadata', () => {
             'syn 0.9.1, 0.10.0',
         ])
     })
+
+    it('lists the crates any of the targets ships, once each', () => {
+        // What `cargo metadata --filter-platform` gives for each Windows target.
+        const forTarget = (archCrate: ReturnType<typeof crate>) => {
+            const packages = [crate('app', '1.0.0'), crate('tauri', '2.0.0'), crate('windows-targets', '0.53.5'), archCrate]
+            return {
+                packages,
+                resolve: {
+                    root: 'app@1.0.0',
+                    nodes: [
+                        { id: 'app@1.0.0', deps: [{ pkg: 'tauri@2.0.0', dep_kinds: normal }] },
+                        { id: 'tauri@2.0.0', deps: [{ pkg: 'windows-targets@0.53.5', dep_kinds: normal }] },
+                        { id: 'windows-targets@0.53.5', deps: [{ pkg: archCrate.id, dep_kinds: normal }] },
+                    ],
+                },
+            }
+        }
+        const x64 = forTarget(crate('windows_x86_64_msvc', '0.53.1'))
+        const arm64 = forTarget(crate('windows_aarch64_msvc', '0.53.1'))
+
+        const crates = rustCratesFromMetadata(x64, arm64)
+
+        expect(crates.map((c: { name: string; version: string }) => `${c.name} ${c.version}`)).toEqual([
+            'tauri 2.0.0',
+            'windows-targets 0.53.5',
+            'windows_aarch64_msvc 0.53.1',
+            'windows_x86_64_msvc 0.53.1',
+        ])
+    })
 })
 
 describe('generated module', () => {
@@ -295,6 +326,20 @@ describe('shipped licence list', () => {
             expect(byName(name), name).toMatchObject({ ecosystem: 'rust' })
             expect(byName(name)?.licenseText, name).toBeTruthy()
         }
+    })
+
+    it('covers the crates that only the x64 or only the ARM64 app links, since both ship this list', () => {
+        for (const name of ['windows_x86_64_msvc', 'windows_aarch64_msvc']) {
+            expect(byName(name), name).toMatchObject({ ecosystem: 'rust' })
+        }
+    })
+
+    it('lists the crates of every Windows target the installers are built for', () => {
+        const ci = parse(readFileSync(join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8')) as {
+            jobs: Record<string, { strategy?: { matrix?: { include?: { target: string }[] } } }>
+        }
+        const targets = ci.jobs['bundle-windows'].strategy?.matrix?.include?.map((entry) => entry.target)
+        expect(RUST_TARGETS).toEqual(targets)
     })
 
     it('covers the bundled fonts', () => {

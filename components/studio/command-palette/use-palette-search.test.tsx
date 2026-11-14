@@ -58,8 +58,11 @@ const state = vi.hoisted(() => ({
     coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) }, revealInEditor: { current: vi.fn() } },
 }))
 
+vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn(async () => null) }) }))
+
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
+    useActiveTabId: () => state.tabs.activeTabId,
     useDocumentTabs: () => state.tabs,
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
@@ -67,6 +70,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceCoordinator: () => state.coordinator,
 }))
 
+vi.mock('@/components/studio/app-update-provider', () => ({ useAppUpdate: () => ({ checking: false, checkForUpdates: async () => {} }) }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => state.canvasControls,
 }))
@@ -443,12 +447,25 @@ describe('usePaletteSearch commands in the default results', () => {
         ['preview only', 'action:preview-only'],
         ['editor and preview', 'action:layout-editor-preview'],
         ['all panels', 'action:layout-all-panels'],
+        ['focus explorer', 'action:focus-explorer'],
+        ['focus preview', 'action:focus-preview'],
+        ['next pane', 'action:focus-next-pane'],
+        ['previous pane', 'action:focus-previous-pane'],
         ['exit', 'action:exit'],
     ])('finds %s by name', (query, value) => {
         const { result } = renderHook(() => usePaletteSearch('all', true))
 
         act(() => result.current.setQuery(query))
         expect(groupPaths(result.current.groups, 'actions')).toContain(value)
+    })
+
+    it('finds Focus Editor once a file is open', () => {
+        state.tabs.tabs = [{ id: '/ws/notes.md', path: '/ws/notes.md', name: 'notes.md', content: '', isDirty: false }]
+        state.tabs.activeTabId = '/ws/notes.md'
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('focus editor'))
+        expect(groupPaths(result.current.groups, 'actions')).toContain('action:focus-editor')
     })
 
     it('lists commands after matching files while typing', () => {
@@ -763,7 +780,7 @@ describe("usePaletteSearch the editor's commands", () => {
     ])('runs %s in the editor', (query, monacoAction) => {
         const editor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
         function Editor() {
-            useEditorCommands(editor as never, true, false)
+            useEditorCommands(editor as never, { shown: true, readOnly: false, markdown: true })
             return null
         }
         const { result } = renderHookAlone(() => usePaletteSearch('all', true), {

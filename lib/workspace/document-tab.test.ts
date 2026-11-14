@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatFileSize, LARGE_FILE_BYTES, tabFromFile, tabWithRecoveredText } from './document-tab'
+import { anySavedTabs, anyTabsToRight, formatFileSize, LARGE_FILE_BYTES, tabFromFile, tabFromPath, tabWithRecoveredText } from './document-tab'
 
 describe('tabWithRecoveredText', () => {
     const backup = {
@@ -63,5 +63,23 @@ describe('very large files', () => {
         expect(formatFileSize(23.4 * 1024 * 1024)).toBe('23 MB')
         expect(formatFileSize(300)).toBe('1 KB')
         expect(formatFileSize(40 * 1024)).toBe('40 KB')
+    })
+})
+
+describe('tab checks for the close actions', () => {
+    const tabs = [tabFromPath('/ws/a.md', ''), { ...tabFromPath('/ws/b.md', ''), isDirty: true }, tabFromPath('/ws/c.md', '')]
+
+    it('finds tabs to the right of a tab, but not of the last one or one not open', () => {
+        expect(anyTabsToRight(tabs, '/ws/a.md')).toBe(true)
+        expect(anyTabsToRight(tabs, '/ws/b.md')).toBe(true)
+        expect(anyTabsToRight(tabs, '/ws/c.md')).toBe(false)
+        expect(anyTabsToRight(tabs, '/ws/gone.md')).toBe(false)
+        expect(anyTabsToRight(tabs, null)).toBe(false)
+    })
+
+    it('finds a saved tab only when one has no unsaved changes', () => {
+        expect(anySavedTabs(tabs)).toBe(true)
+        expect(anySavedTabs(tabs.map((t) => ({ ...t, isDirty: true })))).toBe(false)
+        expect(anySavedTabs([])).toBe(false)
     })
 })

@@ -33,6 +33,11 @@ function renderSettings() {
     return rendered
 }
 
+/** Hides the editor in the settings. */
+function hideEditor(current: AppSettings): AppSettings {
+    return { ...current, layout: { ...current.layout, editorOpen: false } }
+}
+
 /** Settings are written a moment after the last change. */
 function waitForSave() {
     act(() => {
@@ -68,7 +73,7 @@ describe('SettingsProvider persistence', () => {
 
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         waitForSave()
 
@@ -159,9 +164,12 @@ describe('SettingsProvider persistence', () => {
         expect(refusal).toEqual({ message: expect.stringMatching(/can't be used in shortcuts/) })
 
         act(() => {
-            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true }])
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'b', ctrl: true, shift: true }])
         })
-        expect(refusal).toEqual({ message: 'Ctrl+B is already assigned to Toggle explorer', reassign: [{ key: 'b', ctrl: true }] })
+        expect(refusal).toEqual({
+            message: 'Ctrl+Shift+B is already assigned to Toggle explorer',
+            reassign: [{ key: 'b', ctrl: true, shift: true }],
+        })
 
         act(() => {
             refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'd', ctrl: true }])
@@ -169,6 +177,44 @@ describe('SettingsProvider persistence', () => {
         expect(refusal).toEqual({ message: 'Ctrl+D is used by the editor' })
 
         expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
+    })
+
+    it('lets an app shortcut share keys with a Markdown action, which has them only while typing in the editor', () => {
+        const { result } = renderSettings()
+        let refusal: KeybindRefusal | null = null
+
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleExplorer', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['format.bold']).toEqual([{ key: 'b', ctrl: true }])
+
+        act(() => {
+            refusal = result.current.setKeybindChords('format.italic', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+B is already assigned to Bold', reassign: [{ key: 'b', ctrl: true }] })
+
+        // Ctrl+K starts two-key editor shortcuts: a Markdown action may take it, an app shortcut may not.
+        act(() => {
+            refusal = result.current.setKeybindChords('view.toggleEditor', [{ key: 'k', ctrl: true }])
+        })
+        expect(refusal).toEqual({ message: 'Ctrl+K is used by the editor' })
+        act(() => {
+            result.current.setKeybindChords('format.link', [])
+        })
+        act(() => {
+            refusal = result.current.setKeybindChords('format.code', [{ key: 'k', ctrl: true }])
+        })
+        expect(refusal).toBeNull()
+
+        // Reassigning takes the keys only from the action they clash with.
+        act(() => {
+            refusal = result.current.reassignKeybind('format.italic', [{ key: 'b', ctrl: true }])
+        })
+        expect(refusal).toBeNull()
+        expect(result.current.settings.keybinds['format.italic']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['format.bold']).toEqual([])
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
     })
 
     it('does not reset a shortcut to a default another action now uses', () => {
@@ -204,26 +250,26 @@ describe('SettingsProvider persistence', () => {
         let refusal: KeybindRefusal | null = null
 
         act(() => {
-            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'b', ctrl: true }])
+            refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'b', ctrl: true, shift: true }])
         })
 
         expect(refusal).toBeNull()
-        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([])
         expect(result.current.settings.keybinds['document.save']).toEqual([{ key: 's', ctrl: true }])
-        // Not saved as cleared: it loads without Ctrl+B only while another action has it.
+        // Not saved as cleared: it loads without Ctrl+Shift+B only while another action has it.
         expect(stored().keybinds).not.toHaveProperty('view.toggleExplorer')
 
         act(() => {
             refusal = result.current.reassignKeybind('view.toggleEditor', [{ key: 'c', ctrl: true }])
         })
         expect(refusal).toEqual({ message: 'Ctrl+C is used by the editor' })
-        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleEditor']).toEqual([{ key: 'b', ctrl: true, shift: true }])
 
         act(() => {
             result.current.resetKeybind('view.toggleEditor')
         })
-        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(result.current.settings.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
     })
 
     it('gives a default back once its chord is free, instead of saving it as cleared', () => {
@@ -389,6 +435,19 @@ describe('SettingsProvider persistence', () => {
         expect(settingsWrites).toBe(1)
     })
 
+    it("doesn't write an update that hands back the same settings", () => {
+        const { result } = renderSettings()
+        const before = result.current.settings
+
+        act(() => {
+            result.current.updateSettings((current) => current)
+        })
+        waitForSave()
+
+        expect(settingsWrites).toBe(0)
+        expect(result.current.settings).toBe(before)
+    })
+
     it('writes the first of a burst of changes at once, and the rest once, shortly after the last one', () => {
         const { result } = renderSettings()
 
@@ -524,7 +583,7 @@ describe('SettingsProvider persistence', () => {
         })
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         unmount()
 
@@ -537,12 +596,35 @@ describe('SettingsProvider persistence', () => {
         const first = renderSettings()
         act(() => {
             first.result.current.setLayoutExplorerOpen(false)
-            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.updateSettings(hideEditor)
         })
         first.unmount()
 
         const { result } = renderSettings()
         expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+
+    it('remembers a hidden preview after a restart', () => {
+        const first = renderSettings()
+        act(() => first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, previewOpen: false } })))
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: false })
+    })
+
+    it('starts with the preview shown while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() =>
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, previewOpen: false },
+            }))
+        )
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: true })
     })
 
     it('starts with the explorer and editor shown, and the outline hidden, while Restore panel layout is off', () => {
@@ -553,7 +635,7 @@ describe('SettingsProvider persistence', () => {
                 layout: { ...current.layout, restorePanelsOnOpen: false, outlineOpen: true },
             }))
             first.result.current.setLayoutExplorerOpen(false)
-            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.updateSettings(hideEditor)
             first.result.current.setEditorWidth(600)
         })
         first.unmount()
@@ -562,12 +644,13 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.layout).toEqual({
             explorerOpen: true,
             editorOpen: true,
+            previewOpen: true,
             editorWidth: 600,
             restorePanelsOnOpen: false,
             outlineOpen: false,
         })
         // Hiding a panel still works, and is still saved.
-        act(() => result.current.setLayoutEditorOpen(false))
+        act(() => result.current.updateSettings(hideEditor))
         waitForSave()
         expect(stored().layout.editorOpen).toBe(false)
     })

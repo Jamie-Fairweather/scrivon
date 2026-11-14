@@ -2,9 +2,10 @@
 
 import { useEffect, useRef } from 'react'
 import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
-import { matchKeybind } from '@/lib/settings/match-keybind'
+import { matchKeybinds } from '@/lib/settings/match-keybind'
 import type { KeybindActionId, KeybindBindings } from '@/lib/settings/types'
 
+/** Each returns false to turn the key down, which passes it on to the next action with those keys (or the page). */
 export type KeybindHandlers = Partial<Record<KeybindActionId, () => boolean | void>>
 
 // Base UI marks an open dialog's popup with data-open. Toasts are role="dialog" too but say
@@ -19,7 +20,7 @@ const COMMAND_PALETTE_SELECTOR = '[data-slot="command-dialog-popup"]'
 /**
  * Which modal is open. App shortcuts must not act behind one (Settings, confirmations, prompts),
  * but palette shortcuts still work while only the command palette is open, so F1 can switch it
- * back to all commands.
+ * back to all commands. Zoom works behind any of them (allowInModal).
  */
 function openModal(): 'none' | 'palette' | 'other' {
     if (typeof document === 'undefined') return 'none'
@@ -47,21 +48,22 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.defaultPrevented) return
 
-            const actionId = matchKeybind(event, bindings, { hasWorkspace, inPalette: isInOpenPalette(event.target) })
-            if (!actionId) return
+            const actionIds = matchKeybinds(event, bindings, { hasWorkspace, inPalette: isInOpenPalette(event.target) })
+            if (actionIds.length === 0) return
             // Only now look for open dialogs: that walks the whole page, too much for every key typed in the editor.
             const modal = openModal()
-            if (modal === 'other') return
-            if (modal === 'palette' && !getKeybindActionMeta(actionId)?.allowInPalette) return
 
-            const handler = handlersRef.current[actionId]
-            if (!handler) return
+            for (const actionId of actionIds) {
+                const meta = getKeybindActionMeta(actionId)
+                if (modal === 'other' && !meta?.allowInModal) continue
+                if (modal === 'palette' && !meta?.allowInPalette) continue
+                const handler = handlersRef.current[actionId]
+                if (!handler || handler() === false) continue
 
-            const handled = handler()
-            if (handled === false) return
-
-            event.preventDefault()
-            event.stopPropagation()
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
         }
 
         window.addEventListener('keydown', handleKeyDown, { capture: true })

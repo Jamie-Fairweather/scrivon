@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { chordListsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
-import { describeEditorChordClash, findKeybindConflicts } from '@/lib/settings/conflicts'
+import { describeEditorChordClash, editorActionsSharingKeys, findKeybindConflicts } from '@/lib/settings/conflicts'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { formatChords } from '@/lib/settings/format-keybind'
-import { KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
+import { formatChord, formatChords } from '@/lib/settings/format-keybind'
+import { getKeybindActionMeta, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 import { KeybindCapture, KeybindDisplay } from '@/components/studio/settings/keybind-capture'
 import { useAppSettings, type KeybindRefusal } from '@/components/studio/settings/settings-provider'
@@ -141,7 +141,9 @@ export function KeyboardSettings() {
                     const isDefault = chordListsEqual(chords, defaults[action.id] ?? [])
                     const clashes = sharedWith(action.id)
                     // Saved before editor keys were refused, so it still takes the key from the editor.
-                    const editorClashes = chords.flatMap((chord) => describeEditorChordClash(chord) ?? [])
+                    const editorClashes = chords.flatMap((chord) => describeEditorChordClash(chord, isMacPlatform(), action.id) ?? [])
+                    // Not a clash: the Markdown action has the keys only while typing in the editor.
+                    const takenWhileTyping = editorActionsSharingKeys(settings.keybinds, action.id)
                     const rowError = error?.actionId === action.id ? error : null
 
                     return (
@@ -160,6 +162,11 @@ export function KeyboardSettings() {
                                 {editorClashes.map((clash) => (
                                     <p key={clash} className="text-xs text-warning-foreground">
                                         {clash}. Clear or reset this shortcut to give it back.
+                                    </p>
+                                ))}
+                                {takenWhileTyping.map(({ chord, actionId }) => (
+                                    <p key={`${formatChord(chord)} ${actionId}`} className="text-xs text-muted-foreground">
+                                        While typing in a Markdown file, {formatChord(chord)} runs {getKeybindActionMeta(actionId)?.label} instead.
                                     </p>
                                 ))}
                                 {rowError ? (

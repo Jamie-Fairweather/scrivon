@@ -10,6 +10,7 @@ use tauri_plugin_fs::FsExt;
 use crate::page_numbers::Stamped;
 
 mod export_image_access;
+pub mod preview;
 
 /// Print-engine settings that accompany the export HTML. Mirrors
 /// `PdfPrintOptions` in `lib/settings/pdf-export-types.ts`.
@@ -196,6 +197,8 @@ async fn export_html_to_pdf_impl(
         ),
     )
     .visible(false)
+    // A preview prints while the user types in the export dialog: don't take the keyboard.
+    .focused(false)
     .inner_size(794.0, 1123.0)
     .build()
     .map_err(|e| e.to_string())?;
@@ -219,7 +222,7 @@ async fn export_html_to_pdf_impl(
     .await;
     match readiness {
         PageReadiness::Ready => {}
-        PageReadiness::TimedOut => eprintln!(
+        PageReadiness::TimedOut => log::warn!(
             "PDF export: the page wasn't ready after {READY_TIMEOUT:?}; printing it anyway."
         ),
         // Printing now would replace the chosen file with a blank page.
@@ -394,7 +397,7 @@ fn place_printed_pdf(
     if !numbered {
         if let Err(err) = std::fs::rename(printed, output) {
             let _ = std::fs::remove_file(printed);
-            eprintln!("Could not move the printed PDF into place: {err}");
+            log::error!("Could not move the printed PDF into place: {err}");
             return Err(could_not_save_message(&output.to_string_lossy()));
         }
     }
@@ -544,7 +547,7 @@ pub async fn export_html_to_pdf(
 
 pub(crate) const MAX_EXPORT_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 /// Said for an image over MAX_EXPORT_IMAGE_BYTES. PDF and Word exports both embed these images.
-const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
+pub(crate) const IMAGE_TOO_LARGE: &str = "Image is too large to embed in the export (limit 12 MB).";
 
 /// The image type for an export image path, or `None` for anything else.
 fn mime_from_path(path: &str) -> Option<&'static str> {
@@ -566,7 +569,7 @@ fn mime_from_path(path: &str) -> Option<&'static str> {
 
 /// True when the file's first bytes match its image type, so a renamed text
 /// file (a key, a config file) is never handed back.
-fn content_matches(mime: &str, bytes: &[u8]) -> bool {
+pub(crate) fn content_matches(mime: &str, bytes: &[u8]) -> bool {
     match mime {
         "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
         "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),

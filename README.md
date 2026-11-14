@@ -8,7 +8,7 @@
 
 **Mermaid & markdown on your machine.**
 
-Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.md`, `.mmd` or `.mermaid` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
+Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and Markdown documents. Open a folder on disk, edit `.md`, `.markdown`, `.mmd` or `.mermaid` files with syntax highlighting, and preview diagrams or rendered Markdown live — no account, no cloud workspace required.
 
 <p align="center">
   <img src="preview.png" alt="Scrivon — workspace, Monaco editor, and live diagram or Markdown preview" width="900" />
@@ -19,9 +19,10 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 ### Workspaces & files
 
 - **Folder workspaces** — Open any directory on disk; your files never leave your machine
-- **File explorer** — Create, rename, duplicate, and delete `.md`, `.mmd`, `.mermaid` files and folders from the sidebar
+- **File explorer** — Create, rename, duplicate, and delete `.md`, `.markdown`, `.mmd`, `.mermaid` files and folders from the sidebar
 - **Multi-tab editing** — Work across several documents in one session; tab state is restored per workspace
 - **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
+- **Open from File Explorer** — Double-click a `.md`, `.markdown`, `.mmd` or `.mermaid` file, or use **Open with**, to open it in a tab with its folder. If Scrivon is already open, that window opens it. Paths given on the command line work the same way
 
 ### Mermaid diagrams
 
@@ -36,7 +37,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
-- **PDF and Word export** — Save the rendered document as PDF (native export on Windows via WebView2) or Word (.docx), styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**
+- **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+X**
 
 ### General
 
@@ -46,7 +47,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
 - **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace. Type `:` to go to a line, `@` to jump to a heading, or `?` to see these
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
-- **Auto-updates** — Stable releases can update in-app (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
+- **Auto-updates** — Updates install in-app; **Help → Check for Updates…** looks for one at any time (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 
 > Scrivon is an independent editor. It is not affiliated with Mermaid Chart Inc. or the mermaid-js project.
 
@@ -57,20 +58,38 @@ Pre-built installers are published on **[GitHub Releases](https://github.com/Jam
 | Channel     | Branch | Notes                                                |
 | ----------- | ------ | ---------------------------------------------------- |
 | Stable      | `main` | Recommended for everyday use; in-app updates enabled |
-| Pre-release | `rc`   | Test builds; install manually from Releases          |
+| Pre-release | `rc`   | Test builds; update in-app to the next rc or stable  |
+
+**Requirements:** Windows 10 version 1809 (build 17763) or later, or Windows 11, on an x64 or ARM64 PC. The installer stops on older versions of Windows.
 
 ## Getting started
 
 ### Use a release
 
-1. Download `Scrivon_<version>_x64-setup.exe` from the [latest release](https://github.com/Jamie-Fairweather/scrivon/releases/latest). It installs Scrivon for your Windows user only, so it needs no admin rights.
+1. Download the installer from the [latest release](https://github.com/Jamie-Fairweather/scrivon/releases/latest): `Scrivon_<version>_x64-setup.exe` for most PCs, or `Scrivon_<version>_arm64-setup.exe` for Windows on ARM PCs (such as Snapdragon laptops). It installs Scrivon for your Windows user only, so it needs no admin rights.
+    - Already using the x64 version on an ARM PC? Run the ARM64 installer over it. Your settings and recent folders stay.
     - The installers aren't code-signed yet, so Windows may show **Windows protected your PC** the first time. Click **More info**, then **Run anyway**. On PCs with Smart App Control turned on, Windows may block the installer completely.
     - Scrivon needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it. If it's missing, the installer adds it, which needs an internet connection. On a PC without internet access, or on Windows 10 LTSC or Windows Server, install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) ("Evergreen Standalone Installer") first.
 2. Launch Scrivon and choose **Open Folder**.
-3. Select a folder containing `.md`, `.mmd` or `.mermaid` files.
+3. Select a folder containing `.md`, `.markdown`, `.mmd` or `.mermaid` files.
 4. Edit in the center pane; the preview updates as you type.
     - **Diagram files** — Preview renders on the canvas.
     - **Markdown files** — Preview shows rendered Markdown; use **Expand** on a `mermaid` block to open it on the canvas.
+
+### Where Scrivon keeps its data
+
+Your documents stay where you save them. Scrivon keeps its own data in your Windows user folders:
+
+| What                                                                   | Where                                                                                                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| The program                                                            | `%LOCALAPPDATA%\Scrivon`, unless you chose another folder when installing                                                      |
+| Recent folders, open tabs, window size, and unsaved edits kept for you | `%APPDATA%\io.github.jamie-fairweather.scrivon`                                                                                |
+| Settings (theme, shortcuts, export profiles)                           | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\EBWebView`, with a copy in `settings.json` in the `%APPDATA%` folder above |
+| Log (`scrivon.log`) and crash log                                      | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                                                                      |
+| Data from before version 1.4.1                                         | `com.diagram.app` in `%APPDATA%` and `%LOCALAPPDATA%` (copied across once, then left)                                          |
+| Downloaded updates                                                     | `%TEMP%\Scrivon-<version>-updater-…`, removed the next time Scrivon starts                                                     |
+
+To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings and logs, and the old `com.diagram.app` folders. Your documents are never touched.
 
 ### Build from source
 
@@ -137,4 +156,4 @@ Scrivon is released under the [MIT License](LICENSE). Third-party dependencies a
 
 - [Releases](https://github.com/Jamie-Fairweather/scrivon/releases)
 - [Development & releases guide](docs/development.md)
-- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues)
+- [Report an issue](https://github.com/Jamie-Fairweather/scrivon/issues), or use **Help → Report an Issue** in the app, which fills in your app, Windows and WebView2 versions. **Help → Open Logs Folder** shows the log files to attach. They can show file and folder names, so check them first.

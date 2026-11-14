@@ -14,10 +14,10 @@ import {
     type SetStateAction,
 } from 'react'
 import { APP_EXAMPLE_BY_ID } from '@/lib/examples/app-samples'
-import { exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
+import { exampleIdFromTabId, exampleTabId, isExampleTabId, tabFromExample } from '@/lib/examples/example-tab'
 import { dismissNotification, notifyError, notifyWarning } from '@/lib/notify'
 import { settleUnsavedBackups } from '@/lib/tauri/backups'
-import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmRevert, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import {
     getBaseName,
     getWorkspaceFileSize,
@@ -50,6 +50,18 @@ type DocumentTabsContextValue = {
     closeTab: (id: string) => Promise<void>
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
+    /** Closes the tabs after this one. */
+    closeTabsToRight: (id: string) => Promise<void>
+    /** Closes the tabs with no unsaved changes. */
+    closeSavedTabs: () => Promise<void>
+    /** Opens again the tab closed last that isn't open now. */
+    reopenClosedTab: () => Promise<void>
+    /** Puts the file's saved version back in its tab, asking first when that drops unsaved changes. Not for examples. */
+    revertTab: (id: string) => Promise<void>
+    /** True when there is a closed tab to reopen. */
+    canReopenClosedTab: boolean
+    /** Shows the next tab (1) or the one before (-1), going round from the last to the first. */
+    switchTab: (step: 1 | -1) => Promise<void>
     /**
      * Lets the user edit a tab that opened read-only for a reason they may accept: a file that isn't UTF-8
      * (saved as UTF-8 from then on) or a very large one. Does nothing for a file that looks binary.
@@ -60,7 +72,19 @@ type DocumentTabsContextValue = {
 /** What can be done with the tabs. These functions stay the same while the user types. */
 export type DocumentTabActions = Pick<
     DocumentTabsContextValue,
-    'openFile' | 'openExample' | 'setActiveTab' | 'updateTabContent' | 'closeTab' | 'closeOtherTabs' | 'closeAllTabs' | 'makeTabEditable'
+    | 'openFile'
+    | 'openExample'
+    | 'setActiveTab'
+    | 'updateTabContent'
+    | 'closeTab'
+    | 'closeOtherTabs'
+    | 'closeAllTabs'
+    | 'closeTabsToRight'
+    | 'closeSavedTabs'
+    | 'reopenClosedTab'
+    | 'revertTab'
+    | 'switchTab'
+    | 'makeTabEditable'
 >
 
 /** Why a tab opened read-only, and the label of the button that lets the user edit it anyway, if there is one. */
@@ -101,6 +125,9 @@ const DocumentTabsContext = createContext<DocumentTabsContextValue | null>(null)
 const DocumentTabActionsContext = createContext<DocumentTabActions | null>(null)
 /** `undefined` only outside the provider; no tab open is `null`. */
 const ActiveTabIdContext = createContext<string | null | undefined>(undefined)
+
+/** How many closed tabs Reopen Closed Tab remembers. */
+const MAX_CLOSED_TABS = 20
 
 /** How long closing waits for a save before asking the user (e.g. an offline network drive). */
 const SAVE_BEFORE_CLOSE_TIMEOUT_MS = 10_000
@@ -171,6 +198,19 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     }, [activeTabId])
 
     const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId])
+
+    // Tabs the user closed, the last closed at the end, for Reopen Closed Tab. Only for the folder open now.
+    const [closedTabIds, setClosedTabIds] = useState<readonly string[]>([])
+    const closedTabIdsRef = useRef(closedTabIds)
+    const setClosedTabs = useCallback((next: readonly string[]) => {
+        closedTabIdsRef.current = next
+        setClosedTabIds(next)
+    }, [])
+    const rememberClosedTabs = useCallback(
+        (ids: readonly string[]) => setClosedTabs([...closedTabIdsRef.current.filter((id) => !ids.includes(id)), ...ids].slice(-MAX_CLOSED_TABS)),
+        [setClosedTabs]
+    )
+    const canReopenClosedTab = useMemo(() => closedTabIds.some((id) => !tabs.some((t) => t.id === id)), [closedTabIds, tabs])
 
     const persistTabSession = useCallback(
         async (snapshot?: { tabs: DocumentTab[]; activeTabId: string | null }) => {
@@ -335,6 +375,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     activeTabIdRef.current = nextActiveId
                     setActiveTabId(nextActiveId)
                 }
+                setClosedTabs(closedTabIdsRef.current.map((id) => remapPathAfterRename(id, oldPath, newPath)))
                 coordinator.tabsMoved.current(
                     prevTabs.flatMap((t, i) => (t.isDirty && t.id !== nextTabs[i]!.id ? [{ from: t.id, to: nextTabs[i]!.id }] : []))
                 )
@@ -347,6 +388,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
             closeTabsForDelete: (path, isDirectory) => {
                 const toClose = tabsToCloseOnDelete(tabsRef.current, path, isDirectory)
+                // A deleted file can't be reopened.
+                setClosedTabs(closedTabIdsRef.current.filter((id) => !samePath(id, path) && !(isDirectory && isPathInside(id, path))))
                 releaseTabs(toClose)
                 const closingIds = new Set(toClose.map((t) => t.id))
                 const nextTabs = tabsRef.current.filter((t) => !closingIds.has(t.id))
@@ -366,6 +409,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 tabsGeneration.current += 1
                 pendingOpens.current.clear()
                 lastRequestedRef.current = null
+                setClosedTabs([])
                 // The refs change straight away, so anything that runs before React re-renders sees no tabs.
                 tabsRef.current = []
                 activeTabIdRef.current = null
@@ -446,7 +490,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 )
             },
         })
-    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab])
+    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab, setClosedTabs])
 
     const openFile = useCallback(
         async (requestedPath: string) => {
@@ -567,6 +611,18 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [coordinator, persistTabSession, recordRecentFile, setActiveTabId, tabsRef]
     )
 
+    const switchTab = useCallback(
+        async (step: 1 | -1) => {
+            const open = tabsRef.current
+            if (open.length === 0) return
+            const index = open.findIndex((t) => t.id === activeTabIdRef.current)
+            // With no tab shown, the next is the first and the previous the last.
+            const next = index === -1 ? (step === 1 ? 0 : open.length - 1) : (index + step + open.length) % open.length
+            await setActiveTab(open[next]!.id)
+        },
+        [setActiveTab, tabsRef]
+    )
+
     const updateTabContent = useCallback(
         (id: string, content: string) => {
             const tab = tabsRef.current.find((t) => t.id === id)
@@ -685,64 +741,144 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         registerCoordinatorRefs(coordinator, { confirmCloseTabs })
     }, [coordinator, confirmCloseTabs])
 
-    const closeTab = useCallback(
-        async (id: string) => {
-            if (!(await confirmCloseTabs([id]))) return
-            releaseTabs(tabsRef.current.filter((t) => t.id === id))
+    /**
+     * Closes the tabs given, once their edits are saved or the user lets them go. When the tab on screen is
+     * one of them, `show` takes its place, or else the nearest tab left open (the next one, then the one before).
+     */
+    const closeTabsById = useCallback(
+        async (ids: readonly string[], show?: string) => {
+            if (ids.length === 0 || !(await confirmCloseTabs(ids))) return
+            const closing = new Set(ids)
             const prev = tabsRef.current
-            const nextTabs = prev.filter((t) => t.id !== id)
+            releaseTabs(prev.filter((t) => closing.has(t.id)))
+            const nextTabs = prev.filter((t) => !closing.has(t.id))
             let nextActiveId = activeTabIdRef.current
-            if (activeTabIdRef.current === id) {
-                const closedIndex = prev.findIndex((t) => t.id === id)
-                const fallback = nextTabs[Math.min(closedIndex, nextTabs.length - 1)]
-                nextActiveId = fallback?.id ?? null
+            if (nextActiveId !== null && closing.has(nextActiveId)) {
+                const shownIndex = prev.findIndex((t) => t.id === nextActiveId)
+                const after = prev.slice(shownIndex + 1).find((t) => !closing.has(t.id))
+                const before = prev.slice(0, Math.max(shownIndex, 0)).findLast((t) => !closing.has(t.id))
+                nextActiveId = show !== undefined && nextTabs.some((t) => t.id === show) ? show : ((after ?? before)?.id ?? null)
                 activeTabIdRef.current = nextActiveId
                 setActiveTabId(nextActiveId)
             }
+            rememberClosedTabs(prev.filter((t) => closing.has(t.id)).map((t) => t.id))
             // The ref changes straight away and the state with an update, so a change queued for another tab is kept.
             tabsRef.current = nextTabs
-            setTabs((current) => current.filter((t) => t.id !== id))
+            setTabs((current) => current.filter((t) => !closing.has(t.id)))
             void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
         },
-        [confirmCloseTabs, releaseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
+        [confirmCloseTabs, releaseTabs, rememberClosedTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
     )
 
+    const closeTab = useCallback((id: string) => closeTabsById([id]), [closeTabsById])
+
     const closeOtherTabs = useCallback(
-        async (keepId: string) => {
-            const idsToClose = tabsRef.current.filter((t) => t.id !== keepId).map((t) => t.id)
-            if (!(await confirmCloseTabs(idsToClose))) return
-            const closing = new Set(idsToClose)
-            releaseTabs(tabsRef.current.filter((t) => closing.has(t.id)))
-            const nextTabs = tabsRef.current.filter((t) => !closing.has(t.id))
-            tabsRef.current = nextTabs
-            setTabs((current) => current.filter((t) => !closing.has(t.id)))
-            activeTabIdRef.current = keepId
-            setActiveTabId(keepId)
-            await persistTabSession({ tabs: nextTabs, activeTabId: keepId })
-        },
-        [confirmCloseTabs, releaseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
+        (keepId: string) =>
+            closeTabsById(
+                tabsRef.current.filter((t) => t.id !== keepId).map((t) => t.id),
+                keepId
+            ),
+        [closeTabsById, tabsRef]
     )
+
+    const closeTabsToRight = useCallback(
+        (id: string) => {
+            const index = tabsRef.current.findIndex((t) => t.id === id)
+            if (index === -1) return Promise.resolve()
+            return closeTabsById(
+                tabsRef.current.slice(index + 1).map((t) => t.id),
+                id
+            )
+        },
+        [closeTabsById, tabsRef]
+    )
+
+    const closeSavedTabs = useCallback(() => closeTabsById(tabsRef.current.filter((t) => !t.isDirty).map((t) => t.id)), [closeTabsById, tabsRef])
 
     const closeAllTabs = useCallback(async () => {
         if (!(await confirmCloseTabs())) return
         releaseTabs(tabsRef.current)
+        rememberClosedTabs(tabsRef.current.map((t) => t.id))
         tabsRef.current = []
         activeTabIdRef.current = null
         setTabs([])
         setActiveTabId(null)
         await persistTabSession({ tabs: [], activeTabId: null })
-    }, [confirmCloseTabs, releaseTabs, persistTabSession, setTabs, setActiveTabId, tabsRef])
+    }, [confirmCloseTabs, releaseTabs, rememberClosedTabs, persistTabSession, setTabs, setActiveTabId, tabsRef])
+
+    const reopenClosedTab = useCallback(async () => {
+        const closed = [...closedTabIdsRef.current]
+        let id = closed.pop()
+        // One the user has opened again since is skipped.
+        while (id !== undefined && tabsRef.current.some((t) => t.id === id)) id = closed.pop()
+        setClosedTabs(closed)
+        if (id === undefined) return
+        const exampleId = exampleIdFromTabId(id)
+        if (exampleId !== null) openExample(exampleId)
+        else await openFile(id)
+    }, [openExample, openFile, setClosedTabs, tabsRef])
+
+    const revertTab = useCallback(
+        async (id: string) => {
+            const tab = tabsRef.current.find((t) => t.id === id)
+            if (!tab || isExampleTabId(id)) return
+            // Autosave waits while the user decides, so it can't write the edits they are about to drop. A save
+            // already running finishes first: if it saved them, there is nothing to ask about.
+            const release = await coordinator.holdSaves.current(tab.path, false)
+            try {
+                const now = tabsRef.current.find((t) => t.id === id)
+                if (!now || (now.isDirty && !(await confirmRevert(now.name)))) return
+                await reloadTab(id, false)
+            } catch (err) {
+                notifyError(`Couldn't revert ${tab.name}`, err)
+            } finally {
+                release((held) => (tabsRef.current.some((t) => t.id === held) ? held : null))
+            }
+        },
+        [coordinator, reloadTab, tabsRef]
+    )
 
     useEffect(() => {
         registerCoordinatorRefs(coordinator, { openFile })
     }, [coordinator, openFile])
 
     const actions = useMemo<DocumentTabActions>(
-        () => ({ openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs, makeTabEditable }),
-        [openFile, openExample, setActiveTab, updateTabContent, closeTab, closeOtherTabs, closeAllTabs, makeTabEditable]
+        () => ({
+            openFile,
+            openExample,
+            setActiveTab,
+            updateTabContent,
+            closeTab,
+            closeOtherTabs,
+            closeAllTabs,
+            closeTabsToRight,
+            closeSavedTabs,
+            reopenClosedTab,
+            revertTab,
+            switchTab,
+            makeTabEditable,
+        }),
+        [
+            openFile,
+            openExample,
+            setActiveTab,
+            updateTabContent,
+            closeTab,
+            closeOtherTabs,
+            closeAllTabs,
+            closeTabsToRight,
+            closeSavedTabs,
+            reopenClosedTab,
+            revertTab,
+            switchTab,
+            makeTabEditable,
+        ]
     )
 
-    const value = useMemo(() => ({ ...actions, tabs, activeTabId, activeTab }), [actions, tabs, activeTabId, activeTab])
+    const value = useMemo(
+        () => ({ ...actions, tabs, activeTabId, activeTab, canReopenClosedTab }),
+        [actions, tabs, activeTabId, activeTab, canReopenClosedTab]
+    )
 
     // Split up so a part of the screen that only opens files or marks the open one, such as each row of the
     // file tree, isn't drawn again for every character typed.

@@ -17,16 +17,41 @@ export type KeybindChord = {
 
 export type KeybindActionId =
     | 'document.save'
+    | 'document.export'
     | 'settings.open'
     | 'palette.open'
     | 'palette.openText'
     | 'palette.openFiles'
     | 'view.toggleExplorer'
     | 'view.toggleEditor'
+    | 'view.togglePreview'
     | 'view.previewOnly'
     | 'view.fitDiagram'
+    | 'view.appZoomIn'
+    | 'view.appZoomOut'
+    | 'view.appZoomReset'
+    | 'view.zoomDiagramIn'
+    | 'view.zoomDiagramOut'
+    | 'view.resetDiagramZoom'
+    | 'view.focusExplorer'
+    | 'view.focusEditor'
+    | 'view.focusPreview'
+    | 'view.focusNextPane'
+    | 'view.focusPreviousPane'
     | 'workspace.saveAll'
+    | 'workspace.newDiagram'
+    | 'workspace.newDocument'
+    | 'workspace.newFolder'
+    | 'tabs.close'
+    | 'tabs.next'
+    | 'tabs.previous'
+    | 'tabs.reopenClosed'
+    | 'format.bold'
+    | 'format.italic'
+    | 'format.code'
+    | 'format.link'
 
+/** Where an action's keys work: anywhere, with a folder open, or while typing in the editor (where they come first). */
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
 /** 'system' follows the Windows light/dark setting. */
@@ -49,9 +74,17 @@ export type AppSettings = {
         delayMs: number
     }
     theme: ThemeSetting
+    appearance: {
+        /** The whole app's zoom, one of APP_ZOOM_LEVELS: 1 is 100%. */
+        zoom: number
+        /** The Markdown preview's body text size in pixels. Headings, code and spacing grow with it. */
+        previewFontSize: number
+    }
     layout: {
         explorerOpen: boolean
         editorOpen: boolean
+        /** The Markdown preview or the diagram. Never hidden while the editor is hidden too. */
+        previewOpen: boolean
         editorWidth: number
         restorePanelsOnOpen: boolean
         /** The Outline panel, which lists the headings of the Markdown file on screen. */

@@ -7,7 +7,7 @@ import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/def
 import { describeDisallowedChord, describeEditorChordClash, wouldChordConflict } from '@/lib/settings/conflicts'
 import { chordsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
-import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { canShareKeys, getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { keybindOverrides, keybindsFromOverrides } from '@/lib/settings/migrate'
 import { loadSettingsWithRecovery, saveSettings, type SettingsRecovery } from '@/lib/settings/storage'
 import type { AppSettings, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
@@ -62,7 +62,6 @@ type AppSettingsContextValue = {
     setAutosaveEnabled: (enabled: boolean) => void
     setAutosaveDelayMs: (delayMs: number) => void
     setLayoutExplorerOpen: (open: boolean) => void
-    setLayoutEditorOpen: (open: boolean) => void
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
     setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
@@ -87,10 +86,10 @@ const RECOVERY_NOTICES: Record<Exclude<SettingsRecovery, null>, string> = {
     reset: 'Most settings were reset to their defaults. Your theme and layout were kept.',
 }
 
-/** Why one of these chords can't be an app shortcut at all, whatever else uses it. */
-function describeUnusableChords(chords: KeybindChord[]): string | null {
+/** Why one of these chords can't be this action's shortcut at all, whatever else uses it. */
+function describeUnusableChords(actionId: KeybindActionId, chords: KeybindChord[]): string | null {
     for (const chord of chords) {
-        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord)
+        const problem = describeDisallowedChord(chord) ?? describeEditorChordClash(chord, isMacPlatform(), actionId)
         if (problem) return problem
     }
     return null
@@ -103,11 +102,11 @@ function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
-/** With Restore panel layout off, every start shows the panels as on a first launch: explorer and editor, no outline. */
+/** With Restore panel layout off, every start shows the panels as on a first launch: explorer, editor and preview, no outline. */
 function withStartupLayout(settings: AppSettings): AppSettings {
     if (settings.layout.restorePanelsOnOpen) return settings
-    const { explorerOpen, editorOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
-    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, outlineOpen } }
+    const { explorerOpen, editorOpen, previewOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
+    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, previewOpen, outlineOpen } }
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -170,7 +169,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const updateSettings = useCallback(
         (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
             const current = settingsRef.current
-            persist(typeof patch === 'function' ? patch(current) : { ...current, ...patch })
+            const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
+            // An update that hands back the same settings (zoom already at 200%) has nothing to save.
+            if (next !== current) persist(next)
         },
         [persist]
     )
@@ -252,13 +253,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         [updateSettings]
     )
 
-    const setLayoutEditorOpen = useCallback(
-        (open: boolean) => {
-            updateSettings((current) => ({ ...current, layout: { ...current.layout, editorOpen: open } }))
-        },
-        [updateSettings]
-    )
-
     const setEditorWidth = useCallback(
         (width: number) => {
             updateSettings((current) => ({
@@ -293,7 +287,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
     const setKeybindChords = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
-            const unusable = describeUnusableChords(chords)
+            const unusable = describeUnusableChords(actionId, chords)
             if (unusable) return { message: unusable }
 
             for (const chord of chords) {
@@ -328,13 +322,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
     const reassignKeybind = useCallback(
         (actionId: KeybindActionId, chords: KeybindChord[]): KeybindRefusal | null => {
-            const unusable = describeUnusableChords(chords)
+            const unusable = describeUnusableChords(actionId, chords)
             if (unusable) return { message: unusable }
 
             // Actions on their default lose the chord while it's taken; changed ones lose it for good.
+            // An action that may share keys with this one keeps them.
             changeKeybinds((overrides) => {
                 const next = { ...overrides }
                 for (const id of Object.keys(next) as KeybindActionId[]) {
+                    if (canShareKeys(id, actionId)) continue
                     next[id] = next[id]?.filter((existing) => !chords.some((chord) => chordsEqual(existing, chord)))
                 }
                 next[actionId] = chords
@@ -377,7 +373,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,
@@ -401,7 +396,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,
