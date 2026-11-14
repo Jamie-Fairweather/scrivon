@@ -1,7 +1,7 @@
 'use client'
 
 import type { Monaco } from '@monaco-editor/react'
-import type { IDisposable, editor } from 'monaco-editor'
+import type { IDisposable, IPosition, editor } from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { attachSpellcheck, type SpellcheckConfig, type SpellcheckSession } from '@/lib/monaco/spellcheck'
@@ -12,8 +12,8 @@ import type { DocumentTab } from '@/lib/workspace/types'
 
 /**
  * Spell checks the Markdown file the editor shows, when it can be edited and spelling is on in Settings.
- * Returns the function that hooks it up to the editor once Monaco has made it; dispose what it returns
- * with the editor.
+ * `attach` hooks it up to the editor once Monaco has made it; dispose what it returns with the editor.
+ * `misspeltWordAt` finds the underlined word at a place in the file, for the right-click menu.
  */
 export function useEditorSpellcheck(activeTab: DocumentTab | null, modelUri: string | undefined) {
     const { settings, updateSettings } = useAppSettings()
@@ -44,7 +44,7 @@ export function useEditorSpellcheck(activeTab: DocumentTab | null, modelUri: str
         addWordRef.current = addWord
     }, [addWord])
 
-    return useCallback((editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco): IDisposable => {
+    const attach = useCallback((editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco): IDisposable => {
         const session = attachSpellcheck(
             editorInstance,
             monaco,
@@ -59,4 +59,8 @@ export function useEditorSpellcheck(activeTab: DocumentTab | null, modelUri: str
             },
         }
     }, [])
+
+    const misspeltWordAt = useCallback((position: IPosition) => sessionRef.current?.misspeltWordAt(position) ?? null, [])
+
+    return useMemo(() => ({ attach, misspeltWordAt }), [attach, misspeltWordAt])
 }

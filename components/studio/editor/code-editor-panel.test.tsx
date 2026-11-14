@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
@@ -109,10 +109,33 @@ class FakeEditor {
     private readonly blurTextListeners = new Set<Listener>()
     constructor(
         public model: FakeModel | null,
-        options: Record<string, unknown>
+        options: Record<string, unknown>,
+        /** The element @monaco-editor/react made the editor in. */
+        readonly container: HTMLElement
     ) {
         this.options = { ...options }
         model?.listeners.add(this.fire)
+    }
+    getContainerDomNode() {
+        return this.container
+    }
+    getDomNode() {
+        return this.container
+    }
+    /** Every point is in the text: line 1, ten pixels a letter (6 is Monaco's MouseTargetType for text). */
+    getTargetAtClientPoint(x: number) {
+        return { type: 6, position: { lineNumber: 1, column: 1 + Math.floor(x / 10) } }
+    }
+    setPosition(position: { lineNumber: number; column: number }) {
+        this.setSelection({
+            startLineNumber: position.lineNumber,
+            startColumn: position.column,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+        })
+    }
+    onKeyDown() {
+        return { dispose: () => {} }
     }
     private fire = () => this.contentListeners.forEach((l) => l())
     /** True once @monaco-editor/react has hooked up onChange, which happens a render after create. */
@@ -182,8 +205,10 @@ class FakeEditor {
         return { ...range, isEmpty: () => range.startLineNumber === range.endLineNumber && range.startColumn === range.endColumn }
     }
     getSelections() {
-        const selection = this.getSelection()
-        return selection ? [selection] : [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1, isEmpty: () => true }]
+        const range = this.selection ?? { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }
+        const containsPosition = (p: { lineNumber: number; column: number }) =>
+            p.lineNumber === range.startLineNumber && range.startColumn <= p.column && p.column <= range.endColumn
+        return [{ ...range, isEmpty: () => range.startLineNumber === range.endLineNumber && range.startColumn === range.endColumn, containsPosition }]
     }
     getPosition() {
         return this.selection ? { lineNumber: this.selection.endLineNumber, column: this.selection.endColumn } : { lineNumber: 1, column: 1 }
@@ -231,8 +256,8 @@ const fakeMonaco = {
         EndOfLinePreference: EOL_PREFERENCE,
         EndOfLineSequence: EOL_SEQUENCE,
         EditorOption: { readOnly: 0 },
-        create: (_container: HTMLElement, options: { model: FakeModel } & Record<string, unknown>) => {
-            const editor = new FakeEditor(options.model, options)
+        create: (container: HTMLElement, options: { model: FakeModel } & Record<string, unknown>) => {
+            const editor = new FakeEditor(options.model, options, container)
             editors.push(editor)
             return editor
         },
@@ -251,9 +276,6 @@ const fakeMonaco = {
         },
         onDidChangeMarkers: () => ({ dispose: () => {} }),
         remeasureFonts: vi.fn(),
-        /** Monaco's shared command registry; each call returns its own disposable, to check the panel lets go. */
-        registerCommand: vi.fn<(id: string, handler: (accessor: unknown) => void) => { dispose: () => void }>(() => ({ dispose: vi.fn() })),
-        addKeybindingRule: () => ({ dispose: () => {} }),
     },
 }
 
@@ -363,17 +385,29 @@ let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: editorSettings, keybinds: createDefaultKeybinds(false) } }),
 }))
-const palette = { open: vi.fn(), provided: true }
-/** The spell check, hooked up to each editor made (use-editor-spellcheck.test.tsx tests it). */
-const spellcheck = { attached: [] as unknown[], dispose: vi.fn() }
-vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
-    useEditorSpellcheck: () => (editor: unknown) => {
-        spellcheck.attached.push(editor)
-        return { dispose: spellcheck.dispose }
+/**
+ * The spell check, hooked up to each editor made (use-editor-spellcheck.test.tsx tests it). The word in
+ * columns 1 to 4 is misspelt, with the suggestions given here.
+ */
+const spellcheck = {
+    attached: [] as unknown[],
+    dispose: vi.fn(),
+    replaced: [] as string[],
+    misspelt: {
+        word: 'helo',
+        suggestions: async () => ['hello', 'help'],
+        replaceWith: (suggestion: string) => spellcheck.replaced.push(suggestion),
+        addToDictionary: () => {},
     },
-}))
-vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
-    useOptionalCommandPalette: () => (palette.provided ? { open: palette.open } : null),
+}
+vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
+    useEditorSpellcheck: () => ({
+        attach: (editor: unknown) => {
+            spellcheck.attached.push(editor)
+            return { dispose: spellcheck.dispose }
+        },
+        misspeltWordAt: (position: { column: number }) => (position.column <= 4 ? spellcheck.misspelt : null),
+    }),
 }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
@@ -416,14 +450,12 @@ beforeEach(() => {
     tabsState = { tabs: [], activeTabId: null }
     tabFocus.mode = false
     tabFocus.setTabFocusMode.mockClear()
-    fakeMonaco.editor.registerCommand.mockClear()
-    palette.open = vi.fn()
-    palette.provided = true
     session.workspaceRoot = '/w'
     editorImages.attach.mockClear()
     editorImages.dispose.mockClear()
     spellcheck.attached.length = 0
     spellcheck.dispose.mockClear()
+    spellcheck.replaced.length = 0
     vi.mocked(markdownEditing.formatMarkdown).mockClear()
     vi.mocked(markdownEditing.bindMarkdownListEnter).mockClear()
 })
@@ -715,48 +747,47 @@ describe('CodeEditorPanel read-only reason', () => {
     })
 })
 
-describe('CodeEditorPanel right-click Command Palette', () => {
-    /** What the editor's right-click 'Command Palette' runs: the newest command registered under Monaco's id. */
-    function quickCommand() {
-        const { calls, results } = fakeMonaco.editor.registerCommand.mock
-        expect(calls.at(-1)?.[0]).toBe('editor.action.quickCommand')
-        return { run: calls.at(-1)![1], registration: results.at(-1)!.value as { dispose: () => void } }
+describe('CodeEditorPanel right-click menu', () => {
+    async function rightClick(x: number) {
+        render(
+            <CommandRegistryProvider>
+                <Panel />
+            </CommandRegistryProvider>
+        )
+        await waitFor(() => expect(editors[0]?.listening).toBe(true))
+        fireEvent.contextMenu(editors[0]!.container, { clientX: x, clientY: 5 })
+        const menu = await screen.findByRole('menu')
+        return [...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)
     }
 
-    it("opens the app's palette instead of Monaco's own command list", async () => {
-        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
-        const { view } = await mountEditor()
-        const first = palette.open
-
-        quickCommand().run(undefined)
-        expect(first).toHaveBeenCalledTimes(1)
-
-        // A newer open function from the provider is the one used, without setting the editor up again.
-        palette.open = vi.fn()
-        view.rerender(<Panel />)
-        quickCommand().run(undefined)
-        expect(palette.open).toHaveBeenCalledTimes(1)
-        expect(first).toHaveBeenCalledTimes(1)
-        expect(fakeMonaco.editor.registerCommand).toHaveBeenCalledTimes(1)
-    })
-
-    it('still shows the editor with no palette above it, and then the entry does nothing', async () => {
-        palette.provided = false
-        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
-        await mountEditor()
-
-        expect(() => quickCommand().run(undefined)).not.toThrow()
-        expect(palette.open).not.toHaveBeenCalled()
-    })
-
-    it('gives the command back to Monaco when the editor is thrown away', async () => {
-        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+    it("turns Monaco's own menu off", async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'helo world')], activeTabId: '/w/a.md' }
         const { editor } = await mountEditor()
-        const { registration } = quickCommand()
-        expect(registration.dispose).not.toHaveBeenCalled()
+        expect(editor.options.contextmenu).toBe(false)
+    })
 
-        act(() => editor.dispose())
-        expect(registration.dispose).toHaveBeenCalled()
+    it('opens the app’s menu, with the spell check’s suggestions for the word clicked first', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'helo world')], activeTabId: '/w/a.md' }
+        await rightClick(15)
+        await waitFor(() =>
+            expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+                'hello',
+                'help',
+                'Add to Dictionary',
+                'CutCtrl+X',
+                'CopyCtrl+C',
+                'PasteCtrl+V',
+                'Change All OccurrencesCtrl+F2',
+            ])
+        )
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'hello' }))
+        expect(spellcheck.replaced).toEqual(['hello'])
+    })
+
+    it('has no spelling rows on a word spelt right, and leaves out what a read-only file can’t do', async () => {
+        tabsState = { tabs: [{ ...tab('/w/a.md', 'helo world'), readOnly: true }], activeTabId: '/w/a.md' }
+        expect(await rightClick(85)).toEqual(['CopyCtrl+C'])
     })
 })
 

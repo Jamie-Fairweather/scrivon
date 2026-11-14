@@ -9,13 +9,12 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { MONACO_DIAGRAM_THEME_ID, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
 import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
-import { bindEditorCommandPaletteToApp } from '@/lib/monaco/editor-keybindings'
+import { leaveF1ToAppKeybinds } from '@/lib/monaco/editor-keybindings'
 import { bindMarkdownListEnter } from '@/lib/monaco/markdown-editing'
 import { WORD_SEGMENTER_LOCALES } from '@/lib/markdown/inline-format'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
 import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
@@ -24,6 +23,7 @@ import { attachEditorImages, imageDocumentFor } from '@/components/studio/editor
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
+import { EditorContextMenu } from '@/components/studio/editor/editor-context-menu'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -102,6 +102,9 @@ const BASE_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     // Monaco 0.56 made a double-click next to a bracket or quote select what's inside it. In Markdown
     // that catches links, (asides) and "quotes", so double-click keeps selecting the word, as it always did.
     doubleClickSelectsBlock: false,
+    // The app draws the right-click menu itself (editor-context-menu.tsx), like its other menus, with the
+    // spelling suggestions in it.
+    contextmenu: false,
     // These languages don't put spaces between words, so without this double-click and Ctrl+Left/Right
     // take a whole sentence at a time.
     wordSegmenterLocales: WORD_SEGMENTER_LOCALES,
@@ -172,13 +175,6 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
     const coordinator = useWorkspaceCoordinator()
     const { workspaceRoot } = useWorkspaceSession()
-    // The panel also works on its own (without a palette above it, the right-click entry does nothing).
-    const openPalette = useOptionalCommandPalette()?.open
-    // Read through a ref, so the editor's right-click 'Command Palette' never holds an old one and onMonacoMount stays stable.
-    const openPaletteRef = useRef(openPalette)
-    useEffect(() => {
-        openPaletteRef.current = openPalette
-    }, [openPalette])
     const resizeDragRef = useRef<{ pointerId: number; startX: number; startWidth: number; available: number; width: number } | null>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const [rowWidth, setRowWidth] = useState(0)
@@ -422,7 +418,7 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
-    const attachEditorSpellcheck = useEditorSpellcheck(activeTab, editorPath)
+    const { attach: attachEditorSpellcheck, misspeltWordAt } = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
     useEditorCommands(editorPath ? mountedEditor : null, { shown: open, readOnly: isReadOnly, markdown: isMarkdownTab(activeTab) })
@@ -626,8 +622,7 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 ?.load(`16px ${fontFamily}`)
                 .then(() => monaco.editor.remeasureFonts())
                 .catch(() => {})
-            const paletteBinding = bindEditorCommandPaletteToApp(editor, monaco, () => openPaletteRef.current?.())
-            editor.onDidDispose(() => paletteBinding.dispose())
+            leaveF1ToAppKeybinds(editor, monaco)
             // A picture pasted or dropped into a Markdown file is saved next to it, with a link at the cursor.
             const images = attachEditorImages(editor, () => imageDocumentFor(activeTabRef.current, workspaceRootRef.current))
             editor.onDidDispose(() => images.dispose())
@@ -684,6 +679,7 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             inert={!open}
         >
             <ReadOnlyReasonBar />
+            <EditorContextMenu editor={editorPath ? mountedEditor : null} readOnly={isReadOnly} misspeltWordAt={misspeltWordAt} />
             {/* data-find-overflow-host: lets the find box's tooltips past this clip (app/globals.css). */}
             <div className="relative min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (

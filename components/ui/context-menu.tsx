@@ -47,6 +47,7 @@ export function ContextMenuAtPoint({
     align = 'start',
     side = 'bottom',
     className,
+    finalFocus,
 }: {
     open: boolean
     onOpenChange: (open: boolean) => void
@@ -55,10 +56,11 @@ export function ContextMenuAtPoint({
     align?: React.ComponentProps<typeof MenuPopup>['align']
     side?: React.ComponentProps<typeof MenuPopup>['side']
     className?: string
+    finalFocus?: React.ComponentProps<typeof MenuPopup>['finalFocus']
 }) {
     return (
         <Menu open={open} onOpenChange={onOpenChange}>
-            <MenuPopup anchor={anchor} align={align} side={side} className={className}>
+            <MenuPopup anchor={anchor} align={align} side={side} className={className} finalFocus={finalFocus}>
                 {children}
             </MenuPopup>
         </Menu>

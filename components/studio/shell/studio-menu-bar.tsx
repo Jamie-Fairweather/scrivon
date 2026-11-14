@@ -6,6 +6,7 @@ import { Check, Loader2 } from 'lucide-react'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
+import { CommandMenuItem } from '@/components/studio/commands/command-menu-item'
 import { useCommands, type ShownCommand } from '@/components/studio/commands/command-registry'
 import { PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { displayPath } from '@/lib/workspace/display-path'
@@ -18,19 +19,7 @@ import {
 } from '@/components/studio/shell/window-titlebar-controls'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
-import {
-    Menu,
-    MenuCheckboxItem,
-    MenuGroup,
-    MenuItem,
-    MenuPopup,
-    MenuSeparator,
-    MenuShortcut,
-    MenuSub,
-    MenuSubPopup,
-    MenuSubTrigger,
-    MenuTrigger,
-} from '@/components/ui/menu'
+import { Menu, MenuGroup, MenuItem, MenuPopup, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from '@/components/ui/menu'
 import { MenuBarUpdateButton } from '@/components/studio/shell/menu-bar-update-button'
 import { TitleBarDocumentName } from '@/components/studio/shell/title-bar-document-name'
 import { ThemeMenu } from '@/components/studio/theme/theme-menu'
@@ -62,45 +51,6 @@ function MenuBarEntry({
                 {children}
             </MenuPopup>
         </Menu>
-    )
-}
-
-/** The user's current chord for a menu item, right-aligned. Renders nothing when the action is unbound. */
-function MenuHint({ shortcut, className }: { shortcut: string | undefined; className?: string }) {
-    return shortcut ? <MenuShortcut className={cn('ps-6 tracking-normal', className)}>{shortcut}</MenuShortcut> : null
-}
-
-/** Checkbox rows keep their label in a grid cell, so lay out label and hint as a row inside it. */
-function CheckboxLabelWithHint({ label, shortcut }: { label: string; shortcut: string | undefined }) {
-    return (
-        <span className="flex items-center">
-            {label}
-            {/* Checkbox rows have more end padding than plain items; pull the hint out to line up with them. */}
-            <MenuHint shortcut={shortcut} className="-me-2" />
-        </span>
-    )
-}
-
-/**
- * A menu item for a shared command, with the same label, tick, shortcut and enabled state as the
- * palette shows. Nothing shows while no feature has registered the command. `label` replaces the
- * command's own where its submenu already says it (`PDF…` under Export).
- */
-function CommandMenuItem({ command, variant, label }: { command: ShownCommand | undefined; variant?: 'switch'; label?: string }) {
-    if (!command) return null
-    const run = () => void command.run()
-    if (command.checked !== undefined) {
-        return (
-            <MenuCheckboxItem variant={variant} checked={command.checked} disabled={command.disabled} onCheckedChange={run}>
-                {variant === 'switch' ? command.label : <CheckboxLabelWithHint label={command.label} shortcut={command.shortcut} />}
-            </MenuCheckboxItem>
-        )
-    }
-    return (
-        <MenuItem disabled={command.disabled} onClick={run}>
-            {label ?? command.label}
-            <MenuHint shortcut={command.shortcut} />
-        </MenuItem>
     )
 }
 
