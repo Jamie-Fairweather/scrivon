@@ -4,6 +4,11 @@ import { CommandsRegistry } from 'monaco-editor/platform/commands/common/command
 /** Monaco's Paste. Edit > Paste, the palette's Paste and the editor's right-click Paste run it; Ctrl+V doesn't (the browser pastes). */
 export const MONACO_PASTE_COMMAND_ID = 'editor.action.clipboardPasteAction'
 
+/** True for the re-run marked to go straight to Monaco's paste. Monaco's paste ignores what it's given. */
+function isPassOn(payload: unknown): boolean {
+    return typeof payload === 'object' && payload !== null && 'scrivonPassOn' in payload && payload.scrivonPassOn === true
+}
+
 /**
  * Lets `pasteFirst` have Monaco's Paste command before Monaco does. In a web view Monaco's Paste reads only the
  * clipboard's text (no paste event fires), so a copied picture never arrives. `pasteFirst` returns null to let
@@ -14,20 +19,13 @@ export const MONACO_PASTE_COMMAND_ID = 'editor.action.clipboardPasteAction'
  */
 export function takeOverEditorPaste(editor: Pick<editor.ICodeEditor, 'trigger'>, pasteFirst: () => Promise<boolean> | null): IDisposable {
     const monacoPaste = CommandsRegistry.getCommand(MONACO_PASTE_COMMAND_ID)
-    // While true, the command goes straight to Monaco's paste.
-    let passOn = false
     return CommandsRegistry.registerCommand(MONACO_PASTE_COMMAND_ID, (accessor, ...args) => {
-        const pasting = passOn ? null : pasteFirst()
+        const pasting = isPassOn(args[0]) ? null : pasteFirst()
         if (!pasting) return monacoPaste?.handler(accessor, ...args)
         return pasting.then((pasted) => {
-            if (pasted) return
-            // Monaco's paste needs the editor's services, which are only to hand while a command runs: run it again.
-            passOn = true
-            try {
-                editor.trigger('scrivon', MONACO_PASTE_COMMAND_ID, args[0])
-            } finally {
-                passOn = false
-            }
+            // Monaco's paste needs the editor's services, which are only to hand while a command runs: run it again,
+            // marked so it goes straight to Monaco however late it arrives.
+            if (!pasted) editor.trigger('scrivon', MONACO_PASTE_COMMAND_ID, { scrivonPassOn: true })
         })
     })
 }

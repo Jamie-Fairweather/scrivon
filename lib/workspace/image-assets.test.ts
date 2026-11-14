@@ -60,7 +60,8 @@ vi.mock('@tauri-apps/plugin-fs', () => disk.fs)
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
 
-const { MAX_IMAGE_BYTES, addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets } = await import('./image-assets')
+const { ImageTooBigError, MAX_IMAGE_BYTES, addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets } =
+    await import('./image-assets')
 
 const DOC = 'C:\\notes\\guides\\setup.md'
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
@@ -172,9 +173,10 @@ describe('saveImageInAssets', () => {
     })
 
     it('refuses an image over 12 MB, which the preview couldn’t show, before writing anything', async () => {
-        await expect(saveImageInAssets(DOC, 'image.png', new Uint8Array(TWELVE_MB + 1))).rejects.toThrow(
-            'image.png is over 12 MB, too big for the preview and exports.'
-        )
+        const refused = saveImageInAssets(DOC, 'image.png', new Uint8Array(TWELVE_MB + 1))
+        await expect(refused).rejects.toThrow('image.png is over 12 MB, too big for the preview and exports.')
+        // A notice for the user to act on, not a fault to log.
+        await expect(refused).rejects.toBeInstanceOf(ImageTooBigError)
         expect(disk.names('C:\\notes\\guides')).toEqual(['setup.md'])
 
         expect(await saveImageInAssets(DOC, 'image.png', new Uint8Array(TWELVE_MB))).toBe('C:\\notes\\guides\\assets\\image.png')

@@ -4,7 +4,17 @@ import { takeOverEditorPaste } from '@/lib/monaco/paste-command'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { registerFileDropTarget } from '@/lib/tauri/file-drop'
 import { getBaseName, isMarkdownFile, isPathInside } from '@/lib/tauri/fs'
-import { addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets, type ImageDocument } from '@/lib/workspace/image-assets'
+import {
+    ImageTooBigError,
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_MB,
+    addDroppedImage,
+    isImageFile,
+    markdownImage,
+    pastedImageName,
+    saveImageInAssets,
+    type ImageDocument,
+} from '@/lib/workspace/image-assets'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 /** The editor calls the image code makes. */
@@ -30,6 +40,7 @@ export function imageDocumentFor(tab: DocumentTab | null, workspaceRoot: string 
 }
 
 const UNSUPPORTED_IMAGE = 'Only PNG, JPEG, GIF, WebP and SVG images can be added.'
+const TOO_BIG_PICTURE = `Pictures over ${MAX_IMAGE_MB} MB are too big for the preview and exports. Try a smaller picture or a JPEG.`
 
 /** Monaco's TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges: the spot follows edits; typing at it puts the link after the typed text. */
 const FOLLOWS_EDITS = 1 as editor.TrackedRangeStickiness
@@ -47,7 +58,12 @@ function insertImageLinks(editor: ImageEditor, range: IRange, doc: ImageDocument
     return Promise.allSettled(images).then((results) => {
         const where = model.isDisposed() ? null : model.getDecorationRange(mark!)
         if (!model.isDisposed()) model.deltaDecorations([mark!], [])
-        for (const result of results) if (result.status === 'rejected') notifyError("Couldn't add the image", result.reason)
+        for (const result of results) {
+            if (result.status === 'fulfilled') continue
+            // Too big is the user's to fix, not a fault to log.
+            if (result.reason instanceof ImageTooBigError) notifyInfo("Couldn't add the image", { description: result.reason.message })
+            else notifyError("Couldn't add the image", result.reason)
+        }
         const paths = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
         if (paths.length === 0) return
         const text = paths.map((path) => markdownImage(doc.path, path)).join(' ')
@@ -84,8 +100,13 @@ function addPastedImages(editor: ImageEditor, doc: ImageDocument, selection: IRa
         const what = skipped.length === 1 ? skipped[0]!.file.name : `${skipped.length} images`
         notifyInfo(`Couldn't add ${what}`, { description: UNSUPPORTED_IMAGE })
     }
+    // Checked before the bytes are read, so a huge picture isn't loaded only to be refused.
+    const tooBig = named.filter(({ file, name }) => name && file.size > MAX_IMAGE_BYTES)
+    if (tooBig.length > 0) {
+        notifyInfo(tooBig.length === 1 ? "Couldn't add the picture" : `Couldn't add ${tooBig.length} pictures`, { description: TOO_BIG_PICTURE })
+    }
     const saves = named.flatMap(({ file, name }) =>
-        name ? [file.arrayBuffer().then((bytes) => saveImageInAssets(doc.path, name, new Uint8Array(bytes)))] : []
+        name && file.size <= MAX_IMAGE_BYTES ? [file.arrayBuffer().then((bytes) => saveImageInAssets(doc.path, name, new Uint8Array(bytes)))] : []
     )
     if (saves.length > 0) void insertImageLinks(editor, selection, doc, saves)
 }
@@ -97,8 +118,9 @@ function addPastedImages(editor: ImageEditor, doc: ImageDocument, selection: IRa
 async function pasteClipboardImages(editor: ImageEditor, documentNow: () => ImageDocument | null): Promise<boolean> {
     let files: File[]
     try {
+        // Text first: read() may fetch every format, and Word and Excel put a picture of copied text alongside it.
+        if ((await navigator.clipboard.readText()) !== '') return false
         const items = await navigator.clipboard.read()
-        if (items.some((item) => item.types.includes('text/plain'))) return false
         files = await Promise.all(
             items.flatMap((item) => {
                 const type = item.types.find((t) => t.startsWith('image/'))

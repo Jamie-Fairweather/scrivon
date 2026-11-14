@@ -23,12 +23,21 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 }
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i
 
-/** The biggest image the preview and exports read: MAX_EXPORT_IMAGE_BYTES in src-tauri/src/pdf_export.rs. */
-export const MAX_IMAGE_BYTES = 12 * 1024 * 1024
+/** The biggest image the preview and exports read, in MB: MAX_EXPORT_IMAGE_BYTES in src-tauri/src/pdf_export.rs. */
+export const MAX_IMAGE_MB = 12
+export const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024
+
+/** An image refused for being over MAX_IMAGE_BYTES: a normal thing to tell the user, not a fault. */
+export class ImageTooBigError extends Error {
+    constructor(name: string) {
+        super(`${name} is over ${MAX_IMAGE_MB} MB, too big for the preview and exports.`)
+        this.name = 'ImageTooBigError'
+    }
+}
 
 /** Refuses an image over MAX_IMAGE_BYTES, so none is added that the preview couldn't show. */
 function checkImageSize(name: string, size: number): void {
-    if (size > MAX_IMAGE_BYTES) throw new Error(`${name} is over ${MAX_IMAGE_BYTES / (1024 * 1024)} MB, too big for the preview and exports.`)
+    if (size > MAX_IMAGE_BYTES) throw new ImageTooBigError(name)
 }
 
 /** True for a picture the preview shows, by its extension. */
