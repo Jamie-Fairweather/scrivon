@@ -175,7 +175,7 @@ const DIGIT = /^[0-9]$/
  * so Ctrl+Shift+1 arrives as "!" and, on AZERTY, Ctrl+1 as "&". Letters on Latin layouts
  * (AZERTY, Dvorak…) keep event.key, so shortcuts follow the letter printed on the key.
  */
-export function physicalKeyFallback(event: { key: string; code?: string; shiftKey?: boolean }): string | null {
+export function physicalKeyFallback(event: { key: string; code?: string }): string | null {
     const base = baseKeyFromCode(event.code)
     if (!base || base === event.key.toLowerCase()) return null
     if ([...event.key].length === 1 && !LATIN_OR_ASCII.test(event.key)) return base

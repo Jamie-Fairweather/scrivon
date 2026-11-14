@@ -108,6 +108,20 @@ describe('KeyboardSettings recording', () => {
         expect(screen.getByText('Ctrl+1 is already assigned to Focus editor')).toBeInTheDocument()
     })
 
+    it("records the symbol AZERTY's 6 key types when that is already a shortcut, so the clash shows", () => {
+        renderKeyboardSettings()
+        const fit = row('Fit diagram to screen')
+
+        fireEvent.click(within(fit).getByRole('button', { name: /^Edit shortcut/ }))
+        press('-', { ctrlKey: true, code: 'Digit6' })
+        expect(within(fit).getByRole('alert')).toHaveTextContent('Ctrl+- is already assigned to Zoom out')
+
+        fireEvent.click(within(row('Zoom out')).getByRole('button', { name: /^Clear shortcut/ }))
+        fireEvent.click(within(fit).getByRole('button', { name: /^Edit shortcut/ }))
+        press('-', { ctrlKey: true, code: 'Digit6' })
+        expect(within(fit).getByText('Ctrl+6')).toBeInTheDocument()
+    })
+
     it('refuses a character typed with AltGr and keeps recording', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')
@@ -208,7 +222,7 @@ describe('KeyboardSettings recording', () => {
         expect(screen.queryByText(warning)).not.toBeInTheDocument()
     })
 
-    it("refuses the explorer's F2 and Shift+F10 and the editor's Ctrl+., saying what uses them", () => {
+    it("refuses the explorer's F2 and Shift+F10, the editor's Ctrl+. and the menu bar's F10, saying what uses them", () => {
         renderKeyboardSettings()
         const goToFile = row('Go to file')
 
@@ -223,6 +237,10 @@ describe('KeyboardSettings recording', () => {
         fireEvent.click(within(goToFile).getByRole('button', { name: /^Edit shortcut/ }))
         press('.', { ctrlKey: true, code: 'Period' })
         expect(within(goToFile).getByRole('alert')).toHaveTextContent('Ctrl+. is used by the editor')
+
+        fireEvent.click(within(goToFile).getByRole('button', { name: /^Edit shortcut/ }))
+        press('F10', { code: 'F10' })
+        expect(within(goToFile).getByRole('alert')).toHaveTextContent('F10 is used by the menu bar')
 
         expect(within(goToFile).getByText('Ctrl+Shift+N')).toBeInTheDocument()
     })

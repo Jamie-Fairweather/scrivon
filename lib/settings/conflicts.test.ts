@@ -161,12 +161,20 @@ describe('describeEditorChordClash', () => {
         expect(describeEditorChordClash({ key: '.', ctrl: true }, false, 'format.bold')).toBe('Ctrl+. is used by the editor')
     })
 
+    it("flags the menu bar's F10 for every action, Markdown ones too", () => {
+        expect(describeEditorChordClash({ key: 'F10' }, false, 'palette.openFiles')).toBe('F10 is used by the menu bar')
+        expect(describeEditorChordClash({ key: 'F10' }, false, 'format.bold')).toBe('F10 is used by the menu bar')
+        expect(describeEditorChordClash({ key: 'f10' }, true)).toBe('F10 is used by the menu bar')
+    })
+
     it('leaves F2 and F10 with other keys held free', () => {
         for (const chord of [
             { key: 'F2', alt: true },
             { key: 'F2', shift: true },
             { key: 'F10', ctrl: true, shift: true },
             { key: 'F10', alt: true, shift: true },
+            { key: 'F10', ctrl: true },
+            { key: 'F10', alt: true },
             { key: '.', ctrl: true, alt: true },
         ]) {
             expect(describeEditorChordClash(chord, false, 'palette.openFiles')).toBeNull()

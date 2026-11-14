@@ -86,6 +86,9 @@ const EDITOR_CHORDS: KeybindChord[] = [
  */
 const EXPLORER_CHORDS: KeybindChord[] = [{ key: 'F2' }, { key: 'F10', shift: true }]
 
+/** F10 moves to the menu bar from anywhere, the editor too, so no action may have it. */
+const MENU_BAR_CHORDS: KeybindChord[] = [{ key: 'F10' }]
+
 /**
  * Ctrl+K on its own only starts the editor's two-key shortcuts (Ctrl+K Ctrl+C…). A Markdown action
  * may take it, as Link does by default, as in most Markdown editors.
@@ -112,9 +115,10 @@ function usesEditorChord(chord: KeybindChord, editorAction: boolean): boolean {
     return usesReservedChord(EDITOR_CHORDS, chord)
 }
 
-/** Why this action can't have a chord the editor or the explorer uses (clipboard, rename…), or null when it's free to use. */
+/** Why this action can't have a chord the editor, the explorer or the menu bar uses (clipboard, rename…), or null when it's free to use. */
 export function describeEditorChordClash(chord: KeybindChord, isMac = isMacPlatform(), actionId?: KeybindActionId): string | null {
     const editorAction = actionId !== undefined && isEditorAction(actionId)
+    if (usesReservedChord(MENU_BAR_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the menu bar`
     if (!editorAction && usesReservedChord(EXPLORER_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the explorer`
     return usesEditorChord(chord, editorAction) ? `${formatChord(chord, isMac)} is used by the editor` : null
 }

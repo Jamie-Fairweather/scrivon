@@ -199,6 +199,7 @@ export function KeyboardSettings() {
                                     <KeybindCapture
                                         active
                                         label={action.label}
+                                        bindings={settings.keybinds}
                                         onCapture={(chord) => handleCapture(action.id, chord)}
                                         onCancel={(refocus) => handleCancel(action.id, refocus)}
                                         onReject={(message) => showError(action.id, { message })}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { matchKeybind, matchKeybinds } from '@/lib/settings/match-keybind'
+import { matchKeybind, matchKeybinds, recordedChord } from '@/lib/settings/match-keybind'
 
 type KeyOptions = {
     ctrl?: boolean
@@ -432,5 +432,43 @@ describe('app zoom shortcuts', () => {
         expect(matchKeybind(keyEvent('0', { ctrl: true }, canvas), bindings)).toBeNull()
         // Other shortcuts still work there.
         expect(matchKeybind(keyEvent('s', { ctrl: true }, canvas), bindings)).toBe('document.save')
+    })
+})
+
+describe('recordedChord', () => {
+    const bindings = createDefaultKeybinds(false)
+
+    it('saves the digit for a digit key that types a symbol, so it works on any layout', () => {
+        // AZERTY: the 1 key types "&", and with Shift the digit itself.
+        expect(recordedChord(keyEvent('&', { ctrl: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', ctrl: true })
+        expect(recordedChord(keyEvent('&', { alt: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', alt: true })
+        expect(recordedChord(keyEvent('6', { ctrl: true, shift: true, code: 'Digit6' }), bindings)).toEqual({ key: '6', ctrl: true, shift: true })
+        // US: Shift+1 types "!".
+        expect(recordedChord(keyEvent('!', { ctrl: true, shift: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', ctrl: true, shift: true })
+    })
+
+    it('saves the key as typed when that is already a shortcut, as pressing the key runs that one', () => {
+        // AZERTY: the 6 key types "-", so Ctrl with it zooms out, and Alt with it zooms the diagram out.
+        const ctrlSix = keyEvent('-', { ctrl: true, code: 'Digit6' })
+        expect(recordedChord(ctrlSix, bindings)).toEqual({ key: '-', ctrl: true })
+        expect(matchKeybind(ctrlSix, bindings)).toBe('view.appZoomOut')
+        expect(recordedChord(keyEvent('-', { alt: true, code: 'Digit6' }), bindings)).toEqual({ key: '-', alt: true })
+        // Czech: the 1 key types "+".
+        expect(recordedChord(keyEvent('+', { ctrl: true, code: 'Digit1' }), bindings)).toEqual({ key: '+', ctrl: true })
+        // Swiss: Shift+1 types "+", which counts as Ctrl+Plus too.
+        expect(recordedChord(keyEvent('+', { ctrl: true, shift: true, code: 'Digit1' }), bindings)).toEqual({ key: '+', ctrl: true })
+    })
+
+    it('saves the digit once nothing has the key as typed', () => {
+        const noZoomOut = { ...bindings, 'view.appZoomOut': [] }
+        expect(recordedChord(keyEvent('-', { ctrl: true, code: 'Digit6' }), noZoomOut)).toEqual({ key: '6', ctrl: true })
+    })
+
+    it('saves the physical key on a non-Latin layout, and other keys as typed', () => {
+        expect(recordedChord(keyEvent('ы', { ctrl: true, code: 'KeyS' }), bindings)).toEqual({ key: 's', ctrl: true })
+        expect(recordedChord(keyEvent('F2', { code: 'F2' }), bindings)).toEqual({ key: 'F2' })
+        expect(recordedChord(keyEvent('o', { ctrl: true, code: 'KeyS' }), bindings)).toEqual({ key: 'o', ctrl: true })
+        // Left for the recorder to refuse.
+        expect(recordedChord(keyEvent('Dead', { ctrl: true, code: 'BracketLeft' }), bindings)).toEqual({ key: 'Dead', ctrl: true })
     })
 })
