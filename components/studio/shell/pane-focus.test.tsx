@@ -1,10 +1,35 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { cyclePaneFocus, cyclePaneFocusSoon, focusPane, focusPaneSoon } from '@/components/studio/shell/pane-focus'
+import { ToastProvider } from '@/components/ui/toast'
+import { dismissNotification, notifyError } from '@/lib/notify'
+
+/**
+ * The command palette, after every pane like Base UI's portal. It takes focus when it opens. Once a command is picked
+ * it fades out (data-closed) for a while, then gives focus back to where it was, as Base UI does.
+ */
+function Palette({ closing }: { closing: boolean }) {
+    const popupRef = useRef<HTMLDivElement>(null)
+    useLayoutEffect(() => {
+        const popup = popupRef.current!
+        const returnTo = document.activeElement as HTMLElement | null
+        popup.querySelector('input')!.focus()
+        return () => {
+            if (popup.contains(document.activeElement)) returnTo?.focus()
+        }
+    }, [])
+    return (
+        <div ref={popupRef} role="dialog" aria-label="Command palette" data-open={closing ? undefined : ''} data-closed={closing ? '' : undefined}>
+            <input aria-label="Search commands" />
+        </div>
+    )
+}
 
 /** A layout like the studio's: explorer, outline, a tab bar, editor and preview, in screen order. */
-function Panes({ outline = true, editorInert = false }: { outline?: boolean; editorInert?: boolean }) {
+function Panes({ outline = true, editorInert = false, palette }: { outline?: boolean; editorInert?: boolean; palette?: 'open' | 'closing' }) {
     return (
         <div>
             <button type="button">Menu</button>
@@ -32,6 +57,7 @@ function Panes({ outline = true, editorInert = false }: { outline?: boolean; edi
             <footer>
                 <button type="button">Status</button>
             </footer>
+            {palette && <Palette closing={palette === 'closing'} />}
         </div>
     )
 }
@@ -139,6 +165,66 @@ describe('cyclePaneFocus', () => {
     })
 })
 
+describe('cyclePaneFocus with notifications', () => {
+    const NOTICE = 'save-failed'
+
+    afterEach(() => {
+        act(() => dismissNotification(NOTICE))
+    })
+
+    /** Like "Couldn't save": it never times out, and its Try Again may be the only way to retry. */
+    async function showSaveFailed() {
+        act(() => {
+            notifyError("Couldn't save b.md", undefined, { id: NOTICE, timeout: 0, action: { label: 'Try Again', onClick: vi.fn() } })
+        })
+        // Hidden from screen readers (aria-hidden) until the notifications have focus.
+        await screen.findByRole('button', { name: 'Try Again', hidden: true })
+    }
+
+    it('stops at the notifications last while one shows, and Tab from there reaches its buttons', async () => {
+        const user = userEvent.setup()
+        render(
+            <ToastProvider>
+                <Panes />
+            </ToastProvider>
+        )
+        await showSaveFailed()
+        const notifications = screen.getByRole('region', { name: 'Notifications' })
+
+        screen.getByRole('region', { name: 'Preview' }).focus()
+        expect(cyclePaneFocus(1)).toBe(true)
+        expect(focused()).toBe(notifications)
+
+        await user.tab()
+        await user.tab()
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Try Again' }))
+
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(notifications)
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it('skips the notifications while none shows', async () => {
+        render(
+            <ToastProvider>
+                <Panes />
+            </ToastProvider>
+        )
+        await showSaveFailed()
+        act(() => dismissNotification(NOTICE))
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Try Again', hidden: true })).toBeNull())
+
+        screen.getByRole('region', { name: 'Preview' }).focus()
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+})
+
 describe('focusPane', () => {
     it("goes to the pane's main part first: the file tree's tab stop, not the buttons above it", () => {
         render(<Panes />)
@@ -242,6 +328,38 @@ describe('focusing from a command', () => {
         focusPaneSoon('preview')
         expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
         await waitFor(() => expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' })))
+    })
+
+    it('waits while the palette fades out, then moves on from the pane that had focus before it opened', async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
+        const search = () => screen.getByRole('textbox', { name: 'Search commands' })
+        const { rerender } = render(<Panes />)
+        screen.getByRole('textbox', { name: 'Editor' }).focus()
+
+        // Focus Next Pane, picked from the palette: it closes, then runs the command.
+        rerender(<Panes palette="open" />)
+        rerender(<Panes palette="closing" />)
+        cyclePaneFocusSoon(1)
+        for (let frame = 0; frame < 5; frame++) await nextFrame()
+        expect(focused()).toBe(search())
+        rerender(<Panes />)
+        await waitFor(() => expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' })))
+
+        // And Focus Previous Pane.
+        rerender(<Panes palette="open" />)
+        rerender(<Panes palette="closing" />)
+        cyclePaneFocusSoon(-1)
+        for (let frame = 0; frame < 5; frame++) await nextFrame()
+        expect(focused()).toBe(search())
+        rerender(<Panes />)
+        await waitFor(() => expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' })))
+    })
+
+    it('stops waiting after a while when the palette never gives focus back', async () => {
+        render(<Panes palette="closing" />)
+
+        cyclePaneFocusSoon(1)
+        await waitFor(() => expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' })))
     })
 
     it('keeps trying while a pane that was just shown appears', async () => {

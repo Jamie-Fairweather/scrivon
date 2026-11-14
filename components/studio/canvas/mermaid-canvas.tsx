@@ -160,6 +160,8 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
             aria-describedby={showDiagram ? keysHintId : undefined}
             // A Tab stop only while there is a diagram to zoom; a click still focuses it.
             tabIndex={showDiagram ? 0 : -1}
+            // F6 and Focus Preview come here (pane-focus.ts), so the zoom and arrow keys work straight away.
+            data-pane-focus
             // Ctrl+wheel and the zoom keys here zoom the diagram, not the whole app (OWN_ZOOM_SELECTOR).
             data-own-zoom
             className={cn(

@@ -112,9 +112,9 @@ export function StudioLayout() {
                                 />
                             )}
 
-                            {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to its scroll box when
-                                it scrolls, else to this region itself. Unmounted while hidden, so it doesn't draw on every
-                                keystroke. */}
+                            {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to the diagram canvas,
+                                else its scroll box when it scrolls, else this region itself. Unmounted while hidden, so it
+                                doesn't draw on every keystroke. */}
                             {layout.previewOpen && (
                                 <div
                                     data-pane="preview"
