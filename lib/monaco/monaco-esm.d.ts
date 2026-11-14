@@ -170,3 +170,6 @@ declare module 'monaco-editor/platform/clipboard/common/clipboardService.js' {
     /** The id StandaloneServices looks the service up by; its toString() is the service's name. */
     export const IClipboardService: { readonly type: IClipboardService }
 }
+
+// Ctrl+. and its quick fix list, used by components/studio/editor/code-editor-panel-quick-fix.test.tsx with the real editor.
+declare module 'monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js'

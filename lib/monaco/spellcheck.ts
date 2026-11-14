@@ -110,13 +110,15 @@ export function attachSpellcheck(
             if (token.isCancellationRequested) return noActions
             const diagnostics = [toMarker(mark)]
             const versionId = model.getVersionId()
-            const changes = suggestions.map((suggestion, index): languages.CodeAction => ({
-                title: `Change to “${suggestion}”`,
-                kind: 'quickfix',
-                diagnostics,
-                isPreferred: index === 0,
-                edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
-            }))
+            const changes = suggestions.map(
+                (suggestion, index): languages.CodeAction => ({
+                    title: `Change to “${suggestion}”`,
+                    kind: 'quickfix',
+                    diagnostics,
+                    isPreferred: index === 0,
+                    edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
+                })
+            )
             const addTitle = `Add “${dictionaryForm(mark.word)}” to Dictionary`
             const add: languages.CodeAction = {
                 title: addTitle,
@@ -189,23 +191,37 @@ export function attachSpellcheck(
         }
     }
 
+    const registerCodeActions = () => monaco.languages.registerCodeActionProvider('markdown', codeActions, { providedCodeActionKinds: ['quickfix'] })
+    let codeActionsRegistration = registerCodeActions()
+
     const subscriptions: IDisposable[] = [
         editorInstance.onDidChangeModelContent(() => schedule(SPELLCHECK_DELAY_MS)),
         // Another tab: check it again, or clear its marks when spell check was turned off while it was hidden.
         editorInstance.onDidChangeModel(() => schedule(0)),
-        monaco.languages.registerCodeActionProvider('markdown', codeActions, { providedCodeActionKinds: ['quickfix'] }),
         monaco.editor.registerCommand(ADD_TO_DICTIONARY_COMMAND, (_accessor: unknown, word: string) => addToDictionary(word)),
     ]
     schedule(0)
 
     return {
         setConfig(next) {
+            const turnedOn = config === null && next !== null
             config = next
+            // Monaco sets up Ctrl+. (the quick fix list) only while the editor can be edited, and does it again
+            // only when the file, its language or the quick fix providers change, not when read-only turns off.
+            // So a read-only file made editable with the file still showing (Edit as UTF-8, Edit Anyway, a reload)
+            // would get no list. Registering again counts as a change of providers. The check is never on for a
+            // read-only file, and use-editor-spellcheck.ts turns it on from an effect, after the editor has been
+            // told it can be edited, so Monaco sets Ctrl+. up then.
+            if (turnedOn) {
+                codeActionsRegistration.dispose()
+                codeActionsRegistration = registerCodeActions()
+            }
             schedule(0)
         },
         misspeltWordAt,
         dispose() {
             if (timer !== null) clearTimeout(timer)
+            codeActionsRegistration.dispose()
             subscriptions.forEach((subscription) => subscription.dispose())
         },
     }
