@@ -90,14 +90,33 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
 
     const stripRef = useRef<HTMLDivElement>(null)
     const tabRefs = useRef(new Map<string, HTMLButtonElement>())
+    // True when the keyboard was last in the strip. Closing the focused tab drops focus to the page
+    // without it landing anywhere else, so this stays true and the tab shown next can take it.
+    const stripHadFocus = useRef(false)
     // The tab reachable with Tab: the active one, or the first if none is active.
     const focusableTabId = tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null)
     // Same-named files (README.md in two folders) also show the folder that tells them apart.
     const folderHints = useMemo(() => getTabFolderHints(tabs), [tabs])
 
     useEffect(() => {
+        const onFocusIn = (e: FocusEvent) => {
+            stripHadFocus.current = e.target instanceof Node && Boolean(stripRef.current?.contains(e.target))
+        }
+        document.addEventListener('focusin', onFocusIn)
+        return () => document.removeEventListener('focusin', onFocusIn)
+    }, [])
+
+    useEffect(() => {
         if (!activeTabId) return
-        tabRefs.current.get(activeTabId)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+        const shown = tabRefs.current.get(activeTabId)
+        shown?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+        if (!shown) return
+        const focused = document.activeElement
+        // A shortcut (Ctrl+Tab) switched tabs while the keyboard was on another tab: it follows, as with the arrow keys.
+        const onOtherTab = focused !== shown && focused?.getAttribute('role') === 'tab' && stripRef.current?.contains(focused)
+        // The focused tab was closed (Ctrl+W, Delete): the keyboard stays in the strip, on the tab now shown.
+        const lostWithClosedTab = stripHadFocus.current && (focused === null || focused === document.body)
+        if (onOtherTab || lostWithClosedTab) shown.focus()
     }, [activeTabId])
 
     // The strip has no visible scrollbar (it would squash the tabs), so the mouse wheel scrolls it sideways.
@@ -159,6 +178,16 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                             <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
                                 <div
                                     role="presentation"
+                                    // A middle-click closes the tab, as in browsers. Stopping its mousedown keeps the
+                                    // web view from starting to scroll.
+                                    onMouseDown={(e) => {
+                                        if (e.button === 1) e.preventDefault()
+                                    }}
+                                    onAuxClick={(e) => {
+                                        if (e.button !== 1) return
+                                        e.preventDefault()
+                                        void closeTab(tab.id)
+                                    }}
                                     className={cn(
                                         // Tabs keep a readable width; when they don't all fit, the strip scrolls.
                                         'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',

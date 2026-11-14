@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -106,6 +107,104 @@ describe('EditorTabBar', () => {
         expect(closeTab).toHaveBeenCalledWith('/w/b.md')
         fireEvent.click(close[0]!)
         expect(closeTab).toHaveBeenLastCalledWith('/w/a.md')
+    })
+
+    it('closes a tab on a middle-click, without switching to it', async () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md', { isDirty: true })]
+        activeTabId = '/w/a.md'
+        render(<EditorTabBar />)
+        const user = userEvent.setup()
+
+        await user.pointer({ keys: '[MouseMiddle]', target: screen.getByRole('tab', { name: 'b.md , unsaved changes' }) })
+
+        // Closing asks about unsaved changes as the X button does.
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(setActiveTab).not.toHaveBeenCalled()
+    })
+
+    it('stops a middle-click from starting to scroll the page', () => {
+        tabs = [tab('/w/a.md')]
+        activeTabId = '/w/a.md'
+        render(<EditorTabBar />)
+
+        const middle = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 1 })
+        screen.getByRole('tab').dispatchEvent(middle)
+        expect(middle.defaultPrevented).toBe(true)
+        const left = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })
+        screen.getByRole('tab').dispatchEvent(left)
+        expect(left.defaultPrevented).toBe(false)
+    })
+
+    it('keeps the keyboard on the open tab when a shortcut switches tabs while a tab has focus', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const { rerender } = render(<EditorTabBar />)
+        const [a, b] = screen.getAllByRole('tab')
+        a!.focus()
+
+        activeTabId = '/w/b.md'
+        rerender(<EditorTabBar />)
+
+        expect(b).toHaveFocus()
+    })
+
+    it('leaves the keyboard where it is when a tab is switched to from elsewhere', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const { rerender } = render(
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+        screen.getByRole('textbox', { name: 'editor' }).focus()
+
+        activeTabId = '/w/b.md'
+        rerender(
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+
+        expect(screen.getByRole('textbox', { name: 'editor' })).toHaveFocus()
+    })
+
+    it('keeps the keyboard in the strip when the focused tab is closed', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md')]
+        activeTabId = '/w/b.md'
+        const { rerender } = render(<EditorTabBar />)
+        screen.getByRole('tab', { name: 'b.md' }).focus()
+
+        // Ctrl+W or Delete closed it: its button goes, and the next tab is shown.
+        tabs = [tab('/w/a.md'), tab('/w/c.md')]
+        activeTabId = '/w/c.md'
+        rerender(<EditorTabBar />)
+
+        expect(screen.getByRole('tab', { name: 'c.md' })).toHaveFocus()
+    })
+
+    it('does not pull the keyboard back to the strip once it has gone elsewhere', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const view = (
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+        const { rerender } = render(view)
+        screen.getByRole('tab', { name: 'a.md' }).focus()
+        const editor = screen.getByRole('textbox', { name: 'editor' })
+        editor.focus()
+        editor.blur()
+        expect(document.body).toHaveFocus()
+
+        tabs = [tab('/w/b.md')]
+        activeTabId = '/w/b.md'
+        rerender(view)
+
+        expect(document.body).toHaveFocus()
     })
 
     it('moves between tabs with the arrow, Home and End keys', () => {

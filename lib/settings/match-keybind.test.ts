@@ -96,6 +96,21 @@ describe('matchKeybind', () => {
         const event = keyEvent('F1')
         Object.defineProperty(event, 'repeat', { value: true })
         expect(matchKeybind(event, bindings)).toBeNull()
+        const closeTab = keyEvent('w', { ctrl: true })
+        Object.defineProperty(closeTab, 'repeat', { value: true })
+        expect(matchKeybind(closeTab, bindings, { hasWorkspace: true })).toBeNull()
+    })
+
+    it('keeps moving through the tabs while Ctrl+Tab or Ctrl+PageDown is held', () => {
+        const held = (key: string, modifiers: KeyOptions) => {
+            const event = keyEvent(key, modifiers)
+            Object.defineProperty(event, 'repeat', { value: true })
+            return event
+        }
+        expect(matchKeybind(held('Tab', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('tabs.next')
+        expect(matchKeybind(held('PageDown', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('tabs.next')
+        expect(matchKeybind(held('Tab', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('tabs.previous')
+        expect(matchKeybind(held('PageUp', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('tabs.previous')
     })
 
     it('ignores actions with no assigned chords', () => {

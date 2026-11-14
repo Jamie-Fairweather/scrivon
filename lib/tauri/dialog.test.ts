@@ -34,6 +34,7 @@ import {
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
     confirmOpenLargeFile,
+    confirmRevert,
     confirmUnsavedChanges,
     pickOpenFile,
     pickSavePath,
@@ -334,14 +335,52 @@ describe('questions that can lose work', () => {
         await confirmCloseAfterSaveFailure([{ name: 'a.md', stillSaving: true }])
         await confirmKeptChangesWithoutFolder('Notes', ['a.md'])
         await confirmDeleteHiddenFolders('proj', ['.git'])
+        await confirmRevert('a.md')
 
-        const losesWork = ["Don't Save", 'Close Without Saving', 'Discard', 'Delete All']
-        expect(messageMock).toHaveBeenCalledTimes(5)
+        const losesWork = ["Don't Save", 'Close Without Saving', 'Discard', 'Delete All', 'Revert']
+        expect(messageMock).toHaveBeenCalledTimes(6)
         for (const [, options] of messageMock.mock.calls) {
             const { yes, ok, no, cancel } = (options as { buttons: Record<string, string | undefined> }).buttons
             expect(losesWork).toContain(no)
             for (const label of [yes, ok, cancel]) expect(losesWork).not.toContain(label)
         }
+    })
+})
+
+describe('confirmRevert', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('says the unsaved changes go, and only Revert goes ahead', async () => {
+        isTauriMock.mockReturnValue(true)
+        messageMock.mockResolvedValueOnce('Revert')
+        await expect(confirmRevert('plan.md')).resolves.toBe(true)
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toBe('Put back the saved version of plan.md?\n\nYour unsaved changes will be lost.')
+        expect(options).toMatchObject({ title: 'Revert file', buttons: { yes: 'Keep Changes', no: 'Revert', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Keep Changes')
+        await expect(confirmRevert('plan.md')).resolves.toBe(false)
+        messageMock.mockResolvedValueOnce(null)
+        await expect(confirmRevert('plan.md')).resolves.toBe(false)
+    })
+
+    it('asks with the browser confirm outside the app', async () => {
+        isTauriMock.mockReturnValue(false)
+        // With no way to ask, nothing is lost.
+        await expect(confirmRevert('plan.md')).resolves.toBe(false)
+
+        const confirm = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false)
+        vi.stubGlobal('window', { confirm })
+        try {
+            await expect(confirmRevert('plan.md')).resolves.toBe(true)
+            await expect(confirmRevert('plan.md')).resolves.toBe(false)
+        } finally {
+            vi.unstubAllGlobals()
+        }
+        expect(confirm.mock.calls[0]![0]).toContain('OK: Revert.')
+        expect(messageMock).not.toHaveBeenCalled()
     })
 })
 

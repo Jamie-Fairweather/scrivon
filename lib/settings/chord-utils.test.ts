@@ -54,11 +54,22 @@ describe('isAllowedChord', () => {
         expect(isAllowedChord({ key: '/' })).toBe(false)
     })
 
-    it('rejects Tab, Enter, Space, Escape, Backspace, Delete and arrows even with modifiers', () => {
-        for (const key of ['Tab', 'Enter', ' ', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+    it('rejects Enter, Space, Escape, Backspace, Delete and arrows even with modifiers', () => {
+        for (const key of ['Enter', ' ', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
             expect(isAllowedChord({ key })).toBe(false)
             expect(isAllowedChord({ key, ctrl: true })).toBe(false)
         }
+    })
+
+    it('accepts Tab only with Ctrl, as tabbed apps use it to switch tabs', () => {
+        expect(isAllowedChord({ key: 'Tab', ctrl: true })).toBe(true)
+        expect(isAllowedChord({ key: 'Tab', ctrl: true, shift: true })).toBe(true)
+        // Plain Tab moves focus, and Windows or macOS take Alt+Tab and Cmd+Tab.
+        expect(isAllowedChord({ key: 'Tab' })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', shift: true })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', alt: true })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', meta: true })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', ctrl: true, alt: true })).toBe(false)
     })
 
     it('rejects keys the browser could not name (IME, dead keys)', () => {

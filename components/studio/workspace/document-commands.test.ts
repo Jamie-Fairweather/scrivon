@@ -14,6 +14,14 @@ function context(overrides: Partial<DocumentCommandsContext> = {}): DocumentComm
         closeTab: vi.fn(async () => {}),
         closeOtherTabs: vi.fn(async () => {}),
         closeAllTabs: vi.fn(async () => {}),
+        hasTabsToRight: true,
+        closeTabsToRight: vi.fn(async () => {}),
+        hasSavedTabs: true,
+        closeSavedTabs: vi.fn(async () => {}),
+        switchTab: vi.fn(async () => {}),
+        canReopenClosedTab: true,
+        reopenClosedTab: vi.fn(async () => {}),
+        revertTab: vi.fn(async () => {}),
         openExample: vi.fn(),
         saveExampleCopy: vi.fn(async () => {}),
         ...overrides,
@@ -70,9 +78,77 @@ describe('buildDocumentCommands tabs', () => {
         expect(find(context({ tabCount: 0, activeTabId: null }), 'close-other-tabs')).toMatchObject({ disabled: true, disabledReason: 'No tab open' })
     })
 
+    it('closes the tab on its app shortcut', () => {
+        expect(find(context(), 'close-tab')).toMatchObject({ label: 'Close Tab', keybind: 'tabs.close' })
+    })
+
+    it('moves to the next and previous tab on their app shortcuts', () => {
+        const ctx = context()
+        expect(find(ctx, 'next-tab')).toMatchObject({ label: 'Next Tab', keybind: 'tabs.next', disabled: false })
+        expect(find(ctx, 'previous-tab')).toMatchObject({ label: 'Previous Tab', keybind: 'tabs.previous', disabled: false })
+
+        void find(ctx, 'next-tab')!.run()
+        void find(ctx, 'previous-tab')!.run()
+        expect(ctx.switchTab).toHaveBeenNthCalledWith(1, 1)
+        expect(ctx.switchTab).toHaveBeenNthCalledWith(2, -1)
+    })
+
+    it('turns Next and Previous Tab off with fewer than two tabs, and says why', () => {
+        expect(find(context({ tabCount: 1 }), 'next-tab')).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
+        expect(find(context({ tabCount: 0, activeTabId: null }), 'previous-tab')).toMatchObject({ disabled: true, disabledReason: 'No tabs open' })
+    })
+
+    it('reopens the last closed tab on its app shortcut, when there is one', () => {
+        const ctx = context()
+        expect(find(ctx, 'reopen-closed-tab')).toMatchObject({ label: 'Reopen Closed Tab', keybind: 'tabs.reopenClosed', disabled: false })
+        void find(ctx, 'reopen-closed-tab')!.run()
+        expect(ctx.reopenClosedTab).toHaveBeenCalledTimes(1)
+
+        expect(find(context({ canReopenClosedTab: false }), 'reopen-closed-tab')).toMatchObject({ disabled: true, disabledReason: 'No closed tabs' })
+    })
+
+    it('closes the tabs to the right of the open one, or the saved ones', () => {
+        const ctx = context()
+        void find(ctx, 'close-tabs-to-right')!.run()
+        void find(ctx, 'close-saved-tabs')!.run()
+        expect(ctx.closeTabsToRight).toHaveBeenCalledWith('/ws/a.md')
+        expect(ctx.closeSavedTabs).toHaveBeenCalledTimes(1)
+
+        expect(find(context({ hasTabsToRight: false }), 'close-tabs-to-right')).toMatchObject({
+            disabled: true,
+            disabledReason: 'No tabs to the right',
+        })
+        expect(find(context({ hasSavedTabs: false }), 'close-saved-tabs')).toMatchObject({
+            disabled: true,
+            disabledReason: 'Every tab has unsaved changes',
+        })
+    })
+
+    it('reverts the open file, but not an example', () => {
+        const ctx = context()
+        expect(find(ctx, 'revert-file')).toMatchObject({ label: 'Revert File', disabled: false })
+        void find(ctx, 'revert-file')!.run()
+        expect(ctx.revertTab).toHaveBeenCalledWith('/ws/a.md')
+
+        expect(find(context({ activeTabId: 'example:flowchart' }), 'revert-file')).toMatchObject({
+            disabled: true,
+            disabledReason: 'No workspace file open',
+        })
+    })
+
     it('turns the tab commands off when a hidden tab is left over with no folder open', () => {
         const ctx = context({ hasWorkspace: false, activeTabId: 'example:flowchart' })
-        for (const id of ['close-tab', 'close-other-tabs', 'close-all-tabs']) {
+        for (const id of [
+            'close-tab',
+            'close-other-tabs',
+            'close-all-tabs',
+            'close-tabs-to-right',
+            'close-saved-tabs',
+            'next-tab',
+            'previous-tab',
+            'reopen-closed-tab',
+            'revert-file',
+        ]) {
             expect(find(ctx, id)?.disabled).toBe(true)
         }
     })

@@ -38,6 +38,10 @@ export type KeybindActionId =
     | 'workspace.newDiagram'
     | 'workspace.newDocument'
     | 'workspace.newFolder'
+    | 'tabs.close'
+    | 'tabs.next'
+    | 'tabs.previous'
+    | 'tabs.reopenClosed'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
