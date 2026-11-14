@@ -22,6 +22,8 @@ export type AppCommand = {
     /** Set for an on/off setting: menus show a tick, the palette says whether it is on. */
     checked?: boolean
     disabled?: boolean
+    /** For an editor shortcut (Bold, Link…) that is off: its keys still do nothing instead of passing on. */
+    keepsKeysWhenOff?: boolean
     /** Shown in the palette next to a command that can't run. */
     disabledReason?: string
     run: () => void | Promise<void>
