@@ -1,4 +1,5 @@
 import { focusEditorNow } from '@/components/studio/editor/editor-focus'
+import { sendKeyPastShortcuts } from '@/components/studio/hooks/use-global-keybinds'
 
 /** The panes F6 moves between. They are found by their data-pane attribute, in screen order. */
 export type PaneId = 'explorer' | 'outline' | 'editor' | 'preview'
@@ -57,8 +58,6 @@ function paneItself(pane: HTMLElement): HTMLElement[] {
 
 /** Where focus may go in a pane, best first. */
 function focusTargets(pane: HTMLElement): HTMLElement[] {
-    // The region itself, as Base UI's F6 does. Tab goes on from there to the notifications and their buttons.
-    if (pane.matches(NOTIFICATIONS)) return [pane]
     if (pane.dataset.pane === 'preview') {
         // A diagram's canvas itself (marked data-pane-focus-self), so its zoom and arrow keys work: a Mermaid tab's, or
         // the full-size one over a Markdown page. Else the scroll box when it scrolls, else the preview itself: never a
@@ -72,10 +71,23 @@ function focusTargets(pane: HTMLElement): HTMLElement[] {
     return [...(preferred ? tabbables(preferred) : []), ...tabbables(pane), ...paneItself(pane)]
 }
 
+/**
+ * Moves focus to the notifications with Base UI's own F6, so it remembers where focus was. Closing a notification
+ * with its button, Tab past the last one, or Shift+Tab on the region then goes back there. Base UI listens for F6 on
+ * the window, but our shortcut handler takes the real key first, so we send the window an F6 of our own.
+ */
+function focusNotifications(region: HTMLElement): boolean {
+    const win = region.ownerDocument.defaultView
+    if (win) sendKeyPastShortcuts(win, { key: 'F6' })
+    // If Base UI didn't move focus (it only listens while a notification shows), focus the region ourselves.
+    return region.ownerDocument.activeElement === region || tryFocus(region)
+}
+
 /** Puts focus in the pane now. False when nothing in it can take focus (the editor with no file open, say). */
 function focusInPane(pane: HTMLElement): boolean {
     // Monaco takes focus through its own API, which also brings back its cursor.
     if (pane.dataset.pane === 'editor') return focusEditorNow()
+    if (pane.matches(NOTIFICATIONS)) return focusNotifications(pane)
     return focusTargets(pane).some(tryFocus)
 }
 

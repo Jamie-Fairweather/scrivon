@@ -25,6 +25,19 @@ const EDITOR_KEY_PAIR_MS = 5000
 /** The app counts these as modifiers, but Monaco takes them as the second key of a pair. */
 const LOCK_KEYS = new Set(['CapsLock', 'NumLock', 'ScrollLock'])
 
+/** Key presses the app sends itself, which the shortcut handler leaves alone. */
+const sentPastShortcuts = new WeakSet<Event>()
+
+/**
+ * Sends a key press for a library's own listener to hear, past the app's shortcuts: the F6 that Base UI's
+ * notifications listen for, which the shortcut handler would otherwise take as Focus Next Pane.
+ */
+export function sendKeyPastShortcuts(target: EventTarget, init: KeyboardEventInit): void {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+    sentPastShortcuts.add(event)
+    target.dispatchEvent(event)
+}
+
 /**
  * Which modal is open. App shortcuts must not act behind one (Settings, confirmations, prompts),
  * but palette shortcuts still work while only the command palette is open, so F1 can switch it
@@ -83,6 +96,8 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
         }
 
         const handleKeyDown = (event: KeyboardEvent) => {
+            // Before anything else, so a key the app sends doesn't make it forget the key you're holding.
+            if (sentPastShortcuts.has(event)) return
             const key = event.code || event.key
             if (!event.repeat) heldKey = null
             if (event.defaultPrevented) return
