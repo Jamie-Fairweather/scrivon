@@ -1,6 +1,6 @@
 # Scrivon full app audit (6 November 2026)
 
-## Fix status (7 November 2026, missing features updated 14 November 2026)
+## Fix status (7 November 2026, missing features and integration review updated 14 November 2026)
 
 The fixes were merged into `dev` in PR #66. They were done in three rounds, and each round was checked by independent reviewers. A ✅ before an item's title means it is fixed (or, for a missing feature, built); ⬜ means it still needs doing.
 
@@ -12,9 +12,11 @@ The fixes were merged into `dev` in PR #66. They were done in three rounds, and 
 - **Known gaps left:**
     - With "Hide footer on title page and contents", the last contents page still shows the footer bar. Fixing it needs a change in the Rust page-number stamper.
     - After renaming or deleting in the explorer, focus waits up to 5 seconds for the tree to update. The proper fix belongs in the workspace session code.
-- **Missing features (F list):** 48 of the 50 are built. F39 is half built and F44 is still open; both wait on #124. See [Missing features built](#missing-features-built) below.
+- **Missing features (F list):** all 50 are built. The last two, F39 and F44, came with #124 (PR #145). See [Missing features built](#missing-features-built) below.
+- **Integration review (14 November):** a review of how the new features work together confirmed 34 problems. They became 15 bug tickets, and all 15 are fixed. One small follow-up (#205) is still open. See [Integration review](#integration-review) below.
 - **Checks (all passing, 7 November):** 2378 frontend tests (coverage about 94%; the minimum is now set just under that), 158 Rust tests, type check, ESLint, Clippy with warnings treated as errors, cargo fmt, the Tauri version check, and `next build`.
 - **Checks (all passing, 14 November, after the missing features):** 3778 frontend tests in 268 files (coverage 96% of statements, 97% of lines), 268 Rust tests, and the same checks as above, including Clippy on the release build. Both Windows installers (x64 and ARM64) build in CI.
+- **Checks (all passing, 14 November, after the integration fixes):** 3993 frontend tests in 275 files (coverage 96% of statements, 97% of lines), 271 Rust tests, and the same checks as above.
 - **Still needs a person:** [manual-checklist.md](manual-checklist.md) lists what tests can't cover. It's a one-off click-through in the real Windows app. Several of the feature PRs also say they weren't tried by hand in the built app; each PR description lists the steps to check.
 
 <a id="missing-features-built"></a>
@@ -23,59 +25,83 @@ The fixes were merged into `dev` in PR #66. They were done in three rounds, and 
 
 Each feature had its own ticket and PR, merged into `dev`.
 
-| F items         | What was built                                                               | Ticket | PR   |
-| --------------- | ---------------------------------------------------------------------------- | ------ | ---- |
-| F01             | Delete goes to the Recycle Bin, with a clearer confirm                       | #118   | #138 |
-| F02             | Workspace images show in the Markdown preview                                | #105   | #136 |
-| F03             | Images embedded in PDF and Word exports                                      | #106   | #155 |
-| F04, F08        | Clear message for unsupported diagrams, Mermaid syntax colours, snippets     | #108   | #141 |
-| F05, F49        | Check for updates on demand, and rc installs get updates                     | #110   | #162 |
-| F06             | Diagram zoom buttons, and keyboard zoom and pan                              | #111   | #161 |
-| F07, F17, F46   | Shared command list for the palette and menus, plus an Edit menu             | #96    | #142 |
-| F09             | Paste and drop images and files                                              | #107   | #154 |
-| F10             | Spell checking                                                               | #119   | #144 |
-| F11, F33        | Export from the File menu and palette, HTML export, a saved message          | #113   | #167 |
-| F12             | Explorer shows the active file, plus Collapse All                            | #116   | #160 |
-| F13             | Move files by drag and drop or Move to…                                      | #117   | #171 |
-| F14             | Editor and preview scroll together, with jump to source                      | #103   | #140 |
-| F15             | Editor-only layout (hide the preview)                                        | #104   | #159 |
-| F16, F41        | Status bar, and the current file shown in the title bar                      | #101   | #134 |
-| F16             | Outline panel for Markdown headings                                          | #102   | #139 |
-| F18             | Follow the Windows light/dark setting                                        | #120   | #143 |
-| F19, F38        | Reopen the last folder, remember the window, fix Restore panel layout        | #121   | #135 |
-| F20             | Live PDF preview in the export dialog                                        | #125   | #151 |
-| F21, F34        | Tab shortcuts and more tab actions                                           | #97    | #165 |
-| F22             | Keyboard moves between panes, and F2/Delete in the explorer                  | #100   | #164 |
-| F23, F39 (half) | Settings backup file, and export/import of settings and profiles             | #123   | #148 |
-| F24             | Open files from Windows Explorer                                             | #122   | #157 |
-| F25             | Logs, crash catching and diagnostic info                                     | #127   | #170 |
-| F26             | App zoom and preview text size                                               | #112   | #166 |
-| F27, F50        | ARM64 build, minimum Windows version, uninstall clean-up                     | #132   | #152 |
-| F28, F30        | New file and folder from anywhere; the name prompt no longer reads its title | #99    | #163 |
-| F29             | Palette modes: go to line, jump to heading, help                             | #128   | #169 |
-| F31, F32        | Markdown writing helpers, Ctrl+B for bold, CJK word selection                | #109   | #168 |
-| F35             | Reveal in File Explorer and Copy Path                                        | #98    | #133 |
-| F36, F37        | Copy button on code blocks, GitHub alerts and math                           | #115   | #137 |
-| F40             | Settings dialog remembers its section, plus search                           | #129   | #146 |
-| F42             | Windows 11 Snap Layouts on the maximise button                               | #130   | #150 |
-| F43             | Save examples into the folder, and examples from the welcome screen          | #131   | #149 |
-| F45             | Diagram export options and copy to clipboard                                 | #114   | #172 |
-| F47, F48        | PDF bookmarks, and page numbers that start at the body                       | #126   | #147 |
+| F items       | What was built                                                               | Ticket | PR   |
+| ------------- | ---------------------------------------------------------------------------- | ------ | ---- |
+| F01           | Delete goes to the Recycle Bin, with a clearer confirm                       | #118   | #138 |
+| F02           | Workspace images show in the Markdown preview                                | #105   | #136 |
+| F03           | Images embedded in PDF and Word exports                                      | #106   | #155 |
+| F04, F08      | Clear message for unsupported diagrams, Mermaid syntax colours, snippets     | #108   | #141 |
+| F05, F49      | Check for updates on demand, and rc installs get updates                     | #110   | #162 |
+| F06           | Diagram zoom buttons, and keyboard zoom and pan                              | #111   | #161 |
+| F07, F17, F46 | Shared command list for the palette and menus, plus an Edit menu             | #96    | #142 |
+| F09           | Paste and drop images and files                                              | #107   | #154 |
+| F10           | Spell checking                                                               | #119   | #144 |
+| F11, F33      | Export from the File menu and palette, HTML export, a saved message          | #113   | #167 |
+| F12           | Explorer shows the active file, plus Collapse All                            | #116   | #160 |
+| F13           | Move files by drag and drop or Move to…                                      | #117   | #171 |
+| F14           | Editor and preview scroll together, with jump to source                      | #103   | #140 |
+| F15           | Editor-only layout (hide the preview)                                        | #104   | #159 |
+| F16, F41      | Status bar, and the current file shown in the title bar                      | #101   | #134 |
+| F16           | Outline panel for Markdown headings                                          | #102   | #139 |
+| F18           | Follow the Windows light/dark setting                                        | #120   | #143 |
+| F18           | Palette theme commands keep following Windows                                | #153   | #174 |
+| F19, F38      | Reopen the last folder, remember the window, fix Restore panel layout        | #121   | #135 |
+| F20           | Live PDF preview in the export dialog                                        | #125   | #151 |
+| F21, F34      | Tab shortcuts and more tab actions                                           | #97    | #165 |
+| F22           | Keyboard moves between panes, and F2/Delete in the explorer                  | #100   | #164 |
+| F23, F39      | Settings backup file, and export/import of settings and profiles             | #123   | #148 |
+| F24           | Open files from Windows Explorer                                             | #122   | #157 |
+| F25           | Logs, crash catching and diagnostic info                                     | #127   | #170 |
+| F26           | App zoom and preview text size                                               | #112   | #166 |
+| F27, F50      | ARM64 build, minimum Windows version, uninstall clean-up                     | #132   | #152 |
+| F28, F30      | New file and folder from anywhere; the name prompt no longer reads its title | #99    | #163 |
+| F29           | Palette modes: go to line, jump to heading, help                             | #128   | #169 |
+| F31, F32      | Markdown writing helpers, Ctrl+B for bold, CJK word selection                | #109   | #168 |
+| F35           | Reveal in File Explorer and Copy Path                                        | #98    | #133 |
+| F36, F37      | Copy button on code blocks, GitHub alerts and math                           | #115   | #137 |
+| F39, F44      | More page sizes, more code themes, and a Contents title                      | #124   | #145 |
+| F40           | Settings dialog remembers its section, plus search                           | #129   | #146 |
+| F42           | Windows 11 Snap Layouts on the maximise button                               | #130   | #150 |
+| F43           | Save examples into the folder, and examples from the welcome screen          | #131   | #149 |
+| F45           | Diagram export options and copy to clipboard                                 | #114   | #172 |
+| F47, F48      | PDF bookmarks, and page numbers that start at the body                       | #126   | #147 |
 
-**Still open:**
-
-- **F39 (half built):** profile export and import are in (#123). More page sizes and code themes are #124, which isn't merged.
-- **F44:** the "Contents title" setting is also #124.
-- **Why #124 isn't in:** its PR #145 passed its checks on 13 November, but the agent workflow building it hit an error before it could merge (it couldn't set up its own working copy of the repo). `dev` has moved on since, so PR #145 now has merge conflicts and needs updating first.
+**Still open:** none. PR #145 (#124) was brought up to date with `dev` and merged on 14 November, which finished F39 and F44.
 
 **Small follow-ups the feature PRs left out** (details in each PR's "Left out" notes):
 
-- #153: the palette's theme commands quietly turn off "Follow Windows" (found while reviewing #120).
+- Done: the palette's theme commands no longer turn off "Follow Windows" (#153, PR #174).
 - Drag to reorder tabs (F34). The ticket marked it optional.
 - Case, whole-word and regex options for workspace search (F29). The ticket marked them optional.
 - Open with Default App (F35). Skipped because it needs a broad new permission.
 - Math in Word shows its TeX source, not a Word equation (F37).
 - Moving a Markdown file doesn't update the relative links inside it (F13).
+
+<a id="integration-review"></a>
+
+### Integration review (14 November)
+
+The features were built one by one, so once they were all in `dev`, a review checked how they work together. It confirmed 34 problems (reviewers rejected one more). They were grouped into 15 bug tickets. All 15 are fixed and merged into `dev`:
+
+| Ticket | What was fixed                                                                                                 | PR   |
+| ------ | -------------------------------------------------------------------------------------------------------------- | ---- |
+| #175   | New shortcuts work on French, German and Polish keyboards; Keyboard settings warns about F2, Shift+F10, Ctrl+. | #204 |
+| #176   | Ctrl+K pairs work in the editor, popovers no longer block shortcuts, Ctrl+E keeps read-only Markdown in view   | #195 |
+| #177   | F6 reaches notifications and the diagram canvas; Focus Next/Previous Pane start from the right pane            | #196 |
+| #178   | Ctrl+=, Ctrl+- and Ctrl+0 work while a diagram zoom button has focus                                           | #191 |
+| #179   | Missing menu and palette commands added; the layouts set the Outline                                           | #198 |
+| #180   | Reveal in File Explorer and Copy Path are palette commands; menu names match the shared commands               | #201 |
+| #181   | Ctrl+Shift+X keeps the chosen format, unsupported diagrams get a plain note, HTML keeps details closed         | #202 |
+| #182   | Short Japanese and Chinese notes get the right language; jump to source finds display maths and alerts         | #203 |
+| #183   | Copy Diagnostic Info says whether the preview is shown                                                         | #192 |
+| #184   | Settings backups keep profile images; Import settings takes settings.json from older installs                  | #194 |
+| #185   | Edit > Paste pastes pictures; images over 12 MB are refused instead of saved but not shown                     | #199 |
+| #186   | Opening from Explorer mentions kept edits and keeps tab lists; dropped files open the same way                 | #200 |
+| #187   | A file double-clicked after an update that didn't install now opens                                            | #190 |
+| #188   | Moving an open file keeps its undo history and place in the file                                               | #193 |
+| #189   | Typing in a big Markdown file no longer stalls while the status bar recounts words                             | #197 |
+
+**Still open:** #205. After F6 to a notification, pressing its button closes it and focus drops to the page instead of going back to the pane you were in. F6 still gets you back. It was found while reviewing PR #196.
 
 ## Overview
 
@@ -91,14 +117,14 @@ Scrivon's main idea works: you open a folder, edit Markdown and Mermaid side by 
 | Performance (P)             | 0        | 0      | 8       | 11      | 19      | 0                   |
 | UI/UX (U)                   | 1        | 3      | 31      | 58      | 93      | 0                   |
 | Accessibility (A)           | 0        | 0      | 11      | 16      | 27      | 0                   |
-| Missing features (F)        | 0        | 4      | 22      | 24      | 50      | 2 (F39 half, F44)   |
+| Missing features (F)        | 0        | 4      | 22      | 24      | 50      | 0                   |
 | Build/release/docs (R)      | 0        | 1      | 5       | 10      | 16      | 1 (R16)             |
 | Code health (C)             | 0        | 0      | 2       | 17      | 19      | 0                   |
-| **Total**                   | **9**    | **26** | **142** | **211** | **388** | **4**               |
+| **Total**                   | **9**    | **26** | **142** | **211** | **388** | **2**               |
 
 The R group holds 10 build/release items and 6 documentation items.
 
-Missing features: 48 of the 50 are now built. F39 is half built and F44 is open, both waiting on #124. [Missing features built](#missing-features-built) lists the ticket and PR for each one.
+Missing features: all 50 are now built. [Missing features built](#missing-features-built) lists the ticket and PR for each one.
 
 How to read the labels:
 
@@ -3592,7 +3618,7 @@ Ranked by how much they hurt users.
 
 <a id="f39"></a>
 
-#### ⬜ F39 · [low] Few page sizes and code themes, and no way to share profiles
+#### ✅ F39 · [low] Few page sizes and code themes, and no way to share profiles
 
 - **Where:** `lib/settings/pdf-export-types.ts:4` (also `lib/markdown/shiki-highlighter.ts:3`, `pdf-export-settings.tsx:135`)
 - **What happens:** Only A4 and Letter pages and two code colour themes are offered, and profiles can't be exported, imported or backed up.
@@ -3600,7 +3626,7 @@ Ranked by how much they hurt users.
 - **Why:** The options are hardcoded lists.
 - **Fix:** Add A3, A5, Legal and a custom size, more code themes, profile Export/Import (embedding images), and mention profiles in the Restore defaults warning.
 - **Effort:** medium
-- **Status (14 November 2026):** half built. Profile export and import are in (#123, PR #148). The page sizes and code themes are #124 (PR #145, not merged yet).
+- **Status (14 November 2026):** built. Profile export and import came with #123 (PR #148). A3, A5, Legal, a custom size and 9 more code themes came with #124 (PR #145).
 
 <a id="f40"></a>
 
@@ -3648,7 +3674,7 @@ Ranked by how much they hurt users.
 
 <a id="f44"></a>
 
-#### ⬜ F44 · [low] Exports always print 'Contents' and 'Page N' in English, with no setting to change them
+#### ✅ F44 · [low] Exports always print 'Contents' and 'Page N' in English, with no setting to change them
 
 - **Where:** `lib/settings/pdf-export-types.ts:73` (used at `markdown-to-export-html.ts:108` and `export-docx.ts:1231`)
 - **What happens:** A French or Japanese document's contents page is always headed "Contents".
@@ -3656,7 +3682,7 @@ Ranked by how much they hurt users.
 - **Why:** The heading is hardcoded.
 - **Fix:** Add a "Contents title" field to the export profile (and optionally a front-matter override). The custom footer already covers page wording.
 - **Effort:** small
-- **Status (14 November 2026):** not built yet. It's part of #124 (PR #145, not merged yet).
+- **Status (14 November 2026):** built in #124 (PR #145). Export profiles have a "Contents title" field, and a document's `toc-title:` front matter overrides it. PDF and Word both use it.
 
 <a id="f45"></a>
 
