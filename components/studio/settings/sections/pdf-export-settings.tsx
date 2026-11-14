@@ -317,7 +317,7 @@ export function PdfExportSettings() {
                 <Field>
                     <FieldLabel htmlFor="pdf-profile">Default export profile</FieldLabel>
                     <FieldDescription>
-                        Styles for both PDF and Word export. The Export dialog starts with this profile, and you can pick another there for one
+                        Styles for PDF, Word and HTML export. The Export dialog starts with this profile, and you can pick another there for one
                         export.
                     </FieldDescription>
                     <div className="flex flex-wrap gap-2">
@@ -477,7 +477,7 @@ export function PdfExportSettings() {
                     <NumberSetting
                         id="pdf-line-height"
                         label="Line height"
-                        description="Multiple of the font size, in both PDF and Word."
+                        description="Multiple of the font size, in PDF, Word and HTML."
                         value={active.typography.lineHeight}
                         {...PDF_EXPORT_LIMITS.lineHeight}
                         onChange={(lineHeight) => setSection('typography', { lineHeight })}

@@ -1,7 +1,10 @@
 'use client'
 
+import { usePaletteCommands } from '@/components/studio/command-palette/palette-commands'
 import { useExplorerCommands } from '@/components/studio/explorer/explorer-commands'
 import { useNewItemCommands } from '@/components/studio/explorer/new-item-commands'
+import { usePathCommands } from '@/components/studio/explorer/path-commands'
+import { useSettingSwitchCommands } from '@/components/studio/settings/setting-switch-commands'
 import { usePaneFocusCommands } from '@/components/studio/shell/pane-focus-commands'
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
 import { useThemeCommands } from '@/components/studio/theme/theme-commands'
@@ -27,7 +30,11 @@ export function StudioCommands() {
     useLayoutCommands()
     usePaneFocusCommands()
     useExplorerCommands()
+    usePathCommands()
     useAppZoomCommands()
+    // After zoom, so the welcome screen's first suggestions stay ones that do something there.
+    useSettingSwitchCommands()
+    usePaletteCommands()
     useThemeCommands()
     useExitCommand()
     return null

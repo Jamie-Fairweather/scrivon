@@ -68,8 +68,25 @@ function renderProvider(selection: string | null) {
                 <div data-testid="editor" tabIndex={0} />
             </div>
             <button type="button">Explorer</button>
+            {/* Stands in for the menu bar and an open menu. */}
+            <div role="menubar">
+                <button type="button" role="menuitem">
+                    Edit
+                </button>
+            </div>
+            <div role="menu">
+                <button type="button" role="menuitem">
+                    Find in Workspace…
+                </button>
+            </div>
         </CommandPaletteProvider>
     )
+}
+
+/** Focus goes to a menu title, then into its menu, as when Edit → Find in Workspace… is chosen. */
+function focusMenuItem() {
+    act(() => screen.getByRole('menuitem', { name: 'Edit' }).focus())
+    act(() => screen.getByRole('menuitem', { name: 'Find in Workspace…' }).focus())
 }
 
 function focusEditor() {
@@ -106,6 +123,32 @@ describe('CommandPaletteProvider query seeding', () => {
         renderProvider('flowchart')
         focusEditor()
         act(() => screen.getByRole('button', { name: 'Explorer' }).focus())
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('')
+    })
+
+    it('starts Find in Workspace from the selection when it is run from the menu bar', () => {
+        renderProvider('flowchart')
+        focusEditor()
+        focusMenuItem()
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('flowchart')
+    })
+
+    it('ignores the selection when the menu bar was opened from another part of the app', () => {
+        renderProvider('flowchart')
+        focusEditor()
+        act(() => screen.getByRole('button', { name: 'Explorer' }).focus())
+        focusMenuItem()
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('')
+    })
+
+    it('ignores the selection when nothing had focus before the menu bar', () => {
+        renderProvider('flowchart')
+        focusEditor()
+        act(() => screen.getByTestId('editor').blur())
+        focusMenuItem()
         act(() => palette.openMode('text'))
         expect(screen.getByRole('combobox')).toHaveValue('')
     })

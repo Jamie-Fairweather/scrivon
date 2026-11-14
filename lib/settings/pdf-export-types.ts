@@ -163,4 +163,6 @@ export type PdfExportDocument = {
     html: string
     metadata: PdfExportMetadata
     print: PdfPrintOptions
+    /** Diagrams printed as a note or an error instead of a picture. */
+    diagramsNotDrawn: number
 }

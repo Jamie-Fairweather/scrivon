@@ -39,7 +39,7 @@ describe('renderExportHtml', () => {
     })
 
     it('builds a web page with the text and its own styles, and nothing loaded from elsewhere', async () => {
-        const html = await renderExportHtml(buildExportDocument('# Plan\n\nHello there', { tabName: 'plan.md', profile: fullProfile() }))
+        const { html } = await renderExportHtml(buildExportDocument('# Plan\n\nHello there', { tabName: 'plan.md', profile: fullProfile() }))
         expect(html).toMatch(/^<!DOCTYPE html>/)
         expect(html).toContain('<title>Plan</title>')
         expect(html).toContain('Hello there')
@@ -49,7 +49,7 @@ describe('renderExportHtml', () => {
     })
 
     it('leaves out the PDF page header, footer and page numbers', async () => {
-        const html = await renderExportHtml(buildExportDocument('# Plan\n\nHello there', { tabName: 'plan.md', profile: fullProfile() }))
+        const { html } = await renderExportHtml(buildExportDocument('# Plan\n\nHello there', { tabName: 'plan.md', profile: fullProfile() }))
         expect(html).not.toContain('ACME-HEADER')
         expect(html).not.toContain('ACME-FOOTER')
         expect(html).not.toContain('class="pdf-chrome-table')
@@ -62,21 +62,21 @@ describe('renderExportHtml', () => {
         profile.frontMatter.titlePage = true
         profile.frontMatter.toc = true
         profile.frontMatter.tocExcludeH1 = false
-        const html = await renderExportHtml(buildExportDocument('# Plan\n\n## Goals\n\nText', { tabName: 'plan.md', profile }))
+        const { html } = await renderExportHtml(buildExportDocument('# Plan\n\n## Goals\n\nText', { tabName: 'plan.md', profile }))
         expect(html).toContain('class="pdf-title-page"')
         expect(html).toContain('<a href="#goals"><span class="pdf-toc-title" dir="auto">Goals</span></a>')
     })
 
     it('puts the author and subtitle in the page details, escaped', async () => {
         const source = '---\nauthor: Ada & Co\nsubtitle: The "plan"\n---\n# Plan'
-        const html = await renderExportHtml(buildExportDocument(source, { tabName: 'plan.md' }))
+        const { html } = await renderExportHtml(buildExportDocument(source, { tabName: 'plan.md' }))
         expect(html).toContain('<meta name="author" content="Ada &amp; Co" />')
         expect(html).toContain('<meta name="description" content="The &quot;plan&quot;" />')
     })
 
     it('keeps a $ in the page details as typed', async () => {
         const source = "---\nauthor: $& Sons\nsubtitle: Save $$ and $' here\n---\n# Plan\n\nBody text"
-        const html = await renderExportHtml(buildExportDocument(source, { tabName: 'plan.md' }))
+        const { html } = await renderExportHtml(buildExportDocument(source, { tabName: 'plan.md' }))
         expect(html).toContain('<meta name="author" content="$&amp; Sons" />')
         expect(html).toContain(`<meta name="description" content="Save $$ and $' here" />`)
         expect(html.match(/Body text/g)).toHaveLength(1)
@@ -84,13 +84,28 @@ describe('renderExportHtml', () => {
     })
 
     it('leaves the page details out when there is no author or subtitle', async () => {
-        const html = await renderExportHtml(buildExportDocument('# Plan', { tabName: 'plan.md' }))
+        const { html } = await renderExportHtml(buildExportDocument('# Plan', { tabName: 'plan.md' }))
         expect(html).not.toContain('name="author"')
         expect(html).not.toContain('name="description"')
     })
 
+    it('leaves <details> closed, as the preview and GitHub show them, since a web page can be clicked', async () => {
+        const source = ['# Plan', '', '<details>', '<summary>Full log</summary>', '', 'Long log here.', '', '</details>'].join('\n')
+        const { html } = await renderExportHtml(buildExportDocument(source, { tabName: 'plan.md' }))
+        expect(html).toMatch(/<details>\s*<summary>Full log<\/summary>/)
+        expect(html).not.toContain('<details open')
+    })
+
+    it("prints a diagram type Scrivon can't draw as a short note and its source", async () => {
+        const { html, diagramsNotDrawn } = await renderExportHtml(buildExportDocument('# Notes\n\n```mermaid\npie\n  "Dogs" : 3\n```\n'))
+        expect(html).toContain('Pie chart: not supported in Scrivon yet')
+        expect(html).toContain('"Dogs" : 3')
+        expect(html).not.toContain('Scrivon can draw')
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
     it('draws diagrams into the page', async () => {
-        const html = await renderExportHtml(buildExportDocument('# Plan\n\n```mermaid\ngraph TD; A-->B\n```', { tabName: 'plan.md' }))
+        const { html } = await renderExportHtml(buildExportDocument('# Plan\n\n```mermaid\ngraph TD; A-->B\n```', { tabName: 'plan.md' }))
         expect(html).toContain('<svg data-mermaid="graph TD; A-->B"')
     })
 })

@@ -22,7 +22,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **File explorer** — Create, rename, duplicate, and delete `.md`, `.markdown`, `.mmd`, `.mermaid` files and folders from the sidebar
 - **Multi-tab editing** — Work across several documents in one session; tab state is restored per workspace
 - **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
-- **Open from File Explorer** — Double-click a `.md`, `.markdown`, `.mmd` or `.mermaid` file, or use **Open with**, to open it in a tab with its folder. If Scrivon is already open, that window opens it. Paths given on the command line work the same way
+- **Open from File Explorer** — Double-click a `.md`, `.markdown`, `.mmd` or `.mermaid` file, or use **Open with**, to open it in a tab with its folder. If Scrivon is already open, that window opens it. Paths given on the command line work the same way, and so does dropping a file onto the window when no folder is open
 
 ### Mermaid diagrams
 

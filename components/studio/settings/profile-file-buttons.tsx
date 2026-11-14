@@ -3,16 +3,13 @@
 import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
 import { importedProfileName } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportProfile } from '@/lib/settings/pdf-export-types'
-import { profileExportText, profileFileName, readProfileExport, type LeftOutImage } from '@/lib/settings/profile-transfer'
+import { describeLeftOut } from '@/lib/settings/profile-images'
+import { profileExportText, profileFileName, readProfileExport } from '@/lib/settings/profile-transfer'
 import { pickJsonSavePath, readChosenJsonFile } from '@/lib/settings/transfer-files'
 import { writeTextFileAtPath } from '@/lib/tauri/dialog'
 import { getBaseName } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { Button } from '@/components/ui/button'
-
-function describeLeftOut(leftOut: LeftOutImage[]): string {
-    return leftOut.map(({ slot, reason }) => `${slot}: ${reason}`).join(' ')
-}
 
 type ProfileFileButtonsProps = {
     /** The profile Export saves. */

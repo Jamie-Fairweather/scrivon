@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { CommandRegistryProvider, useRegisterCommands } from '@/components/studio/commands/command-registry'
+import { buildEditorCommands } from '@/components/studio/editor/editor-commands'
 import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { SettingsProvider, useAppSettings } from '@/components/studio/settings/settings-provider'
 
@@ -111,6 +112,59 @@ describe('GlobalKeybindsProvider', () => {
         expect(mocks.code).not.toHaveBeenCalled()
         expect(mocks.toggleEditor).toHaveBeenCalledTimes(1)
         editor.remove()
+    })
+
+    describe("with the editor's own commands", () => {
+        /** The editor's real commands for the file, plus Toggle Editor, which shares Ctrl+E with Inline Code. */
+        function renderFor(file: { readOnly: boolean; markdown: boolean }) {
+            const runFormat = vi.fn()
+            const toggleEditor = vi.fn()
+            const commands: AppCommand[] = [
+                ...buildEditorCommands({ editor: 'ready', isMac: false, runAction: vi.fn(), runFormat, ...file }),
+                { id: 'toggle-editor', label: 'Editor', keybind: 'view.toggleEditor', run: toggleEditor },
+            ]
+            function FileCommands() {
+                useRegisterCommands(commands)
+                return null
+            }
+            renderHook(() => useAppSettings(), {
+                wrapper: ({ children }: { children: ReactNode }) => (
+                    <SettingsProvider>
+                        <CommandRegistryProvider>
+                            <FileCommands />
+                            <GlobalKeybindsProvider>{children}</GlobalKeybindsProvider>
+                        </CommandRegistryProvider>
+                    </SettingsProvider>
+                ),
+            })
+            const editor = document.createElement('div')
+            editor.className = 'monaco-editor'
+            const text = document.createElement('div')
+            text.className = 'native-edit-context'
+            editor.appendChild(text)
+            document.body.appendChild(editor)
+            return { text, runFormat, toggleEditor, cleanUp: () => editor.remove() }
+        }
+
+        it('takes the format keys in a read-only Markdown file and does nothing, so Ctrl+E never hides the editor', () => {
+            const { text, runFormat, toggleEditor, cleanUp } = renderFor({ readOnly: true, markdown: true })
+
+            const taken = ['b', 'i', 'e', 'k'].map((key) => press(key, { ctrlKey: true }, text))
+
+            expect(taken).toEqual([true, true, true, true])
+            expect(runFormat).not.toHaveBeenCalled()
+            expect(toggleEditor).not.toHaveBeenCalled()
+            cleanUp()
+        })
+
+        it('still passes Ctrl+E on to Toggle Editor in a read-only file that is not Markdown', () => {
+            const { text, toggleEditor, cleanUp } = renderFor({ readOnly: true, markdown: false })
+
+            expect(press('e', { ctrlKey: true }, text)).toBe(true)
+
+            expect(toggleEditor).toHaveBeenCalledTimes(1)
+            cleanUp()
+        })
     })
 
     it('leaves keys alone when no command has them', () => {

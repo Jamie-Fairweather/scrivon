@@ -12,7 +12,7 @@ export type PdfExportImageSlot = {
 
 /**
  * Every image a profile can name. The export reads them (lib/markdown/export-assets.ts), profile files
- * embed them (lib/settings/profile-transfer.ts), and the image check knows them (lib/tauri/export-image-access.ts).
+ * embed them (lib/settings/profile-images.ts), and the image check knows them (lib/tauri/export-image-access.ts).
  */
 export const PDF_EXPORT_IMAGE_SLOTS: readonly PdfExportImageSlot[] = [
     {

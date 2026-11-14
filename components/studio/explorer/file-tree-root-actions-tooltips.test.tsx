@@ -31,12 +31,12 @@ describe('FileTreeRootActions tooltips', () => {
         expect(await screen.findByText('New file or folder')).toBeInTheDocument()
 
         await user.keyboard('{Enter}')
-        expect(await screen.findByRole('menuitem', { name: 'New Diagram (.mmd)' })).toBeInTheDocument()
+        expect(await screen.findByRole('menuitem', { name: 'New Diagram…' })).toBeInTheDocument()
 
         await user.keyboard('{Escape}')
         expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 
         fireEvent.click(newButton)
-        expect(await screen.findByRole('menuitem', { name: 'New Folder' })).toBeInTheDocument()
+        expect(await screen.findByRole('menuitem', { name: 'New Folder…' })).toBeInTheDocument()
     })
 })

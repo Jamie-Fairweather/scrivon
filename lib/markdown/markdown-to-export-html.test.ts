@@ -8,6 +8,8 @@ vi.mock('@/lib/mermaid/render', () => ({
     renderMermaidDiagramForExport: vi.fn((source: string) => {
         if (source.includes('FAIL_STRING')) throw 'mermaid string boom'
         if (source.includes('FAIL')) throw new Error('mermaid boom')
+        // As the real renderer does: the preview card's help.
+        if (source.startsWith('pie')) throw new Error("Pie charts aren't supported yet. Scrivon can draw:\n• Flowcharts (flowchart TD or graph LR)")
         // A diagram with nothing to draw yet renders without error to a 0×0 picture.
         if (source.includes('EMPTY')) return '<svg viewBox="0 0 0 0" width="0" height="0"></svg>'
         return `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`
@@ -1077,6 +1079,31 @@ SHIKI_FAIL
         expect(html).toContain('<pre dir="ltr" class="export-error pdf-avoid-break">Empty diagram: there is nothing to draw yet.</pre>')
         expect(html).not.toContain('<div dir="ltr" class="mermaid-export')
         expect(html).not.toContain('<svg')
+    })
+
+    it("prints a diagram type Scrivon can't draw as a short note for readers and its source, not the preview's help", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html, diagramsNotDrawn } = await markdownToExportHtml('# Notes\n\n```mermaid\npie\n  "Dogs" : 3\n```\n')
+        expect(html).toContain('<p dir="ltr" class="export-diagram-note">Pie chart: not supported in Scrivon yet</p>')
+        // The diagram's data still reaches the reader, as a code block.
+        expect(html).toMatch(/<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>pie\n {2}"Dogs" : 3<\/code><\/pre><\/div>/)
+        expect(html).not.toContain('Scrivon can draw')
+        expect(html).not.toContain('class="export-error')
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
+    it('counts the diagrams it could not draw: errors, empty ones and types it does not support', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const diagram = (text: string) => ['```mermaid', text, '```'].join('\n')
+        const source = [
+            '# Notes',
+            diagram('graph TD; A-->B'),
+            diagram('graph TD FAIL'),
+            diagram('graph TD EMPTY'),
+            diagram('pie\n  "Dogs" : 3'),
+        ].join('\n\n')
+        expect((await markdownToExportHtml(source)).diagramsNotDrawn).toBe(3)
+        expect((await markdownToExportHtml('# Notes\n\n```js\nconst a = 1\n```')).diagramsNotDrawn).toBe(0)
     })
 
     it('names each diagram picture the way Word does, from accTitle or its kind and nodes (A26)', async () => {

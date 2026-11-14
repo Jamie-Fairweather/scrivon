@@ -79,6 +79,16 @@ describe('buildLayoutCommands layout modes', () => {
         expect(find(ctx, 'preview-only')?.keybind).toBe('view.previewOnly')
     })
 
+    it('shows the Outline with all panels and closes it for Editor and Preview, as Preview Only does', () => {
+        const closed = context({ outlineOpen: false })
+        void find(closed, 'layout-all-panels')!.run()
+        expect(closed.setOutlineOpen).toHaveBeenLastCalledWith(true)
+
+        const open = context({ outlineOpen: true })
+        void find(open, 'layout-editor-preview')!.run()
+        expect(open.setOutlineOpen).toHaveBeenLastCalledWith(false)
+    })
+
     it('can be found by typing "layout"', () => {
         for (const id of ['layout-all-panels', 'layout-editor-preview', 'preview-only']) {
             expect(find(context(), id)?.keywords).toContain('layout')
