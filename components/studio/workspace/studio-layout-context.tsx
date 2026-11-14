@@ -3,7 +3,8 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import type { AppSettings } from '@/lib/settings/types'
-import { isPreviewShown, type StudioLayoutState } from '@/lib/workspace/types'
+import { isPreviewShown } from '@/lib/workspace/layout'
+import type { StudioLayoutState } from '@/lib/workspace/types'
 
 type StudioLayoutContextValue = {
     layout: StudioLayoutState

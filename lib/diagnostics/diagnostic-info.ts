@@ -5,7 +5,7 @@ import { chordListsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { FOLLOW_SYSTEM, type AppSettings, type KeybindActionId } from '@/lib/settings/types'
 import { isTauri } from '@/lib/tauri/platform'
-import { isPreviewShown } from '@/lib/workspace/types'
+import { isPreviewShown } from '@/lib/workspace/layout'
 import { formatZoomPercent } from '@/lib/zoom/app-zoom'
 
 /** What the desktop app says about the computer (SystemInfo in src-tauri/src/diagnostics.rs). */
