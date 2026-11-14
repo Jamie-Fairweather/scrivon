@@ -37,7 +37,7 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses, onCopyDiagnost
                 <DialogPanel className="space-y-3 pt-0">
                     <p className="text-sm text-muted-foreground">
                         Edit Mermaid diagrams and Markdown documents in a folder workspace with live preview. Save diagrams as SVG or PNG, and
-                        documents as PDF or Word. Diagram rendering uses{' '}
+                        documents as PDF, Word or HTML. Diagram rendering uses{' '}
                         <a
                             href="https://github.com/lukilabs/beautiful-mermaid"
                             target="_blank"

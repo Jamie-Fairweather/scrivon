@@ -1,10 +1,9 @@
-import type { Root, Text } from 'mdast'
+import type { Root } from 'mdast'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
 import { applyPdfFooterSwitch } from '@/lib/markdown/export-html-css'
 import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
-import { guessDocumentLanguage, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { guessProseLanguage, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
@@ -44,15 +43,6 @@ export type ExportDocument = {
     contentsTitle: string
 }
 
-/** The document's prose for guessing its language. Code is left out: it reads as English whatever the text is in. */
-function proseText(tree: Root): string {
-    const parts: string[] = []
-    visit(tree, 'text', (node: Text) => {
-        parts.push(node.value)
-    })
-    return parts.join(' ')
-}
-
 /**
  * Markdown + profile (+ overrides) → the document PDF and Word both render.
  * Throws `Nothing to export.` when the body is empty after front matter is removed.
@@ -78,7 +68,7 @@ export function buildExportDocument(source: string, options: BuildExportDocument
 
     return {
         metadata,
-        lang: lang ?? guessDocumentLanguage(proseText(tree)),
+        lang: lang ?? guessProseLanguage(tree),
         langGuessed: lang === undefined,
         profile,
         assets,

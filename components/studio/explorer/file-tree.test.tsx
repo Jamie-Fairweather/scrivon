@@ -331,7 +331,7 @@ describe('FileTree', () => {
     it('does not collapse a folder when an item in its actions menu is chosen', async () => {
         render(<FileTree tree={tree} />)
 
-        await chooseFromActionsMenu('docs', 'New Folder')
+        await chooseFromActionsMenu('docs', 'New Folder…')
 
         expect(promptName).toHaveBeenCalledTimes(1)
         expect(item('docs')).toHaveAttribute('aria-expanded', 'true')
