@@ -546,7 +546,7 @@ export const THIRD_PARTY_PACKAGES: ThirdPartyPackage[] = [
         "license": "MIT",
         "repository": "https://github.com/wooorm/character-entities",
         "ecosystem": "npm",
-        "licenseText": T[19]
+        "licenseText": T[20]
     },
     {
         "name": "character-entities-html4",
