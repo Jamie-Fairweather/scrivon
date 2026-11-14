@@ -29,7 +29,7 @@ const WIDE_PNG = (() => {
 /** The main part of a Word file: the zip entry `word/document.xml`, unpacked. */
 function wordXml(docx: Uint8Array): string {
     const data = Buffer.from(docx)
-    for (let offset = 0; data.readUInt32LE(offset) === 0x04034b50;) {
+    for (let offset = 0; data.readUInt32LE(offset) === 0x04034b50; ) {
         const compressed = data.readUInt32LE(offset + 18)
         const nameLength = data.readUInt16LE(offset + 26)
         const start = offset + 30 + nameLength + data.readUInt16LE(offset + 28)

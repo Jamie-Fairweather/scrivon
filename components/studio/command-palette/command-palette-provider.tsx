@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import { queryForMode, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
 import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
@@ -31,12 +31,37 @@ export function useOptionalCommandPalette(): CommandPaletteContextValue | null {
     return useContext(CommandPaletteContext)
 }
 
+/** The menu bar and its menus, where focus goes on the way to a menu command. */
+const MENUS = '[role="menubar"], [role="menu"]'
+
+function inEditor(el: unknown): boolean {
+    return el instanceof Element && el.closest('.monaco-editor') != null
+}
+
 /**
- * True while the code editor has keyboard focus. Monaco keeps its selection after the user clicks
- * into the explorer or preview, so only a selection in the editor being worked in seeds the query.
+ * True while the code editor has keyboard focus, or had it just before the menu bar took it, so Edit → Find
+ * in Workspace… works like its keys. Monaco keeps its selection after the user clicks into the explorer or
+ * preview, so only a selection in the editor being worked in seeds the query.
  */
-function editorHasFocus(): boolean {
-    return document.activeElement?.closest('.monaco-editor') != null
+function useEditorHasFocus(): () => boolean {
+    const editorBeforeMenusRef = useRef(false)
+
+    useEffect(() => {
+        const onFocusIn = (e: FocusEvent) => {
+            if (!(e.target instanceof Element) || !e.target.closest(MENUS)) return
+            const from = e.relatedTarget
+            // Moving between menus keeps what was there before them.
+            if (from instanceof Element && from.closest(MENUS)) return
+            editorBeforeMenusRef.current = inEditor(from)
+        }
+        document.addEventListener('focusin', onFocusIn)
+        return () => document.removeEventListener('focusin', onFocusIn)
+    }, [])
+
+    return useCallback(() => {
+        const active = document.activeElement
+        return active?.closest(MENUS) ? editorBeforeMenusRef.current : inEditor(active)
+    }, [])
 }
 
 type CommandPaletteProviderProps = {
@@ -51,6 +76,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
     const [mode, setModeState] = useState<PaletteMode>('all')
     const modeRef = useRef<PaletteMode>('all')
     const openRef = useRef(false)
+    const editorHasFocus = useEditorHasFocus()
 
     const {
         query,
@@ -92,7 +118,7 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
             setMounted(true)
             setOpen(true)
         },
-        [coordinator, resetSearch, setQuery, setMode]
+        [coordinator, editorHasFocus, resetSearch, setQuery, setMode]
     )
 
     const handleOpenChange = useCallback((nextOpen: boolean) => {

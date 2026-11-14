@@ -401,6 +401,16 @@ describe('usePaletteSearch commands in the default results', () => {
         expect(groupPaths(result.current.groups, 'actions')).toContain('action:theme:nord')
     })
 
+    it('suggests commands that do something on the welcome screen before the on/off switches', () => {
+        state.session.workspaceRoot = null
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        const commands = groupPaths(result.current.groups, 'actions')
+        expect(commands).toContain('action:app-zoom-in')
+        // The status bar only shows with a folder open, so its switch would do nothing there.
+        expect(commands).not.toContain('action:toggle-status-bar')
+    })
+
     it('lists commands first on a fresh start with no recent folders', () => {
         state.session.workspaceRoot = null
         const { result } = renderHook(() => usePaletteSearch('all', true))
