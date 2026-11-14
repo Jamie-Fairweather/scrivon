@@ -27,9 +27,10 @@ import {
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
 import { decode, markdownUrlTransform, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
-import { markdownBodyFirstLine, markdownPreviewBody, markdownPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
-import { rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
+import { markdownBodyFirstLine, rehypePreviewArticle, remarkPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import { rehypeDisplayMathLines, rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
 import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
+import { parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { htmlAlertKind, type GithubAlertKind } from '@/lib/markdown/github-alerts'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
@@ -77,7 +78,14 @@ function remarkHeadingIds() {
     }
 }
 
-const remarkPlugins: PluggableList = [...markdownRemarkPlugins, remarkHeadingIds]
+const baseRemarkPlugins: PluggableList = [...markdownRemarkPlugins, remarkHeadingIds]
+
+/**
+ * The document's <article>. break-words: a long URL or path wraps instead of making the whole preview scroll
+ * sideways. Block math isn't in a paragraph, so it gets the paragraphs' text size and space below here. preview-text
+ * sizes the text and spacing by the Preview text size setting (app/globals.css).
+ */
+const ARTICLE_CLASS_NAME = 'preview-text w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm'
 
 /** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
 function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
@@ -485,20 +493,22 @@ export const MarkdownPreview = memo(function MarkdownPreview({
         }
     }, [onExpandBlock, onLinkClick, tabId])
 
-    const body = useMemo(() => markdownPreviewBody(source), [source])
+    const { body, lang } = useMemo(() => parsePdfExportFrontMatter(source), [source])
     const firstLine = useMemo(() => markdownBodyFirstLine(source, body), [source, body])
     // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
-    const lang = useMemo(() => markdownPreviewLang(source), [source])
+    const remarkPlugins = useMemo((): PluggableList => [...baseRemarkPlugins, remarkPreviewLang(lang)], [lang])
     // Safe raw HTML first, then math (which the sanitizer would strip), then the numbering and source lines, so the
     // sanitizer can't strip the blocks' data properties. Per document, so each block's id is matched against the
     // blocks this document showed last time.
     const rehypePlugins = useMemo(
         (): PluggableList => [
             ...previewHtmlPlugins,
+            rehypeDisplayMathLines,
             ...mathRehypePlugins,
             rehypeFencedBlockOrdinals,
             rehypeMermaidBlockIds(tabId ?? ''),
             rehypeSourceLines(firstLine),
+            rehypePreviewArticle(ARTICLE_CLASS_NAME),
         ],
         [tabId, firstLine]
     )
@@ -517,7 +527,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 {body}
             </ReactMarkdown>
         ),
-        [body, components, rehypePlugins]
+        [body, components, remarkPlugins, rehypePlugins]
     )
 
     const remoteImages = useMemo(() => ({ load: loadRemoteImages, onBlocked: onRemoteImageBlocked }), [loadRemoteImages, onRemoteImageBlocked])
@@ -525,17 +535,10 @@ export const MarkdownPreview = memo(function MarkdownPreview({
 
     return (
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
-            {/* break-words: a long URL or path wraps instead of making the whole preview scroll sideways. Block math
-                isn't in a paragraph, so it gets the paragraphs' text size and space below here. preview-text sizes the
-                text and spacing by the Preview text size setting (app/globals.css). */}
-            <article
-                lang={lang}
-                className="preview-text w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm"
-            >
-                <RemoteImagesContext.Provider value={remoteImages}>
-                    <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
-                </RemoteImagesContext.Provider>
-            </article>
+            {/* The document's <article> comes from rehypePreviewArticle, with its language. */}
+            <RemoteImagesContext.Provider value={remoteImages}>
+                <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
+            </RemoteImagesContext.Provider>
         </div>
     )
 })
