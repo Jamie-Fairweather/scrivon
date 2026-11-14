@@ -96,9 +96,11 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
         }
 
         const handleKeyDown = (event: KeyboardEvent) => {
+            // Before anything else, so a key the app sends doesn't make it forget the key you're holding.
+            if (sentPastShortcuts.has(event)) return
             const key = event.code || event.key
             if (!event.repeat) heldKey = null
-            if (event.defaultPrevented || sentPastShortcuts.has(event)) return
+            if (event.defaultPrevented) return
 
             if (keyPairUntil > 0 && (!isModifierKey(event.key) || LOCK_KEYS.has(event.key))) {
                 if (Date.now() >= keyPairUntil) {

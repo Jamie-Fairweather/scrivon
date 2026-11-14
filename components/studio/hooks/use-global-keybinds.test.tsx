@@ -290,6 +290,19 @@ describe('useGlobalKeybinds', () => {
                 expect(nextTab).toHaveBeenCalledTimes(2)
                 expect(repeat.defaultPrevented).toBe(true)
             })
+
+            it('still stops the repeats after the app sends a key past its shortcuts', () => {
+                const focusNextPane = vi.fn()
+                renderHook(() => useGlobalKeybinds(bindings, { 'view.focusNextPane': focusNextPane }, { hasWorkspace: true }))
+
+                // F6 to the notifications: the app sends Base UI an F6 of its own while the real one is held.
+                press('F6', { code: 'F6' })
+                sendKeyPastShortcuts(window, { key: 'F6' })
+                const repeat = press('F6', { code: 'F6', repeat: true })
+
+                expect(focusNextPane).toHaveBeenCalledTimes(1)
+                expect(repeat.defaultPrevented).toBe(true)
+            })
         })
 
         describe('after Ctrl+K reaches the editor', () => {

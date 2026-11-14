@@ -324,6 +324,28 @@ describe('cyclePaneFocus with notifications', () => {
         expect(focused()).toBe(preview)
     })
 
+    it("still focuses the notifications when Base UI doesn't hear the app's F6", async () => {
+        // Like a Base UI update that stops listening for F6 on the window: a listener ahead of it swallows the key.
+        const swallowF6 = (event: KeyboardEvent) => {
+            if (event.key === 'F6') event.stopImmediatePropagation()
+        }
+        window.addEventListener('keydown', swallowF6, { capture: true })
+        try {
+            render(
+                <ToastProvider>
+                    <Panes />
+                </ToastProvider>
+            )
+            await showSaveFailed()
+
+            screen.getByRole('region', { name: 'Preview' }).focus()
+            expect(cyclePaneFocus(1)).toBe(true)
+            expect(focused()).toBe(screen.getByRole('region', { name: 'Notifications' }))
+        } finally {
+            window.removeEventListener('keydown', swallowF6, { capture: true })
+        }
+    })
+
     it('skips the notifications while none shows', async () => {
         render(
             <ToastProvider>
