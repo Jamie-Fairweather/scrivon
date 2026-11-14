@@ -728,7 +728,7 @@ describe('StudioMenuBar View menu', () => {
         expect(groups.slice(0, 3)).toEqual([
             ['ExplorerCtrl+Shift+B', 'EditorCtrl+E', 'PreviewCtrl+Alt+P', 'Outline', 'Status Bar'],
             ['Show All Panels', 'Editor and Preview', 'Preview OnlyCtrl+Shift+O'],
-            ['Reveal Active File in Explorer', 'Collapse All Folders'],
+            ['Reveal Active File in Sidebar', 'Collapse All Folders'],
         ])
     })
 
