@@ -27,11 +27,12 @@ export function StudioCommands() {
     useNewItemCommands()
     useDocumentCommands()
     useLayoutCommands()
-    useSettingSwitchCommands()
-    usePaletteCommands()
     usePaneFocusCommands()
     useExplorerCommands()
     useAppZoomCommands()
+    // After zoom, so the welcome screen's first suggestions stay ones that do something there.
+    useSettingSwitchCommands()
+    usePaletteCommands()
     useThemeCommands()
     useExitCommand()
     return null
