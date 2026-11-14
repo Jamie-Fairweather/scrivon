@@ -1,6 +1,7 @@
 'use client'
 
-import { notifyError, notifySuccess } from '@/lib/notify'
+import { notifyError, notifySuccess, notifyWarning } from '@/lib/notify'
+import { describeLeftOut } from '@/lib/settings/profile-images'
 import { readSettingsExport, settingsExportText } from '@/lib/settings/settings-transfer'
 import { pickJsonSavePath, readChosenJsonFile } from '@/lib/settings/transfer-files'
 import { writeTextFileAtPath } from '@/lib/tauri/dialog'
@@ -29,8 +30,10 @@ export function SettingsBackup() {
         try {
             const path = await pickJsonSavePath('Export settings', 'Scrivon settings.json')
             if (!path) return
-            await writeTextFileAtPath(path, settingsExportText(settings))
-            notifySuccess('Settings exported', { description: `Saved as ${getBaseName(path)}.` })
+            const { text, leftOut } = await settingsExportText(settings)
+            await writeTextFileAtPath(path, text)
+            if (leftOut.length > 0) notifyWarning('Settings exported without some images', { description: describeLeftOut(leftOut) })
+            else notifySuccess('Settings exported', { description: `Saved as ${getBaseName(path)}.` })
         } catch (err) {
             notifyError("Couldn't export settings", err)
         }
@@ -40,9 +43,10 @@ export function SettingsBackup() {
         try {
             const text = await readChosenJsonFile('Import settings')
             if (text === null) return
-            const imported = readSettingsExport(text)
+            const { settings: imported, leftOut } = await readSettingsExport(text)
             updateSettings(() => imported)
-            notifySuccess('Settings imported')
+            if (leftOut.length > 0) notifyWarning('Settings imported without some images', { description: describeLeftOut(leftOut) })
+            else notifySuccess('Settings imported')
         } catch (err) {
             notifyError("Couldn't import settings", err)
         }

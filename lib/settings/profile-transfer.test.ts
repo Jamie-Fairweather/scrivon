@@ -69,7 +69,7 @@ describe('export profile files', () => {
         expect(leftOut).toEqual([{ slot: 'Header left image', reason: 'Choose this image again with Browse.' }])
     })
 
-    it('reads a profile back with its images saved on this computer', async () => {
+    it('reads a profile back with its images saved on this computer, each image once', async () => {
         const { text } = await profileExportText(brandedProfile())
 
         const { profile, leftOut } = await readProfileExport(text)
@@ -79,8 +79,10 @@ describe('export profile files', () => {
         expect(profile.page.size).toBe('letter')
         expect(profile.brand.logoPath).toBe('C:/AppData/profile-images/1.png')
         expect(profile.header.left.imagePath).toBe('C:/AppData/profile-images/2.svg')
-        expect(profile.footer.right.imagePath).toBe('C:/AppData/profile-images/3.png')
+        // The cover and the footer use the same image, so they share one copy.
+        expect(profile.footer.right.imagePath).toBe('C:/AppData/profile-images/1.png')
         expect(profile.footer.left.imagePath).toBe('')
+        expect(saved).toBe(2)
     })
 
     it("drops images that weren't embedded or that Scrivon refuses, and says why", async () => {
