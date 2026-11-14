@@ -26,8 +26,6 @@ const APP_ZOOM_META = {
     allowInPalette: true,
     allowInModal: true,
     leaveInside: OWN_ZOOM_SELECTOR,
-    // Hold the keys to keep zooming, as in a browser.
-    allowRepeat: true,
 } as const
 
 /**
