@@ -15,7 +15,10 @@ export type PngExportScale = 1 | 2 | 4
 /** How an exported diagram looks: the theme it's drawn in, and whether it has a background. */
 export type DiagramLook = {
     themeId: AppThemeId
-    /** No background colour, for pasting onto slides. */
+    /**
+     * No backdrop behind the diagram, for pasting onto slides. Boxes and label backings keep the
+     * theme's colours, so lines still stop short of the text.
+     */
     transparent: boolean
 }
 
@@ -234,6 +237,7 @@ async function diagramPng(
     scale: number,
     tooBig: string
 ): Promise<{ blob: Blob; smallerSize?: string }> {
+    // Keep the label halo even when transparent: like the edge-label boxes, it stops lines running through the text.
     const svg = buildExportSvg(source, themeId, { transparent })
     const dims = getSvgDimensions(svg)
     if (!dims) {

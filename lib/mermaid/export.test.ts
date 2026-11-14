@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const dialog = vi.hoisted(() => ({
     pickSavePath: vi.fn<(options: { defaultPath?: string }) => Promise<string | null>>(async () => null),
@@ -213,6 +213,20 @@ describe('diagram look (F45)', () => {
         expect(notify.notifyError).not.toHaveBeenCalled()
         expect(canvas.fills).toEqual([])
         expect(dialog.writeBinaryFile).toHaveBeenCalled()
+    })
+
+    it('keeps the label halo on a transparent PNG, so lifelines still stop short of the labels', async () => {
+        stubCanvas()
+        const drawn = vi.spyOn(URL, 'createObjectURL')
+        onTestFinished(() => drawn.mockRestore())
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\talk.png')
+
+        await exportPng('sequenceDiagram\n  Alice->>Bob: Hello', { themeId: 'scrivon-dark', transparent: true }, { tabName: 'talk.mmd' }, 2)
+
+        expect(notify.notifyError).not.toHaveBeenCalled()
+        const svg = await (drawn.mock.calls[0]![0] as Blob).text()
+        expect(svg).not.toContain('background:')
+        expect(svg).toContain(`paint-order: stroke; stroke: ${getDiagramColors('scrivon-dark').bg}`)
     })
 
     it('paints the chosen theme behind a PNG otherwise', async () => {

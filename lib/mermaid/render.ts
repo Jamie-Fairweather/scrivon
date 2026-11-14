@@ -51,7 +51,7 @@ export type ExportRenderOptions = {
      * browser engine, which supports it.
      */
     labelHalo?: boolean
-    /** No background colour, for pasting onto slides. Default false. */
+    /** No backdrop behind the diagram, for pasting onto slides. Boxes and labels keep their fills. Default false. */
     transparent?: boolean
 }
 
