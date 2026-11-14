@@ -4,17 +4,22 @@ import { useMemo } from 'react'
 import type { editor } from 'monaco-editor'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
-import { runEditorAction } from '@/lib/monaco/editor-actions'
+import { runEditorAction, runInEditor } from '@/lib/monaco/editor-actions'
+import { formatMarkdown, type MarkdownFormat } from '@/lib/monaco/markdown-editing'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
-import type { KeybindChord } from '@/lib/settings/types'
+import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 
 export type EditorCommandsContext = {
     /** 'none' when no file is open, 'hidden' while the editor pane is hidden. */
     editor: 'none' | 'hidden' | 'ready'
     readOnly: boolean
+    /** The file is Markdown, so the Bold, Italic, Inline Code and Link helpers work. */
+    markdown: boolean
     isMac: boolean
     /** Runs one of Monaco's own actions in the editor. */
     runAction: (monacoActionId: string) => void
+    /** Runs one of the Markdown helpers in the editor. */
+    runFormat: (format: MarkdownFormat) => void
 }
 
 type EditorCommandSpec = {
@@ -66,10 +71,24 @@ const EDITOR_COMMANDS: EditorCommandSpec[] = [
     },
 ]
 
-/** Undo, the clipboard, Find and the rest of the editor's own actions, for the Edit menu and the palette. */
+/** The Markdown helpers, after the editor's own commands in the Edit menu. Each toggles. */
+const FORMAT_COMMANDS: { id: string; label: string; keywords: string; format: MarkdownFormat; keybind: KeybindActionId }[] = [
+    { id: 'edit.bold', label: 'Bold', keywords: 'bold strong markdown format', format: 'bold', keybind: 'format.bold' },
+    { id: 'edit.italic', label: 'Italic', keywords: 'italic emphasis markdown format', format: 'italic', keybind: 'format.italic' },
+    {
+        id: 'edit.inline-code',
+        label: 'Inline Code',
+        keywords: 'inline code backtick monospace markdown format',
+        format: 'code',
+        keybind: 'format.code',
+    },
+    { id: 'edit.link', label: 'Link', keywords: 'link hyperlink url address markdown format', format: 'link', keybind: 'format.link' },
+]
+
+/** Undo, the clipboard, Find, the rest of the editor's own actions and the Markdown helpers, for the Edit menu and the palette. */
 export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
     const unavailable = ctx.editor === 'none' ? 'No file open' : ctx.editor === 'hidden' ? 'The editor is hidden' : null
-    return EDITOR_COMMANDS.map((spec) => {
+    const editorCommands = EDITOR_COMMANDS.map((spec): AppCommand => {
         const reason = unavailable ?? (spec.edits && ctx.readOnly ? 'This file is read-only' : null)
         return {
             id: spec.id,
@@ -81,24 +100,48 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
             run: () => ctx.runAction(spec.action),
         }
     })
+    const formatReason = unavailable ?? (!ctx.markdown ? 'Only in Markdown files' : ctx.readOnly ? 'This file is read-only' : null)
+    const formatCommands = FORMAT_COMMANDS.map((spec): AppCommand => ({
+        id: spec.id,
+        label: spec.label,
+        keywords: spec.keywords,
+        keybind: spec.keybind,
+        disabled: formatReason !== null,
+        disabledReason: formatReason ?? undefined,
+        run: () => ctx.runFormat(spec.format),
+    }))
+    return [...editorCommands, ...formatCommands]
+}
+
+export type EditorCommandsState = {
+    /** The editor pane is showing. */
+    shown: boolean
+    readOnly: boolean
+    /** The file is Markdown. */
+    markdown: boolean
 }
 
 /**
  * Registers the editor's commands, acting on `codeEditor`: null while no file is open. Call from
- * the editor panel, which knows whether its editor is shown and whether the file can be edited.
+ * the editor panel, which knows whether its editor is shown, whether the file can be edited and
+ * whether it is Markdown.
  */
-export function useEditorCommands(codeEditor: editor.ICodeEditor | null, shown: boolean, readOnly: boolean): void {
+export function useEditorCommands(codeEditor: editor.ICodeEditor | null, { shown, readOnly, markdown }: EditorCommandsState): void {
     const commands = useMemo(
         () =>
             buildEditorCommands({
                 editor: !codeEditor ? 'none' : shown ? 'ready' : 'hidden',
                 readOnly,
+                markdown,
                 isMac: isMacPlatform(),
                 runAction: (action) => {
                     if (codeEditor) runEditorAction(codeEditor, action)
                 },
+                runFormat: (format) => {
+                    if (codeEditor) runInEditor(codeEditor, () => formatMarkdown(codeEditor, format))
+                },
             }),
-        [codeEditor, shown, readOnly]
+        [codeEditor, shown, readOnly, markdown]
     )
     useRegisterCommands(commands)
 }

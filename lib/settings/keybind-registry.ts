@@ -4,7 +4,7 @@ import { OWN_ZOOM_SELECTOR } from '@/lib/zoom/app-zoom'
 export type KeybindActionMeta = {
     id: KeybindActionId
     label: string
-    category: 'Document' | 'Navigation' | 'Tabs' | 'View' | 'Workspace'
+    category: 'Document' | 'Navigation' | 'Tabs' | 'View' | 'Workspace' | 'Markdown'
     when: KeybindWhen
     /** When true, shortcut fires even inside native text fields (e.g. F1). */
     allowInNativeTextField?: boolean
@@ -64,6 +64,10 @@ const KEYBIND_ACTION_META = {
     // F6 never types anything, so it also gets out of a text box.
     'view.focusNextPane': { label: 'Focus next pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
     'view.focusPreviousPane': { label: 'Focus previous pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
+    'format.bold': { label: 'Bold', category: 'Markdown', when: 'editor' },
+    'format.italic': { label: 'Italic', category: 'Markdown', when: 'editor' },
+    'format.code': { label: 'Inline code', category: 'Markdown', when: 'editor' },
+    'format.link': { label: 'Link', category: 'Markdown', when: 'editor' },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
 
 export const KEYBIND_ACTIONS: KeybindActionMeta[] = (Object.keys(KEYBIND_ACTION_META) as KeybindActionId[]).map((id) => ({
@@ -76,4 +80,17 @@ const BY_ID = new Map(KEYBIND_ACTIONS.map((action) => [action.id, action]))
 /** The action's details, or undefined for an id this build doesn't know. */
 export function getKeybindActionMeta(id: KeybindActionId): KeybindActionMeta | undefined {
     return BY_ID.get(id)
+}
+
+/** An action that only runs while typing in the editor (Bold, Link…). */
+export function isEditorAction(id: KeybindActionId): boolean {
+    return BY_ID.get(id)?.when === 'editor'
+}
+
+/**
+ * Whether two actions may have the same keys. An editor action only runs while typing in the
+ * editor, where it comes first, so it can share keys with an app action that runs everywhere else.
+ */
+export function canShareKeys(a: KeybindActionId, b: KeybindActionId): boolean {
+    return isEditorAction(a) !== isEditorAction(b)
 }

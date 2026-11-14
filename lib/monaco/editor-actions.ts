@@ -13,3 +13,20 @@ export function runEditorAction(codeEditor: Pick<editor.ICodeEditor, 'focus' | '
         codeEditor.trigger('scrivon', actionId, null)
     })
 }
+
+/**
+ * Runs `run` with the editor focused. From a shortcut typed in the editor it runs at once, so a
+ * key typed straight after lands after it. From a menu or the palette it waits a frame, as
+ * runEditorAction does.
+ */
+export function runInEditor(codeEditor: Pick<editor.ICodeEditor, 'focus' | 'getModel' | 'hasTextFocus'>, run: () => void): void {
+    if (codeEditor.hasTextFocus()) {
+        run()
+        return
+    }
+    requestAnimationFrame(() => {
+        if (!codeEditor.getModel()) return
+        codeEditor.focus()
+        run()
+    })
+}

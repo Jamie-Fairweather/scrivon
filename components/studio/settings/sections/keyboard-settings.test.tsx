@@ -46,9 +46,9 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
+        press('b', { ctrlKey: true, shiftKey: true })
 
-        expect(screen.getByText('Ctrl+B is already assigned to Toggle explorer')).toBeInTheDocument()
+        expect(screen.getByText('Ctrl+Shift+B is already assigned to Toggle explorer')).toBeInTheDocument()
         expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
 
         press('Tab')
@@ -200,6 +200,19 @@ describe('KeyboardSettings recording', () => {
         expect(screen.queryByText(warning)).not.toBeInTheDocument()
     })
 
+    it('lists the Markdown actions, and says which app shortcut they take over while typing', () => {
+        renderKeyboardSettings()
+
+        expect(within(row('Bold')).getByText('Ctrl+B')).toBeInTheDocument()
+        expect(within(row('Link')).getByText('Ctrl+K')).toBeInTheDocument()
+        // Ctrl+K only starts two-key editor shortcuts, so it's no warning for a Markdown action.
+        expect(screen.queryByText(/used by the editor/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/Same shortcut/)).not.toBeInTheDocument()
+
+        expect(within(row('Toggle editor')).getByText('While typing in a Markdown file, Ctrl+E runs Inline code instead.')).toBeInTheDocument()
+        expect(within(row('Inline code')).queryByText(/While typing/)).not.toBeInTheDocument()
+    })
+
     it('shows why Reset did nothing when the default is taken', () => {
         renderKeyboardSettings()
 
@@ -229,9 +242,9 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
+        press('b', { ctrlKey: true, shiftKey: true })
 
-        expect(within(editor).getByRole('alert')).toHaveTextContent('Ctrl+B is already assigned to Toggle explorer')
+        expect(within(editor).getByRole('alert')).toHaveTextContent('Ctrl+Shift+B is already assigned to Toggle explorer')
 
         fireEvent.click(within(row('Fit diagram to screen')).getByRole('button', { name: /^Edit shortcut/ }))
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -258,10 +271,10 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
-        fireEvent.click(within(editor).getByRole('button', { name: 'Reassign Ctrl+B to Toggle editor' }))
+        press('b', { ctrlKey: true, shiftKey: true })
+        fireEvent.click(within(editor).getByRole('button', { name: 'Reassign Ctrl+Shift+B to Toggle editor' }))
 
-        expect(within(editor).getByText('Ctrl+B')).toBeInTheDocument()
+        expect(within(editor).getByText('Ctrl+Shift+B')).toBeInTheDocument()
         expect(within(row('Toggle explorer')).getByText('Not assigned')).toBeInTheDocument()
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
         expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
@@ -272,12 +285,12 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
+        press('b', { ctrlKey: true, shiftKey: true })
         fireEvent.click(within(editor).getByRole('button', { name: 'Cancel' }))
 
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
         expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
-        expect(within(row('Toggle explorer')).getByText('Ctrl+B')).toBeInTheDocument()
+        expect(within(row('Toggle explorer')).getByText('Ctrl+Shift+B')).toBeInTheDocument()
         expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
     })
 

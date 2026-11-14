@@ -778,7 +778,7 @@ describe("usePaletteSearch the editor's commands", () => {
     ])('runs %s in the editor', (query, monacoAction) => {
         const editor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
         function Editor() {
-            useEditorCommands(editor as never, true, false)
+            useEditorCommands(editor as never, { shown: true, readOnly: false, markdown: true })
             return null
         }
         const { result } = renderHookAlone(() => usePaletteSearch('all', true), {

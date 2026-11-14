@@ -245,6 +245,46 @@ describe('mergeStoredSettings', () => {
         })
     })
 
+    it('moves Toggle explorer off Ctrl+B for users who never changed it, so Ctrl+B makes text bold', () => {
+        for (const isMac of [false, true]) {
+            const mod = isMac ? { meta: true } : { ctrl: true }
+            // Saved by a version that stored the whole keymap, with Ctrl+B (Cmd+B) as the default.
+            const stored = { ...createDefaultKeybinds(isMac), 'view.toggleExplorer': [{ key: 'b', ...mod }] }
+            for (const id of ['format.bold', 'format.italic', 'format.code', 'format.link'] as const) delete (stored as Partial<typeof stored>)[id]
+
+            const merged = mergeStoredSettings({ keybinds: stored }, isMac)
+
+            expect(merged.keybinds).toEqual(createDefaultKeybinds(isMac))
+            expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', shift: true, ...mod }])
+            expect(merged.keybinds['format.bold']).toEqual([{ key: 'b', ...mod }])
+        }
+    })
+
+    it('keeps a Toggle explorer shortcut the user chose, Ctrl+B included', () => {
+        const custom = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 'x', ctrl: true, alt: true }] } }, false)
+        expect(custom.keybinds['view.toggleExplorer']).toEqual([{ key: 'x', ctrl: true, alt: true }])
+
+        // Saved as a change by this version: only changed shortcuts are stored, so Ctrl+B was picked on purpose.
+        const chosen = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 'b', ctrl: true }] } }, false)
+        expect(chosen.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        // Bold keeps Ctrl+B too: it only has it while typing in the editor.
+        expect(chosen.keybinds['format.bold']).toEqual([{ key: 'b', ctrl: true }])
+
+        const whole = { ...createDefaultKeybinds(false), 'view.toggleExplorer': [{ key: 'x', ctrl: true, alt: true }] }
+        expect(mergeStoredSettings({ keybinds: whole }, false).keybinds['view.toggleExplorer']).toEqual([{ key: 'x', ctrl: true, alt: true }])
+    })
+
+    it("drops a default only when the user's shortcut runs in the same place", () => {
+        // Toggle editor (an app action) on Ctrl+I: Italic keeps Ctrl+I in the editor.
+        const app = mergeStoredSettings({ keybinds: { 'view.toggleEditor': [{ key: 'i', ctrl: true }] } }, false)
+        expect(app.keybinds['format.italic']).toEqual([{ key: 'i', ctrl: true }])
+
+        // Bold moved to Ctrl+I: Italic loses it.
+        const editor = mergeStoredSettings({ keybinds: { 'format.bold': [{ key: 'i', ctrl: true }] } }, false)
+        expect(editor.keybinds['format.italic']).toEqual([])
+        expect(keybindOverrides(editor.keybinds, createDefaultKeybinds(false))).toEqual({ 'format.bold': [{ key: 'i', ctrl: true }] })
+    })
+
     it('keeps the default when stored chords are unreadable or modifier-only', () => {
         const merged = mergeStoredSettings(
             {
@@ -271,7 +311,7 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
@@ -286,7 +326,7 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 

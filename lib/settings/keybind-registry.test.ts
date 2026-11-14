@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { findKeybindConflicts } from '@/lib/settings/conflicts'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
-import { getKeybindActionMeta, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
+import { canShareKeys, getKeybindActionMeta, isEditorAction, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import { matchKeybind } from '@/lib/settings/match-keybind'
-import type { KeybindBindings } from '@/lib/settings/types'
+import type { KeybindActionId, KeybindBindings } from '@/lib/settings/types'
 
 describe('keybind registry', () => {
     it('returns metadata for known actions', () => {
@@ -19,6 +19,36 @@ describe('keybind registry', () => {
         const ids = KEYBIND_ACTIONS.map((action) => action.id).sort()
         expect(ids).toEqual(Object.keys(createDefaultKeybinds(false)).sort())
         expect(ids).toEqual(Object.keys(createDefaultKeybinds(true)).sort())
+    })
+
+    it('gives Ctrl+B to Bold in the editor, and Ctrl+Shift+B to Toggle explorer', () => {
+        expect(createDefaultKeybinds(false)).toMatchObject({
+            'format.bold': [{ key: 'b', ctrl: true }],
+            'format.italic': [{ key: 'i', ctrl: true }],
+            'format.code': [{ key: 'e', ctrl: true }],
+            'format.link': [{ key: 'k', ctrl: true }],
+            'view.toggleExplorer': [{ key: 'b', ctrl: true, shift: true }],
+        })
+        expect(createDefaultKeybinds(true)).toMatchObject({
+            'format.bold': [{ key: 'b', meta: true }],
+            'view.toggleExplorer': [{ key: 'b', meta: true, shift: true }],
+        })
+        expect(getKeybindActionMeta('format.bold')).toMatchObject({ label: 'Bold', category: 'Markdown', when: 'editor' })
+    })
+
+    it('knows which actions only run in the editor', () => {
+        expect(isEditorAction('format.link')).toBe(true)
+        expect(isEditorAction('view.toggleEditor')).toBe(false)
+        expect(isEditorAction('future.action' as KeybindActionId)).toBe(false)
+    })
+
+    it('lets an editor action share keys with an app action, but not two of the same kind', () => {
+        expect(canShareKeys('format.code', 'view.toggleEditor')).toBe(true)
+        expect(canShareKeys('document.save', 'format.bold')).toBe(true)
+        expect(canShareKeys('format.code', 'format.bold')).toBe(false)
+        expect(canShareKeys('document.save', 'view.toggleEditor')).toBe(false)
+        // An action from a newer version is treated as an app action.
+        expect(canShareKeys('future.action' as KeybindActionId, 'view.toggleEditor')).toBe(false)
     })
 
     it('has diagram zoom shortcuts on Alt (Cmd+Option on a Mac), leaving Ctrl+=, Ctrl+- and Ctrl+0 for the app', () => {
