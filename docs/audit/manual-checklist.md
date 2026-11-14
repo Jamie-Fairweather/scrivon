@@ -48,8 +48,8 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] Break a diagram. It dims and a red banner shows a message you can select and copy without panning. Fix it and the banner goes. Select all, delete, and type `f`: the old diagram doesn't return.
 - [ ] Replace the text with just `graph TD`. The canvas says "Nothing to draw yet" and Export is greyed out. Add a node and it draws.
 - [ ] On a touchpad, two-finger scroll pans and pinch zooms. With a mouse, the wheel zooms and Shift+wheel pans. The app UI never zooms.
-- [ ] Save SVG in a light and a dark theme, and open it in a browser. Colours, text and arrows match, the background is solid, and no web fonts are needed.
-- [ ] Save PNG at 4x for a very wide diagram: you get a "Saved a smaller PNG" notice. A huge diagram at 1x says "Export failed" and suggests SVG.
+- [ ] Export Diagram as SVG in a light and a dark theme, and open it in a browser. Colours, text and arrows match, the background is solid, and no web fonts are needed.
+- [ ] Export Diagram as PNG at 4× for a very wide diagram: you get a "Saved a smaller PNG" notice. A huge diagram at 1x says "Export failed" and suggests SVG.
 
 ## Markdown preview
 

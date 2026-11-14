@@ -351,6 +351,14 @@ describe('PdfExportSettings fonts', () => {
 describe('PdfExportSettings labels', () => {
     const group = (name: string) => within(screen.getByRole('group', { name }))
 
+    it('says the profile styles HTML export too, not just PDF and Word', () => {
+        renderSection()
+        expect(screen.getByRole('combobox', { name: 'Default export profile' })).toHaveAccessibleDescription(
+            /^Styles for PDF, Word and HTML export\./
+        )
+        expect(screen.getByText('Multiple of the font size, in PDF, Word and HTML.')).toBeInTheDocument()
+    })
+
     it('names the header and footer colour buttons and still reads their value', () => {
         renderSection()
         for (const name of ['Header', 'Footer']) {

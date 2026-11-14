@@ -1,6 +1,7 @@
-import type { Heading, Root } from 'mdast'
+import type { Heading, Root, Text } from 'mdast'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
+import { visit } from 'unist-util-visit'
 import { nodeText } from '@/lib/markdown/export-outline'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/settings/pdf-export-types'
@@ -232,6 +233,19 @@ export function guessDocumentLanguage(text: string, languages: readonly string[]
     if (count(ARABIC) * 2 > letters) return 'ar'
     if (count(HEBREW) * 2 > letters) return 'he'
     return 'en'
+}
+
+/**
+ * The language of a parsed document's prose (see {@link guessDocumentLanguage}). Only text counts: code, math,
+ * image addresses, alt text and raw HTML read as English whatever the document is in. The preview and export both
+ * guess with this, so they tag a document the same way.
+ */
+export function guessProseLanguage(tree: Root): string {
+    const parts: string[] = []
+    visit(tree, 'text', (node: Text) => {
+        parts.push(node.value)
+    })
+    return guessDocumentLanguage(parts.join(' '))
 }
 
 /**

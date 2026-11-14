@@ -1,9 +1,20 @@
 import type { IDisposable, IRange, editor } from 'monaco-editor'
 import { isExampleTabId } from '@/lib/examples/example-tab'
+import { takeOverEditorPaste } from '@/lib/monaco/paste-command'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { registerFileDropTarget } from '@/lib/tauri/file-drop'
 import { getBaseName, isMarkdownFile, isPathInside } from '@/lib/tauri/fs'
-import { addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets, type ImageDocument } from '@/lib/workspace/image-assets'
+import {
+    ImageTooBigError,
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_MB,
+    addDroppedImage,
+    isImageFile,
+    markdownImage,
+    pastedImageName,
+    saveImageInAssets,
+    type ImageDocument,
+} from '@/lib/workspace/image-assets'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 /** The editor calls the image code makes. */
@@ -18,6 +29,7 @@ export type ImageEditor = Pick<
     | 'executeEdits'
     | 'pushUndoStop'
     | 'focus'
+    | 'trigger'
 >
 
 /** The tab as a document images can go into: a Markdown file in the open folder that can be edited. */
@@ -28,6 +40,7 @@ export function imageDocumentFor(tab: DocumentTab | null, workspaceRoot: string 
 }
 
 const UNSUPPORTED_IMAGE = 'Only PNG, JPEG, GIF, WebP and SVG images can be added.'
+const TOO_BIG_PICTURE = `Pictures over ${MAX_IMAGE_MB} MB are too big for the preview and exports. Try a smaller picture or a JPEG.`
 
 /** Monaco's TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges: the spot follows edits; typing at it puts the link after the typed text. */
 const FOLLOWS_EDITS = 1 as editor.TrackedRangeStickiness
@@ -35,48 +48,93 @@ const FOLLOWS_EDITS = 1 as editor.TrackedRangeStickiness
 /**
  * Puts the links to `images` at `range` once they are ready. The spot follows edits made meanwhile. If the file
  * isn't showing by then (another one is, or its tab was closed), the link isn't added (that file's text would be out
- * of step with its tab) and the user is told. Resolves when done, and never rejects: a failure is shown instead.
+ * of step with its tab) and the user is told. Resolves when done, and never rejects: each failure is shown instead,
+ * and the images that were added still get their links.
  */
-function insertImageLinks(editor: ImageEditor, range: IRange, doc: ImageDocument, images: Promise<string[]>): Promise<void> {
+function insertImageLinks(editor: ImageEditor, range: IRange, doc: ImageDocument, images: Promise<string>[]): Promise<void> {
     // The caller had a selection, so the editor has a model.
     const model = editor.getModel()!
     const [mark] = model.deltaDecorations([], [{ range, options: { stickiness: FOLLOWS_EDITS } }])
-    const forget = () => {
+    return Promise.allSettled(images).then((results) => {
+        const where = model.isDisposed() ? null : model.getDecorationRange(mark!)
         if (!model.isDisposed()) model.deltaDecorations([mark!], [])
-    }
-    return images.then(
-        (paths) => {
-            const where = model.isDisposed() ? null : model.getDecorationRange(mark!)
-            forget()
-            if (paths.length === 0) return
-            const text = paths.map((path) => markdownImage(doc.path, path)).join(' ')
-            if (!where || editor.getModel() !== model) {
-                const what = paths.length === 1 ? getBaseName(paths[0]!) : `${paths.length} images`
-                notifyInfo(`Saved ${what}`, {
-                    description: `${getBaseName(doc.path)} wasn't showing any more, so no link was added. Link it with ${text}`,
-                })
-                return
-            }
-            const selection = editor.getSelection()
-            const caretThere =
-                selection !== null &&
-                selection.startLineNumber === where.startLineNumber &&
-                selection.startColumn === where.startColumn &&
-                selection.endLineNumber === where.endLineNumber &&
-                selection.endColumn === where.endColumn
-            editor.pushUndoStop()
-            editor.executeEdits('scrivon.images', [{ range: where, text }])
-            editor.pushUndoStop()
-            if (caretThere) {
-                const start = model.getOffsetAt({ lineNumber: where.startLineNumber, column: where.startColumn })
-                editor.setPosition(model.getPositionAt(start + text.length))
-            }
-        },
-        (err: unknown) => {
-            forget()
-            notifyError("Couldn't add the image", err)
+        for (const result of results) {
+            if (result.status === 'fulfilled') continue
+            // Too big is the user's to fix, not a fault to log.
+            if (result.reason instanceof ImageTooBigError) notifyInfo("Couldn't add the image", { description: result.reason.message })
+            else notifyError("Couldn't add the image", result.reason)
         }
+        const paths = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+        if (paths.length === 0) return
+        const text = paths.map((path) => markdownImage(doc.path, path)).join(' ')
+        if (!where || editor.getModel() !== model) {
+            const what = paths.length === 1 ? getBaseName(paths[0]!) : `${paths.length} images`
+            notifyInfo(`Saved ${what}`, {
+                description: `${getBaseName(doc.path)} wasn't showing any more, so no link was added. Link it with ${text}`,
+            })
+            return
+        }
+        const selection = editor.getSelection()
+        const caretThere =
+            selection !== null &&
+            selection.startLineNumber === where.startLineNumber &&
+            selection.startColumn === where.startColumn &&
+            selection.endLineNumber === where.endLineNumber &&
+            selection.endColumn === where.endColumn
+        editor.pushUndoStop()
+        editor.executeEdits('scrivon.images', [{ range: where, text }])
+        editor.pushUndoStop()
+        if (caretThere) {
+            const start = model.getOffsetAt({ lineNumber: where.startLineNumber, column: where.startColumn })
+            editor.setPosition(model.getPositionAt(start + text.length))
+        }
+    })
+}
+
+/** Saves pasted `files` and links them at `selection`: the way both Ctrl+V and the Paste command add pictures. */
+function addPastedImages(editor: ImageEditor, doc: ImageDocument, selection: IRange, files: File[]): void {
+    const when = new Date()
+    const named = files.map((file) => ({ file, name: pastedImageName(file.type, when) }))
+    const skipped = named.filter(({ name }) => !name)
+    if (skipped.length > 0) {
+        const what = skipped.length === 1 ? skipped[0]!.file.name : `${skipped.length} images`
+        notifyInfo(`Couldn't add ${what}`, { description: UNSUPPORTED_IMAGE })
+    }
+    // Checked before the bytes are read, so a huge picture isn't loaded only to be refused.
+    const tooBig = named.filter(({ file, name }) => name && file.size > MAX_IMAGE_BYTES)
+    if (tooBig.length > 0) {
+        notifyInfo(tooBig.length === 1 ? "Couldn't add the picture" : `Couldn't add ${tooBig.length} pictures`, { description: TOO_BIG_PICTURE })
+    }
+    const saves = named.flatMap(({ file, name }) =>
+        name && file.size <= MAX_IMAGE_BYTES ? [file.arrayBuffer().then((bytes) => saveImageInAssets(doc.path, name, new Uint8Array(bytes)))] : []
     )
+    if (saves.length > 0) void insertImageLinks(editor, selection, doc, saves)
+}
+
+/**
+ * Adds the pictures on the clipboard, for the Paste command. Resolves false, for Monaco to paste instead, when the
+ * clipboard has text (which wins, as with Ctrl+V), has no picture, or can't be read.
+ */
+async function pasteClipboardImages(editor: ImageEditor, documentNow: () => ImageDocument | null): Promise<boolean> {
+    let files: File[]
+    try {
+        // Text first: read() may fetch every format, and Word and Excel put a picture of copied text alongside it.
+        if ((await navigator.clipboard.readText()) !== '') return false
+        const items = await navigator.clipboard.read()
+        files = await Promise.all(
+            items.flatMap((item) => {
+                const type = item.types.find((t) => t.startsWith('image/'))
+                return type ? [item.getType(type).then((blob) => new File([blob], 'pasted image', { type }))] : []
+            })
+        )
+    } catch {
+        return false
+    }
+    const doc = documentNow()
+    const selection = editor.getSelection()
+    if (!doc || !selection || files.length === 0) return false
+    addPastedImages(editor, doc, selection, files)
+    return true
 }
 
 /**
@@ -98,19 +156,14 @@ export function attachEditorImages(editor: ImageEditor, documentNow: () => Image
         // Before Monaco sees it, which would paste nothing.
         event.preventDefault()
         event.stopPropagation()
-        const when = new Date()
-        const named = files.map((file) => ({ file, name: pastedImageName(file.type, when) }))
-        const skipped = named.filter(({ name }) => !name)
-        if (skipped.length > 0) {
-            const what = skipped.length === 1 ? skipped[0]!.file.name : `${skipped.length} images`
-            notifyInfo(`Couldn't add ${what}`, { description: UNSUPPORTED_IMAGE })
-        }
-        const saves = named.flatMap(({ file, name }) =>
-            name ? [file.arrayBuffer().then((bytes) => saveImageInAssets(doc.path, name, new Uint8Array(bytes)))] : []
-        )
-        if (saves.length > 0) void insertImageLinks(editor, selection, doc, Promise.all(saves))
+        addPastedImages(editor, doc, selection, files)
     }
     container.addEventListener('paste', onPaste, true)
+
+    // Edit > Paste, the palette's Paste and the right-click Paste fire no paste event: read the clipboard instead.
+    const pasteCommand = takeOverEditorPaste(editor, () =>
+        documentNow() && editor.hasTextFocus() ? pasteClipboardImages(editor, documentNow) : null
+    )
 
     const stopDrops = registerFileDropTarget(container, async ({ paths, x, y }) => {
         const doc = documentNow()
@@ -123,13 +176,19 @@ export function attachEditorImages(editor: ImageEditor, documentNow: () => Image
         if (!selection) return paths
         editor.focus()
         // The other files (a document to open) wait until the links are in, so this file is still showing.
-        await insertImageLinks(editor, selection, doc, Promise.all(images.map((image) => addDroppedImage(image, doc))))
+        await insertImageLinks(
+            editor,
+            selection,
+            doc,
+            images.map((image) => addDroppedImage(image, doc))
+        )
         return paths.filter((path) => !isImageFile(path))
     })
 
     return {
         dispose: () => {
             container.removeEventListener('paste', onPaste, true)
+            pasteCommand.dispose()
             stopDrops()
         },
     }

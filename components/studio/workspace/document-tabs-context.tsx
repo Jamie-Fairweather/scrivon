@@ -214,7 +214,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
     const persistTabSession = useCallback(
         async (snapshot?: { tabs: DocumentTab[]; activeTabId: string | null }) => {
-            if (!workspaceRoot) return
+            if (!workspaceRoot || !coordinator.canPersistTabSession.current(workspaceRoot)) return
             const sourceTabs = snapshot?.tabs ?? tabsRef.current
             const workspaceTabs = sourceTabs.filter((t) => !isExampleTabId(t.id))
             const activeId = snapshot?.activeTabId ?? activeTabIdRef.current
@@ -231,7 +231,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 console.warn("Couldn't remember the open tabs", err)
             }
         },
-        [workspaceRoot, tabsRef]
+        [workspaceRoot, tabsRef, coordinator]
     )
 
     /** Adds a file to the folder's recent files for the palette; best-effort, like the tab session. */

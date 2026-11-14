@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IRange } from 'monaco-editor'
+import type { IDisposable, IRange } from 'monaco-editor'
+import { CommandsRegistry } from 'monaco-editor/platform/commands/common/commands.js'
+import { MONACO_PASTE_COMMAND_ID } from '@/lib/monaco/paste-command'
+import { ImageTooBigError, MAX_IMAGE_BYTES } from '@/lib/workspace/image-assets'
 
 const assets = vi.hoisted(() => ({
     save: vi.fn<(documentPath: string, name: string, bytes: Uint8Array) => Promise<string>>(),
@@ -111,6 +114,10 @@ class FakeEditor {
         return this.pointAt ? { position: this.pointAt } : null
     }
     focus() {}
+    /** Runs a command by id from Monaco's shared registry, as the editor does. */
+    trigger(_source: string, id: string, payload: unknown) {
+        CommandsRegistry.getCommand(id)?.handler({}, payload)
+    }
     pushUndoStop() {
         this.undoStops += 1
         return true
@@ -140,12 +147,45 @@ function paste(editor: FakeEditor, clipboard: { text?: string; files?: File[] })
 
 const screenshot = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'image.png', { type: 'image/png' })
 
+/** A picture over 12 MB, said to be (without the bytes), whose bytes nothing should read. */
+function hugePicture(name = 'image.png') {
+    const file = new File([new Uint8Array([0x89])], name, { type: 'image/png' })
+    Object.defineProperty(file, 'size', { value: MAX_IMAGE_BYTES + 1 })
+    file.arrayBuffer = vi.fn(file.arrayBuffer)
+    return file
+}
+
+/** Monaco's own Paste command. In a web view it pastes only the clipboard's text: no paste event fires. */
+const monacoPaste = vi.fn()
+
+/** What navigator.clipboard gives: its text, and each item's data by type. */
+const clipboard = {
+    readText: vi.fn<() => Promise<string>>(),
+    read: vi.fn<() => Promise<Array<{ types: string[]; getType: (type: string) => Promise<Blob> }>>>(),
+}
+Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+
+/** Puts `items` on the clipboard, each as its data by type. */
+function copy(...items: Record<string, Blob>[]) {
+    const text = items.find((data) => data['text/plain'])?.['text/plain']
+    clipboard.readText.mockImplementation(async () => (text ? text.text() : ''))
+    clipboard.read.mockResolvedValue(items.map((data) => ({ types: Object.keys(data), getType: async (type: string) => data[type]! })))
+}
+
+/** Edit > Paste, the palette's Paste and the editor's right-click Paste: each runs Monaco's Paste command by id. */
+function choosePaste() {
+    return CommandsRegistry.getCommand(MONACO_PASTE_COMMAND_ID)?.handler({}, {})
+}
+
 let editor: FakeEditor
 let doc: { path: string; workspaceRoot: string } | null
 let detach: () => void
+let monacoOwnPaste: IDisposable
 
 beforeEach(() => {
     vi.clearAllMocks()
+    // Monaco registers its Paste when it loads, before any editor is made.
+    monacoOwnPaste = CommandsRegistry.registerCommand(MONACO_PASTE_COMMAND_ID, monacoPaste)
     vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 13, 20, 45, 12) })
     assets.save.mockImplementation(async (_doc, name) => `${ASSETS}\\${name}`)
     assets.add.mockImplementation(async (source) => (source.startsWith(ROOT) ? source : `${ASSETS}\\${source.replace(/^.*\\/, '')}`))
@@ -157,6 +197,7 @@ beforeEach(() => {
 
 afterEach(() => {
     detach()
+    monacoOwnPaste.dispose()
     vi.useRealTimers()
     document.body.innerHTML = ''
 })
@@ -220,6 +261,41 @@ describe('pasting a picture', () => {
         expect(editor.model!.markCount).toBe(0)
     })
 
+    it('links the pictures that were saved and says why one wasn’t, so none is left without a link', async () => {
+        const diskFull = new Error('There is not enough space on the disk. (os error 112)')
+        assets.save.mockResolvedValueOnce(`${ASSETS}\\one.png`).mockRejectedValueOnce(diskFull)
+        editor.setSelection(at(2, 6))
+
+        paste(editor, { files: [screenshot(), screenshot()] })
+
+        await vi.waitFor(() => expect(editor.model!.text).toBe('# Setup\nSee: ![one](assets/one.png)\nDone.'))
+        expect(notify.error).toHaveBeenCalledWith("Couldn't add the image", diskFull)
+    })
+
+    it('refuses a picture over 12 MB before reading it, with a plain notice, and still adds the rest', async () => {
+        const huge = hugePicture()
+        editor.setSelection(at(2, 6))
+
+        const event = paste(editor, { files: [huge, screenshot()] })
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(notify.info).toHaveBeenCalledWith("Couldn't add the picture", {
+            description: 'Pictures over 12 MB are too big for the preview and exports. Try a smaller picture or a JPEG.',
+        })
+        await vi.waitFor(() => expect(editor.model!.text).toBe('# Setup\nSee: ![image-20261113-204512](assets/image-20261113-204512.png)\nDone.'))
+        expect(huge.arrayBuffer).not.toHaveBeenCalled()
+        expect(assets.save).toHaveBeenCalledTimes(1)
+        expect(notify.error).not.toHaveBeenCalled()
+    })
+
+    it('counts the pictures over 12 MB when there are several, and adds no link', () => {
+        paste(editor, { files: [hugePicture(), hugePicture()] })
+
+        expect(notify.info).toHaveBeenCalledWith("Couldn't add 2 pictures", expect.anything())
+        expect(assets.save).not.toHaveBeenCalled()
+        expect(editor.model!.markCount).toBe(0)
+    })
+
     it('adds no link to a file that isn’t showing any more, and says where the picture went', async () => {
         let finish: (path: string) => void = () => {}
         assets.save.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
@@ -254,6 +330,75 @@ describe('pasting a picture', () => {
                     "setup.md wasn't showing any more, so no link was added. Link it with ![image-20261113-204512](assets/image-20261113-204512.png)",
             })
         )
+    })
+})
+
+describe('Paste from the Edit menu, the palette or the right-click menu', () => {
+    it('adds a copied picture the way Ctrl+V does', async () => {
+        copy({ 'image/png': new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }) })
+        editor.setSelection(at(2, 6))
+
+        choosePaste()
+
+        await vi.waitFor(() => expect(editor.model!.text).toBe('# Setup\nSee: ![image-20261113-204512](assets/image-20261113-204512.png)\nDone.'))
+        expect(assets.save).toHaveBeenCalledWith(DOC, 'image-20261113-204512.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+        expect(monacoPaste).not.toHaveBeenCalled()
+    })
+
+    it('leaves text to Monaco’s own paste, even with a picture of it alongside, without fetching the picture', async () => {
+        copy({ 'text/plain': new Blob(['Hello']), 'image/png': new Blob([new Uint8Array([0x89])], { type: 'image/png' }) })
+
+        choosePaste()
+
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(1))
+        expect(clipboard.read).not.toHaveBeenCalled()
+        expect(assets.save).not.toHaveBeenCalled()
+    })
+
+    it('lets Monaco paste when the clipboard has no picture or can’t be read', async () => {
+        copy({ 'text/html': new Blob(['<b>x</b>']) })
+        choosePaste()
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(1))
+
+        clipboard.read.mockRejectedValue(new DOMException('Read permission denied.', 'NotAllowedError'))
+        choosePaste()
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(2))
+
+        clipboard.readText.mockRejectedValue(new DOMException('Read permission denied.', 'NotAllowedError'))
+        choosePaste()
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(3))
+        expect(assets.save).not.toHaveBeenCalled()
+    })
+
+    it('refuses a copied picture over 12 MB with a plain notice, and leaves Monaco out', async () => {
+        copy({ 'image/png': new Blob([new Uint8Array(MAX_IMAGE_BYTES + 1)], { type: 'image/png' }) })
+
+        await choosePaste()
+
+        expect(notify.info).toHaveBeenCalledWith("Couldn't add the picture", expect.anything())
+        expect(assets.save).not.toHaveBeenCalled()
+        expect(monacoPaste).not.toHaveBeenCalled()
+    })
+
+    it('lets Monaco paste at once where pictures can’t go: a diagram, a read-only file, the find box', () => {
+        doc = null
+        choosePaste()
+        expect(monacoPaste).toHaveBeenCalledTimes(1)
+
+        doc = { path: DOC, workspaceRoot: ROOT }
+        editor.textFocused = false
+        choosePaste()
+        expect(monacoPaste).toHaveBeenCalledTimes(2)
+        expect(clipboard.read).not.toHaveBeenCalled()
+    })
+
+    it('gives Paste back to Monaco once let go', () => {
+        detach()
+
+        choosePaste()
+
+        expect(monacoPaste).toHaveBeenCalledTimes(1)
+        expect(clipboard.read).not.toHaveBeenCalled()
     })
 })
 
@@ -303,6 +448,19 @@ describe('dropping files onto the editor', () => {
         await drop(['D:\\Pictures\\cat.png'])
 
         await vi.waitFor(() => expect(editor.model!.text).toBe('# Setup\nSee: \nDone.![cat](assets/cat.png)'))
+    })
+
+    it('says plainly that an image over 12 MB is too big, and links the rest', async () => {
+        assets.add.mockRejectedValueOnce(new ImageTooBigError('photo.jpg'))
+        editor.pointAt = { lineNumber: 2, column: 6 }
+
+        await drop(['D:\\Pictures\\photo.jpg', 'D:\\Pictures\\cat.png'])
+
+        expect(editor.model!.text).toBe('# Setup\nSee: ![cat](assets/cat.png)\nDone.')
+        expect(notify.info).toHaveBeenCalledWith("Couldn't add the image", {
+            description: 'photo.jpg is over 12 MB, too big for the preview and exports.',
+        })
+        expect(notify.error).not.toHaveBeenCalled()
     })
 
     it('leaves every file to the window when the file showing can’t take images', async () => {

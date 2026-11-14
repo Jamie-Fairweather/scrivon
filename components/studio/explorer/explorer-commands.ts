@@ -26,7 +26,7 @@ export function buildExplorerCommands(ctx: ExplorerCommandsContext): AppCommand[
     return [
         {
             id: 'reveal-active-file',
-            label: 'Reveal Active File in Explorer',
+            label: 'Reveal Active File in Sidebar',
             keywords: 'show locate find current open file explorer files tree sidebar',
             disabled: !ctx.hasWorkspace || !ctx.canRevealActiveFile,
             disabledReason: ctx.hasWorkspace ? 'No file from the folder is open' : NO_FOLDER,

@@ -39,16 +39,18 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
         disabledReason: off ? NO_FOLDER : 'No diagram shown',
         run: () => ctx.zoomDiagram(how),
     })
-    const layout = (id: string, label: string, explorer: boolean, editor: boolean): AppCommand => ({
+    // The explorer and the Outline go together: both show for all panels, both close for Editor and Preview.
+    const layout = (id: string, label: string, sidePanels: boolean): AppCommand => ({
         id,
         label,
-        keywords: 'layout mode view panels panes',
+        keywords: 'layout mode view panels panes outline',
         disabled: off,
         disabledReason: NO_FOLDER,
         run: () => {
-            ctx.setExplorerOpen(explorer)
-            ctx.setEditorOpen(editor)
+            ctx.setExplorerOpen(sidePanels)
+            ctx.setEditorOpen(true)
             ctx.setPreviewOpen(true)
+            ctx.setOutlineOpen(sidePanels)
         },
     })
 
@@ -91,8 +93,8 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             disabledReason: NO_FOLDER,
             run: () => ctx.setOutlineOpen(!ctx.outlineOpen),
         },
-        layout('layout-all-panels', 'Show All Panels', true, true),
-        layout('layout-editor-preview', 'Editor and Preview', false, true),
+        layout('layout-all-panels', 'Show All Panels', true),
+        layout('layout-editor-preview', 'Editor and Preview', false),
         {
             id: 'preview-only',
             label: 'Preview Only',

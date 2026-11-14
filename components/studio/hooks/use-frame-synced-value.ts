@@ -25,6 +25,11 @@ export function useFrameSyncedValue<T>(value: T, resetKey?: unknown, delayMs = 0
         valueRef.current = value
 
         if (delayMs > 0) {
+            // A frame still waiting from a quick update would show this value without the pause.
+            if (rafRef.current !== null) {
+                cancelAnimationFrame(rafRef.current)
+                rafRef.current = null
+            }
             const timer = window.setTimeout(() => setSynced(valueRef.current), delayMs)
             return () => window.clearTimeout(timer)
         }

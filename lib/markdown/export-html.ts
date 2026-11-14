@@ -42,30 +42,32 @@ function metaTag(name: string, value: string): string {
     return text ? `  <meta name="${name}" content="${escapeAttribute(text)}" />\n` : ''
 }
 
+/** The web page, and how many diagrams it shows as a note or an error instead of a picture. */
+export type ExportHtmlPage = { html: string; diagramsNotDrawn: number }
+
 /**
  * The document as one web page that needs no other files: its styles are inline and its
- * diagrams are drawn in as SVG. Built from the same page as the PDF, so it looks the same.
+ * diagrams are drawn in as SVG. Built from the same page as the PDF, so it looks the same,
+ * except that each `<details>` stays closed as written, since a web page can be clicked.
  */
-export async function renderExportHtml(document: ExportDocument, { allowRemoteImages = false }: HtmlRenderOptions = {}): Promise<string> {
+export async function renderExportHtml(document: ExportDocument, { allowRemoteImages = false }: HtmlRenderOptions = {}): Promise<ExportHtmlPage> {
     const { metadata } = document
-    const { html } = await renderExportPdf({ ...document, profile: screenProfile(document.profile) }, { stamped: false, allowRemoteImages })
+    const { html, diagramsNotDrawn } = await renderExportPdf(
+        { ...document, profile: screenProfile(document.profile) },
+        { stamped: false, allowRemoteImages, openDetails: false }
+    )
     const head = `  <meta name="viewport" content="width=device-width, initial-scale=1" />
 ${metaTag('author', metadata.author)}${metaTag('description', metadata.subtitle)}  <style>${SCREEN_CSS}</style>
 </head>`
     // A function, so a `$` in the author or subtitle is kept as typed (a string would read `$&` and `$'` as patterns).
-    return html.replace('</head>', () => head)
+    return { html: html.replace('</head>', () => head), diagramsNotDrawn }
 }
 
 /**
- * Renders the page and saves it as `<fileStem>.html`, offering the document's folder first.
+ * Saves the page as `<fileStem>.html`, offering the document's folder first.
  * Outside the desktop app it downloads instead. Throws when the file can't be written.
  */
-export async function saveExportHtml(
-    document: ExportDocument,
-    fileStem: string,
-    { documentPath, allowRemoteImages }: HtmlRenderOptions & { documentPath?: string }
-): Promise<ExportResult> {
-    const html = await renderExportHtml(document, { allowRemoteImages })
+export async function saveExportHtml(html: string, fileStem: string, { documentPath }: { documentPath?: string }): Promise<ExportResult> {
     const filename = `${fileStem}.html`
     if (!isTauri()) {
         downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), filename)

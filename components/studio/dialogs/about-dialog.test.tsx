@@ -31,6 +31,12 @@ describe('AboutDialog', () => {
         expect(screen.getByText(/MIT License/)).toBeInTheDocument()
     })
 
+    it('lists every document export format, HTML included', () => {
+        renderAbout()
+
+        expect(screen.getByText(/documents as PDF, Word or HTML/)).toBeInTheDocument()
+    })
+
     it('marks a release candidate as a pre-release', () => {
         version.value = '1.6.0-rc.1'
         renderAbout()

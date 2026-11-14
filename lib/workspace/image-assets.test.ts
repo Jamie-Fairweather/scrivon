@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** A small Windows disk: file names ignore letter case, and a new file is refused where one already is. */
@@ -58,10 +60,12 @@ vi.mock('@tauri-apps/plugin-fs', () => disk.fs)
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
 
-const { addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets } = await import('./image-assets')
+const { ImageTooBigError, MAX_IMAGE_BYTES, addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets } =
+    await import('./image-assets')
 
 const DOC = 'C:\\notes\\guides\\setup.md'
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+const TWELVE_MB = 12 * 1024 * 1024
 
 beforeEach(() => {
     disk.entries.clear()
@@ -167,6 +171,25 @@ describe('saveImageInAssets', () => {
         disk.file('C:\\notes\\other\\a.md')
         await expect(saveImageInAssets('C:\\notes\\other\\a.md', 'image.png', PNG)).rejects.toThrow('cannot find the path')
     })
+
+    it('refuses an image over 12 MB, which the preview couldn’t show, before writing anything', async () => {
+        const refused = saveImageInAssets(DOC, 'image.png', new Uint8Array(TWELVE_MB + 1))
+        await expect(refused).rejects.toThrow('image.png is over 12 MB, too big for the preview and exports.')
+        // A notice for the user to act on, not a fault to log.
+        await expect(refused).rejects.toBeInstanceOf(ImageTooBigError)
+        expect(disk.names('C:\\notes\\guides')).toEqual(['setup.md'])
+
+        expect(await saveImageInAssets(DOC, 'image.png', new Uint8Array(TWELVE_MB))).toBe('C:\\notes\\guides\\assets\\image.png')
+    })
+})
+
+describe('MAX_IMAGE_BYTES', () => {
+    it('is the most the preview and exports read (MAX_EXPORT_IMAGE_BYTES in src-tauri/src/pdf_export.rs)', () => {
+        const rust = readFileSync(path.resolve(__dirname, '../../src-tauri/src/pdf_export.rs'), 'utf8')
+        const [, megabytes] = /MAX_EXPORT_IMAGE_BYTES: usize = (\d+) \* 1024 \* 1024;/.exec(rust)!
+
+        expect(MAX_IMAGE_BYTES).toBe(Number(megabytes) * 1024 * 1024)
+    })
 })
 
 describe('addDroppedImage', () => {
@@ -198,6 +221,15 @@ describe('addDroppedImage', () => {
         disk.file('C:\\Notes\\img\\cat.png', PNG)
 
         expect(await addDroppedImage('C:\\Notes\\img\\cat.png', doc)).toBe('C:\\Notes\\img\\cat.png')
+        expect(disk.names('C:\\notes\\guides')).toEqual(['setup.md'])
+    })
+
+    it('refuses an image over 12 MB, from outside the folder or in it, rather than link one the preview couldn’t show', async () => {
+        disk.file('D:\\Pictures\\photo.jpg', new Uint8Array(TWELVE_MB + 1))
+        disk.file('C:\\notes\\img\\scan.png', new Uint8Array(TWELVE_MB + 1))
+
+        await expect(addDroppedImage('D:\\Pictures\\photo.jpg', doc)).rejects.toThrow('photo.jpg is over 12 MB, too big for the preview and exports.')
+        await expect(addDroppedImage('C:\\notes\\img\\scan.png', doc)).rejects.toThrow('scan.png is over 12 MB, too big for the preview and exports.')
         expect(disk.names('C:\\notes\\guides')).toEqual(['setup.md'])
     })
 })
