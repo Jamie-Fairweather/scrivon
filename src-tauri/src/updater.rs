@@ -158,8 +158,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        attempt_waiting, check_error_message, count_other_instances, install_error_message,
-        install_pending, install_with_record, is_prerelease_build, manifest_endpoints,
+        check_error_message, count_other_instances, install_error_message, install_pending,
+        install_with_record, is_prerelease_build, manifest_endpoints, restarted_after_update,
         take_attempt, ProgressThrottle, UpdateAttempt, UpdateProgress, STABLE_MANIFEST_URL,
     };
 
@@ -266,13 +266,32 @@ mod tests {
     fn the_launch_after_an_update_knows_it_until_the_page_takes_the_record() {
         // So it doesn't reopen the files the installer passes back (see setup in lib.rs).
         let dir = temp_data_dir();
-        assert!(!attempt_waiting(&dir));
+        assert!(!restarted_after_update(&dir, "1.5.0"));
 
         install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
-        assert!(attempt_waiting(&dir));
+        assert!(restarted_after_update(&dir, "1.5.0"));
 
         take_attempt(&dir, "1.5.0");
-        assert!(!attempt_waiting(&dir));
+        assert!(!restarted_after_update(&dir, "1.5.0"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_launch_after_an_update_that_never_installed_is_the_users_own() {
+        // The installer was cancelled, so nothing restarted Scrivon. The user
+        // then double-clicked a file, and that file should open.
+        let dir = temp_data_dir();
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+
+        assert!(!restarted_after_update(&dir, "1.4.2"));
+        // The page still hears that the update didn't install.
+        assert_eq!(
+            take_attempt(&dir, "1.4.2"),
+            Some(UpdateAttempt {
+                version: "1.5.0".into(),
+                installed: false,
+            })
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -669,11 +688,16 @@ fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
     })
 }
 
-/// True while the record of an in-app update is waiting for the page to take it
-/// (`take_update_attempt`). Then this launch is most likely the installer
-/// restarting Scrivon after the update.
-pub fn attempt_waiting(dir: &Path) -> bool {
-    dir.join(ATTEMPT_FILE).is_file()
+/// True when this launch is the installer restarting Scrivon after an in-app
+/// update: a record is waiting for the page (`take_update_attempt`) and the
+/// version has changed. The installer only restarts Scrivon when it worked,
+/// and updates are always newer, so an unchanged version means the user
+/// started this launch.
+pub fn restarted_after_update(dir: &Path, current_version: &str) -> bool {
+    std::fs::read(dir.join(ATTEMPT_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<AttemptRecord>(&bytes).ok())
+        .is_some_and(|record| record.from != current_version)
 }
 
 /// Downloads and installs the pending update, telling `on_progress` how the
