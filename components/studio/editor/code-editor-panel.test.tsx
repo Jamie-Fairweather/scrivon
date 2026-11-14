@@ -310,6 +310,18 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     }),
     useDocumentTabActions: () => ({ makeTabEditable }),
     useWorkspaceCoordinator: () => ({}),
+    useWorkspaceSession: () => ({ workspaceRoot: session.workspaceRoot }),
+}))
+const session: { workspaceRoot: string | null } = { workspaceRoot: '/w' }
+
+/** Pasting and dropping pictures, which editor-images.test.ts covers; here only what the panel hands it. */
+const editorImages = vi.hoisted(() => ({ attach: vi.fn(), dispose: vi.fn() }))
+vi.mock('@/components/studio/editor/editor-images', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/components/studio/editor/editor-images')>()),
+    attachEditorImages: (...args: unknown[]) => {
+        editorImages.attach(...args)
+        return { dispose: editorImages.dispose }
+    },
 }))
 
 type RevealInEditor = (path: string, line: number, column: number, length?: number) => void
@@ -359,7 +371,8 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
 const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
-const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
+const { focusEditorFor, focusEditorNow } = await import('@/components/studio/editor/editor-focus')
+const { focusPane } = await import('@/components/studio/shell/pane-focus')
 const { useEditorCursor, useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
@@ -397,8 +410,35 @@ beforeEach(() => {
     fakeMonaco.editor.registerCommand.mockClear()
     palette.open = vi.fn()
     palette.provided = true
+    session.workspaceRoot = '/w'
+    editorImages.attach.mockClear()
+    editorImages.dispose.mockClear()
     spellcheck.attached.length = 0
     spellcheck.dispose.mockClear()
+})
+
+describe('CodeEditorPanel images', () => {
+    it('lets pictures be pasted or dropped into the Markdown file showing, while its folder is open', async () => {
+        const a = '/w/a.md'
+        const diagram = '/w/flow.mmd'
+        tabsState = { tabs: [tab(a, '# A'), tab(diagram, 'graph TD')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        expect(editorImages.attach).toHaveBeenCalledTimes(1)
+        const [attachedTo, documentNow] = editorImages.attach.mock.calls[0] as [unknown, () => unknown]
+        expect(attachedTo).toBe(editor)
+        expect(documentNow()).toEqual({ path: a, workspaceRoot: '/w' })
+
+        setTabs(view, { tabs: tabsState.tabs, activeTabId: diagram })
+        expect(documentNow()).toBeNull()
+
+        session.workspaceRoot = null
+        setTabs(view, { tabs: tabsState.tabs, activeTabId: a })
+        expect(documentNow()).toBeNull()
+
+        act(() => editor.dispose())
+        expect(editorImages.dispose).toHaveBeenCalled()
+    })
 })
 
 describe('CodeEditorPanel cursor line', () => {
@@ -935,6 +975,21 @@ describe('CodeEditorPanel width', () => {
     })
 })
 
+describe('CodeEditorPanel with the preview hidden', () => {
+    it('fills the row with no resize handle, and goes back to its width when the preview shows again', () => {
+        const view = render(<CodeEditorPanel fill width={400} onWidthChange={() => {}} />)
+        const panel = view.container.firstElementChild as HTMLElement
+        expect(panel).toHaveClass('flex-1')
+        expect(panel.style.width).toBe('')
+        expect(view.queryByRole('separator', { name: 'Resize editor' })).toBeNull()
+
+        view.rerender(<CodeEditorPanel width={400} onWidthChange={() => {}} />)
+        expect(panel).not.toHaveClass('flex-1')
+        expect(panel.style.width).toBe('400px')
+        expect(view.getByRole('separator', { name: 'Resize editor' })).toBeInTheDocument()
+    })
+})
+
 describe('CodeEditorPanel scrolling', () => {
     it('shows a horizontal scrollbar when long lines are not wrapped', async () => {
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
@@ -1232,6 +1287,30 @@ describe('CodeEditorPanel search hits', () => {
 
         view.rerender(<Panel open />)
         expect(coordinatorHandlers.getEditorSelectedText!()).toBe('TODO')
+    })
+})
+
+describe('CodeEditorPanel as a pane', () => {
+    it('is the editor pane, which Focus Editor and F6 focus at once while it shows a file', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+
+        expect(focusPane('editor')).toBe(true)
+        expect(editor.focused).toBe(true)
+    })
+
+    it('says no while hidden, or with no file open', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        view.rerender(<Panel open={false} />)
+
+        expect(focusEditorNow()).toBe(false)
+        expect(editor.focused).toBe(false)
+
+        view.unmount()
+        tabsState = { tabs: [], activeTabId: null }
+        render(<Panel />)
+        expect(focusEditorNow()).toBe(false)
     })
 })
 

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { buildExportDocument, type ExportDocument, type ExportFormat } from '@/lib/markdown/export-document'
 import { resolvePdfExportAssets, type PdfExportMissingImage } from '@/lib/markdown/export-assets'
+import { embedDocumentImages } from '@/lib/markdown/export-images'
 import { renderExportPdf } from '@/lib/markdown/markdown-to-export-html'
 import { errorMessage, notifyInfo, notifyWarning } from '@/lib/notify'
 import { downloadBlob } from '@/lib/download'
@@ -12,6 +13,7 @@ import { pickSavePath, writeBinaryFile } from '@/lib/tauri/dialog'
 import { getBaseName } from '@/lib/tauri/fs'
 import { isTauri, isWindowsTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
+import { withoutDocumentExtension } from '@/lib/workspace/file-types'
 
 const PDF_FILTERS = [{ name: 'PDF', extensions: ['pdf'] }]
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -23,9 +25,11 @@ export type ExportMarkdownOptions = {
     format?: ExportFormat
     profile?: PdfExportProfile
     overrides?: PdfExportMetadataOverrides
-    /** The document's file path, so the save dialog starts in its folder. */
+    /** The document's file path, so the save dialog starts in its folder and its images are found from it. */
     documentPath?: string
-    /** The user chose to load this document's web images in the preview, so the PDF and HTML show them too. Word ignores it. */
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
+    /** The user chose to load this document's web images in the preview, so the export embeds them too. */
     allowRemoteImages?: boolean
 }
 
@@ -34,6 +38,8 @@ export type SavedExport = {
     status: 'saved'
     path?: string
     missingImages?: PdfExportMissingImage[]
+    /** How many web images were left out because the user hasn't chosen Load images in the preview. */
+    webImagesLeftOut?: number
     /** Why the PDF was saved without its page numbers (the Windows app adds them after printing). */
     pageNumberWarning?: string
     /** The profile asks for a table of contents, but no heading matched its settings, so there is none. */
@@ -45,7 +51,7 @@ export type ExportResult = SavedExport | { status: 'cancelled' } | { status: 'fa
 
 export function markdownExportBaseName(tabName: string | undefined): string {
     if (!tabName) return 'document'
-    const base = tabName.replace(/\.md$/i, '')
+    const base = withoutDocumentExtension(tabName)
     return base || 'document'
 }
 
@@ -135,26 +141,49 @@ async function saveDocx(bytes: Uint8Array, filename: string, documentPath: strin
 }
 
 /** What an export had to leave out. */
-type LeftOut = { missingImages: PdfExportMissingImage[]; tocSkipped: boolean }
+type LeftOut = {
+    missingImages: PdfExportMissingImage[]
+    /** Web images left out because the user hasn't chosen Load images in the preview. */
+    webImagesLeftOut: number
+    tocSkipped: boolean
+}
 
-type DocumentOptions = { profile: PdfExportProfile; overrides?: PdfExportMetadataOverrides }
+type DocumentOptions = {
+    profile: PdfExportProfile
+    overrides?: PdfExportMetadataOverrides
+    /** The document's file path, so its images are found from it. */
+    documentPath?: string
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
+    /** The user chose to load this document's web images in the preview, so the export embeds them too. */
+    allowRemoteImages?: boolean
+}
 
-/** The steps both formats share: the profile's images, then the document. */
+/** The steps both formats share: the profile's images, the document, then the document's own images. */
 async function prepareExport(
     source: string,
     tabName: string | undefined,
-    { profile, overrides }: DocumentOptions
+    { profile, overrides, documentPath, workspaceRoot, allowRemoteImages }: DocumentOptions
 ): Promise<LeftOut & { exportDocument: ExportDocument }> {
     const { assets, missing } = await resolvePdfExportAssets(profile)
     const exportDocument = buildExportDocument(source, { profile, tabName, overrides, assets })
+    const documentImages = await embedDocumentImages(exportDocument.tree, {
+        documentPath: documentPath ?? null,
+        workspaceRoot: workspaceRoot ?? null,
+        allowRemoteImages: allowRemoteImages === true,
+    })
     // Both renderers leave the contents page out when no heading matches the TOC settings.
     const tocSkipped = profile.frontMatter.toc && exportDocument.toc.length === 0
-    return { exportDocument, missingImages: missing, tocSkipped }
+    return {
+        exportDocument,
+        // The profile's images first, then the document's own.
+        missingImages: [...missing, ...documentImages.missing],
+        webImagesLeftOut: documentImages.webImagesLeftOut,
+        tocSkipped,
+    }
 }
 
 export type ExportPdfPageOptions = DocumentOptions & {
-    /** The user chose to load this document's web images in the preview, so the PDF prints them too. */
-    allowRemoteImages?: boolean
     /** Leave marks for the Windows exporter to stamp page numbers on, instead of CSS page counters. */
     stamped: boolean
 }
@@ -221,17 +250,37 @@ export async function exportMarkdown(source: string, tabName: string | undefined
     try {
         const profile = options.profile ?? createDefaultPdfExportProfile()
         const save = EXPORTERS[options.format ?? 'pdf']
-        const { result, missingImages, tocSkipped } = await save(source, tabName, { ...options, profile })
+        const { result, missingImages, webImagesLeftOut, tocSkipped } = await save(source, tabName, { ...options, profile })
         // Nothing was saved, so there is nothing to report.
         if (result.status !== 'saved') return result
-        return { ...result, ...(missingImages.length > 0 ? { missingImages } : {}), ...(tocSkipped ? { tocSkipped } : {}) }
+        return {
+            ...result,
+            ...(missingImages.length > 0 && { missingImages }),
+            ...(webImagesLeftOut > 0 && { webImagesLeftOut }),
+            ...(tocSkipped && { tocSkipped }),
+        }
     } catch (err) {
         return { status: 'failed', message: errorMessage(err, 'The export could not be created.') }
     }
 }
 
+/** Left-out images named in the saved notice; the rest are only counted, so a long list doesn't fill the screen. */
+const MAX_NAMED_IMAGES = 5
+
+/** `Image (a.png): Image not found; Image (b.png): …; and 2 more.` */
 function describeMissingImages(missing: PdfExportMissingImage[]): string {
-    return missing.map(({ slot, path, reason }) => `${slot} (${getBaseName(path)}): ${reason}`).join('; ')
+    const named = missing.slice(0, MAX_NAMED_IMAGES).map(({ slot, path, reason }) => `${path ? `${slot} (${getBaseName(path)})` : slot}: ${reason}`)
+    const more = missing.length - named.length
+    const items = [...named, ...(more > 0 ? [`and ${more} more.`] : [])]
+    // A full stop never comes before a `;`.
+    return items.map((item, index) => (index < items.length - 1 ? item.replace(/\.$/, '') : item)).join('; ')
+}
+
+/** Said when web images were left out because the user hasn't loaded them in the preview. */
+function describeWebImagesLeftOut(count: number): string {
+    return count === 1
+        ? '1 web image was left out. Choose Load images in the preview to include it.'
+        : `${count} web images were left out. Choose Load images in the preview to include them.`
 }
 
 const TOC_SKIPPED = 'No headings matched the table of contents settings, so no contents page was added.'
@@ -242,19 +291,28 @@ function joinSentences(parts: (string | undefined)[]): string {
     return kept.map((part, index) => (index < kept.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(' ')
 }
 
-/** What a PDF had to leave out (page numbers, profile images, the contents page), as one note; empty when nothing. */
-export function describeLeftOut({ pageNumberWarning, missingImages = [], tocSkipped }: Omit<SavedExport, 'status' | 'path'>): string {
+/** What a PDF had to leave out (page numbers, images, the contents page), as one note; empty when nothing. */
+export function describeLeftOut({
+    pageNumberWarning,
+    missingImages = [],
+    webImagesLeftOut = 0,
+    tocSkipped,
+}: Omit<SavedExport, 'status' | 'path'>): string {
     const images = missingImages.length > 0 ? ['Some images were left out', describeMissingImages(missingImages)] : []
-    return joinSentences([pageNumberWarning, ...images, tocSkipped ? TOC_SKIPPED : ''])
+    const webImages = webImagesLeftOut > 0 ? describeWebImagesLeftOut(webImagesLeftOut) : ''
+    return joinSentences([pageNumberWarning, ...images, webImages, tocSkipped ? TOC_SKIPPED : ''])
 }
 
 /**
  * Tells the user the export was saved and where, with a button that shows the file in its
- * folder. One notice says what had to be left out (page numbers, profile images, or both),
+ * folder. One notice says what had to be left out (page numbers, images, or both),
  * and when no heading matched the table of contents settings.
  */
-export function notifyExportSaved({ path, missingImages = [], pageNumberWarning, tocSkipped }: SavedExport): void {
-    const images = missingImages.length > 0 ? describeMissingImages(missingImages) : ''
+export function notifyExportSaved({ path, missingImages = [], webImagesLeftOut = 0, pageNumberWarning, tocSkipped }: SavedExport): void {
+    const images = joinSentences([
+        missingImages.length > 0 ? describeMissingImages(missingImages) : '',
+        webImagesLeftOut > 0 ? describeWebImagesLeftOut(webImagesLeftOut) : '',
+    ])
     const toc = tocSkipped ? TOC_SKIPPED : ''
     if (!path) {
         // The print dialog or the browser's download took over; only what was left out needs a word.

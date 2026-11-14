@@ -24,9 +24,25 @@ export type KeybindActionId =
     | 'palette.openFiles'
     | 'view.toggleExplorer'
     | 'view.toggleEditor'
+    | 'view.togglePreview'
     | 'view.previewOnly'
     | 'view.fitDiagram'
+    | 'view.zoomDiagramIn'
+    | 'view.zoomDiagramOut'
+    | 'view.resetDiagramZoom'
+    | 'view.focusExplorer'
+    | 'view.focusEditor'
+    | 'view.focusPreview'
+    | 'view.focusNextPane'
+    | 'view.focusPreviousPane'
     | 'workspace.saveAll'
+    | 'workspace.newDiagram'
+    | 'workspace.newDocument'
+    | 'workspace.newFolder'
+    | 'tabs.close'
+    | 'tabs.next'
+    | 'tabs.previous'
+    | 'tabs.reopenClosed'
 
 export type KeybindWhen = 'global' | 'workspace' | 'editor'
 
@@ -53,6 +69,8 @@ export type AppSettings = {
     layout: {
         explorerOpen: boolean
         editorOpen: boolean
+        /** The Markdown preview or the diagram. Never hidden while the editor is hidden too. */
+        previewOpen: boolean
         editorWidth: number
         restorePanelsOnOpen: boolean
         /** The Outline panel, which lists the headings of the Markdown file on screen. */

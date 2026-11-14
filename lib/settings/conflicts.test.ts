@@ -71,7 +71,9 @@ describe('describeDisallowedChord', () => {
     })
 
     it('explains that navigation and editing keys are off limits', () => {
-        expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
+        expect(describeDisallowedChord({ key: 'Enter', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
+        expect(describeDisallowedChord({ key: 'Tab', alt: true }, false)).toMatch(/can't be used in shortcuts/)
+        expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toBeNull()
     })
 })
 

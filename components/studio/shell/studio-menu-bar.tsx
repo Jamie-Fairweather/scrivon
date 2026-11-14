@@ -176,6 +176,12 @@ export function StudioMenuBar() {
                 <Menubar ref={menubarRef} modal={false} className="flex items-center gap-0.5">
                     <MenuBarEntry label="File" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
+                            {item('new-diagram')}
+                            {item('new-document')}
+                            {item('new-folder')}
+                        </MenuGroup>
+                        <MenuSeparator />
+                        <MenuGroup>
                             {item('open-folder')}
                             {item('close-folder')}
                         </MenuGroup>
@@ -232,10 +238,19 @@ export function StudioMenuBar() {
                         <MenuGroup>
                             {item('save')}
                             {item('save-all')}
+                            {item('revert-file')}
                         </MenuGroup>
                         <ExportSubmenu byId={byId} />
                         <MenuSeparator />
-                        {item('close-tab')}
+                        <MenuGroup>
+                            {item('close-tab')}
+                            {item('reopen-closed-tab')}
+                        </MenuGroup>
+                        <MenuSeparator />
+                        <MenuGroup>
+                            {item('next-tab')}
+                            {item('previous-tab')}
+                        </MenuGroup>
                         <MenuSeparator />
                         {item('exit')}
                     </MenuBarEntry>
@@ -268,6 +283,7 @@ export function StudioMenuBar() {
                             <MenuGroup>
                                 {item('toggle-explorer')}
                                 {item('toggle-editor')}
+                                {item('toggle-preview')}
                                 {item('toggle-outline')}
                             </MenuGroup>
                             <MenuSeparator />
@@ -277,7 +293,12 @@ export function StudioMenuBar() {
                                 {item('preview-only')}
                             </MenuGroup>
                             <MenuSeparator />
-                            {item('fit-diagram')}
+                            <MenuGroup>
+                                {item('fit-diagram')}
+                                {item('zoom-diagram-in')}
+                                {item('zoom-diagram-out')}
+                                {item('reset-diagram-zoom')}
+                            </MenuGroup>
                         </MenuBarEntry>
                     )}
 
@@ -290,6 +311,13 @@ export function StudioMenuBar() {
                     </MenuBarEntry>
 
                     <MenuBarEntry label="Help" focusAfterCommand={focusAfterCommand}>
+                        {/* Only the desktop app registers it. */}
+                        {byId.has('check-for-updates') && (
+                            <>
+                                {item('check-for-updates')}
+                                <MenuSeparator />
+                            </>
+                        )}
                         <MenuGroup>
                             {item('about')}
                             {item('licences')}

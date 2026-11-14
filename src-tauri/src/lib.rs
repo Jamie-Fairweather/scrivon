@@ -1,6 +1,7 @@
 mod atomic_write;
 mod close_watchdog;
 mod crash_report;
+mod launch_paths;
 mod legacy_profile;
 mod navigation_guard;
 mod page_numbers;
@@ -11,21 +12,25 @@ mod snap_layouts;
 mod store_recovery;
 mod system_fonts;
 mod system_menu;
+mod update_downloads;
 mod updater;
+mod web_image;
 mod window_state;
 mod workspace_access;
 mod workspace_image;
 mod workspace_trash;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_fs::FsExt;
 
 use close_watchdog::CloseWatchdog;
+use launch_paths::{LaunchPath, LaunchPaths};
 use store_recovery::StoreRecovery;
 use updater::PendingUpdate;
 use window_state::WindowStateFile;
@@ -197,6 +202,17 @@ fn focus_once_shown(app: &tauri::AppHandle) {
     }
 }
 
+/// Queues the files and folders a launch asked Scrivon to open, for the page to
+/// open (see `launch_paths`). True when there were any.
+fn receive_launch_paths(app: &tauri::AppHandle, paths: Vec<LaunchPath>) -> bool {
+    let scope = app.fs_scope();
+    app.state::<LaunchPaths>().add(paths, |folder| {
+        scope
+            .allow_directory(folder, true)
+            .map_err(|e| e.to_string())
+    })
+}
+
 /// Grants the frontend recursive access to a workspace folder, but only one the
 /// user chose (see `workspace_access`). Checking the folder touches the disk
 /// (slow on a network drive), so this runs off the window's main thread.
@@ -259,10 +275,21 @@ pub fn run() {
         // Keep this the first plugin: a second launch must quit before anything
         // else starts, and before setup opens the store files. Two copies would
         // overwrite each other's recent folders, tabs and kept unsaved edits.
-        // A second launch focuses the window that is already open instead.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // A second launch focuses the window that is already open instead, and
+        // hands it the files it was asked to open.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // Looking at the paths touches the disk (slow on a network drive),
+            // so it runs off the main thread. argv[0] is the program.
+            let handle = app.clone();
+            std::thread::spawn(move || {
+                let paths = launch_paths::parse_args(argv.iter().skip(1), Path::new(&cwd));
+                if receive_launch_paths(&handle, paths) {
+                    let _ = handle.emit(launch_paths::EVENT, ());
+                }
+            });
             on_second_launch(app)
         }))
+        .manage(LaunchPaths::default())
         .manage(PendingUpdate(Mutex::new(None)))
         .manage(CloseWatchdog::default())
         .plugin(tauri_plugin_process::init())
@@ -283,8 +310,24 @@ pub fn run() {
             open_stores(app.handle());
             app.manage(WorkspaceAccess::load(data_dir.as_deref()));
             app.manage(WindowStateFile::new(data_dir.as_deref()));
+            // After an in-app update the installer restarts Scrivon with the
+            // arguments it was first started with (tauri-plugin-updater passes
+            // them on). Those were opened back then, so skip them and let the
+            // last folder reopen. If the update failed, this skips one launch's
+            // files, and the page then says the update didn't install.
+            if !data_dir.as_deref().is_some_and(updater::attempt_waiting) {
+                // Checked here, though it touches the disk, because the page asks
+                // for them as it starts. Any later, it would reopen the last
+                // folder first and then switch. Explorer has usually just read
+                // the file, so this is quick.
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let paths = launch_paths::parse_args(std::env::args_os().skip(1), &cwd);
+                // Waits for the page, which takes them as it starts.
+                receive_launch_paths(app.handle(), paths);
+            }
             open_main_window(app.handle())?;
             crash_report::mark_started();
+            update_downloads::remove_old_later(&app.package_info().name);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -310,6 +353,7 @@ pub fn run() {
             atomic_write::rename_workspace_path,
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
+            launch_paths::take_launch_paths,
             pdf_export::export_html_to_pdf,
             pdf_export::preview::preview_html_pdf,
             pdf_export::read_export_image,
@@ -324,6 +368,7 @@ pub fn run() {
             updater::check_for_app_update,
             updater::install_app_update,
             updater::take_update_attempt,
+            web_image::fetch_export_image,
             workspace_image::read_workspace_image,
             workspace_trash::trash_workspace_path,
         ])
@@ -373,6 +418,103 @@ mod config_tests {
     fn the_webview_cannot_erase_files_only_move_them_to_the_recycle_bin() {
         // Deletes go through workspace_trash, so a mistake can be undone (F01).
         assert!(!permissions().iter().any(|p| p == "fs:allow-remove"));
+    }
+
+    #[test]
+    fn the_installer_opens_every_kind_of_document_with_scrivon() {
+        // Double-clicking one in File Explorer then opens it (launch_paths).
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mut registered: Vec<&str> = config["bundle"]["fileAssociations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|association| association["ext"].as_array().unwrap())
+            .map(|ext| ext.as_str().unwrap())
+            .collect();
+        registered.sort_unstable();
+        let mut opened = super::launch_paths::DOCUMENT_EXTENSIONS;
+        opened.sort_unstable();
+        assert_eq!(registered, opened);
+    }
+
+    const INSTALLER_HOOKS: &str = include_str!("../windows/installer-hooks.nsh");
+
+    /// The lines of one `!macro name` ... `!macroend` in the installer hooks, trimmed.
+    fn installer_hook(name: &str) -> Vec<&'static str> {
+        let mut lines = INSTALLER_HOOKS.lines().map(str::trim);
+        let start = format!("!macro {name}");
+        lines
+            .find(|line| {
+                line.strip_prefix(&start)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .unwrap_or_else(|| panic!("{name} is not in installer-hooks.nsh"));
+        lines.take_while(|line| *line != "!macroend").collect()
+    }
+
+    #[test]
+    fn the_installer_keeps_the_app_each_file_type_opened_with_before() {
+        // The template's APP_ASSOCIATE overwrites that on every install after
+        // the first (see SCRIVON_FILE_TYPES in installer-hooks.nsh).
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mut registered: Vec<String> = config["bundle"]["fileAssociations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|association| {
+                let class = association["name"].as_str().unwrap();
+                association["ext"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(move |ext| format!("\"{}\" \"{class}\"", ext.as_str().unwrap()))
+            })
+            .collect();
+        let mut kept: Vec<String> = installer_hook("SCRIVON_FILE_TYPES")
+            .iter()
+            .map(|line| {
+                let args = line.strip_prefix("!insertmacro ${do} ").unwrap();
+                args.rsplit_once(' ').unwrap().0.to_string()
+            })
+            .collect();
+        registered.sort_unstable();
+        kept.sort_unstable();
+        assert_eq!(kept, registered);
+
+        assert!(installer_hook("NSIS_HOOK_PREINSTALL")
+            .contains(&"!insertmacro SCRIVON_FILE_TYPES SCRIVON_READ_ASSOC_BACKUP"));
+        assert!(installer_hook("NSIS_HOOK_POSTINSTALL")
+            .contains(&"!insertmacro SCRIVON_FILE_TYPES SCRIVON_KEEP_ASSOC_BACKUP"));
+    }
+
+    #[test]
+    fn file_explorer_hears_when_the_file_types_change() {
+        for hook in ["NSIS_HOOK_POSTINSTALL", "NSIS_HOOK_POSTUNINSTALL"] {
+            assert!(
+                installer_hook(hook).contains(&"!insertmacro UPDATEFILEASSOC"),
+                "{hook}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_installer_hook_is_defined_once() {
+        // makensis stops on a macro defined twice, which a merge could leave.
+        for hook in [
+            "NSIS_HOOK_PREINSTALL",
+            "NSIS_HOOK_POSTINSTALL",
+            "NSIS_HOOK_PREUNINSTALL",
+            "NSIS_HOOK_POSTUNINSTALL",
+        ] {
+            let start = format!("!macro {hook}");
+            let defined = INSTALLER_HOOKS
+                .lines()
+                .filter(|line| line.trim() == start)
+                .count();
+            assert!(defined <= 1, "{hook} is defined {defined} times");
+        }
     }
 
     #[test]

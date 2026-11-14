@@ -22,10 +22,12 @@ type PdfExportDialogProps = {
     onOpenChange: (open: boolean) => void
     source: string
     tabName: string | undefined
-    /** The document's file path, so the save dialog starts in its folder. */
+    /** The document's file path, so the save dialog starts in its folder and its images are found from it. */
     tabPath?: string
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
     format?: ExportFormat
-    /** The user chose 'Load images' in this document's preview, so the PDF prints its web images too. */
+    /** The user chose 'Load images' in this document's preview, so the export embeds its web images too. */
     allowRemoteImages?: boolean
     /**
      * Whether an export is running. Kept by the owner, not the dialog, so it outlives the dialog
@@ -41,6 +43,7 @@ export function PdfExportDialog({
     source,
     tabName,
     tabPath,
+    workspaceRoot = null,
     format = 'pdf',
     allowRemoteImages = false,
     exporting,
@@ -65,6 +68,7 @@ export function PdfExportDialog({
                     source={source}
                     tabName={tabName}
                     tabPath={tabPath}
+                    workspaceRoot={workspaceRoot}
                     initialFormat={format}
                     allowRemoteImages={allowRemoteImages}
                     busy={exporting}
@@ -147,6 +151,7 @@ function PdfExportForm({
     source,
     tabName,
     tabPath,
+    workspaceRoot,
     initialFormat,
     allowRemoteImages,
     busy,
@@ -156,6 +161,7 @@ function PdfExportForm({
     source: string
     tabName: string | undefined
     tabPath: string | undefined
+    workspaceRoot: string | null
     initialFormat: ExportFormat
     allowRemoteImages: boolean
     busy: boolean
@@ -199,7 +205,14 @@ function PdfExportForm({
             // Let 'Exporting…' paint before the build takes over the main thread.
             await afterNextPaint()
             const { exportMarkdown, notifyExportSaved } = await loadMarkdownExport()
-            const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath, allowRemoteImages })
+            const result = await exportMarkdown(source, tabName, {
+                format,
+                profile,
+                overrides,
+                documentPath: tabPath,
+                workspaceRoot,
+                allowRemoteImages,
+            })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
                 notifyExportSaved(result)
@@ -274,6 +287,8 @@ function PdfExportForm({
                 <PdfExportPreview
                     source={source}
                     tabName={tabName}
+                    tabPath={tabPath}
+                    workspaceRoot={workspaceRoot}
                     profile={profile}
                     title={title}
                     subtitle={subtitle}

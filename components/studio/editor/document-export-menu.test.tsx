@@ -16,13 +16,21 @@ const expand = vi.hoisted(() => ({ expanded: null as { source: string; canvasKey
 const remoteImageTabs = vi.hoisted(() => new Set<string>())
 /** What drawing the diagram gave: an error, still drawing, or nothing to draw. */
 const diagram = vi.hoisted(() => ({ currentError: null as string | null, isPending: false, isStale: false, isEmpty: false }))
-type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void; tabPath?: string; allowRemoteImages?: boolean; format?: ExportFormat }
+type DialogProps = {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    tabPath?: string
+    workspaceRoot?: string | null
+    allowRemoteImages?: boolean
+    format?: ExportFormat
+}
 const dialogProps = vi.hoisted(() => ({ current: null as DialogProps | null }))
 /** The props the export dialog last rendered with, or null when the menu left it out. */
 const lastDialog = (): DialogProps | null => dialogProps.current
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTab: tabs.activeTab, activeTabId: tabs.activeTab?.id ?? null }),
+    useWorkspaceSession: () => ({ workspaceRoot: 'D:\\docs' }),
 }))
 vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
     useMarkdownExpand: () => ({ expanded: expand.expanded }),
@@ -108,6 +116,8 @@ describe('DocumentExportMenu', () => {
         expect(button).not.toHaveAttribute('title')
         // The export dialog gets the file's path so its save dialog starts in the same folder.
         expect(dialogProps.current?.tabPath).toBe('D:\\docs\\notes.md')
+        // And the open folder, so the export can embed the images in it.
+        expect(dialogProps.current?.workspaceRoot).toBe('D:\\docs')
 
         expect(button).not.toHaveAccessibleDescription()
 

@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { shareUpdateCheck } from '@/components/studio/shared-update-check'
 import { AdvancedSettings } from '@/components/studio/settings/sections/advanced-settings'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
 import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
@@ -23,6 +24,7 @@ describe('AdvancedSettings', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
         vi.mocked(isTauri).mockReturnValue(true)
+        shareUpdateCheck(null)
     })
 
     function renderSection() {
@@ -45,11 +47,29 @@ describe('AdvancedSettings', () => {
         expect(saved.workspace.reopenLastFolder).toBe(false)
     })
 
+    it('checks for updates now, using the check the studio shares', () => {
+        const check = vi.fn(async () => {})
+        act(() => shareUpdateCheck({ check, checking: false }))
+        renderSection()
+
+        expect(screen.getByRole('switch', { name: 'Check for updates automatically' })).toBeChecked()
+        fireEvent.click(screen.getByRole('button', { name: 'Check for updates now' }))
+        expect(check).toHaveBeenCalledTimes(1)
+
+        act(() => shareUpdateCheck({ check, checking: true }))
+        expect(screen.getByRole('button', { name: /Check for updates now/ })).toBeDisabled()
+
+        // No studio open, so nothing to check with.
+        act(() => shareUpdateCheck(null))
+        expect(screen.getByRole('button', { name: 'Check for updates now' })).toBeDisabled()
+    })
+
     it('leaves the folder option out of the browser build, which has no folders', () => {
         vi.mocked(isTauri).mockReturnValue(false)
         renderSection()
 
         expect(screen.queryByRole('switch', { name: 'Reopen last folder on startup' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Check for updates now' })).not.toBeInTheDocument()
         expect(screen.getByRole('switch', { name: 'Restore panel layout' })).toBeInTheDocument()
     })
 })

@@ -8,7 +8,7 @@ import { exportAvailability, type ExportAvailability } from '@/components/studio
 import { buildExportCommands, type DiagramExportKind } from '@/components/studio/editor/export-commands'
 import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
-import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import type { DiagramExportTarget } from '@/lib/mermaid/export'
 import { notifyError } from '@/lib/notify'
@@ -63,6 +63,8 @@ function useDiagramExport(job: DiagramJob, setExporting: (exporting: boolean) =>
  */
 export function DocumentExportProvider({ children }: { children: ReactNode }) {
     const { activeTab, activeTabId } = useDocumentTabs()
+    // The export embeds images inside the open folder, as the preview shows them.
+    const { workspaceRoot } = useWorkspaceSession()
     const { expanded } = useMarkdownExpand()
     // Web images the user chose to load in this tab's preview go in its export too.
     const { remoteImageTabs } = useMarkdownPreviewMemory()
@@ -132,6 +134,7 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
                     source={markdownSource}
                     tabName={activeTab?.name}
                     tabPath={activeTab?.path}
+                    workspaceRoot={workspaceRoot}
                     format={format}
                     allowRemoteImages={activeTabId ? remoteImageTabs.has(activeTabId) : false}
                     exporting={exporting}

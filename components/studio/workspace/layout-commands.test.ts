@@ -6,13 +6,16 @@ function context(overrides: Partial<LayoutCommandsContext> = {}): LayoutCommands
         hasWorkspace: true,
         explorerOpen: true,
         editorOpen: true,
+        previewOpen: true,
         outlineOpen: false,
         canFitDiagram: true,
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
+        setPreviewOpen: vi.fn(),
         setOutlineOpen: vi.fn(),
         setPreviewOnly: vi.fn(),
         requestCanvasFit: vi.fn(),
+        zoomDiagram: vi.fn(),
         ...overrides,
     }
 }
@@ -29,6 +32,18 @@ describe('buildLayoutCommands panes', () => {
         void find(ctx, 'toggle-editor')!.run()
         expect(ctx.setExplorerOpen).toHaveBeenCalledWith(false)
         expect(ctx.setEditorOpen).toHaveBeenCalledWith(true)
+    })
+
+    it('shows and hides the preview, on its shortcut', () => {
+        const shown = context({ previewOpen: true })
+        expect(find(shown, 'toggle-preview')).toMatchObject({ label: 'Preview', checked: true, keybind: 'view.togglePreview', disabled: false })
+        void find(shown, 'toggle-preview')!.run()
+        expect(shown.setPreviewOpen).toHaveBeenCalledWith(false)
+
+        const hidden = context({ previewOpen: false })
+        expect(find(hidden, 'toggle-preview')?.checked).toBe(false)
+        void find(hidden, 'toggle-preview')!.run()
+        expect(hidden.setPreviewOpen).toHaveBeenCalledWith(true)
     })
 
     it('shows and hides the Outline panel', () => {
@@ -51,10 +66,13 @@ describe('buildLayoutCommands layout modes', () => {
         void find(ctx, 'layout-all-panels')!.run()
         expect(ctx.setExplorerOpen).toHaveBeenLastCalledWith(true)
         expect(ctx.setEditorOpen).toHaveBeenLastCalledWith(true)
+        expect(ctx.setPreviewOpen).toHaveBeenLastCalledWith(true)
 
-        void find(ctx, 'layout-editor-preview')!.run()
-        expect(ctx.setExplorerOpen).toHaveBeenLastCalledWith(false)
-        expect(ctx.setEditorOpen).toHaveBeenLastCalledWith(true)
+        const editorOnly = context({ previewOpen: false })
+        void find(editorOnly, 'layout-editor-preview')!.run()
+        expect(editorOnly.setExplorerOpen).toHaveBeenLastCalledWith(false)
+        expect(editorOnly.setEditorOpen).toHaveBeenLastCalledWith(true)
+        expect(editorOnly.setPreviewOpen).toHaveBeenLastCalledWith(true)
 
         void find(ctx, 'preview-only')!.run()
         expect(ctx.setPreviewOnly).toHaveBeenCalledTimes(1)
@@ -69,7 +87,15 @@ describe('buildLayoutCommands layout modes', () => {
 
     it('turns the layout commands off with no folder open, and says why', () => {
         const ctx = context({ hasWorkspace: false })
-        for (const id of ['toggle-explorer', 'toggle-editor', 'toggle-outline', 'layout-all-panels', 'layout-editor-preview', 'preview-only']) {
+        for (const id of [
+            'toggle-explorer',
+            'toggle-editor',
+            'toggle-preview',
+            'toggle-outline',
+            'layout-all-panels',
+            'layout-editor-preview',
+            'preview-only',
+        ]) {
             expect(find(ctx, id)).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
         }
     })
@@ -87,5 +113,31 @@ describe('buildLayoutCommands Fit Diagram to Screen', () => {
             disabled: true,
             disabledReason: 'No folder open',
         })
+    })
+})
+
+describe('buildLayoutCommands diagram zoom (F06)', () => {
+    const zoomCommands = [
+        ['zoom-diagram-in', 'Zoom Diagram In', 'view.zoomDiagramIn', 'in'],
+        ['zoom-diagram-out', 'Zoom Diagram Out', 'view.zoomDiagramOut', 'out'],
+        ['reset-diagram-zoom', 'Reset Diagram Zoom', 'view.resetDiagramZoom', 'reset'],
+    ] as const
+
+    it('zooms the diagram in, out and back to 100%, on their own shortcuts', () => {
+        const ctx = context()
+        for (const [id, label, keybind, how] of zoomCommands) {
+            const command = find(ctx, id)
+            expect(command).toMatchObject({ label, keybind, disabled: false })
+            expect(command?.keywords).toContain('zoom')
+            void command!.run()
+            expect(ctx.zoomDiagram).toHaveBeenLastCalledWith(how)
+        }
+    })
+
+    it('is off with a reason when no diagram is shown or no folder is open', () => {
+        for (const [id] of zoomCommands) {
+            expect(find(context({ canFitDiagram: false }), id)).toMatchObject({ disabled: true, disabledReason: 'No diagram shown' })
+            expect(find(context({ hasWorkspace: false }), id)).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
+        }
     })
 })

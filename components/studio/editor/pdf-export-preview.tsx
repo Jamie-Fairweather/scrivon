@@ -15,6 +15,10 @@ const loadPreview = () => import('@/lib/markdown/export-pdf-preview')
 type PdfExportPreviewProps = {
     source: string
     tabName: string | undefined
+    /** The document's file path, so its images are found from it. */
+    tabPath?: string
+    /** The open folder. Only images inside it are shown. */
+    workspaceRoot?: string | null
     profile: PdfExportProfile
     title: string
     subtitle: string
@@ -28,7 +32,19 @@ type PdfExportPreviewProps = {
  * The PDF the export would save, page numbers included, made again shortly after the
  * profile or the title fields change. Windows app only: it prints through the same code.
  */
-export function PdfExportPreview({ source, tabName, profile, title, subtitle, author, date, allowRemoteImages, className }: PdfExportPreviewProps) {
+export function PdfExportPreview({
+    source,
+    tabName,
+    tabPath,
+    workspaceRoot = null,
+    profile,
+    title,
+    subtitle,
+    author,
+    date,
+    allowRemoteImages,
+    className,
+}: PdfExportPreviewProps) {
     const [store] = useState(() => createPdfPreviewStore(PREVIEW_DELAY_MS))
     const { url, note, updating, error } = useSyncExternalStore(store.subscribe, store.getState, store.getState)
     // Settings can hand over a fresh profile object with the same values; only a real change counts.
@@ -38,10 +54,12 @@ export function PdfExportPreview({ source, tabName, profile, title, subtitle, au
         const options: PdfPreviewOptions = {
             profile: JSON.parse(profileKey) as PdfExportProfile,
             overrides: { title, subtitle, author, date },
+            documentPath: tabPath,
+            workspaceRoot,
             allowRemoteImages,
         }
         store.request(async () => (await loadPreview()).previewMarkdownPdf(source, tabName, options))
-    }, [store, source, tabName, profileKey, title, subtitle, author, date, allowRemoteImages])
+    }, [store, source, tabName, tabPath, workspaceRoot, profileKey, title, subtitle, author, date, allowRemoteImages])
 
     useEffect(() => () => store.clear(), [store])
 

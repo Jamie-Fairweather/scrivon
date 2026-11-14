@@ -1,8 +1,11 @@
 'use client'
 
-import { memo, useSyncExternalStore } from 'react'
+import { memo } from 'react'
 import { BookOpen, Files } from 'lucide-react'
 import { ExamplesExplorer } from '@/components/studio/explorer/examples-explorer'
+import { ExplorerBackgroundMenu } from '@/components/studio/explorer/explorer-background-menu'
+import { ExplorerTreeButtons } from '@/components/studio/explorer/explorer-tree-buttons'
+import { setExplorerPanel, useExplorerPanel } from '@/components/studio/explorer/explorer-view'
 import { FileTree } from '@/components/studio/explorer/file-tree'
 import { FileTreeRootActions } from '@/components/studio/explorer/file-tree-root-actions'
 import { CommandPaletteTriggerButton } from '@/components/studio/command-palette/command-palette-trigger-button'
@@ -13,40 +16,14 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { toggleButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
-const STORAGE_EXPLORER_PANEL = 'mermaid-studio-explorer-panel'
-
-type ExplorerPanel = 'files' | 'examples'
-
-const explorerPanelListeners = new Set<() => void>()
-
-function getExplorerPanelSnapshot(): ExplorerPanel {
-    const stored = sessionStorage.getItem(STORAGE_EXPLORER_PANEL)
-    return stored === 'examples' ? 'examples' : 'files'
-}
-
-function getExplorerPanelServerSnapshot(): ExplorerPanel {
-    return 'files'
-}
-
-function subscribeExplorerPanel(onStoreChange: () => void): () => void {
-    explorerPanelListeners.add(onStoreChange)
-    return () => explorerPanelListeners.delete(onStoreChange)
-}
-
-function setExplorerPanel(value: ExplorerPanel): void {
-    sessionStorage.setItem(STORAGE_EXPLORER_PANEL, value)
-    for (const listener of explorerPanelListeners) {
-        listener()
-    }
-}
-
 /** Memoized: the layout around it draws again on every keystroke, and nothing here depends on the text. */
 export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
     const { workspaceName, tree } = useWorkspaceSession()
-    const panel = useSyncExternalStore(subscribeExplorerPanel, getExplorerPanelSnapshot, getExplorerPanelServerSnapshot)
+    const panel = useExplorerPanel()
 
     return (
-        <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+        // A pane for F6 and Focus Explorer (pane-focus.ts), which go to the list below before the buttons above it.
+        <aside data-pane="explorer" aria-label="Explorer" className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             <div className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-2 py-2">
                 <div className="flex items-center justify-center gap-0.5 px-0.5">
                     <IconTooltip label="Files">
@@ -84,23 +61,28 @@ export const WorkspaceExplorer = memo(function WorkspaceExplorer() {
                                 {workspaceName}
                             </p>
                         </div>
-                        <FileTreeRootActions />
+                        <div className="flex shrink-0 items-center gap-0.5">
+                            <FileTreeRootActions />
+                            <ExplorerTreeButtons />
+                        </div>
                     </div>
                 )}
 
                 {panel === 'examples' && <p className="px-1 text-center text-xs text-muted-foreground">View-only diagram and markdown samples</p>}
             </div>
 
-            <div className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>
+            <div data-pane-focus className={cn('flex min-h-0 flex-1 flex-col', panel === 'files' && 'px-1 py-2')}>
                 {panel === 'files' ? (
-                    // The tree is a Tab stop of its own, and a focused row scrolls into view, so the scroll box isn't one.
-                    <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
-                        {tree.length === 0 ? (
-                            <p className="px-3 py-2 text-xs text-muted-foreground">No files in this folder.</p>
-                        ) : (
-                            <FileTree tree={tree} />
-                        )}
-                    </ScrollArea>
+                    <ExplorerBackgroundMenu>
+                        {/* The tree is a Tab stop of its own, and a focused row scrolls into view, so the scroll box isn't one. */}
+                        <ScrollArea className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
+                            {tree.length === 0 ? (
+                                <p className="px-3 py-2 text-xs text-muted-foreground">No files in this folder.</p>
+                            ) : (
+                                <FileTree tree={tree} />
+                            )}
+                        </ScrollArea>
+                    </ExplorerBackgroundMenu>
                 ) : (
                     <ExamplesExplorer />
                 )}
