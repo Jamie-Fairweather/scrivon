@@ -24,12 +24,13 @@ describe('formatDiagnosticInfo', () => {
                 '',
                 'Settings',
                 '- Theme: follows Windows (scrivon-light / scrivon-dark)',
+                '- App zoom: 100%, preview text 14 px',
                 '- Autosave: on, after 400 ms',
                 '- Editor: 13 px, tab size 2, word wrap on, line numbers on, minimap off',
                 '- Spelling: on, en-GB',
                 '- Check for updates on launch: on',
                 '- Reopen last folder: on',
-                '- Panels open: explorer, editor',
+                '- Panels open: explorer, editor, preview',
                 '- Changed shortcuts: 0',
             ].join('\n')
         )
@@ -45,7 +46,6 @@ describe('formatDiagnosticInfo', () => {
                 s.editor.minimap = true
                 s.spellcheck.enabled = false
                 s.updates.checkOnLaunch = false
-                s.layout = { ...s.layout, explorerOpen: false, editorOpen: false, outlineOpen: false }
             }),
         })
 
@@ -55,7 +55,27 @@ describe('formatDiagnosticInfo', () => {
         expect(text).toContain('minimap on')
         expect(text).toContain('- Spelling: off')
         expect(text).toContain('- Check for updates on launch: off')
-        expect(text).toContain('- Panels open: none')
+    })
+
+    it('gives the app zoom and preview text size the user picked', () => {
+        const text = formatDiagnosticInfo({ system, settings: settings((s) => (s.appearance = { zoom: 1.25, previewFontSize: 18 })) })
+
+        expect(text).toContain('- App zoom: 125%, preview text 18 px')
+    })
+
+    it('says when the preview is hidden', () => {
+        const text = formatDiagnosticInfo({ system, settings: settings((s) => (s.layout = { ...s.layout, previewOpen: false, outlineOpen: true })) })
+
+        expect(text).toContain('- Panels open: explorer, editor, outline')
+    })
+
+    it('lists the preview in Preview Only, where the editor is hidden', () => {
+        const previewOnly = settings((s) => (s.layout = { ...s.layout, explorerOpen: false, editorOpen: false, outlineOpen: false }))
+
+        expect(formatDiagnosticInfo({ system, settings: previewOnly })).toContain('- Panels open: preview')
+        // The preview shows whenever the editor is hidden, even if its own setting is off.
+        previewOnly.layout.previewOpen = false
+        expect(formatDiagnosticInfo({ system, settings: previewOnly })).toContain('- Panels open: preview')
     })
 
     it('counts the shortcuts the user changed', () => {
