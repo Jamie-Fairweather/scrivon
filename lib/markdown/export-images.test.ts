@@ -204,7 +204,7 @@ describe('embedDocumentImages', () => {
         const document = buildExportDocument('![Wide](wide.png)\n\n<p><img src="wide.png" alt="Raw" width="9000"></p>')
 
         await embedDocumentImages(document.tree, { documentPath: DOC, workspaceRoot: ROOT, allowRemoteImages: false })
-        const xml = wordXml(await renderExportDocx(document))
+        const xml = wordXml((await renderExportDocx(document)).bytes)
 
         for (const descr of ['Wide', 'Raw']) {
             const at = xml.indexOf(`descr="${descr}"`)

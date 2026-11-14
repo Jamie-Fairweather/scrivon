@@ -74,6 +74,7 @@ import {
 import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
+import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 
 type WorkspaceSessionContextValue = {
@@ -126,6 +127,12 @@ type WorkspaceSessionContextValue = {
     deleteEntry: (path: string, isDirectory: boolean) => Promise<void>
     duplicateFile: (path: string) => Promise<void>
     openFile: (path: string) => Promise<void>
+    /**
+     * Opens files and folders from outside Scrivon as File Explorer does (see planLaunchOpen): the first one's
+     * folder, unless it is in the open one, then the files in that folder. Resolves to the folder it opened, or
+     * tried to, or null when it stayed in the open one.
+     */
+    openLaunchPaths: (paths: readonly LaunchPath[]) => Promise<string | null>
 }
 
 const WorkspaceSessionContext = createContext<WorkspaceSessionContextValue | null>(null)
@@ -695,12 +702,51 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [coordinator, keepRecoveredTextAsCopy]
     )
 
+    // The open folder once its saved tabs are back. Until then its tab list isn't saved (see canPersistTabSession),
+    // so leaving it, or opening a file there, while they are still being read can't wipe the rest of the list.
+    const tabsRestored = useRef<string | null>(null)
+    // A save of the open folder's tab list was held back while its tabs were still being read.
+    const tabSessionHeldBack = useRef(false)
+
+    useEffect(() => {
+        registerCoordinatorRefs(coordinator, {
+            canPersistTabSession: (root) => {
+                if (tabsRestored.current !== null && samePath(tabsRestored.current, root)) return true
+                if (isOpenFolder(root)) tabSessionHeldBack.current = true
+                return false
+            },
+        })
+    }, [coordinator, isOpenFolder])
+
+    /** Reopens the open folder's saved tabs (restoreTabSession); after that its tab list is saved as it changes. */
+    const reopenTabs = useCallback(
+        async (path: string, isCurrent: () => boolean) => {
+            try {
+                await restoreTabSession(path, isCurrent)
+            } catch (err) {
+                if (isCurrent()) notifyError("Couldn't reopen the files you had open", err)
+            }
+            if (!isCurrent()) return
+            tabsRestored.current = path
+            // A file opened meanwhile (from File Explorer, say) is in the list now.
+            if (tabSessionHeldBack.current) {
+                tabSessionHeldBack.current = false
+                void coordinator.persistWorkspaceTabSession.current()
+            }
+        },
+        [restoreTabSession, coordinator]
+    )
+
+    // Folders offerKeptChanges has asked about. The startup notice leaves their kept changes out.
+    const keptChangesOffered = useRef<string[]>([])
+
     /**
      * Unsaved changes kept for `root` only come back when that folder opens. When it can't (moved, renamed or
      * deleted elsewhere), the user picks what happens to them, so the "from last time" notice can't come back
      * on every launch with no way out: save them as new files in another folder, discard them, or keep them.
      */
     const offerKeptChanges = useCallback(async (root: string) => {
+        keptChangesOffered.current.push(root)
         const kept = (await listBackupsSafely()).filter((b) => samePath(b.root ?? getParentPath(b.path), root))
         if (kept.length === 0) return
         const choice = await confirmKeptChangesWithoutFolder(
@@ -762,7 +808,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             if (openRoot && samePath(path, openRoot)) {
                 // The folder that is already open (it tops Open Recent): its tabs, unsaved edits and undo history
                 // stay as they are. A folder still being opened is dropped, so the one clicked last wins.
-                startWorkspaceRequest()
+                const { request } = startWorkspaceRequest()
                 setOpeningWorkspace(null)
                 dismissNotification(OPENING_NOTICE_ID)
                 // Saved under the open folder's own spelling, which its saved tabs are kept under.
@@ -771,10 +817,18 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     .catch((err: unknown) => console.warn("Couldn't update recent folders", err))
                 // Says again if the folder has too many files to show them all, as a first open does.
                 await readWholeTree(true)
+                // Its saved tabs were still being reopened, which this stopped, so they are reopened here.
+                if (tabsRestored.current === null) await reopenTabs(openRoot, () => request === workspaceRequest.current)
                 return
             }
             const { request, signal } = startWorkspaceRequest()
             const isCurrent = () => request === workspaceRequest.current
+            // That stopped the open folder reopening its saved tabs, if it still was. When this open fails or is
+            // cancelled, that folder stays open, so they are reopened, as when it is picked again.
+            const stayInOpenFolder = () => {
+                const stayed = workspaceRootRef.current
+                if (stayed && tabsRestored.current === null && isCurrent()) void reopenTabs(stayed, isCurrent)
+            }
             const name = getBaseName(path) || path
             setOpeningWorkspace(path)
             // Reading a big folder takes a while; saying so stops the user thinking nothing happened.
@@ -793,7 +847,10 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                     // happens only now, right before switching, so nothing typed while the new folder was read is lost.
                     // A folder picked while this is still being answered (or saved) gets the same answer, and the
                     // tabs are only let go once a switch really happens (clearTabs).
-                    if (workspaceRootRef.current && !(await coordinator.confirmCloseTabs.current())) return
+                    if (workspaceRootRef.current && !(await coordinator.confirmCloseTabs.current())) {
+                        stayInOpenFolder()
+                        return
+                    }
                     if (!isCurrent()) return
                 } catch (err) {
                     if (!isCurrent()) return
@@ -807,11 +864,14 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                         isRecent ? { action: { label: 'Remove from Recent', onClick: removeFromRecent } } : {}
                     )
                     void offerKeptChanges(path)
+                    stayInOpenFolder()
                     return
                 }
 
                 // The old folder's tabs are noted before they are cleared; saving that list is best-effort.
                 const leaving = workspaceRootRef.current ? coordinator.persistWorkspaceTabSession.current() : null
+                tabsRestored.current = null
+                tabSessionHeldBack.current = false
                 workspaceRootRef.current = path
                 setWorkspaceRoot(path)
                 startTreeRead(null)
@@ -838,11 +898,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 // Reopened at the next start, unless it is closed first.
                 void setLastWorkspace(path).catch((err: unknown) => console.warn("Couldn't remember the open folder", err))
 
-                try {
-                    await restoreTabSession(path, isCurrent)
-                } catch (err) {
-                    if (isCurrent()) notifyError("Couldn't reopen the files you had open", err)
-                }
+                await reopenTabs(path, isCurrent)
             } finally {
                 clearTimeout(slowNotice)
                 if (isCurrent()) {
@@ -856,7 +912,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             recentWorkspaces,
             maxRecentFolders,
             removeRecent,
-            restoreTabSession,
+            reopenTabs,
             offerKeptChanges,
             readWholeTree,
             updateFolderToggles,
@@ -910,19 +966,20 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             const launched = await (launchedAtStartup.current ??= takeLaunchPathsSafely())
             const last = launched.length === 0 && reopenAtStartup.current ? await getLastWorkspace().catch(() => null) : null
             if (cancelled) return
-            let tried: string | null = null
-            if (launched.length > 0) tried = await openLaunchPaths(launched)
+            if (launched.length > 0) await openLaunchPaths(launched)
             // Not once the user has opened or closed a folder. One that can't be opened says why, and the
             // welcome screen stays.
-            else if (last && workspaceRequest.current === 0) {
-                tried = last
-                await openWorkspaceRef.current(last, true)
-            }
+            else if (last && workspaceRequest.current === 0) await openWorkspaceRef.current(last, true)
             setStartupOpened(true)
             const folderOf = (b: UnsavedBackup) => b.root ?? getParentPath(b.path)
-            // A folder that couldn't be reopened has already offered its kept changes (offerKeptChanges).
-            const backups = (await listBackupsSafely()).filter((b) => !tried || !samePath(folderOf(b), tried))
-            if (cancelled || backups.length === 0 || workspaceRootRef.current) return
+            const kept = await listBackupsSafely()
+            const openRoot = workspaceRootRef.current
+            const offered = keptChangesOffered.current
+            // A folder that couldn't be opened has already offered its kept changes (offerKeptChanges), and the
+            // open folder has brought its own back in tabs. Any others (the last folder, when Scrivon started with a
+            // file from another one, or another folder was opened while it was read) are only mentioned here.
+            const backups = kept.filter((b) => !offered.some((f) => samePath(f, folderOf(b))) && !(openRoot && isPathInside(b.path, openRoot)))
+            if (cancelled || backups.length === 0) return
             const root = folderOf(backups[0]!)
             const here = backups.filter((b) => samePath(folderOf(b), root))
             const what = here.length === 1 ? `your changes to ${getBaseName(here[0]!.path)}` : `your changes to ${here.length} files`
@@ -990,6 +1047,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         treeTruncatedRef.current = false
         setTreeTruncated(false)
         const leaving = coordinator.persistWorkspaceTabSession.current()
+        tabsRestored.current = null
+        tabSessionHeldBack.current = false
         workspaceRootRef.current = null
         setWorkspaceRoot(null)
         setTree([])
@@ -1319,6 +1378,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             deleteEntry,
             duplicateFile,
             openFile,
+            openLaunchPaths,
         }),
         [
             isDesktop,
@@ -1346,6 +1406,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             deleteEntry,
             duplicateFile,
             openFile,
+            openLaunchPaths,
         ]
     )
 

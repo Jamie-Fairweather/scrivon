@@ -156,6 +156,8 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
                     tabPath={activeTab?.path}
                     workspaceRoot={workspaceRoot}
                     format={format}
+                    // So the next Export… opens at the format picked in the dialog.
+                    onFormatChange={setFormat}
                     allowRemoteImages={activeTabId ? remoteImageTabs.has(activeTabId) : false}
                     exporting={exporting}
                     onExportingChange={setExporting}

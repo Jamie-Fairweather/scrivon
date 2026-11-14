@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MARKDOWN_SHOWCASE } from '@/lib/examples/markdown-showcase'
+import { buildExportDocument } from '@/lib/markdown/export-document'
 import { isTauri } from '@/lib/tauri/platform'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { lastMermaidBlockSources } from './markdown-block-ordinals'
@@ -226,6 +227,47 @@ describe('MarkdownPreview', () => {
 
         rerender(<MarkdownPreview source="# Notes" tabId="doc.md" {...callbacks} />)
         expect(container.querySelector('article')).toHaveAttribute('lang', 'en')
+    })
+
+    describe('language', () => {
+        const JAPANESE = '# 会議の議事録\n\n今日は新しい機能について話し合いました。次回までに資料を準備します。'
+        const langOf = (source: string) => preview(source).container.querySelector('article')?.getAttribute('lang')
+
+        it('uses the front matter’s lang: first, as export does', () => {
+            expect(langOf(`---\nlang: zh-TW\n---\n${JAPANESE}`)).toBe('zh-TW')
+            expect(langOf('---\nlang: ja\n---\nPlain English words.')).toBe('ja')
+            // Not a language tag, so it is guessed.
+            expect(langOf(`---\nlang: not a tag\n---\n${JAPANESE}`)).toBe('ja')
+        })
+
+        it('leaves code out of the guess, closed or not', () => {
+            const code = '// 日本語のコメントです。これはコードの中です。\nconst x = 1'
+            expect(langOf(`\`\`\`js\n${code}\n\`\`\``)).toBe('en')
+            expect(langOf(`Intro.\n\n~~~~\n${code}\n~~~~~\n\nOutro.`)).toBe('en')
+            expect(langOf(`Intro.\n\n\`\`\`\n${code}`)).toBe('en')
+            // A shorter or different fence doesn't close the block, so the Japanese after it is still code.
+            expect(langOf(`\`\`\`\`\n${code}\n\`\`\`\n~~~\n${code}\n\`\`\`\``)).toBe('en')
+            // The prose around a closed block still counts.
+            expect(langOf(`\`\`\`\nlet english = words + more + words\n\`\`\`\n\n${JAPANESE}`)).toBe('ja')
+        })
+
+        it('leaves image addresses, alt text, inline code and math out of the guess, as export does (#182)', () => {
+            const note = '# 会議メモ\n\n今日の会議の内容をまとめます。画面を貼ります。'
+            const images = [1, 2, 3, 4, 5].map((n) => `![image-20261114-09050${n}](assets/image-20261114-09050${n}.png)`).join('\n\n')
+            expect(langOf(`${note}\n\n${images}`)).toBe('ja')
+            expect(langOf(`${note}\n\n$$\n\\frac{d}{dt}\\frac{\\partial L}{\\partial \\dot{q}} - \\frac{\\partial L}{\\partial q} = 0\n$$`)).toBe(
+                'ja'
+            )
+            expect(langOf(`${note} \`const value = someFunctionName(argument)\` と $E = mc^2 + someLongVariable$`)).toBe('ja')
+            expect(langOf(`# 会议记录\n\n今天讨论了新的功能。\n\n${images}`)).toMatch(/^zh/)
+        })
+
+        it('tags the preview as export tags the PDF and Word file (#182)', () => {
+            const image = '![image-20261114-090501](assets/image-20261114-090501.png)'
+            const source = `# 会議メモ\n\n今日の内容です。\n\n${image}\n\n${image}\n\n$$\nE = mc^2\n$$`
+            expect(buildExportDocument(source).lang).toBe('ja')
+            expect(langOf(source)).toBe('ja')
+        })
     })
 
     it('tags Scrivon’s own words in a blocked web image as English, but not the document’s alt text (review)', () => {

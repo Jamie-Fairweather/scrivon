@@ -61,45 +61,45 @@ export function DocumentExportMenu() {
                     {document.shown ? (
                         <>
                             <MenuItem disabled={document.disabled} onClick={() => openDialog('pdf')}>
-                                Save PDF
+                                Export as PDF…
                                 <BetaBadge className="ms-auto" />
                             </MenuItem>
                             <MenuItem disabled={document.disabled} onClick={() => openDialog('docx')}>
-                                Save Word
+                                Export as Word…
                                 <BetaBadge className="ms-auto" />
                             </MenuItem>
                             <MenuItem disabled={document.disabled} onClick={() => openDialog('html')}>
-                                Save HTML
+                                Export as HTML…
                             </MenuItem>
                         </>
                     ) : null}
                     {diagram.shown ? (
                         <>
                             <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('svg')}>
-                                Save SVG
+                                Export Diagram as SVG…
                                 {drawing}
                             </MenuItem>
                             <MenuSub>
                                 <MenuSubTrigger disabled={diagram.disabled} aria-busy={busy}>
-                                    Save PNG
+                                    Export Diagram as PNG
                                     {drawing}
                                 </MenuSubTrigger>
                                 <MenuSubPopup className="min-w-36">
                                     <MenuGroup>
                                         {PNG_SCALES.map((scale) => (
                                             <MenuItem key={scale} disabled={diagram.disabled} onClick={() => exportDiagram(scale)}>
-                                                {scale}×
+                                                {scale}×…
                                             </MenuItem>
                                         ))}
                                     </MenuGroup>
                                 </MenuSubPopup>
                             </MenuSub>
                             <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-svg')}>
-                                Copy SVG
+                                Copy Diagram as SVG
                                 {drawing}
                             </MenuItem>
                             <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-png')}>
-                                Copy PNG
+                                Copy Diagram as PNG
                                 {drawing}
                             </MenuItem>
                         </>
@@ -114,10 +114,10 @@ export function DocumentExportMenu() {
                                 checked={diagramOptions.transparent}
                                 onCheckedChange={(transparent) => setDiagramOptions({ transparent })}
                             >
-                                Transparent background
+                                Transparent Background
                             </MenuCheckboxItem>
                             <MenuSub>
-                                <MenuSubTrigger>Diagram theme</MenuSubTrigger>
+                                <MenuSubTrigger>Diagram Theme</MenuSubTrigger>
                                 <MenuSubPopup className="min-w-36">
                                     <MenuRadioGroup
                                         value={diagramOptions.theme}

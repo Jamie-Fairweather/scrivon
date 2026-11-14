@@ -755,6 +755,31 @@ describe('usePaletteSearch Refresh Explorer', () => {
     })
 })
 
+describe('usePaletteSearch Reveal in File Explorer and Copy Path', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/a.md')]
+        state.tabs.tabs = [{ id: '/ws/a.md', path: '/ws/a.md', name: 'a.md', content: '', isDirty: false }]
+        state.tabs.activeTabId = '/ws/a.md'
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    it('finds the names the tab and explorer menus show, for the open file', () => {
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+        const top = (query: string) => {
+            act(() => result.current.setQuery(`>${query}`))
+            return result.current.groups[0]?.items[0]
+        }
+
+        // Windows File Explorer, not the sidebar's Reveal Active File.
+        expect(top('reveal in file explorer')).toMatchObject({ value: 'action:reveal-in-file-explorer', disabled: false })
+        expect(top('copy path')).toMatchObject({ value: 'action:copy-path', disabled: false })
+        expect(top('copy relative path')).toMatchObject({ value: 'action:copy-relative-path', disabled: false })
+    })
+})
+
 describe('usePaletteSearch Fit Diagram and Close Other Tabs', () => {
     beforeEach(() => {
         vi.clearAllMocks()

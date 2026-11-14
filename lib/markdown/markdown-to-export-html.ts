@@ -28,6 +28,7 @@ import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { blockDirection } from '@/lib/markdown/text-direction'
 import { isExportWebImageUrl } from '@/lib/markdown/web-images'
 import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
 import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
 import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
@@ -45,6 +46,8 @@ export type PdfRenderOptions = {
      * wait on a slow site.
      */
     allowRemoteImages?: boolean
+    /** Whether every `<details>` prints open (the default), as paper can't be clicked. A web page leaves them as written. */
+    openDetails?: boolean
 }
 
 export type MarkdownToExportHtmlOptions = BuildExportDocumentOptions & PdfRenderOptions
@@ -272,30 +275,50 @@ function markTables(hast: HastRoot, profile: PdfExportProfile): void {
     })
 }
 
+/** A fenced block's HTML, and whether it is a diagram that couldn't be drawn. */
+type BlockHtml = { html: string; notDrawn?: boolean }
+
+function diagramErrorHtml(message: string): BlockHtml {
+    return { html: `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`, notDrawn: true }
+}
+
+/**
+ * A Mermaid block's HTML: the picture, or what went wrong. A type Scrivon can't draw gets a short note
+ * for readers and its source, so its data (a pie chart's numbers, say) still reaches them.
+ */
+async function diagramToHtml(text: string, profile: PdfExportProfile): Promise<BlockHtml> {
+    const unsupported = unsupportedDiagramNote(text)
+    if (unsupported) {
+        const note = `<p dir="ltr" class="export-diagram-note">${escapeHtml(unsupported)}</p>`
+        return { html: `${note}${await codeToHtml(text, 'mermaid', profile)}`, notDrawn: true }
+    }
+    try {
+        const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
+        // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
+        if (!getSvgDimensions(svg)) return diagramErrorHtml(EMPTY_DIAGRAM_MESSAGE)
+        // One named picture, as in Word, so a screen reader doesn't read every node label in turn.
+        const label = escapeHtml(diagramAltText(text).description)
+        return { html: `<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>` }
+    } catch (err) {
+        return diagramErrorHtml(err instanceof Error ? err.message : String(err))
+    }
+}
+
 /**
  * A fenced block's HTML. Code, diagrams and their errors read left to right whatever the text
  * around them does, so each gets dir="ltr": in a right-to-left list item or quote they would
  * otherwise take its direction, and `foo();` would print as `;()foo`.
  */
-async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<string> {
+async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<BlockHtml> {
     const text = node.value.replace(/\n$/, '')
     const lang = node.lang?.toLowerCase()
+    if (lang === 'mermaid') return diagramToHtml(text, profile)
+    return { html: await codeToHtml(text, lang, profile) }
+}
+
+/** Highlighted code, or plain when it can't be highlighted. */
+async function codeToHtml(text: string, lang: string | undefined, profile: PdfExportProfile): Promise<string> {
     const blockClass = text.split('\n').length <= PDF_KEEP_TOGETHER_MAX_CODE_LINES ? 'code-block pdf-avoid-break' : 'code-block'
-
-    if (lang === 'mermaid') {
-        try {
-            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
-            // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
-            if (!getSvgDimensions(svg)) return `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(EMPTY_DIAGRAM_MESSAGE)}</pre>`
-            // One named picture, as in Word, so a screen reader doesn't read every node label in turn.
-            const label = escapeHtml(diagramAltText(text).description)
-            return `<div dir="ltr" class="mermaid-export pdf-avoid-break" role="img" aria-label="${label}">${svg}</div>`
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            return `<pre dir="ltr" class="export-error pdf-avoid-break">${escapeHtml(message)}</pre>`
-        }
-    }
-
     try {
         const highlighted = normalizeShikiPre(await highlightFencedCode(text, lang, profile.content.codeTheme))
         return `<div dir="ltr" class="${blockClass}">${highlighted}</div>`
@@ -304,10 +327,11 @@ async function codeBlockToHtml(node: Code, profile: PdfExportProfile): Promise<s
     }
 }
 
-async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promise<Map<string, string>> {
+/** Swaps each fenced block for a placeholder paragraph. Returns each placeholder's HTML, and how many diagrams couldn't be drawn. */
+async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promise<{ placeholders: Map<string, string>; diagramsNotDrawn: number }> {
     const exportId = crypto.randomUUID()
     const placeholders = new Map<string, string>()
-    const replacements: { parent: Parent; index: number; promise: Promise<string> }[] = []
+    const replacements: { parent: Parent; index: number; promise: Promise<BlockHtml> }[] = []
 
     visit(tree, 'code', (node: Code, index, parent) => {
         // Printed as math (see hasMath).
@@ -319,17 +343,17 @@ async function transformCodeBlocks(tree: Root, profile: PdfExportProfile): Promi
         })
     })
 
-    const htmlFragments = await Promise.all(replacements.map((r) => r.promise))
+    const blocks = await Promise.all(replacements.map((r) => r.promise))
     replacements.forEach((r, i) => {
         const key = `__SCRIVON_${exportId}_BLOCK_${i}__`
-        placeholders.set(key, htmlFragments[i]!)
+        placeholders.set(key, blocks[i]!.html)
         r.parent.children[r.index] = {
             type: 'paragraph',
             children: [{ type: 'text', value: key } satisfies Text],
         }
     })
 
-    return placeholders
+    return { placeholders, diagramsNotDrawn: blocks.filter((block) => block.notDrawn).length }
 }
 
 /** The cover. Each line takes its own direction from its first letters, as the body's blocks do. */
@@ -506,17 +530,17 @@ function wrapWithChrome(
  * when the body is empty after front matter is removed.
  */
 export async function markdownToExportHtml(source: string, options: MarkdownToExportHtmlOptions = {}): Promise<PdfExportDocument> {
-    const { stamped, allowRemoteImages, ...build } = options
-    return renderExportPdf(buildExportDocument(source, build), { stamped, allowRemoteImages })
+    const { stamped, allowRemoteImages, openDetails, ...build } = options
+    return renderExportPdf(buildExportDocument(source, build), { stamped, allowRemoteImages, openDetails })
 }
 
 /** PDF renderer for an {@link ExportDocument}. Replaces fenced code in `tree` with HTML placeholders. */
 export async function renderExportPdf(
     document: ExportDocument,
-    { stamped = true, allowRemoteImages = false }: PdfRenderOptions = {}
+    { stamped = true, allowRemoteImages = false, openDetails: printDetailsOpen = true }: PdfRenderOptions = {}
 ): Promise<PdfExportDocument> {
     const { profile, assets, metadata, lang, tree, outline, toc: tocItems } = document
-    const placeholders = await transformCodeBlocks(tree, profile)
+    const { placeholders, diagramsNotDrawn } = await transformCodeBlocks(tree, profile)
 
     // Safe raw HTML (<br>, <kbd>, <details>…) prints as it shows in the preview; anything else, and comments, are dropped.
     let hast = unified()
@@ -528,7 +552,7 @@ export async function renderExportPdf(
         const { mathRehypePlugins } = await import('@/lib/markdown/rehype-math')
         hast = unified().use(mathRehypePlugins).runSync(hast) as HastRoot
     }
-    openDetails(hast)
+    if (printDetailsOpen) openDetails(hast)
     handleWebImages(hast, allowRemoteImages)
     resolveLinks(hast)
     markTables(hast, profile)
@@ -567,5 +591,5 @@ export async function renderExportPdf(
 
     // The stamper turns the headings it finds marked into the PDF's bookmarks.
     const headings = stamped ? { headings: outline.map(({ level, text }) => ({ level, text })) } : {}
-    return { html, metadata, print: { ...resolvePdfPrintOptions(profile, metadata), ...headings } }
+    return { html, metadata, print: { ...resolvePdfPrintOptions(profile, metadata), ...headings }, diagramsNotDrawn }
 }

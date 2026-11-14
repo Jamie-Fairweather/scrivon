@@ -15,8 +15,8 @@ export const SUPPORTED_DIAGRAMS = [
     { name: 'XY charts', header: 'xychart-beta' },
 ] as const
 
-/** Other Mermaid diagram types, by their header in lower case without `-beta`. */
-const UNSUPPORTED_DIAGRAMS = new Map(
+/** Other Mermaid diagram types, by their header in lower case without `-beta`. Each name is a plural ending in s. */
+export const UNSUPPORTED_DIAGRAMS: ReadonlyMap<string, string> = new Map(
     Object.entries({
         pie: 'Pie charts',
         gantt: 'Gantt charts',
@@ -49,6 +49,7 @@ export function supportedDiagramsSentence(): string {
     return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
 }
 
+/** The preview card's help for a type it can't draw: `Pie charts aren't supported yet. Scrivon can draw:` and the list. */
 function unsupportedMessage(name: string): string {
     const supported = SUPPORTED_DIAGRAMS.map((diagram) => `• ${diagram.name} (${diagram.header})`).join('\n')
     return `${name} aren't supported yet. Scrivon can draw:\n${supported}`
@@ -147,20 +148,41 @@ function withoutTrailingSemicolon(line: string): string {
     return trimmed.endsWith(';') ? trimmed.slice(0, -1).trimEnd() : line
 }
 
+/** The lines as the renderer reads them (no front matter, comments or accessibility lines), and where the header is: -1 for none. */
+function readableLines(source: string): { lines: string[]; headerIndex: number } {
+    const lines = withoutAccessibilityLines(source).split('\n')
+    blankFrontMatter(lines)
+    blankComments(lines)
+    return { lines, headerIndex: lines.findIndex((line) => line.trim() !== '') }
+}
+
+/** The name, in the plural, of the Mermaid type this header starts that Scrivon can't draw, if it is one. */
+function unsupportedType(header: string | undefined): string | undefined {
+    const word = header === undefined ? undefined : HEADER_WORD.exec(header)?.[1]?.toLowerCase()
+    return word === undefined ? undefined : UNSUPPORTED_DIAGRAMS.get(word)
+}
+
+/**
+ * For a Mermaid type Scrivon can't draw (a pie chart, say), the line an exported file shows its readers in
+ * its place: `Pie chart: not supported in Scrivon yet`. The preview's help would be out of place there.
+ * Null for any other diagram.
+ */
+export function unsupportedDiagramNote(source: string): string | null {
+    const { lines, headerIndex } = readableLines(source)
+    const name = unsupportedType(lines[headerIndex])
+    // Every name is a plural that ends in s.
+    return name ? `${name.slice(0, -1)}: not supported in Scrivon yet` : null
+}
+
 /**
  * The text to give beautiful-mermaid. Throws an error that names the supported types when the
  * diagram is a Mermaid type it can't draw (a pie chart, say), instead of its "Invalid mermaid header".
  */
 export function prepareMermaidSource(source: string): string {
-    const lines = withoutAccessibilityLines(source).split('\n')
-    blankFrontMatter(lines)
-    blankComments(lines)
-
-    const headerIndex = lines.findIndex((line) => line.trim() !== '')
+    const { lines, headerIndex } = readableLines(source)
     if (headerIndex === -1) return lines.join('\n')
 
-    const word = HEADER_WORD.exec(lines[headerIndex]!)?.[1]?.toLowerCase()
-    const unsupported = word === undefined ? undefined : UNSUPPORTED_DIAGRAMS.get(word)
+    const unsupported = unsupportedType(lines[headerIndex])
     if (unsupported) throw new Error(unsupportedMessage(unsupported))
 
     const flowchart = FLOWCHART_HEADER.exec(lines[headerIndex]!)

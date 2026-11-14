@@ -18,7 +18,8 @@ export type NewItemCommandsContext = {
     showExplorer: () => void
 }
 
-const NEW_ITEMS: { kind: NewItemKind; label: string; keywords: string; keybind: KeybindActionId }[] = [
+/** The explorer's New menus show these names too. */
+export const NEW_ITEMS: { kind: NewItemKind; label: string; keywords: string; keybind: KeybindActionId }[] = [
     { kind: 'new-diagram', label: 'New Diagram…', keywords: 'new create file mermaid mmd', keybind: 'workspace.newDiagram' },
     { kind: 'new-document', label: 'New Document…', keywords: 'new create file markdown md', keybind: 'workspace.newDocument' },
     { kind: 'new-folder', label: 'New Folder…', keywords: 'new create directory', keybind: 'workspace.newFolder' },

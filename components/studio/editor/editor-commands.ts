@@ -109,6 +109,8 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
             keybind: spec.keybind,
             disabled: formatReason !== null,
             disabledReason: formatReason ?? undefined,
+            // In a Markdown file the keys are the helper's, even when it's read-only (Ctrl+E mustn't hide the editor).
+            keepsKeysWhenOff: ctx.markdown,
             run: () => ctx.runFormat(spec.format),
         })
     )

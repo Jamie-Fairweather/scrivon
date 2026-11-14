@@ -5,6 +5,8 @@ import { chordListsEqual, isMacPlatform } from '@/lib/settings/chord-utils'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { FOLLOW_SYSTEM, type AppSettings, type KeybindActionId } from '@/lib/settings/types'
 import { isTauri } from '@/lib/tauri/platform'
+import { isPreviewShown } from '@/lib/workspace/layout'
+import { formatZoomPercent } from '@/lib/zoom/app-zoom'
 
 /** What the desktop app says about the computer (SystemInfo in src-tauri/src/diagnostics.rs). */
 type DesktopInfo = { os: string; arch: string; webview: string | null }
@@ -35,11 +37,17 @@ function changedShortcuts(settings: AppSettings): number {
  * names, dictionary words or PDF header text.
  */
 function settingsSummary(settings: AppSettings): string[] {
-    const { theme, autosave, editor, spellcheck, layout } = settings
+    const { theme, appearance, autosave, editor, spellcheck, layout } = settings
     const wordWrap = editor.wordWrap === 'wordWrapColumn' ? `at column ${editor.wordWrapColumn}` : editor.wordWrap
-    const panels = [layout.explorerOpen && 'explorer', layout.editorOpen && 'editor', layout.outlineOpen && 'outline'].filter(Boolean)
+    const panels = [
+        layout.explorerOpen && 'explorer',
+        layout.editorOpen && 'editor',
+        isPreviewShown(layout) && 'preview',
+        layout.outlineOpen && 'outline',
+    ].filter(Boolean)
     return [
         `Theme: ${theme.id === FOLLOW_SYSTEM ? `follows Windows (${theme.light} / ${theme.dark})` : theme.id}`,
+        `App zoom: ${formatZoomPercent(appearance.zoom)}, preview text ${appearance.previewFontSize} px`,
         `Autosave: ${autosave.enabled ? `on, after ${autosave.delayMs} ms` : 'off'}`,
         `Editor: ${editor.fontSize} px, tab size ${editor.tabSize}, word wrap ${wordWrap}, line numbers ${editor.lineNumbers}, minimap ${onOff(editor.minimap)}`,
         `Spelling: ${spellcheck.enabled ? `on, ${spellcheck.language}` : 'off'}`,

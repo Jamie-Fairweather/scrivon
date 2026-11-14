@@ -32,9 +32,9 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
  * Throws when the document or the print fails.
  */
 export async function previewMarkdownPdf(source: string, tabName: string | undefined, options: PdfPreviewOptions): Promise<PdfPreview> {
-    const { html, print, missingImages, webImagesLeftOut, tocSkipped } = await buildExportPdfPage(source, tabName, { ...options, stamped: true })
+    const { html, print, ...leftOut } = await buildExportPdfPage(source, tabName, { ...options, stamped: true })
     const reply = await invoke<PreviewReply>('preview_html_pdf', { html, options: print })
     const pdf = new Blob([base64ToBytes(reply.pdf)], { type: 'application/pdf' })
-    const note = describeLeftOut({ pageNumberWarning: reply.pageNumberWarning ?? undefined, missingImages, webImagesLeftOut, tocSkipped })
+    const note = describeLeftOut({ pageNumberWarning: reply.pageNumberWarning ?? undefined, ...leftOut })
     return note ? { pdf, note } : { pdf }
 }
