@@ -4,12 +4,14 @@ import type { NamePromptOptions } from '@/components/studio/dialogs/name-prompt-
 import type { FileNode } from '@/lib/workspace/types'
 import { useCreateNewItem, useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
 
-const { promptName, session } = vi.hoisted(() => ({
+const { promptName, chooseFolder, session } = vi.hoisted(() => ({
     promptName: vi.fn<(options: NamePromptOptions) => Promise<string | null>>(),
+    chooseFolder: vi.fn<(node: unknown) => Promise<string | null>>(async () => null),
     session: {
         createFile: vi.fn(async () => undefined),
         createFolder: vi.fn(async () => undefined),
         renameEntry: vi.fn(async () => undefined),
+        moveEntry: vi.fn<(path: string, isDirectory: boolean, target: string) => Promise<string | null>>(async () => null),
         deleteEntry: vi.fn(async () => undefined),
         suggestName: vi.fn((_parent: string, name: string) => name),
         getNameError: vi.fn<(parent: string, name: string, kind: string) => string | null>(() => null),
@@ -18,6 +20,7 @@ const { promptName, session } = vi.hoisted(() => ({
 
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession: () => session }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder }) }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
 
 describe('useFileTreeActions', () => {
@@ -210,5 +213,19 @@ describe('useFileTreeEntryActions', () => {
         expect(options.extension).toBeNull()
         expect(options.note!('archive')).toBeNull()
         expect(session.renameEntry).toHaveBeenCalledWith('/ws/notes.md', 'archive', true)
+    })
+
+    it('moves an entry to the folder picked, resolving to where it is now, or null when cancelled', async () => {
+        const node: FileNode = { kind: 'directory', name: 'docs', path: '/ws/docs', children: [] }
+        chooseFolder.mockResolvedValueOnce('/ws/archive').mockResolvedValueOnce(null)
+        session.moveEntry.mockResolvedValueOnce('/ws/archive/docs')
+        const { result } = renderHook(() => useFileTreeEntryActions())
+
+        await expect(result.current.moveWithPicker(node)).resolves.toBe('/ws/archive/docs')
+        expect(chooseFolder).toHaveBeenCalledWith(node)
+        expect(session.moveEntry).toHaveBeenCalledWith('/ws/docs', true, '/ws/archive')
+
+        await expect(result.current.moveWithPicker(node)).resolves.toBeNull()
+        expect(session.moveEntry).toHaveBeenCalledTimes(1)
     })
 })

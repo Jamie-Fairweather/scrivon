@@ -693,6 +693,50 @@ export async function duplicateWorkspaceFile(sourcePath: string, destPath: strin
     await writeFile(destPath, await readFile(sourcePath), { createNew: true })
 }
 
+/** Whether `path` is a file or a folder (for a link, what it leads to). Throws when it isn't there. */
+export async function readEntryKind(path: string): Promise<FileNode['kind']> {
+    if (!isTauri()) return 'file'
+    return (await stat(path)).isDirectory ? 'directory' : 'file'
+}
+
+/** Thrown when a folder was copied only in part: the copy is there, but some of what is inside it isn't. */
+export class PartialCopyError extends Error {
+    /** The folder copied in part. */
+    readonly path: string
+
+    constructor(path: string, cause: unknown) {
+        super(errorText(cause) || 'Something went wrong.', { cause })
+        this.name = 'PartialCopyError'
+        this.path = path
+    }
+}
+
+/**
+ * Copies a file, or a folder with everything in it, to `destPath`. Never replaces anything: throws
+ * PathExistsError when something is there already. A link to a file is copied as that file; a link to a folder
+ * is left out, so one that leads back up can't copy forever. When a folder can't be copied in full, what was
+ * copied stays and PartialCopyError says why the rest wasn't.
+ */
+export async function copyWorkspaceEntry(sourcePath: string, destPath: string): Promise<void> {
+    if (!isTauri()) return
+    if ((await readEntryKind(sourcePath)) === 'file') {
+        await duplicateWorkspaceFile(sourcePath, destPath)
+        return
+    }
+    await createWorkspaceDirectory(destPath)
+    try {
+        for (const entry of await readDir(sourcePath)) {
+            const from = joinPath(sourcePath, entry.name)
+            const to = joinPath(destPath, entry.name)
+            if (entry.isDirectory) await copyWorkspaceEntry(from, to)
+            else if (entry.isFile) await duplicateWorkspaceFile(from, to)
+            else if (entry.isSymlink && (await stat(from).catch(() => null))?.isFile) await duplicateWorkspaceFile(from, to)
+        }
+    } catch (err) {
+        throw new PartialCopyError(destPath, err instanceof PartialCopyError ? err.cause : err)
+    }
+}
+
 export function compareFileNodes(a: FileNode, b: FileNode): number {
     return compareEntries(a, b)
 }

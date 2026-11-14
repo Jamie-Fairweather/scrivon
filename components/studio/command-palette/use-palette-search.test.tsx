@@ -71,6 +71,8 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 vi.mock('@/components/studio/app-update-provider', () => ({ useAppUpdate: () => ({ checking: false, checkForUpdates: async () => {} }) }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
+
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => state.canvasControls,
 }))

@@ -139,6 +139,11 @@ describe('uniqueNewName', () => {
     it('numbers names without an extension', () => {
         expect(uniqueNewName('diagrams', ['diagrams'])).toBe('diagrams 2')
     })
+
+    it('numbers a folder at the end, as a dot in its name starts no extension', () => {
+        expect(uniqueNewName('v1.2', ['v1.2'], 'directory')).toBe('v1.2 2')
+        expect(uniqueNewName('v1.2', ['v1.2'])).toBe('v1 2.2')
+    })
 })
 
 describe('folderLabels', () => {

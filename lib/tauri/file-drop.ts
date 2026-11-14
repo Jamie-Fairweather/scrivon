@@ -11,14 +11,38 @@ export type FileDrop = { paths: readonly string[]; x: number; y: number }
  */
 export type FileDropHandler = (drop: FileDrop) => readonly string[] | Promise<readonly string[]>
 
-const targets = new Map<Element, FileDropHandler>()
+/** Where files being dragged in are over the target, in page pixels, or null once they aren't (or were dropped). */
+export type FileDragHover = (point: { x: number; y: number } | null) => void
 
-/** Lets `element` take files dropped onto it, before the targets around it. Returns the function that stops it. */
-export function registerFileDropTarget(element: Element, handler: FileDropHandler): () => void {
-    targets.set(element, handler)
+type Target = { handler: FileDropHandler; onHover?: FileDragHover }
+
+const targets = new Map<Element, Target>()
+
+/**
+ * Lets `element` take files dropped onto it, before the targets around it. `onHover` hears where files being
+ * dragged in are over it, to show where they would go. Returns the function that stops it.
+ */
+export function registerFileDropTarget(element: Element, handler: FileDropHandler, onHover?: FileDragHover): () => void {
+    const target: Target = { handler, onHover }
+    targets.set(element, target)
     return () => {
-        if (targets.get(element) === handler) targets.delete(element)
+        if (targets.get(element) === target) targets.delete(element)
     }
+}
+
+/** The drop targets under the point, innermost first. */
+function targetsAt(x: number, y: number): Target[] {
+    const found: Target[] = []
+    for (let element = document.elementFromPoint(x, y); element; element = element.parentElement) {
+        const target = targets.get(element)
+        if (target) found.push(target)
+    }
+    return found
+}
+
+/** Tells each target with an `onHover` whether the files are over it (`under`), and where. */
+function hover(under: readonly Target[], point: { x: number; y: number } | null) {
+    for (const target of targets.values()) target.onHover?.(under.includes(target) ? point : null)
 }
 
 /**
@@ -31,17 +55,22 @@ export function registerFileDropTarget(element: Element, handler: FileDropHandle
 export async function listenForFileDrops(onRest: (drop: FileDrop) => void): Promise<() => void> {
     if (!isTauri()) return () => {}
     return getCurrentWebview().onDragDropEvent(async ({ payload }) => {
-        if (payload.type !== 'drop' || payload.paths.length === 0) return
+        if (payload.type === 'leave') {
+            hover([], null)
+            return
+        }
         // The position is in screen pixels; the page measures in CSS pixels.
         const scale = window.devicePixelRatio || 1
         const x = payload.position.x / scale
         const y = payload.position.y / scale
-        // Found straight away, while the page is as it was at the drop.
-        const handlers: FileDropHandler[] = []
-        for (let element = document.elementFromPoint(x, y); element; element = element.parentElement) {
-            const handler = targets.get(element)
-            if (handler) handlers.push(handler)
+        if (payload.type !== 'drop') {
+            hover(targetsAt(x, y), { x, y })
+            return
         }
+        // Found straight away, while the page is as it was at the drop.
+        const handlers = targetsAt(x, y).map((target) => target.handler)
+        hover([], null)
+        if (payload.paths.length === 0) return
         let paths: readonly string[] = payload.paths
         for (const handler of handlers) {
             if (paths.length === 0) return
