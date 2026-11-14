@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils'
 import { AppThemeProvider } from '@/components/theme/app-theme-provider'
 import { SettingsDialog } from '@/components/studio/settings/settings-dialog'
 import { SettingsProvider } from '@/components/studio/settings/settings-provider'
+import { AppZoom } from '@/components/studio/zoom/app-zoom'
+import { PreviewTextSize } from '@/components/studio/zoom/preview-text-size'
 import { ToastProvider } from '@/components/ui/toast'
 import { getThemeBootScript } from '@/lib/theme/theme-boot-script'
 import { APP_TAGLINE } from '@/lib/app-branding'
@@ -33,6 +35,9 @@ export default function RootLayout({
             <body className="h-full w-full overflow-hidden bg-background font-sans">
                 <SettingsProvider>
                     <AppThemeProvider>
+                        {/* Inside the theme provider, so the saved zoom is set before it shows the window. */}
+                        <AppZoom />
+                        <PreviewTextSize />
                         <ToastProvider position="bottom-right">
                             <DisableNativeContextMenu />
                             {children}

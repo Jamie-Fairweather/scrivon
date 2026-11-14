@@ -15,6 +15,8 @@ import {
     type ThemeSetting,
 } from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
+import { normalizeAppZoom } from '@/lib/zoom/app-zoom'
+import { MAX_PREVIEW_FONT_SIZE, MIN_PREVIEW_FONT_SIZE } from '@/lib/zoom/preview-text-size'
 
 type LegacyStorageReader = (key: string) => string | null
 
@@ -176,6 +178,7 @@ export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPl
         layout: {
             explorerOpen: readBoolean(read(STORAGE_LAYOUT_EXPLORER), defaults.layout.explorerOpen),
             editorOpen: readBoolean(read(STORAGE_LAYOUT_EDITOR), defaults.layout.editorOpen),
+            previewOpen: defaults.layout.previewOpen,
             editorWidth: readNumber(read(STORAGE_KEY_WIDTH), defaults.layout.editorWidth, 280, 2000),
             restorePanelsOnOpen: defaults.layout.restorePanelsOnOpen,
             outlineOpen: defaults.layout.outlineOpen,
@@ -189,6 +192,9 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Partial<AppSettings>
+    const editorOpen = typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen
+    // Settings saved before the preview could be hidden have no previewOpen. With the editor hidden, the preview always shows.
+    const previewOpen = !editorOpen || (typeof source.layout?.previewOpen === 'boolean' ? source.layout.previewOpen : defaults.layout.previewOpen)
 
     return {
         autosave: {
@@ -196,9 +202,20 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             delayMs: readWholeNumber(source.autosave?.delayMs, defaults.autosave.delayMs, 200, 5000),
         },
         theme: normalizeTheme(source.theme, defaults.theme),
+        // Settings saved before app zoom have none, so they start at 100% with 14px preview text.
+        appearance: {
+            zoom: normalizeAppZoom(source.appearance?.zoom),
+            previewFontSize: readWholeNumber(
+                source.appearance?.previewFontSize,
+                defaults.appearance.previewFontSize,
+                MIN_PREVIEW_FONT_SIZE,
+                MAX_PREVIEW_FONT_SIZE
+            ),
+        },
         layout: {
             explorerOpen: typeof source.layout?.explorerOpen === 'boolean' ? source.layout.explorerOpen : defaults.layout.explorerOpen,
-            editorOpen: typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen,
+            editorOpen,
+            previewOpen,
             editorWidth:
                 typeof source.layout?.editorWidth === 'number'
                     ? Math.min(2000, Math.max(280, source.layout.editorWidth))

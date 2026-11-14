@@ -1,11 +1,13 @@
 'use client'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { APP_AFFILIATION, APP_COPYRIGHT, APP_NAME, APP_REPO_URL, APP_TAGLINE } from '@/lib/app-branding'
 import { APP_VERSION } from '@/lib/legal/app-version'
 import { notifyError, notifySuccess } from '@/lib/notify'
 import { inlineLinkClassName } from '@/lib/ui/link-classes'
+import { isPrereleaseVersion } from '@/lib/updater/version'
 
 type AboutDialogProps = {
     open: boolean
@@ -36,7 +38,14 @@ export function AboutDialog({ open, onOpenChange, onOpenLicenses }: AboutDialogP
                     <DialogTitle>About {APP_NAME}</DialogTitle>
                     <DialogDescription>
                         {APP_TAGLINE}
-                        <span className="mt-1 block text-muted-foreground">Version {APP_VERSION}</span>
+                        <span className="mt-1 flex items-center gap-2 text-muted-foreground">
+                            Version {APP_VERSION}
+                            {isPrereleaseVersion(APP_VERSION) ? (
+                                <Badge variant="warning" size="sm">
+                                    Pre-release
+                                </Badge>
+                            ) : null}
+                        </span>
                     </DialogDescription>
                 </DialogHeader>
                 <DialogPanel className="space-y-3 pt-0">

@@ -90,6 +90,67 @@ fn is_prerelease_build(version: &str) -> bool {
     version.contains('-')
 }
 
+/// The stable update manifest. It is also in plugins.updater.endpoints in tauri.conf.json.
+const STABLE_MANIFEST_URL: &str =
+    "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json";
+const RELEASE_DOWNLOADS_URL: &str =
+    "https://github.com/Jamie-Fairweather/scrivon/releases/download";
+
+/// A release tag such as `v1.6.0` or `v1.6.0-rc.2`, with nothing that could change the URL it goes in.
+fn is_release_tag(tag: &str) -> bool {
+    let Some(version) = tag.strip_prefix('v') else {
+        return false;
+    };
+    let (core, pre) = match version.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (version, None),
+    };
+    let parts: Vec<&str> = core.split('.').collect();
+    let core_ok = parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
+    let pre_ok = pre.is_none_or(|pre| {
+        !pre.is_empty()
+            && pre
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    });
+    core_ok && pre_ok
+}
+
+/// Where an update check looks. The stable manifest never lists a pre-release, so a pre-release (rc)
+/// build first looks at the manifest of `release_tag`, the newest release on GitHub (which the page
+/// finds, and may be a newer rc), and then at the stable one. The updater uses the first that answers
+/// and only offers a version newer than this one. None keeps the endpoints in tauri.conf.json.
+fn manifest_endpoints(current_version: &str, release_tag: Option<&str>) -> Option<Vec<url::Url>> {
+    if !is_prerelease_build(current_version) {
+        return None;
+    }
+    let tag = release_tag.filter(|tag| is_release_tag(tag))?;
+    Some(vec![
+        url::Url::parse(&format!("{RELEASE_DOWNLOADS_URL}/{tag}/latest.json")).ok()?,
+        url::Url::parse(STABLE_MANIFEST_URL).ok()?,
+    ])
+}
+
+/// A plain message for a failed update check.
+fn check_error_message(err: &tauri_plugin_updater::Error) -> String {
+    use tauri_plugin_updater::Error;
+    match err {
+        Error::Reqwest(_) => {
+            "Couldn't reach the update server. Check your internet connection and try again.".into()
+        }
+        Error::Network(detail) => {
+            format!("Couldn't reach the update server ({detail}). Try again later.")
+        }
+        Error::ReleaseNotFound | Error::Serialization(_) => {
+            "The update server didn't say which version is newest. Try again later.".into()
+        }
+        other => other.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -97,8 +158,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        count_other_instances, install_error_message, install_pending, install_with_record,
-        is_prerelease_build, take_attempt, ProgressThrottle, UpdateAttempt, UpdateProgress,
+        attempt_waiting, check_error_message, count_other_instances, install_error_message,
+        install_pending, install_with_record, is_prerelease_build, manifest_endpoints,
+        take_attempt, ProgressThrottle, UpdateAttempt, UpdateProgress, STABLE_MANIFEST_URL,
     };
 
     #[test]
@@ -201,6 +263,20 @@ mod tests {
     }
 
     #[test]
+    fn the_launch_after_an_update_knows_it_until_the_page_takes_the_record() {
+        // So it doesn't reopen the files the installer passes back (see setup in lib.rs).
+        let dir = temp_data_dir();
+        assert!(!attempt_waiting(&dir));
+
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+        assert!(attempt_waiting(&dir));
+
+        take_attempt(&dir, "1.5.0");
+        assert!(!attempt_waiting(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn an_install_error_shown_right_away_leaves_no_record() {
         let dir = temp_data_dir();
         let result = install_with_record(Some(&dir), "1.4.2", "1.5.0", || {
@@ -237,11 +313,10 @@ mod tests {
         let endpoints = config["plugins"]["updater"]["endpoints"]
             .as_array()
             .expect("tauri.conf.json needs plugins.updater.endpoints");
+        assert_eq!(endpoints, &[serde_json::json!(STABLE_MANIFEST_URL)]);
         assert_eq!(
-            endpoints,
-            &[serde_json::json!(
-                "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json"
-            )]
+            STABLE_MANIFEST_URL,
+            "https://github.com/Jamie-Fairweather/scrivon/releases/latest/download/latest.json"
         );
     }
 
@@ -251,6 +326,45 @@ mod tests {
         assert!(is_prerelease_build("2.0.0-beta"));
         assert!(!is_prerelease_build("1.3.0"));
         assert!(!is_prerelease_build("1.3.0+build-1"));
+    }
+
+    #[test]
+    fn an_rc_build_looks_at_the_newest_release_then_the_stable_one() {
+        let urls = manifest_endpoints("1.6.0-rc.1", Some("v1.6.0-rc.2")).unwrap();
+        let urls: Vec<&str> = urls.iter().map(|url| url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://github.com/Jamie-Fairweather/scrivon/releases/download/v1.6.0-rc.2/latest.json",
+                STABLE_MANIFEST_URL,
+            ]
+        );
+    }
+
+    #[test]
+    fn stable_builds_and_odd_tags_keep_the_stable_manifest() {
+        // A stable build never moves onto a pre-release.
+        assert_eq!(manifest_endpoints("1.5.0", Some("v1.6.0-rc.1")), None);
+        assert_eq!(manifest_endpoints("1.6.0-rc.1", None), None);
+        for tag in [
+            "v1.6.0-rc.2/../../evil",
+            "1.6.0",
+            "v1.6",
+            "v1.6.0-",
+            "v1.6.0-rc?x=1",
+            "v1.6.0-rc 2",
+        ] {
+            assert_eq!(manifest_endpoints("1.6.0-rc.1", Some(tag)), None, "{tag}");
+        }
+    }
+
+    #[test]
+    fn check_errors_read_as_plain_sentences() {
+        let message = check_error_message(&tauri_plugin_updater::Error::ReleaseNotFound);
+        assert!(message.contains("Try again later"), "{message}");
+        let message = check_error_message(&tauri_plugin_updater::Error::Network("503".into()));
+        assert!(message.contains("503"), "{message}");
+        assert!(!message.contains('`'), "{message}");
     }
 
     #[test]
@@ -350,29 +464,29 @@ mod tests {
     }
 }
 
+/// Looks for a newer version. `release_tag` is the newest release on GitHub, which only a
+/// pre-release build uses (see `manifest_endpoints`).
 #[tauri::command]
 pub async fn check_for_app_update(
     app: AppHandle,
     pending: State<'_, PendingUpdate>,
+    release_tag: Option<String>,
 ) -> Result<Option<UpdateInfo>, String> {
     let current = app.package_info().version.to_string();
-    if is_prerelease_build(&current) {
-        return Ok(None);
+
+    // The manifest URL comes from plugins.updater.endpoints in tauri.conf.json, unless this is
+    // a pre-release build. The client settings carry over to the download (`Update::download`).
+    let mut builder = app.updater_builder().configure_client(|client| {
+        client
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+    });
+    if let Some(endpoints) = manifest_endpoints(&current, release_tag.as_deref()) {
+        builder = builder.endpoints(endpoints).map_err(|e| e.to_string())?;
     }
+    let updater = builder.build().map_err(|e| e.to_string())?;
 
-    // The manifest URL comes from plugins.updater.endpoints in tauri.conf.json.
-    // The client settings carry over to the download (`Update::download`).
-    let updater = app
-        .updater_builder()
-        .configure_client(|client| {
-            client
-                .connect_timeout(CONNECT_TIMEOUT)
-                .read_timeout(READ_TIMEOUT)
-        })
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    match updater.check().await.map_err(|e| e.to_string())? {
+    match updater.check().await.map_err(|e| check_error_message(&e))? {
         Some(update) => {
             let info = UpdateInfo {
                 version: update.version.clone(),
@@ -553,6 +667,13 @@ fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
         },
         installed,
     })
+}
+
+/// True while the record of an in-app update is waiting for the page to take it
+/// (`take_update_attempt`). Then this launch is most likely the installer
+/// restarting Scrivon after the update.
+pub fn attempt_waiting(dir: &Path) -> bool {
+    dir.join(ATTEMPT_FILE).is_file()
 }
 
 /// Downloads and installs the pending update, telling `on_progress` how the

@@ -7,6 +7,7 @@ import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-examp
 import { useDocumentSave, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { exampleIdFromTabId, isExampleTabId } from '@/lib/examples/example-tab'
+import { anySavedTabs, anyTabsToRight } from '@/lib/workspace/document-tab'
 
 export type DocumentCommandsContext = {
     hasWorkspace: boolean
@@ -21,17 +22,29 @@ export type DocumentCommandsContext = {
     closeTab: (id: string) => Promise<void>
     closeOtherTabs: (keepId: string) => Promise<void>
     closeAllTabs: () => Promise<void>
+    /** True when the open tab isn't the last one. */
+    hasTabsToRight: boolean
+    closeTabsToRight: (id: string) => Promise<void>
+    /** True when a tab has no unsaved changes. */
+    hasSavedTabs: boolean
+    closeSavedTabs: () => Promise<void>
+    switchTab: (step: 1 | -1) => Promise<void>
+    canReopenClosedTab: boolean
+    reopenClosedTab: () => Promise<void>
+    revertTab: (id: string) => Promise<void>
     openExample: (exampleId: string) => void
     saveExampleCopy: (exampleId: string) => Promise<void>
 }
 
-/** Saving, autosave, closing tabs and opening the examples. */
+/** Saving, autosave, switching and closing tabs, and opening the examples. */
 export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[] {
     const { hasWorkspace, activeTabId } = ctx
     // Tabs are only on screen while a folder is open, so tab commands need both.
     const hasActiveTab = activeTabId !== null && hasWorkspace
     const hasWorkspaceTab = hasActiveTab && !isExampleTabId(activeTabId)
     const activeExampleId = hasActiveTab ? exampleIdFromTabId(activeTabId) : null
+    const canSwitchTabs = hasWorkspace && ctx.tabCount > 1
+    const switchOffReason = hasWorkspace && ctx.tabCount === 1 ? 'Only one tab open' : 'No tabs open'
 
     const commands: AppCommand[] = [
         {
@@ -55,6 +68,16 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
             run: () => void ctx.flushAllSaves(),
         },
         {
+            id: 'revert-file',
+            label: 'Revert File',
+            keywords: 'revert reload saved version discard undo changes',
+            disabled: !hasWorkspaceTab,
+            disabledReason: 'No workspace file open',
+            run: () => {
+                if (activeTabId) void ctx.revertTab(activeTabId)
+            },
+        },
+        {
             id: 'save-example-copy',
             label: 'Save Copy to Workspace',
             keywords: 'save copy example workspace folder',
@@ -75,11 +98,39 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
             id: 'close-tab',
             label: 'Close Tab',
             keywords: 'close tab file',
+            keybind: 'tabs.close',
             disabled: !hasActiveTab,
             disabledReason: 'No tab open',
             run: () => {
                 if (activeTabId) void ctx.closeTab(activeTabId)
             },
+        },
+        {
+            id: 'reopen-closed-tab',
+            label: 'Reopen Closed Tab',
+            keywords: 'reopen undo close tab file',
+            keybind: 'tabs.reopenClosed',
+            disabled: !hasWorkspace || !ctx.canReopenClosedTab,
+            disabledReason: 'No closed tabs',
+            run: () => void ctx.reopenClosedTab(),
+        },
+        {
+            id: 'next-tab',
+            label: 'Next Tab',
+            keywords: 'switch tab',
+            keybind: 'tabs.next',
+            disabled: !canSwitchTabs,
+            disabledReason: switchOffReason,
+            run: () => void ctx.switchTab(1),
+        },
+        {
+            id: 'previous-tab',
+            label: 'Previous Tab',
+            keywords: 'switch tab',
+            keybind: 'tabs.previous',
+            disabled: !canSwitchTabs,
+            disabledReason: switchOffReason,
+            run: () => void ctx.switchTab(-1),
         },
         {
             id: 'close-other-tabs',
@@ -90,6 +141,24 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
             run: () => {
                 if (activeTabId) void ctx.closeOtherTabs(activeTabId)
             },
+        },
+        {
+            id: 'close-tabs-to-right',
+            label: 'Close Tabs to the Right',
+            keywords: 'close tabs right',
+            disabled: !hasActiveTab || !ctx.hasTabsToRight,
+            disabledReason: hasActiveTab ? 'No tabs to the right' : 'No tab open',
+            run: () => {
+                if (activeTabId) void ctx.closeTabsToRight(activeTabId)
+            },
+        },
+        {
+            id: 'close-saved-tabs',
+            label: 'Close Saved Tabs',
+            keywords: 'close saved tabs unchanged',
+            disabled: !hasActiveTab || !ctx.hasSavedTabs,
+            disabledReason: hasActiveTab ? 'Every tab has unsaved changes' : 'No tabs open',
+            run: () => void ctx.closeSavedTabs(),
         },
         {
             id: 'close-all-tabs',
@@ -118,7 +187,20 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
 
 export function useDocumentCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { tabs, activeTabId, openExample, closeTab, closeOtherTabs, closeAllTabs } = useDocumentTabs()
+    const {
+        tabs,
+        activeTabId,
+        canReopenClosedTab,
+        openExample,
+        closeTab,
+        closeOtherTabs,
+        closeAllTabs,
+        closeTabsToRight,
+        closeSavedTabs,
+        switchTab,
+        reopenClosedTab,
+        revertTab,
+    } = useDocumentTabs()
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
     const saveExampleCopy = useSaveExampleCopy()
 
@@ -126,6 +208,8 @@ export function useDocumentCommands(): void {
     const hasWorkspace = Boolean(workspaceRoot)
     const tabCount = tabs.length
     const hasDirtyTabs = tabs.some((t) => t.isDirty && !isExampleTabId(t.id))
+    const hasSavedTabs = anySavedTabs(tabs)
+    const hasTabsToRight = anyTabsToRight(tabs, activeTabId)
 
     const commands = useMemo(
         () =>
@@ -141,6 +225,14 @@ export function useDocumentCommands(): void {
                 closeTab,
                 closeOtherTabs,
                 closeAllTabs,
+                hasTabsToRight,
+                closeTabsToRight,
+                hasSavedTabs,
+                closeSavedTabs,
+                switchTab,
+                canReopenClosedTab,
+                reopenClosedTab,
+                revertTab,
                 openExample,
                 saveExampleCopy,
             }),
@@ -156,6 +248,14 @@ export function useDocumentCommands(): void {
             closeTab,
             closeOtherTabs,
             closeAllTabs,
+            hasTabsToRight,
+            closeTabsToRight,
+            hasSavedTabs,
+            closeSavedTabs,
+            switchTab,
+            canReopenClosedTab,
+            reopenClosedTab,
+            revertTab,
             openExample,
             saveExampleCopy,
         ]

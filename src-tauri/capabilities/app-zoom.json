@@ -1,0 +1,7 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "app-zoom",
+    "description": "Lets the main window zoom its page (View > Zoom In, Ctrl+=, Ctrl+mouse wheel)",
+    "windows": ["main"],
+    "permissions": ["core:webview:allow-set-webview-zoom"]
+}

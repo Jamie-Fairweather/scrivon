@@ -33,6 +33,11 @@ function renderSettings() {
     return rendered
 }
 
+/** Hides the editor in the settings. */
+function hideEditor(current: AppSettings): AppSettings {
+    return { ...current, layout: { ...current.layout, editorOpen: false } }
+}
+
 /** Settings are written a moment after the last change. */
 function waitForSave() {
     act(() => {
@@ -68,7 +73,7 @@ describe('SettingsProvider persistence', () => {
 
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         waitForSave()
 
@@ -412,7 +417,8 @@ describe('SettingsProvider persistence', () => {
             vi.mocked(isTauri).mockReturnValue(false)
         }
 
-        expect(invoke).toHaveBeenCalledTimes(1)
+        // Once, beside the copy of the settings in settings.json.
+        expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['save_settings_file', 'adopt_export_images'])
         expect(invoke).toHaveBeenCalledWith('adopt_export_images', { paths: ['C:/brand/cover.png', 'C:/brand/logo.png'] })
     })
 
@@ -427,6 +433,19 @@ describe('SettingsProvider persistence', () => {
         expect(stored().theme.id).toBe('scrivon-light')
         waitForSave()
         expect(settingsWrites).toBe(1)
+    })
+
+    it("doesn't write an update that hands back the same settings", () => {
+        const { result } = renderSettings()
+        const before = result.current.settings
+
+        act(() => {
+            result.current.updateSettings((current) => current)
+        })
+        waitForSave()
+
+        expect(settingsWrites).toBe(0)
+        expect(result.current.settings).toBe(before)
     })
 
     it('writes the first of a burst of changes at once, and the rest once, shortly after the last one', () => {
@@ -564,7 +583,7 @@ describe('SettingsProvider persistence', () => {
         })
         act(() => {
             result.current.setLayoutExplorerOpen(false)
-            result.current.setLayoutEditorOpen(false)
+            result.current.updateSettings(hideEditor)
         })
         unmount()
 
@@ -577,12 +596,35 @@ describe('SettingsProvider persistence', () => {
         const first = renderSettings()
         act(() => {
             first.result.current.setLayoutExplorerOpen(false)
-            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.updateSettings(hideEditor)
         })
         first.unmount()
 
         const { result } = renderSettings()
         expect(result.current.settings.layout).toMatchObject({ explorerOpen: false, editorOpen: false })
+    })
+
+    it('remembers a hidden preview after a restart', () => {
+        const first = renderSettings()
+        act(() => first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, previewOpen: false } })))
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: false })
+    })
+
+    it('starts with the preview shown while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() =>
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, previewOpen: false },
+            }))
+        )
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout).toMatchObject({ editorOpen: true, previewOpen: true })
     })
 
     it('starts with the explorer and editor shown, and the outline hidden, while Restore panel layout is off', () => {
@@ -593,7 +635,7 @@ describe('SettingsProvider persistence', () => {
                 layout: { ...current.layout, restorePanelsOnOpen: false, outlineOpen: true },
             }))
             first.result.current.setLayoutExplorerOpen(false)
-            first.result.current.setLayoutEditorOpen(false)
+            first.result.current.updateSettings(hideEditor)
             first.result.current.setEditorWidth(600)
         })
         first.unmount()
@@ -602,12 +644,13 @@ describe('SettingsProvider persistence', () => {
         expect(result.current.settings.layout).toEqual({
             explorerOpen: true,
             editorOpen: true,
+            previewOpen: true,
             editorWidth: 600,
             restorePanelsOnOpen: false,
             outlineOpen: false,
         })
         // Hiding a panel still works, and is still saved.
-        act(() => result.current.setLayoutEditorOpen(false))
+        act(() => result.current.updateSettings(hideEditor))
         waitForSave()
         expect(stored().layout.editorOpen).toBe(false)
     })

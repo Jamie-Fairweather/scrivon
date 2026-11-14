@@ -62,7 +62,6 @@ type AppSettingsContextValue = {
     setAutosaveEnabled: (enabled: boolean) => void
     setAutosaveDelayMs: (delayMs: number) => void
     setLayoutExplorerOpen: (open: boolean) => void
-    setLayoutEditorOpen: (open: boolean) => void
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
     setKeybindChords: (actionId: KeybindActionId, chords: KeybindChord[]) => KeybindRefusal | null
@@ -103,11 +102,11 @@ function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
-/** With Restore panel layout off, every start shows the panels as on a first launch: explorer and editor, no outline. */
+/** With Restore panel layout off, every start shows the panels as on a first launch: explorer, editor and preview, no outline. */
 function withStartupLayout(settings: AppSettings): AppSettings {
     if (settings.layout.restorePanelsOnOpen) return settings
-    const { explorerOpen, editorOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
-    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, outlineOpen } }
+    const { explorerOpen, editorOpen, previewOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
+    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, previewOpen, outlineOpen } }
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -170,7 +169,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const updateSettings = useCallback(
         (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
             const current = settingsRef.current
-            persist(typeof patch === 'function' ? patch(current) : { ...current, ...patch })
+            const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
+            // An update that hands back the same settings (zoom already at 200%) has nothing to save.
+            if (next !== current) persist(next)
         },
         [persist]
     )
@@ -248,13 +249,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const setLayoutExplorerOpen = useCallback(
         (open: boolean) => {
             updateSettings((current) => ({ ...current, layout: { ...current.layout, explorerOpen: open } }))
-        },
-        [updateSettings]
-    )
-
-    const setLayoutEditorOpen = useCallback(
-        (open: boolean) => {
-            updateSettings((current) => ({ ...current, layout: { ...current.layout, editorOpen: open } }))
         },
         [updateSettings]
     )
@@ -379,7 +373,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,
@@ -403,7 +396,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setAutosaveEnabled,
             setAutosaveDelayMs,
             setLayoutExplorerOpen,
-            setLayoutEditorOpen,
             setEditorWidth,
             resetEditorWidth,
             setKeybindChords,

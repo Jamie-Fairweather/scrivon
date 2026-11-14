@@ -1,9 +1,10 @@
 'use client'
 
-import { Copy, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, type RefObject } from 'react'
+import { NewItemMenuItems } from '@/components/studio/explorer/new-item-menu-items'
 import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
-import { useFileTreeActions, useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
+import { useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
@@ -14,8 +15,6 @@ import type { FileNode } from '@/lib/workspace/types'
 function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { openFile, duplicateFile } = useWorkspaceSession()
     const { renameWithPrompt, deleteWithConfirm } = useRowEntryActions()
-    const parentPath = node.kind === 'directory' ? node.path : null
-    const { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent } = useFileTreeActions(parentPath)
 
     if (node.kind === 'file') {
         return (
@@ -44,18 +43,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
 
     return (
         <>
-            <MenuItem onClick={() => void createMermaidFileInParent()}>
-                <Plus />
-                New Diagram (.mmd)
-            </MenuItem>
-            <MenuItem onClick={() => void createMarkdownFileInParent()}>
-                <Plus />
-                New Document (.md)
-            </MenuItem>
-            <MenuItem onClick={() => void createFolderInParent()}>
-                <Plus />
-                New Folder
-            </MenuItem>
+            <NewItemMenuItems folder={node.path} />
             <MenuItem onClick={() => void renameWithPrompt(node)}>
                 <Pencil />
                 Rename

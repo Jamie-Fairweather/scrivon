@@ -132,6 +132,18 @@ describe('mergeStoredSettings', () => {
         expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
     })
 
+    it('shows the preview by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: 'no' } }, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: false } }, false).layout.previewOpen).toBe(false)
+        expect(migrateLegacySettings(() => null, false).layout.previewOpen).toBe(true)
+    })
+
+    it('shows the preview when the editor is hidden too, so the window is never empty', () => {
+        const layout = mergeStoredSettings({ layout: { editorOpen: false, previewOpen: false } }, false).layout
+        expect(layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
@@ -342,6 +354,28 @@ describe('mergeStoredSettings', () => {
         expect(merged.workspace.maxRecentFolders).toBe(50)
     })
 
+    it('starts settings saved before app zoom at 100%, with 14px preview text', () => {
+        const merged = mergeStoredSettings({ editor: { fontSize: 16 } }, false)
+
+        expect(merged.appearance).toEqual({ zoom: 1, previewFontSize: 14 })
+    })
+
+    it('reads a saved zoom and preview text size', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 1.5, previewFontSize: 18 } }, false).appearance).toEqual({ zoom: 1.5, previewFontSize: 18 })
+    })
+
+    it('moves a saved zoom to the nearest step, and keeps the preview text size between 10 and 32', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 7, previewFontSize: 100 } }, false).appearance).toEqual({ zoom: 2, previewFontSize: 32 })
+        expect(mergeStoredSettings({ appearance: { zoom: 1.12, previewFontSize: 2.4 } }, false).appearance).toEqual({
+            zoom: 1.1,
+            previewFontSize: 10,
+        })
+        expect(mergeStoredSettings({ appearance: { zoom: 'big', previewFontSize: null } }, false).appearance).toEqual({
+            zoom: 1,
+            previewFontSize: 14,
+        })
+    })
+
     it('rounds whole-number settings saved with decimals', () => {
         const merged = mergeStoredSettings(
             {
@@ -398,6 +432,7 @@ describe('dualWriteLegacy helpers', () => {
             dualWriteLegacyLayout({
                 explorerOpen: true,
                 editorOpen: false,
+                previewOpen: true,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
                 outlineOpen: false,

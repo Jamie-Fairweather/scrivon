@@ -30,6 +30,7 @@ import {
 import { confirmOverwriteDiskChange } from '@/components/studio/dialogs/disk-change-dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
+import { onLaunchPaths, takeLaunchPaths, type LaunchPath } from '@/lib/tauri/launch'
 import { isTauri } from '@/lib/tauri/platform'
 import {
     addRecentWorkspace,
@@ -604,7 +605,7 @@ describe('creating files and folders', () => {
 
         expect(getNameError('C:\\ws', 'Diagram.mmd', 'file')).toBe('A file named "diagram.mmd" already exists here.')
         expect(getNameError('C:\\ws', 'my:flow.mmd', 'file')).toBe('Name contains invalid characters')
-        expect(getNameError('C:\\ws', 'notes', 'file')).toBe('File name must end with .md, .mmd or .mermaid.')
+        expect(getNameError('C:\\ws', 'notes', 'file')).toBe('File name must end with .md, .markdown, .mmd or .mermaid.')
         expect(getNameError('C:\\ws\\docs', 'diagram.mmd', 'file')).toBeNull()
         expect(getNameError('C:\\ws', 'Diagram.mmd', 'file', 'C:\\ws\\diagram.mmd')).toBeNull()
     })
@@ -2751,6 +2752,26 @@ describe('folders opened and closed in the file tree', () => {
         expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({ 'C:\\ws\\manual': true, 'C:\\ws\\manual\\deep': false })
     })
 
+    it('opens or closes several folders at once, and remembers them with one save', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\notes', false))
+        vi.mocked(setFolderToggles).mockClear()
+
+        act(() => result.current.session.setFoldersExpanded(['C:/ws/docs', 'C:\\ws\\docs\\deep', 'C:\\ws\\notes'], true))
+
+        expect(Object.fromEntries(result.current.session.folderToggles)).toEqual({
+            'C:\\ws\\docs': true,
+            'C:\\ws\\docs\\deep': true,
+            'C:\\ws\\notes': true,
+        })
+        expect(setFolderToggles).toHaveBeenCalledTimes(1)
+
+        // Nothing to change: nothing saved.
+        act(() => result.current.session.setFoldersExpanded(['C:\\ws\\docs', 'C:\\ws\\notes'], true))
+        expect(setFolderToggles).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the same function to call, so tree rows that use it are not drawn again', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         const first = result.current.session.setFolderExpanded
@@ -2912,5 +2933,182 @@ describe('reopening the last folder at startup', () => {
                 action: { label: 'Open Folder', onClick: expect.any(Function) },
             })
         )
+    })
+})
+
+describe('opening files from File Explorer', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    /** What later launches of Scrivon have handed over, waiting for the window to take it. */
+    let waiting: LaunchPath[]
+    /** Tells the window that another launch handed over files, as the app shell does. */
+    let handOver: (() => void) | undefined
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        settingsState.workspace = { maxRecentFolders: 10, reopenLastFolder: true }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine', 'C:\\ws\\docs\\other.markdown': 'other', 'D:\\else\\x.mmd': 'graph TD' })
+        mountDisk(disk)
+        waiting = []
+        handOver = undefined
+        vi.mocked(takeLaunchPaths).mockImplementation(async () => waiting.splice(0))
+        vi.mocked(onLaunchPaths).mockImplementation(async (handler) => {
+            handOver = handler
+            return () => {
+                if (handOver === handler) handOver = undefined
+            }
+        })
+    })
+
+    afterEach(() => {
+        settingsState.workspace = { maxRecentFolders: 10 }
+        vi.mocked(getLastWorkspace).mockReset()
+        vi.mocked(getLastWorkspace).mockResolvedValue(null)
+        vi.mocked(takeLaunchPaths).mockReset()
+        vi.mocked(takeLaunchPaths).mockResolvedValue([])
+        vi.mocked(onLaunchPaths).mockReset()
+        vi.mocked(onLaunchPaths).mockResolvedValue(() => undefined)
+    })
+
+    const file = (path: string): LaunchPath => ({ path, isFolder: false })
+    const folder = (path: string): LaunchPath => ({ path, isFolder: true })
+
+    /** Starts Scrivon and waits until it listens for files handed over by later launches. */
+    async function start() {
+        const rendered = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(handOver).toBeDefined())
+        return rendered
+    }
+
+    /** Another launch hands over `paths`, and the window opens them. */
+    async function launchAgain(...paths: LaunchPath[]) {
+        waiting.push(...paths)
+        await act(async () => {
+            handOver!()
+            for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+        })
+    }
+
+    it('opens the file Scrivon was started with, in its folder, rather than the last folder', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('D:\\else')
+        waiting = [file('C:\\ws\\docs\\other.markdown')]
+
+        const { result } = await start()
+
+        await waitFor(() => expect(result.current.tabs.activeTabId).toBe('C:\\ws\\docs\\other.markdown'))
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws\\docs')
+        expect(result.current.tabs.tabs.map((t) => t.content)).toEqual(['other'])
+        expect(getLastWorkspace).not.toHaveBeenCalled()
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('opens a folder named on the command line', async () => {
+        waiting = [folder('D:\\else')]
+
+        const { result } = await start()
+
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('D:\\else'))
+        expect(result.current.tabs.tabs).toEqual([])
+    })
+
+    it('opens a file in the open folder in a new tab, keeping the other tabs', async () => {
+        const { result } = await start()
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+
+        await launchAgain(file('C:\\ws\\docs\\other.markdown'))
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md', 'C:\\ws\\docs\\other.markdown'])
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\docs\\other.markdown')
+    })
+
+    it("switches to a file's own folder when it is outside the open one", async () => {
+        const { result } = await start()
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+
+        await launchAgain(file('D:\\else\\x.mmd'))
+
+        expect(result.current.session.workspaceRoot).toBe('D:\\else')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['D:\\else\\x.mmd'])
+    })
+
+    it('keeps the open folder, and opens nothing, when the user keeps its unsaved changes', async () => {
+        const { result } = await start()
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS'))
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('cancel')
+
+        await launchAgain(file('D:\\else\\x.mmd'))
+
+        expect(confirmUnsavedChanges).toHaveBeenCalled()
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md'])
+    })
+
+    it("opens only the files in the first one's folder, and says which were left out", async () => {
+        const { result } = await start()
+
+        await launchAgain(file('C:\\ws\\notes.md'), file('D:\\else\\x.mmd'), file('C:\\ws\\docs\\other.markdown'))
+
+        expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md', 'C:\\ws\\docs\\other.markdown'])
+        expect(notifyWarning).toHaveBeenCalledWith("x.mmd wasn't opened", {
+            description: "It's in another folder. Scrivon opens one folder at a time.",
+        })
+    })
+
+    it('opens files handed over while Scrivon was still starting', async () => {
+        let answer!: (path: string | null) => void
+        vi.mocked(getLastWorkspace).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(getLastWorkspace).toHaveBeenCalled())
+
+        // Handed over before the window listens for more.
+        waiting.push(file('D:\\else\\x.mmd'))
+        await act(async () => answer('C:\\ws'))
+
+        await waitFor(() => expect(result.current.tabs.activeTabId).toBe('D:\\else\\x.mmd'))
+        expect(result.current.session.workspaceRoot).toBe('D:\\else')
+    })
+
+    it('reopens the last folder when the files to open could not be read', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        vi.mocked(takeLaunchPaths).mockRejectedValueOnce(new Error('no such command'))
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\ws')
+
+        const { result } = await start()
+
+        await waitFor(() => expect(result.current.session.workspaceRoot).toBe('C:\\ws'))
+        expect(warn).toHaveBeenCalledWith("Couldn't get the files Scrivon was asked to open", expect.any(Error))
+        warn.mockRestore()
+    })
+
+    it('still opens what was handed over at startup when it cannot listen for more', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        vi.mocked(onLaunchPaths).mockRejectedValue(new Error('no events'))
+        let answer!: (path: string | null) => void
+        vi.mocked(getLastWorkspace).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(getLastWorkspace).toHaveBeenCalled())
+
+        waiting.push(file('D:\\else\\x.mmd'))
+        await act(async () => answer(null))
+
+        await waitFor(() => expect(result.current.tabs.activeTabId).toBe('D:\\else\\x.mmd'))
+        expect(warn).toHaveBeenCalledWith("Can't open files from File Explorer while Scrivon runs", expect.any(Error))
+        warn.mockRestore()
     })
 })
