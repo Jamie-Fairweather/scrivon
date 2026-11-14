@@ -157,10 +157,10 @@ describe('DocumentExportMenu', () => {
 
         fireEvent.click(button)
         // Both document exports are marked as beta.
-        expect(await screen.findByRole('menuitem', { name: 'Save PDF Beta' })).toBeInTheDocument()
-        expect(screen.getByRole('menuitem', { name: 'Save Word Beta' })).toBeInTheDocument()
+        expect(await screen.findByRole('menuitem', { name: 'Export as PDF… Beta' })).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Export as Word… Beta' })).toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Save HTML' }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Export as HTML…' }))
         await waitFor(() => expect(lastDialog()).toMatchObject({ open: true, format: 'html' }))
     })
 
@@ -192,12 +192,12 @@ describe('DocumentExportMenu', () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         const view = render(<ExportMenu />)
         fireEvent.click(screen.getByRole('button', { name: 'Export document' }))
-        expect(await screen.findByRole('menuitem', { name: 'Save PDF Beta' })).toBeInTheDocument()
+        expect(await screen.findByRole('menuitem', { name: 'Export as PDF… Beta' })).toBeInTheDocument()
 
         // An empty document has nothing to export.
         tabs.activeTab = tab('notes.md', '')
         view.rerender(<ExportMenu />)
-        await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Save PDF Beta' })).toBeNull())
+        await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Export as PDF… Beta' })).toBeNull())
         expect(screen.getByRole('button', { name: 'Export document' })).toHaveAttribute('aria-disabled', 'true')
     })
 
@@ -219,7 +219,7 @@ describe('DocumentExportMenu', () => {
         expect(lastDialog()?.open).toBe(false)
     })
 
-    it('greys out Save SVG and Save PNG while the edited diagram is still rendering behind the older picture (N19)', async () => {
+    it('greys out the diagram exports while the edited diagram is still rendering behind the older picture (N19)', async () => {
         tabs.activeTab = tab('flow.mmd', 'graph TD; A-->')
         diagram.isStale = true
         const view = render(<ExportMenu />)
@@ -228,8 +228,8 @@ describe('DocumentExportMenu', () => {
         expect(button).not.toHaveAttribute('aria-disabled')
 
         fireEvent.click(button)
-        const saveSvg = await screen.findByRole('menuitem', { name: 'Save SVG' })
-        const savePng = screen.getByRole('menuitem', { name: 'Save PNG' })
+        const saveSvg = await screen.findByRole('menuitem', { name: 'Export Diagram as SVG…' })
+        const savePng = screen.getByRole('menuitem', { name: 'Export Diagram as PNG' })
         expect(saveSvg).toHaveAttribute('aria-disabled', 'true')
         expect(savePng).toHaveAttribute('aria-disabled', 'true')
         // A spinner on each says they are waiting for the drawing, not broken.
@@ -247,9 +247,9 @@ describe('DocumentExportMenu', () => {
         // Once the text has rendered, the items turn back on.
         diagram.isStale = false
         view.rerender(<ExportMenu />)
-        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-disabled')
-        expect(screen.getByRole('menuitem', { name: 'Save PNG' })).not.toHaveAttribute('aria-busy')
-        const enabled = screen.getByRole('menuitem', { name: 'Save SVG' })
+        expect(screen.getByRole('menuitem', { name: 'Export Diagram as PNG' })).not.toHaveAttribute('aria-disabled')
+        expect(screen.getByRole('menuitem', { name: 'Export Diagram as PNG' })).not.toHaveAttribute('aria-busy')
+        const enabled = screen.getByRole('menuitem', { name: 'Export Diagram as SVG…' })
         expect(enabled).not.toHaveAttribute('aria-disabled')
         expect(enabled).not.toHaveAttribute('aria-busy')
         expect(enabled.querySelector('svg.animate-spin')).toBeNull()
@@ -292,6 +292,38 @@ describe('export commands', () => {
         registered.current = []
     })
 
+    it('names the export menu’s items as the palette and File menu do', async () => {
+        // A Markdown file with a diagram expanded shows both the document and the diagram exports.
+        tabs.activeTab = tab('notes.md', '# Notes\n\n```mermaid\ngraph LR; X-->Y\n```')
+        expand.expanded = { source: 'graph LR; X-->Y', canvasKey: 'notes.md#0' }
+        render(<WithCommands />)
+        await waitFor(() => expect(command('export-svg').disabled).toBe(false))
+
+        fireEvent.click(screen.getByRole('button', { name: 'Export document' }))
+        await screen.findByRole('menu')
+        const items = screen.getAllByRole('menuitem').map((item) => item.textContent)
+        expect(items).toEqual([
+            'Export as PDF…Beta',
+            'Export as Word…Beta',
+            'Export as HTML…',
+            'Export Diagram as SVG…',
+            'Export Diagram as PNG',
+            'Copy Diagram as SVG',
+            'Copy Diagram as PNG',
+            'Diagram Theme',
+        ])
+        for (const id of ['export-pdf', 'export-docx', 'export-html', 'export-svg', 'copy-diagram-svg', 'copy-diagram-png']) {
+            expect(items.some((text) => text?.startsWith(command(id).label))).toBe(true)
+        }
+        // The options leave out the palette's 'Diagram Export' prefix: this is the export menu.
+        expect(command('diagram-export-transparent').label).toBe('Diagram Export: Transparent Background')
+        expect(screen.getByRole('menuitemcheckbox', { name: 'Transparent Background' })).toBeInTheDocument()
+
+        // The PNG sizes open a save dialog, as in File > Export.
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Export Diagram as PNG' }))
+        expect((await screen.findAllByRole('menuitem', { name: /^\d×…$/ })).map((item) => item.textContent)).toEqual(['1×…', '2×…', '4×…'])
+    })
+
     it('opens the export dialog at HTML from Export as HTML…', async () => {
         tabs.activeTab = tab('notes.md', '# Notes')
         render(<WithCommands />)
@@ -322,7 +354,7 @@ describe('export commands', () => {
         expect(command('export-pdf')).toMatchObject({ disabled: true, disabledReason: 'Only Markdown files export as PDF, Word or HTML' })
 
         act(() => void command('export').run())
-        expect(await screen.findByRole('menuitem', { name: 'Save SVG' })).toBeInTheDocument()
+        expect(await screen.findByRole('menuitem', { name: 'Export Diagram as SVG…' })).toBeInTheDocument()
         expect(lastDialog()).toBeNull()
     })
 
@@ -404,11 +436,11 @@ describe('diagram options and copying (F45)', () => {
         render(<ExportMenu />)
 
         await openMenu()
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Copy PNG' }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Copy Diagram as PNG' }))
         await waitFor(() => expect(copyPng).toHaveBeenCalledWith('graph TD; A-->B', APP_LOOK))
 
         await openMenu()
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy SVG' }))
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy Diagram as SVG' }))
         await waitFor(() => expect(copySvg).toHaveBeenCalledWith('graph TD; A-->B', APP_LOOK))
         expect(exportPng).not.toHaveBeenCalled()
         expect(exportSvg).not.toHaveBeenCalled()
@@ -420,8 +452,8 @@ describe('diagram options and copying (F45)', () => {
         render(<ExportMenu />)
 
         await openMenu()
-        expect(screen.getByRole('menuitem', { name: 'Copy PNG' })).toHaveAttribute('aria-disabled', 'true')
-        expect(screen.getByRole('menuitem', { name: 'Copy SVG' })).toHaveAttribute('aria-busy', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Copy Diagram as PNG' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Copy Diagram as SVG' })).toHaveAttribute('aria-busy', 'true')
     })
 
     it('copies the diagram expanded from a Markdown file from the palette', async () => {
@@ -441,12 +473,12 @@ describe('diagram options and copying (F45)', () => {
         render(<WithCommands />)
 
         await openMenu()
-        const transparent = screen.getByRole('menuitemcheckbox', { name: 'Transparent background' })
+        const transparent = screen.getByRole('menuitemcheckbox', { name: 'Transparent Background' })
         expect(transparent).toHaveAttribute('aria-checked', 'false')
         fireEvent.click(transparent)
 
         await waitFor(() => expect(settingsStore.get().diagramExport.transparent).toBe(true))
-        expect(screen.getByRole('menuitemcheckbox', { name: 'Transparent background' })).toHaveAttribute('aria-checked', 'true')
+        expect(screen.getByRole('menuitemcheckbox', { name: 'Transparent Background' })).toHaveAttribute('aria-checked', 'true')
         // The palette shows it too.
         expect(command('diagram-export-transparent').checked).toBe(true)
 
@@ -459,7 +491,7 @@ describe('diagram options and copying (F45)', () => {
         render(<WithCommands />)
 
         await openMenu()
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Diagram theme' }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Diagram Theme' }))
         const light = await screen.findByRole('menuitemradio', { name: 'Light' })
         expect(screen.getByRole('menuitemradio', { name: 'Same as App' })).toHaveAttribute('aria-checked', 'true')
         fireEvent.click(light)
@@ -478,8 +510,8 @@ describe('diagram options and copying (F45)', () => {
         render(<ExportMenu />)
 
         await openMenu()
-        expect(screen.queryByRole('menuitem', { name: 'Copy PNG' })).toBeNull()
-        expect(screen.queryByRole('menuitemcheckbox', { name: 'Transparent background' })).toBeNull()
+        expect(screen.queryByRole('menuitem', { name: 'Copy Diagram as PNG' })).toBeNull()
+        expect(screen.queryByRole('menuitemcheckbox', { name: 'Transparent Background' })).toBeNull()
     })
 })
 

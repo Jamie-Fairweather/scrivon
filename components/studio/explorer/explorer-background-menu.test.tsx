@@ -47,13 +47,13 @@ describe('ExplorerBackgroundMenu', () => {
             within(menu)
                 .getAllByRole('menuitem')
                 .map((item) => item.textContent)
-        ).toEqual(['New Diagram (.mmd)', 'New Document (.md)', 'New Folder', 'Refresh'])
+        ).toEqual(['New Diagram…', 'New Document…', 'New Folder…', 'Refresh'])
     })
 
     it.each([
-        ['New Diagram (.mmd)', 'new-diagram'],
-        ['New Document (.md)', 'new-document'],
-        ['New Folder', 'new-folder'],
+        ['New Diagram…', 'new-diagram'],
+        ['New Document…', 'new-document'],
+        ['New Folder…', 'new-folder'],
     ])('creates %s at the top of the open folder', async (name, kind) => {
         renderExplorer()
         fireEvent.contextMenu(screen.getByText('No files in this folder.'))
