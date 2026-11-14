@@ -22,6 +22,9 @@ const COMMAND_PALETTE_SELECTOR = '[data-slot="command-dialog-popup"]'
 /** How long Monaco waits for the second key after Ctrl+K. */
 const EDITOR_KEY_PAIR_MS = 5000
 
+/** The app counts these as modifiers, but Monaco takes them as the second key of a pair. */
+const LOCK_KEYS = new Set(['CapsLock', 'NumLock', 'ScrollLock'])
+
 /**
  * Which modal is open. App shortcuts must not act behind one (Settings, confirmations, prompts),
  * but palette shortcuts still work while only the command palette is open, so F1 can switch it
@@ -84,10 +87,14 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
             if (!event.repeat) heldKey = null
             if (event.defaultPrevented) return
 
-            if (keyPairUntil > 0 && !isModifierKey(event.key)) {
-                const secondKey = Date.now() < keyPairUntil && isInsideCodeEditor(event.target)
-                keyPairUntil = 0
-                if (secondKey) return
+            if (keyPairUntil > 0 && (!isModifierKey(event.key) || LOCK_KEYS.has(event.key))) {
+                if (Date.now() >= keyPairUntil) {
+                    keyPairUntil = 0
+                } else if (isInsideCodeEditor(event.target)) {
+                    // The second key. Monaco only hears keys inside the editor, so it waits on through keys pressed elsewhere.
+                    keyPairUntil = 0
+                    return
+                }
             }
 
             // A held key only runs actions that are meant to repeat (matchKeybinds), but the rest are still the app's.
@@ -101,7 +108,16 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
             if (startsEditorKeyPair(event, isMac)) keyPairUntil = Date.now() + EDITOR_KEY_PAIR_MS
         }
 
+        // Monaco stops waiting once the window loses focus.
+        const handleBlur = () => {
+            keyPairUntil = 0
+        }
+
         window.addEventListener('keydown', handleKeyDown, { capture: true })
-        return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
+        window.addEventListener('blur', handleBlur)
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown, { capture: true })
+            window.removeEventListener('blur', handleBlur)
+        }
     }, [bindings, enabled, hasWorkspace])
 }

@@ -377,6 +377,43 @@ describe('useGlobalKeybinds', () => {
                 expect(save).toHaveBeenCalledTimes(1)
             })
 
+            it('still leaves the next key to the editor after a key pressed elsewhere, as the editor is still waiting', () => {
+                const zoomReset = vi.fn()
+                const focusEditor = vi.fn()
+                const { text } = renderInDiagram({ 'view.appZoomReset': zoomReset, 'view.focusEditor': focusEditor })
+
+                press('k', { ctrlKey: true }, text)
+                press('ArrowDown')
+                const ctrl0 = press('0', { ctrlKey: true }, text)
+
+                expect(zoomReset).not.toHaveBeenCalled()
+                expect(ctrl0.defaultPrevented).toBe(false)
+                press('1', { ctrlKey: true }, text)
+                expect(focusEditor).toHaveBeenCalledTimes(1)
+            })
+
+            it('gives the keys back to the app when the window loses focus, as the editor stops waiting then', () => {
+                const save = vi.fn()
+                const { text } = renderInDiagram({ 'document.save': save })
+
+                press('k', { ctrlKey: true }, text)
+                window.dispatchEvent(new Event('blur'))
+                press('s', { ctrlKey: true }, text)
+
+                expect(save).toHaveBeenCalledTimes(1)
+            })
+
+            it('takes Caps Lock as the second key, as the editor does', () => {
+                const zoomReset = vi.fn()
+                const { text } = renderInDiagram({ 'view.appZoomReset': zoomReset })
+
+                press('k', { ctrlKey: true }, text)
+                press('CapsLock', {}, text)
+                press('0', { ctrlKey: true }, text)
+
+                expect(zoomReset).toHaveBeenCalledTimes(1)
+            })
+
             it('does not wait after a Ctrl+K the app took for Link', () => {
                 const link = vi.fn()
                 const focusEditor = vi.fn()
