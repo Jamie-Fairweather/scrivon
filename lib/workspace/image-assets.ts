@@ -1,4 +1,4 @@
-import { exists, writeFile } from '@tauri-apps/plugin-fs'
+import { exists, stat, writeFile } from '@tauri-apps/plugin-fs'
 import {
     PathExistsError,
     comparablePath,
@@ -22,6 +22,14 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
     'image/svg+xml': '.svg',
 }
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i
+
+/** The biggest image the preview and exports read: MAX_EXPORT_IMAGE_BYTES in src-tauri/src/pdf_export.rs. */
+export const MAX_IMAGE_BYTES = 12 * 1024 * 1024
+
+/** Refuses an image over MAX_IMAGE_BYTES, so none is added that the preview couldn't show. */
+function checkImageSize(name: string, size: number): void {
+    if (size > MAX_IMAGE_BYTES) throw new Error(`${name} is over ${MAX_IMAGE_BYTES / (1024 * 1024)} MB, too big for the preview and exports.`)
+}
 
 /** True for a picture the preview shows, by its extension. */
 export function isImageFile(name: string): boolean {
@@ -107,9 +115,10 @@ async function writeUnderFreeName(folder: string, name: string, write: (path: st
 
 /**
  * Saves a new image in the `assets` folder next to the document (made if needed), under `name` or the next free
- * name. Never replaces a file. Resolves to the image's path.
+ * name. Never replaces a file, and refuses an image over MAX_IMAGE_BYTES. Resolves to the image's path.
  */
 export async function saveImageInAssets(documentPath: string, name: string, bytes: Uint8Array): Promise<string> {
+    checkImageSize(name, bytes.byteLength)
     const folder = await assetsFolderOf(documentPath)
     return writeUnderFreeName(folder, name, (path) => writeFile(path, bytes, { createNew: true }))
 }
@@ -120,9 +129,10 @@ export type ImageDocument = { path: string; workspaceRoot: string }
 /**
  * An image file dropped onto `doc`. One already in the open folder is linked where it is; one from outside is
  * copied into the `assets` folder next to the document, under its own name or the next free one. Resolves to the
- * path to link.
+ * path to link. An image over MAX_IMAGE_BYTES is refused.
  */
 export async function addDroppedImage(sourcePath: string, doc: ImageDocument): Promise<string> {
+    checkImageSize(getBaseName(sourcePath), (await stat(sourcePath)).size)
     if (isPathInside(sourcePath, doc.workspaceRoot)) return normalizePath(sourcePath)
     const folder = await assetsFolderOf(doc.path)
     return writeUnderFreeName(folder, getBaseName(sourcePath), (path) => duplicateWorkspaceFile(sourcePath, path))

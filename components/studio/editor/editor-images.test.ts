@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IRange } from 'monaco-editor'
+import type { IDisposable, IRange } from 'monaco-editor'
+import { CommandsRegistry } from 'monaco-editor/platform/commands/common/commands.js'
 
 const assets = vi.hoisted(() => ({
     save: vi.fn<(documentPath: string, name: string, bytes: Uint8Array) => Promise<string>>(),
@@ -111,6 +112,10 @@ class FakeEditor {
         return this.pointAt ? { position: this.pointAt } : null
     }
     focus() {}
+    /** Runs a command by id from Monaco's shared registry, as the editor does. */
+    trigger(_source: string, id: string, payload: unknown) {
+        CommandsRegistry.getCommand(id)?.handler({}, payload)
+    }
     pushUndoStop() {
         this.undoStops += 1
         return true
@@ -140,12 +145,33 @@ function paste(editor: FakeEditor, clipboard: { text?: string; files?: File[] })
 
 const screenshot = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'image.png', { type: 'image/png' })
 
+const PASTE_COMMAND = 'editor.action.clipboardPasteAction'
+/** Monaco's own Paste command. In a web view it pastes only the clipboard's text: no paste event fires. */
+const monacoPaste = vi.fn()
+
+/** What navigator.clipboard.read() gives: each item's data by type. */
+const clipboard = { read: vi.fn<() => Promise<Array<{ types: string[]; getType: (type: string) => Promise<Blob> }>>>() }
+Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+
+/** Puts `items` on the clipboard, each as its data by type. */
+function copy(...items: Record<string, Blob>[]) {
+    clipboard.read.mockResolvedValue(items.map((data) => ({ types: Object.keys(data), getType: async (type: string) => data[type]! })))
+}
+
+/** Edit > Paste, the palette's Paste and the editor's right-click Paste: each runs Monaco's Paste command by id. */
+function choosePaste() {
+    return CommandsRegistry.getCommand(PASTE_COMMAND)?.handler({}, {})
+}
+
 let editor: FakeEditor
 let doc: { path: string; workspaceRoot: string } | null
 let detach: () => void
+let monacoOwnPaste: IDisposable
 
 beforeEach(() => {
     vi.clearAllMocks()
+    // Monaco registers its Paste when it loads, before any editor is made.
+    monacoOwnPaste = CommandsRegistry.registerCommand(PASTE_COMMAND, monacoPaste)
     vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 13, 20, 45, 12) })
     assets.save.mockImplementation(async (_doc, name) => `${ASSETS}\\${name}`)
     assets.add.mockImplementation(async (source) => (source.startsWith(ROOT) ? source : `${ASSETS}\\${source.replace(/^.*\\/, '')}`))
@@ -157,6 +183,7 @@ beforeEach(() => {
 
 afterEach(() => {
     detach()
+    monacoOwnPaste.dispose()
     vi.useRealTimers()
     document.body.innerHTML = ''
 })
@@ -220,6 +247,17 @@ describe('pasting a picture', () => {
         expect(editor.model!.markCount).toBe(0)
     })
 
+    it('links the pictures that were saved and says why one wasn’t, so none is left without a link', async () => {
+        const tooBig = new Error('image-20261113-204512.png is over 12 MB, too big for the preview and exports.')
+        assets.save.mockResolvedValueOnce(`${ASSETS}\\one.png`).mockRejectedValueOnce(tooBig)
+        editor.setSelection(at(2, 6))
+
+        paste(editor, { files: [screenshot(), screenshot()] })
+
+        await vi.waitFor(() => expect(editor.model!.text).toBe('# Setup\nSee: ![one](assets/one.png)\nDone.'))
+        expect(notify.error).toHaveBeenCalledWith("Couldn't add the image", tooBig)
+    })
+
     it('adds no link to a file that isn’t showing any more, and says where the picture went', async () => {
         let finish: (path: string) => void = () => {}
         assets.save.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
@@ -254,6 +292,60 @@ describe('pasting a picture', () => {
                     "setup.md wasn't showing any more, so no link was added. Link it with ![image-20261113-204512](assets/image-20261113-204512.png)",
             })
         )
+    })
+})
+
+describe('Paste from the Edit menu, the palette or the right-click menu', () => {
+    it('adds a copied picture the way Ctrl+V does', async () => {
+        copy({ 'image/png': new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }) })
+        editor.setSelection(at(2, 6))
+
+        choosePaste()
+
+        await vi.waitFor(() => expect(editor.model!.text).toBe('# Setup\nSee: ![image-20261113-204512](assets/image-20261113-204512.png)\nDone.'))
+        expect(assets.save).toHaveBeenCalledWith(DOC, 'image-20261113-204512.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+        expect(monacoPaste).not.toHaveBeenCalled()
+    })
+
+    it('leaves text to Monaco’s own paste, even with a picture of it alongside', async () => {
+        copy({ 'text/plain': new Blob(['Hello']), 'image/png': new Blob([new Uint8Array([0x89])], { type: 'image/png' }) })
+
+        choosePaste()
+
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(1))
+        expect(assets.save).not.toHaveBeenCalled()
+    })
+
+    it('lets Monaco paste when the clipboard has no picture or can’t be read', async () => {
+        copy({ 'text/html': new Blob(['<b>x</b>']) })
+        choosePaste()
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(1))
+
+        clipboard.read.mockRejectedValue(new DOMException('Read permission denied.', 'NotAllowedError'))
+        choosePaste()
+        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(2))
+        expect(assets.save).not.toHaveBeenCalled()
+    })
+
+    it('lets Monaco paste at once where pictures can’t go: a diagram, a read-only file, the find box', () => {
+        doc = null
+        choosePaste()
+        expect(monacoPaste).toHaveBeenCalledTimes(1)
+
+        doc = { path: DOC, workspaceRoot: ROOT }
+        editor.textFocused = false
+        choosePaste()
+        expect(monacoPaste).toHaveBeenCalledTimes(2)
+        expect(clipboard.read).not.toHaveBeenCalled()
+    })
+
+    it('gives Paste back to Monaco once let go', () => {
+        detach()
+
+        choosePaste()
+
+        expect(monacoPaste).toHaveBeenCalledTimes(1)
+        expect(clipboard.read).not.toHaveBeenCalled()
     })
 })
 
