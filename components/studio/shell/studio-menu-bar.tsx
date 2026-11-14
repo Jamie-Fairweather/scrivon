@@ -115,7 +115,7 @@ function allOff(commands: (ShownCommand | undefined)[]): boolean {
  */
 function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
     const png = PNG_SCALES.map((scale) => byId.get(`export-png-${scale}`))
-    const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg'].map((id) => byId.get(id))
+    const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg', 'copy-diagram-svg', 'copy-diagram-png'].map((id) => byId.get(id))
     if (!byId.has('export')) return null
     return (
         <>
@@ -141,6 +141,8 @@ function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
                                 </MenuGroup>
                             </MenuSubPopup>
                         </MenuSub>
+                        <CommandMenuItem command={byId.get('copy-diagram-svg')} />
+                        <CommandMenuItem command={byId.get('copy-diagram-png')} />
                     </MenuGroup>
                 </MenuSubPopup>
             </MenuSub>

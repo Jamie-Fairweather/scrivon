@@ -185,6 +185,21 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ statusBar: { visible: 'no' } }, false).statusBar.visible).toBe(true)
     })
 
+    it('exports diagrams in the app theme on a solid background unless other options were saved', () => {
+        expect(createDefaultSettings(false).diagramExport).toEqual({ theme: 'app', transparent: false })
+        // Settings saved before the options existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).diagramExport).toEqual({ theme: 'app', transparent: false })
+        expect(mergeStoredSettings({ diagramExport: { theme: 'light', transparent: true } }, false).diagramExport).toEqual({
+            theme: 'light',
+            transparent: true,
+        })
+        expect(mergeStoredSettings({ diagramExport: { theme: 'dark' } }, false).diagramExport).toEqual({ theme: 'dark', transparent: false })
+        expect(mergeStoredSettings({ diagramExport: { theme: 'sepia', transparent: 'yes' } }, false).diagramExport).toEqual({
+            theme: 'app',
+            transparent: false,
+        })
+    })
+
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
         expect(createDefaultSettings(false).editor.wordWrapColumn).toBe(80)
         // Settings saved before the option existed.

@@ -3,8 +3,9 @@ import { useEffect, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandRegistryProvider, useCommands, type ShownCommand } from '@/components/studio/commands/command-registry'
 import type { ExportFormat } from '@/lib/markdown/export-document'
-import { exportPng, exportSvg } from '@/lib/mermaid/export'
-import { createDefaultKeybinds } from '@/lib/settings/defaults'
+import { copyPng, copySvg, exportPng, exportSvg, type DiagramLook } from '@/lib/mermaid/export'
+import { createDefaultSettings } from '@/lib/settings/defaults'
+import type { AppSettings } from '@/lib/settings/types'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 import { DocumentExportProvider, useDocumentExport } from './document-export-provider'
@@ -36,12 +37,36 @@ vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
     useMarkdownExpand: () => ({ expanded: expand.expanded }),
     useMarkdownPreviewMemory: () => ({ scrollTopByTab: new Map(), remoteImageTabs, allowRemoteImages: () => undefined }),
 }))
-vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ themeId: 'light' }) }))
-vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({ settings: { keybinds: createDefaultKeybinds(false) } }),
-}))
+// Nord is dark, and its light twin is Nord Light.
+vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ themeId: 'nord' }) }))
+/** The saved settings, shared by every component that reads them, as the real provider does. */
+const settingsStore = vi.hoisted(() => {
+    let current = {} as AppSettings
+    const listeners = new Set<() => void>()
+    return {
+        get: () => current,
+        set: (next: AppSettings) => {
+            current = next
+            for (const listener of listeners) listener()
+        },
+        subscribe: (listener: () => void) => {
+            listeners.add(listener)
+            return () => listeners.delete(listener)
+        },
+    }
+})
+vi.mock('@/components/studio/settings/settings-provider', async () => {
+    const { useSyncExternalStore } = await import('react')
+    return {
+        useAppSettings: () => ({
+            settings: useSyncExternalStore(settingsStore.subscribe, settingsStore.get),
+            updateSettings: (patch: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) =>
+                settingsStore.set(typeof patch === 'function' ? patch(settingsStore.get()) : { ...settingsStore.get(), ...patch }),
+        }),
+    }
+})
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: diagram.currentError, ...diagram }) }))
-vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn() }))
+vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn(), copySvg: vi.fn(), copyPng: vi.fn() }))
 vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({
     PdfExportDialog: (props: DialogProps) => {
         dialogProps.current = props
@@ -65,14 +90,19 @@ function ExportMenu() {
     )
 }
 
+/** How a diagram looks with the default options: in the app's theme, on its background. */
+const APP_LOOK: DiagramLook = { themeId: 'nord', transparent: false }
+
 beforeEach(() => {
     tabs.activeTab = null
     expand.expanded = null
     dialogProps.current = null
     remoteImageTabs.clear()
     Object.assign(diagram, { currentError: null, isPending: false, isStale: false, isEmpty: false })
-    vi.mocked(exportSvg).mockClear()
-    vi.mocked(exportPng).mockClear()
+    const defaults = createDefaultSettings(false)
+    // Nord all the time, as the mocked app theme shows.
+    settingsStore.set({ ...defaults, theme: { ...defaults.theme, id: 'nord' } })
+    for (const fn of [exportSvg, exportPng, copySvg, copyPng]) vi.mocked(fn).mockClear()
 })
 
 describe('DocumentExportMenu', () => {
@@ -224,7 +254,7 @@ describe('DocumentExportMenu', () => {
         expect(enabled).not.toHaveAttribute('aria-busy')
         expect(enabled.querySelector('svg.animate-spin')).toBeNull()
         fireEvent.click(enabled)
-        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', 'light', expect.objectContaining({ tabName: 'flow.mmd' })))
+        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->', APP_LOOK, expect.objectContaining({ tabName: 'flow.mmd' })))
     })
 })
 
@@ -305,7 +335,7 @@ describe('export commands', () => {
         await waitFor(() =>
             expect(exportPng).toHaveBeenCalledWith(
                 'graph TD; A-->B',
-                'light',
+                APP_LOOK,
                 { tabName: 'flow.mmd', tabPath: 'D:\\docs\\flow.mmd', markdown: undefined },
                 2
             )
@@ -320,7 +350,7 @@ describe('export commands', () => {
 
         act(() => void command('export-svg').run())
         await waitFor(() =>
-            expect(exportSvg).toHaveBeenCalledWith('graph LR; X-->Y', 'light', {
+            expect(exportSvg).toHaveBeenCalledWith('graph LR; X-->Y', APP_LOOK, {
                 tabName: 'notes.md',
                 tabPath: 'D:\\docs\\notes.md',
                 markdown: '# Notes\n\n```mermaid\ngraph LR; X-->Y\n```',
@@ -355,6 +385,101 @@ describe('export commands', () => {
         await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Export failed', new Error('chunk failed')))
         await waitFor(() => expect(command('export').disabled).toBe(false))
         notifyError.mockRestore()
+    })
+})
+
+describe('diagram options and copying (F45)', () => {
+    beforeEach(() => {
+        registered.current = []
+    })
+
+    /** Opens the tab bar's export menu. */
+    async function openMenu() {
+        fireEvent.click(screen.getByRole('button', { name: 'Export document' }))
+        return screen.findByRole('menu')
+    }
+
+    it('copies a Mermaid file as PNG or SVG from the export menu', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        render(<ExportMenu />)
+
+        await openMenu()
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Copy PNG' }))
+        await waitFor(() => expect(copyPng).toHaveBeenCalledWith('graph TD; A-->B', APP_LOOK))
+
+        await openMenu()
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy SVG' }))
+        await waitFor(() => expect(copySvg).toHaveBeenCalledWith('graph TD; A-->B', APP_LOOK))
+        expect(exportPng).not.toHaveBeenCalled()
+        expect(exportSvg).not.toHaveBeenCalled()
+    })
+
+    it('greys out copying while the diagram is redrawn', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->')
+        diagram.isStale = true
+        render(<ExportMenu />)
+
+        await openMenu()
+        expect(screen.getByRole('menuitem', { name: 'Copy PNG' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Copy SVG' })).toHaveAttribute('aria-busy', 'true')
+    })
+
+    it('copies the diagram expanded from a Markdown file from the palette', async () => {
+        tabs.activeTab = tab('notes.md', '# Notes\n\n```mermaid\ngraph LR; X-->Y\n```')
+        expand.expanded = { source: 'graph LR; X-->Y', canvasKey: 'notes.md#0' }
+        render(<WithCommands />)
+        await waitFor(() => expect(command('copy-diagram-png').disabled).toBe(false))
+
+        act(() => void command('copy-diagram-png').run())
+        await waitFor(() => expect(copyPng).toHaveBeenCalledWith('graph LR; X-->Y', APP_LOOK))
+        act(() => void command('copy-diagram-svg').run())
+        await waitFor(() => expect(copySvg).toHaveBeenCalledWith('graph LR; X-->Y', APP_LOOK))
+    })
+
+    it('saves a transparent background, ticked in the menu, and uses it for the next export', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        render(<WithCommands />)
+
+        await openMenu()
+        const transparent = screen.getByRole('menuitemcheckbox', { name: 'Transparent background' })
+        expect(transparent).toHaveAttribute('aria-checked', 'false')
+        fireEvent.click(transparent)
+
+        await waitFor(() => expect(settingsStore.get().diagramExport.transparent).toBe(true))
+        expect(screen.getByRole('menuitemcheckbox', { name: 'Transparent background' })).toHaveAttribute('aria-checked', 'true')
+        // The palette shows it too.
+        expect(command('diagram-export-transparent').checked).toBe(true)
+
+        act(() => void command('export-png-2').run())
+        await waitFor(() => expect(exportPng).toHaveBeenCalledWith('graph TD; A-->B', { themeId: 'nord', transparent: true }, expect.anything(), 2))
+    })
+
+    it('draws diagrams in the light or dark version of the app theme, as picked in the menu', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        render(<WithCommands />)
+
+        await openMenu()
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Diagram theme' }))
+        const light = await screen.findByRole('menuitemradio', { name: 'Light' })
+        expect(screen.getByRole('menuitemradio', { name: 'Same as App' })).toHaveAttribute('aria-checked', 'true')
+        fireEvent.click(light)
+        await waitFor(() => expect(settingsStore.get().diagramExport.theme).toBe('light'))
+
+        act(() => void command('copy-diagram-svg').run())
+        await waitFor(() => expect(copySvg).toHaveBeenCalledWith('graph TD; A-->B', { themeId: 'nord-light', transparent: false }))
+
+        // And back to the app's own theme from the palette.
+        act(() => void command('diagram-export-theme-app').run())
+        await waitFor(() => expect(settingsStore.get().diagramExport.theme).toBe('app'))
+    })
+
+    it('shows no diagram options for a Markdown file with no diagram expanded', async () => {
+        tabs.activeTab = tab('notes.md', '# Notes')
+        render(<ExportMenu />)
+
+        await openMenu()
+        expect(screen.queryByRole('menuitem', { name: 'Copy PNG' })).toBeNull()
+        expect(screen.queryByRole('menuitemcheckbox', { name: 'Transparent background' })).toBeNull()
     })
 })
 
