@@ -160,5 +160,9 @@ describe('app/globals.css', () => {
                 expect(offset, item).toMatch(/^outline-offset: -\d+px$/)
             }
         })
+
+        it('outlines the folder something dragged in the explorer would go into', () => {
+            expect(rules.get('[data-drop-target]')).toEqual(['outline: 2px dashed Highlight', 'outline-offset: -2px'])
+        })
     })
 })

@@ -43,6 +43,15 @@ function canRefocus(active: Element | null, fromPath: string): boolean {
 }
 
 /**
+ * The folder something dropped on a row goes into: the folder itself, or the folder a file is in. A folder that
+ * can't be read takes nothing (''), as Move to… leaves it out.
+ */
+function dropFolderOf(node: FileNode, parentPath: string | null, root: string | null): string {
+    if (node.kind === 'file') return parentPath ?? root ?? ''
+    return node.unreadable ? '' : node.path
+}
+
+/**
  * The workspace files as an ARIA tree: one Tab stop, arrow keys to move and open folders, Enter to open,
  * F2 to rename, Delete to delete, Shift+F10 or the menu key for the row menu, and typing a name to jump to it.
  * Rows can be dragged onto folders to move them, and files dropped from File Explorer are copied in.
@@ -315,7 +324,7 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                             expanded={row.expanded}
                             position={row.position}
                             siblingCount={row.siblingCount}
-                            dropFolder={row.node.kind === 'directory' ? row.node.path : (row.parentPath ?? workspaceRoot ?? '')}
+                            dropFolder={dropFolderOf(row.node, row.parentPath, workspaceRoot)}
                             isDropTarget={row.node.kind === 'directory' && row.node.path === dropTarget}
                             isDragged={row.node.path === drag?.node.path}
                             isActive={row.node.kind === 'file' && row.node.path === activeTabId}

@@ -982,6 +982,92 @@ describe('copying in files dropped from File Explorer', () => {
         expect(await disk.read('C:\\ws\\more\\b.md')).toBe('B')
         expect(notifySuccess).toHaveBeenCalledWith('Copied more into ws')
     })
+
+    it('leaves alone what is already in that folder, instead of asking about its own name', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['C:\\ws\\docs\\a.md'], 'C:\\ws\\docs')
+        })
+
+        expect(confirmNameClash).not.toHaveBeenCalled()
+        expect(writeFile).not.toHaveBeenCalled()
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(docsNames(result)).toEqual(['a.md'])
+    })
+
+    it('numbers a folder at the end of its name when keeping both', async () => {
+        await disk.mkdir('C:\\ws\\docs\\v1.2')
+        await disk.write('D:\\in\\v1.2\\c.md', 'C')
+        vi.mocked(confirmNameClash).mockResolvedValueOnce('keep-both')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\v1.2'], 'C:\\ws\\docs')
+        })
+
+        expect(await disk.read('C:\\ws\\docs\\v1.2 2\\c.md')).toBe('C')
+    })
+
+    it('says a folder was copied only in part, and still shows what came in', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+        vi.mocked(readFile).mockRejectedValueOnce('The process cannot access the file. (os error 32)')
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\more'], 'C:\\ws\\docs')
+        })
+
+        expect(notifyError).toHaveBeenCalledWith('Copied only part of more', 'The process cannot access the file. (os error 32)', {
+            description: "Some of what is inside it couldn't be copied: The process cannot access the file. (os error 32)",
+        })
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(docsNames(result)).toEqual(['more', 'a.md'])
+        expect(result.current.session.folderToggles.get('C:\\ws\\docs')).toBe(true)
+    })
+
+    it('says when a folder copied in is one the file list hides', async () => {
+        await disk.write('D:\\in\\node_modules\\x\\index.js', 'X')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\node_modules', 'D:\\in\\pic.png'], 'C:\\ws\\docs')
+        })
+
+        expect(await disk.read('C:\\ws\\docs\\node_modules\\x\\index.js')).toBe('X')
+        expect(notifyInfo).toHaveBeenCalledWith('node_modules is hidden', expect.anything())
+        expect(notifyInfo).not.toHaveBeenCalledWith('pic.png is hidden', expect.anything())
+    })
+
+    it('says it is copying while a slow copy runs, and takes that back once it is done', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        let finishRead: () => void = () => {}
+        vi.mocked(readFile).mockImplementationOnce(async (path) => {
+            await new Promise<void>((resolve) => {
+                finishRead = resolve
+            })
+            return disk.readBytes(path)
+        })
+
+        let copying: Promise<void> = Promise.resolve()
+        act(() => {
+            copying = result.current.session.copyIntoFolder(['D:\\in\\pic.png'], 'C:\\ws\\docs')
+        })
+        await waitFor(() => expect(notifyInfo).toHaveBeenCalledWith('Copying into docs…', { id: 'copying-in', timeout: 0 }), { timeout: 3000 })
+        expect(dismissNotification).not.toHaveBeenCalledWith('copying-in')
+
+        await act(async () => {
+            finishRead()
+            await copying
+        })
+        expect(dismissNotification).toHaveBeenCalledWith('copying-in')
+        expect(await disk.read('C:\\ws\\docs\\pic.png')).toBe('PNG')
+    })
 })
 
 describe('recent files', () => {

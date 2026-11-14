@@ -12,7 +12,7 @@ const DRAG_START_PX = 4
 /**
  * The folder something let go at the point goes into: the folder row under it, the folder of the file row under
  * it, or the open folder for the space around the rows (each marks itself with `data-drop-folder`). Null
- * outside the tree.
+ * outside the tree, and over a folder that can't be read (its `data-drop-folder` is empty).
  */
 export function dropFolderAt(x: number, y: number): string | null {
     return document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-drop-folder]')?.dataset.dropFolder || null
@@ -104,8 +104,9 @@ export function useRowDrag(onDrop: (node: FileNode, folder: string) => void) {
 
 /**
  * Lets the tree's area (`zoneRef`) take files dropped from File Explorer: they are copied into the folder they
- * land on (`copyIntoFolder`), or the open folder (`root`) beside the rows. Returns the folder they would go
- * into while they are dragged over it, else null.
+ * land on (`copyIntoFolder`), or the open folder (`root`) beside the rows. Files already in that folder aren't
+ * copied; they go on to the window, which opens them. Returns the folder they would go into while they are
+ * dragged over it, else null.
  */
 export function useFileDropZone(
     zoneRef: RefObject<HTMLElement | null>,
@@ -113,14 +114,27 @@ export function useFileDropZone(
     copyIntoFolder: (sources: readonly string[], folder: string) => Promise<void>
 ): string | null {
     const [over, setOver] = useState<string | null>(null)
+    // The latest, for drops: it changes as the tree is read again, which mustn't drop the mark mid-drag.
+    const copyRef = useRef(copyIntoFolder)
+    useLayoutEffect(() => {
+        copyRef.current = copyIntoFolder
+    }, [copyIntoFolder])
     useEffect(() => {
         const zone = zoneRef.current
         if (!zone || !root) return
         const stop = registerFileDropTarget(
             zone,
             ({ paths, x, y }) => {
-                copyIntoFolder(paths, dropFolderAt(x, y) ?? root).catch((err: unknown) => notifyError("Couldn't copy the dropped files", err))
-                return []
+                const folder = dropFolderAt(x, y)
+                // Over a folder that can't be read nothing goes in, as when a row is dragged there.
+                if (!folder) return []
+                // Already there, so nothing to copy: they open, as when dropped anywhere else in the window.
+                const there = paths.filter((path) => moveRefusal(path, true, folder) === 'same-folder')
+                const copying = paths.filter((path) => !there.includes(path))
+                if (copying.length > 0) {
+                    copyRef.current(copying, folder).catch((err: unknown) => notifyError("Couldn't copy the dropped files", err))
+                }
+                return there
             },
             (point) => setOver(point ? dropFolderAt(point.x, point.y) : null)
         )
@@ -128,6 +142,6 @@ export function useFileDropZone(
             stop()
             setOver(null)
         }
-    }, [zoneRef, root, copyIntoFolder])
+    }, [zoneRef, root])
     return over
 }

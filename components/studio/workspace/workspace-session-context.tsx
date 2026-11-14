@@ -27,6 +27,8 @@ import {
     listWorkspaceTree,
     MAX_TREE_ENTRIES,
     normalizePath,
+    PartialCopyError,
+    readEntryKind,
     readWorkspaceTextFile,
     renameWorkspacePath,
     samePath,
@@ -52,7 +54,7 @@ import {
     setLastWorkspace,
 } from '@/lib/tauri/store'
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
-import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
+import { dismissNotification, errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { planLaunchOpen } from '@/lib/workspace/launch-open'
@@ -117,7 +119,8 @@ type WorkspaceSessionContextValue = {
     moveEntry: (path: string, isDirectory: boolean, targetFolder: string) => Promise<string | null>
     /**
      * Copies files and folders (dropped from File Explorer) into `targetFolder`, then opens it in the tree. Names
-     * already used there are never replaced: the user is asked, and can keep both or skip them.
+     * already used there are never replaced: the user is asked, and can keep both or skip them. Ones already in
+     * `targetFolder` are left alone.
      */
     copyIntoFolder: (sources: readonly string[], targetFolder: string) => Promise<void>
     deleteEntry: (path: string, isDirectory: boolean) => Promise<void>
@@ -132,6 +135,9 @@ const OPENING_NOTICE_ID = 'opening-folder'
 const TRUNCATED_NOTICE_ID = 'folder-too-big'
 /** Opening a folder that takes longer than this shows a notice, so a slow open doesn't look like nothing happened. */
 const OPENING_NOTICE_DELAY_MS = 400
+const COPYING_NOTICE_ID = 'copying-in'
+/** Copying in files that takes longer than this shows a notice too. */
+const COPYING_NOTICE_DELAY_MS = 400
 /** The least time between two reads of the folder when the window gets focus or another app changes it (open files don't wait). */
 const FOCUS_RELOAD_GAP_MS = 5_000
 /** Past this many changed paths waiting to be looked at, the folder is simply read again. */
@@ -1144,7 +1150,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (names.some((taken) => taken.toLowerCase() === name.toLowerCase())) {
                     // Nothing is ever replaced: the user keeps both, or nothing moves.
                     if ((await confirmNameClash([name], getBaseName(targetFolder), 'move', false)) !== 'keep-both') return null
-                    newName = uniqueNewName(name, names)
+                    newName = uniqueNewName(name, names, isDirectory ? 'directory' : 'file')
                 }
             } catch (err) {
                 notifyError(failed, err)
@@ -1162,11 +1168,13 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         async (sources: readonly string[], targetFolder: string) => {
             const root = workspaceRootRef.current
             const folderName = getBaseName(targetFolder)
-            const intoItself = sources.filter((source) => samePath(source, targetFolder) || isPathInside(targetFolder, source))
+            // Each is checked as a folder would be: a file can't be the folder it goes into anyway.
+            const intoItself = sources.filter((source) => moveRefusal(source, true, targetFolder) === 'into-itself')
             for (const source of intoItself) {
                 notifyError(`Couldn't copy ${getBaseName(source)}`, undefined, { description: "A folder can't go inside itself." })
             }
-            let todo = sources.filter((source) => !intoItself.includes(source))
+            // Ones already in that folder are there, so they aren't copied over themselves.
+            let todo = sources.filter((source) => moveRefusal(source, true, targetFolder) === null)
             if (todo.length === 0) return
             let names: string[]
             try {
@@ -1184,25 +1192,44 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 if (choice === 'skip') todo = todo.filter((source) => !clashes.includes(source))
             }
             const copied: string[] = []
+            let partly = false
+            // A big folder takes a while to copy; saying so stops the user thinking nothing happened.
+            const slowNotice = setTimeout(
+                () => notifyInfo(`Copying into ${folderName}…`, { id: COPYING_NOTICE_ID, timeout: 0 }),
+                COPYING_NOTICE_DELAY_MS
+            )
             // One at a time: a big folder is many files, and the rest still come in when one can't.
             for (const source of todo) {
-                const name = uniqueNewName(getBaseName(source), names)
-                names.push(name)
+                const sourceName = getBaseName(source)
                 try {
+                    const kind = await readEntryKind(source)
+                    const name = uniqueNewName(sourceName, names, kind)
+                    names.push(name)
                     await copyWorkspaceEntry(source, joinPath(targetFolder, name))
                     copied.push(name)
+                    if (kind === 'directory') explainIfHidden(targetFolder, name)
                 } catch (err) {
-                    notifyError(`Couldn't copy ${getBaseName(source)}`, err)
+                    if (err instanceof PartialCopyError) {
+                        // What was copied stays, so the user is told it isn't all there.
+                        partly = true
+                        notifyError(`Copied only part of ${sourceName}`, err.cause, {
+                            description: `Some of what is inside it couldn't be copied: ${errorMessage(err.cause)}`,
+                        })
+                    } else {
+                        notifyError(`Couldn't copy ${sourceName}`, err)
+                    }
                 }
             }
+            clearTimeout(slowNotice)
+            dismissNotification(COPYING_NOTICE_ID)
             if (copied.length > 0) {
                 notifySuccess(copied.length === 1 ? `Copied ${copied[0]} into ${folderName}` : `Copied ${copied.length} items into ${folderName}`)
-                // The folder opens, so what came in shows.
-                if (root && isOpenFolder(root) && !samePath(targetFolder, root)) setFolderExpanded(targetFolder, true)
             }
+            // The folder opens, so what came in shows.
+            if ((copied.length > 0 || partly) && root && isOpenFolder(root) && !samePath(targetFolder, root)) setFolderExpanded(targetFolder, true)
             await refreshFolder(targetFolder)
         },
-        [isOpenFolder, setFolderExpanded, refreshFolder]
+        [isOpenFolder, setFolderExpanded, refreshFolder, explainIfHidden]
     )
 
     const deleteEntry = useCallback(

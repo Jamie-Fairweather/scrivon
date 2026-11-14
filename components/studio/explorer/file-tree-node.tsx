@@ -16,7 +16,10 @@ const TRUNCATED_HINT = 'Not read: the open folder has too many files and folders
 
 // The row's fields one by one, not the row object, so a row that didn't change isn't drawn again.
 type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
-    /** The folder something dropped on this row goes into: the folder itself, or the folder a file is in. */
+    /**
+     * The folder something dropped on this row goes into: the folder itself, or the folder a file is in. Empty
+     * for a folder that can't be read, which takes nothing.
+     */
     dropFolder: string
     /** Something being dragged would go into this folder. */
     isDropTarget: boolean

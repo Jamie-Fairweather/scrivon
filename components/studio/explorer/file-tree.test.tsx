@@ -560,11 +560,51 @@ describe('FileTree moves files and folders', () => {
         expect(rest).toEqual([])
         expect(session.copyIntoFolder).toHaveBeenCalledWith(['D:\\in\\a.md', 'D:\\in\\pic.png'], '/ws/docs')
 
-        under = null
+        // Beside the rows, they go to the top of the open folder.
+        under = screen.getByRole('tree').parentElement
         await act(async () => {
             await fileDrops.handler!({ paths: ['D:\\in\\b.md'], x: 5, y: 5 })
         })
         expect(session.copyIntoFolder).toHaveBeenLastCalledWith(['D:\\in\\b.md'], '/ws')
+    })
+
+    it('leaves files already in the folder they land on to the window, which opens them', async () => {
+        render(<FileTree tree={tree} />)
+
+        under = item('notes.md')
+        let rest: readonly string[] = []
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['/ws/docs/notes.md', 'D:\\in\\a.md'], x: 5, y: 5 })
+        })
+
+        expect(rest).toEqual(['/ws/docs/notes.md'])
+        expect(session.copyIntoFolder).toHaveBeenCalledWith(['D:\\in\\a.md'], '/ws/docs')
+
+        // Only those: nothing is copied.
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['/ws/docs/notes.md'], x: 5, y: 5 })
+        })
+        expect(rest).toEqual(['/ws/docs/notes.md'])
+        expect(session.copyIntoFolder).toHaveBeenCalledTimes(1)
+    })
+
+    it('takes nothing on a folder that can’t be read, as Move to… leaves it out', async () => {
+        render(<FileTree tree={[{ kind: 'directory', name: 'private', path: '/ws/private', children: [], unreadable: true }, ...tree]} />)
+
+        drag('flow.mmd', item('private'), { release: false })
+        expect(dropTargets()).toEqual([])
+        fireEvent.pointerUp(document, { button: 0 })
+        expect(session.moveEntry).not.toHaveBeenCalled()
+
+        under = item('private')
+        act(() => fileDrops.onHover!({ x: 5, y: 5 }))
+        expect(dropTargets()).toEqual([])
+        let rest: readonly string[] = ['not yet']
+        await act(async () => {
+            rest = await fileDrops.handler!({ paths: ['D:\\in\\a.md'], x: 5, y: 5 })
+        })
+        expect(rest).toEqual([])
+        expect(session.copyIntoFolder).not.toHaveBeenCalled()
     })
 
     it('says so when the folder is empty, and still takes files dropped on it', () => {
