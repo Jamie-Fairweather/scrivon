@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { isNativeTextField } from '@/lib/settings/match-keybind'
 
 /** Low enough for Fit to show a very wide or tall diagram whole (a 7,000 px chain in a 600 px pane needs about 8%). */
 const MIN_SCALE = 0.02
@@ -56,6 +57,11 @@ function interpretKey(input: KeyInput): KeyGesture | null {
     if (!direction || input.ctrlKey || input.metaKey) return null
     const step = input.shiftKey ? PAN_STEP_LARGE : PAN_STEP
     return { kind: 'pan', dx: direction.x * step, dy: direction.y * step }
+}
+
+/** Somewhere to type, where + - and 0 are text rather than zoom. */
+function isTextField(target: EventTarget): boolean {
+    return isNativeTextField(target) || (target instanceof HTMLElement && target.isContentEditable)
 }
 
 /** Wheel events from inside an element with this attribute (e.g. a scrollable error banner) are left to the browser. */
@@ -263,12 +269,15 @@ export function usePanZoom(
         [applyTransform, reset]
     )
 
-    /** Only keys pressed on the canvas itself, not on a button inside it. */
+    /**
+     * Keys on the canvas, plus the zoom keys on a toolbar button inside it, since the app leaves zoom keys
+     * to the canvas there. The arrow keys stay with the button or message, and text fields keep every key.
+     */
     const onKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
-            if (e.target !== e.currentTarget) return
             const gesture = interpretKey(e)
             if (!gesture) return
+            if (e.target !== e.currentTarget && (gesture.kind === 'pan' || isTextField(e.target))) return
             e.preventDefault()
             if (gesture.kind === 'zoom') return zoom(gesture.how)
             const prev = stateRef.current
