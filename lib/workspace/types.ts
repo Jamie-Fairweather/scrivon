@@ -60,6 +60,11 @@ export type StudioLayoutState = {
     outlineOpen: boolean
 }
 
+/** Whether the preview is on screen. With the editor hidden too, it shows anyway. */
+export function isPreviewShown(layout: { previewOpen: boolean; editorOpen: boolean }): boolean {
+    return layout.previewOpen || !layout.editorOpen
+}
+
 export const AUTO_SAVE_MS = 400
 export const STORAGE_LAYOUT_EXPLORER = 'mermaid-studio-layout-explorer'
 export const STORAGE_LAYOUT_EDITOR = 'mermaid-studio-layout-editor'
