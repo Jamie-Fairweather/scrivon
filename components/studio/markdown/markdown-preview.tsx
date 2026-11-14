@@ -27,10 +27,14 @@ import {
     rehypeMermaidBlockIds,
 } from '@/components/studio/markdown/markdown-block-ordinals'
 import { decode, markdownUrlTransform, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
-import { markdownBodyFirstLine, rehypePreviewArticle, remarkPreviewLang } from '@/components/studio/markdown/markdown-preview-body'
+import {
+    markdownBodyFirstLine,
+    markdownPreviewDocument,
+    rehypePreviewArticle,
+    remarkPreviewLang,
+} from '@/components/studio/markdown/markdown-preview-body'
 import { rehypeDisplayMathLines, rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
 import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
-import { parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { htmlAlertKind, type GithubAlertKind } from '@/lib/markdown/github-alerts'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
@@ -493,13 +497,14 @@ export const MarkdownPreview = memo(function MarkdownPreview({
         }
     }, [onExpandBlock, onLinkClick, tabId])
 
-    const { body, lang } = useMemo(() => parsePdfExportFrontMatter(source), [source])
+    const { body, lang } = useMemo(() => markdownPreviewDocument(source), [source])
     const firstLine = useMemo(() => markdownBodyFirstLine(source, body), [source, body])
     // Tagged as the PDF is, so shared Han characters take the document's own glyph shapes (Japanese ones under ja).
     const remarkPlugins = useMemo((): PluggableList => [...baseRemarkPlugins, remarkPreviewLang(lang)], [lang])
-    // Safe raw HTML first, then math (which the sanitizer would strip), then the numbering and source lines, so the
-    // sanitizer can't strip the blocks' data properties. Per document, so each block's id is matched against the
-    // blocks this document showed last time.
+    // Safe raw HTML first, then display math wrapped so it keeps its source line (KaTeX would drop it), then math
+    // (which the sanitizer would strip), then the numbering and source lines, so the sanitizer can't strip the blocks'
+    // data properties. The <article> is built last, around everything. Per document, so each block's id is matched
+    // against the blocks this document showed last time.
     const rehypePlugins = useMemo(
         (): PluggableList => [
             ...previewHtmlPlugins,

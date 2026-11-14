@@ -11,11 +11,18 @@ declare module 'vfile' {
 }
 
 /**
- * The part of a Markdown document the preview shows. YAML front matter is metadata (PDF export reads its title,
- * author and date for the title page), not content, so it is left out, found by the same rule export uses.
+ * What the preview needs from a Markdown document: `body`, the part it shows, and `lang`, the front matter's `lang:`
+ * if it has one. YAML front matter is metadata (PDF export reads its title, author and date for the title page), not
+ * content, so it is left out of the body, found by the same rule export uses.
  */
+export function markdownPreviewDocument(source: string): { body: string; lang?: string } {
+    const { body, lang } = parsePdfExportFrontMatter(source)
+    return { body, lang }
+}
+
+/** The part of a Markdown document the preview shows. See {@link markdownPreviewDocument}. */
 export function markdownPreviewBody(source: string): string {
-    return parsePdfExportFrontMatter(source).body
+    return markdownPreviewDocument(source).body
 }
 
 /** The line of `source` its preview body (see {@link markdownPreviewBody}) starts on, counting from 1. */
