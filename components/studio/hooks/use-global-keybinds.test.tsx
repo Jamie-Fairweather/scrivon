@@ -1,6 +1,8 @@
-import { renderHook } from '@testing-library/react'
+import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds'
+import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
 const bindings = createDefaultKeybinds(false)
@@ -20,6 +22,8 @@ function addElement(attributes: Record<string, string>): HTMLElement {
 
 describe('useGlobalKeybinds', () => {
     afterEach(() => {
+        // Unmount first: React can't take down a popover once its page is gone.
+        cleanup()
         document.body.innerHTML = ''
     })
 
@@ -133,6 +137,27 @@ describe('useGlobalKeybinds', () => {
         expect(save).not.toHaveBeenCalled()
     })
 
+    it('still works while a popover is open with focus inside it, as popovers are not modal', async () => {
+        const save = vi.fn()
+        renderHook(() => useGlobalKeybinds(bindings, { 'document.save': save }))
+        render(
+            <Popover>
+                <PopoverTrigger>Save failed</PopoverTrigger>
+                <PopoverPopup>
+                    <button type="button">Try Again</button>
+                </PopoverPopup>
+            </Popover>
+        )
+        await userEvent.click(screen.getByRole('button', { name: 'Save failed' }))
+        const tryAgain = await screen.findByRole('button', { name: 'Try Again' })
+        await waitFor(() => expect(tryAgain).toHaveFocus())
+
+        const event = press('s', { ctrlKey: true }, tryAgain)
+
+        expect(save).toHaveBeenCalledTimes(1)
+        expect(event.defaultPrevented).toBe(true)
+    })
+
     it('does nothing while an alert dialog is open', () => {
         const save = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'document.save': save }))
@@ -214,6 +239,166 @@ describe('useGlobalKeybinds', () => {
             expect(toggleEditor).toHaveBeenCalledTimes(1)
             // Nothing else has Ctrl+B, so the editor gets it.
             expect(ctrlB.defaultPrevented).toBe(false)
+        })
+
+        describe('while a key is held down', () => {
+            it('stops the repeats of a key the app took, without running it again', () => {
+                const italic = vi.fn()
+                renderHook(() => useGlobalKeybinds(bindings, { 'format.italic': italic }, { hasWorkspace: true }))
+                const { text } = addEditor()
+
+                press('i', { ctrlKey: true, code: 'KeyI' }, text)
+                const repeats = [
+                    press('i', { ctrlKey: true, code: 'KeyI', repeat: true }, text),
+                    press('i', { ctrlKey: true, code: 'KeyI', repeat: true }, text),
+                ]
+
+                expect(italic).toHaveBeenCalledTimes(1)
+                // Not on to the editor, where Ctrl+I opens the suggestions.
+                expect(repeats.map((event) => event.defaultPrevented)).toEqual([true, true])
+            })
+
+            it('passes the repeats on when the first press was passed on', () => {
+                const { text } = addEditor()
+                renderHook(() => useGlobalKeybinds(bindings, { 'format.bold': () => false }, { hasWorkspace: true }))
+
+                press('b', { ctrlKey: true, code: 'KeyB' }, text)
+                const repeat = press('b', { ctrlKey: true, code: 'KeyB', repeat: true }, text)
+
+                expect(repeat.defaultPrevented).toBe(false)
+            })
+
+            it('does not stop the repeats of another key pressed after it', () => {
+                const italic = vi.fn()
+                renderHook(() => useGlobalKeybinds(bindings, { 'format.italic': italic }, { hasWorkspace: true }))
+                const { text } = addEditor()
+
+                press('i', { ctrlKey: true, code: 'KeyI' }, text)
+                press('a', { code: 'KeyA' }, text)
+                const repeat = press('a', { code: 'KeyA', repeat: true }, text)
+
+                expect(repeat.defaultPrevented).toBe(false)
+            })
+
+            it('runs a shortcut that is meant to repeat on every repeat', () => {
+                const nextTab = vi.fn()
+                renderHook(() => useGlobalKeybinds(bindings, { 'tabs.next': nextTab }, { hasWorkspace: true }))
+
+                press('Tab', { ctrlKey: true, code: 'Tab' })
+                const repeat = press('Tab', { ctrlKey: true, code: 'Tab', repeat: true })
+
+                expect(nextTab).toHaveBeenCalledTimes(2)
+                expect(repeat.defaultPrevented).toBe(true)
+            })
+        })
+
+        describe('after Ctrl+K reaches the editor', () => {
+            afterEach(() => {
+                vi.useRealTimers()
+                vi.unstubAllGlobals()
+            })
+
+            /** As in a Mermaid file, where Link is off and passes Ctrl+K on. */
+            function renderInDiagram(handlers: Parameters<typeof useGlobalKeybinds>[1]) {
+                renderHook(() => useGlobalKeybinds(bindings, { 'format.link': () => false, ...handlers }, { hasWorkspace: true }))
+                return addEditor()
+            }
+
+            it('leaves the next key to the editor, so Ctrl+K Ctrl+0 folds instead of resetting the zoom', () => {
+                const zoomReset = vi.fn()
+                const focusEditor = vi.fn()
+                const { text } = renderInDiagram({ 'view.appZoomReset': zoomReset, 'view.focusEditor': focusEditor })
+
+                const ctrlK = press('k', { ctrlKey: true }, text)
+                const ctrl0 = press('0', { ctrlKey: true }, text)
+
+                expect(ctrlK.defaultPrevented).toBe(false)
+                expect(zoomReset).not.toHaveBeenCalled()
+                expect(ctrl0.defaultPrevented).toBe(false)
+
+                // Only the one key: the next Ctrl+1 is the app's again.
+                press('1', { ctrlKey: true }, text)
+                expect(focusEditor).toHaveBeenCalledTimes(1)
+            })
+
+            it('still waits while Ctrl is pressed again on its own', () => {
+                const focusEditor = vi.fn()
+                const { text } = renderInDiagram({ 'view.focusEditor': focusEditor })
+
+                press('k', { ctrlKey: true }, text)
+                press('Control', { ctrlKey: true }, text)
+                press('1', { ctrlKey: true }, text)
+
+                expect(focusEditor).not.toHaveBeenCalled()
+            })
+
+            it('gives the keys back to the app after 5 seconds, when the editor has stopped waiting', () => {
+                vi.useFakeTimers()
+                const zoomReset = vi.fn()
+                const { text } = renderInDiagram({ 'view.appZoomReset': zoomReset })
+
+                press('k', { ctrlKey: true }, text)
+                vi.advanceTimersByTime(5001)
+                press('0', { ctrlKey: true }, text)
+
+                expect(zoomReset).toHaveBeenCalledTimes(1)
+            })
+
+            it('knows Ctrl+K by its key on a Russian keyboard, where it types л', () => {
+                const focusEditor = vi.fn()
+                const { text } = renderInDiagram({ 'view.focusEditor': focusEditor })
+
+                press('л', { ctrlKey: true, code: 'KeyK' }, text)
+                press('1', { ctrlKey: true }, text)
+
+                expect(focusEditor).not.toHaveBeenCalled()
+            })
+
+            it('waits after Cmd+K on a Mac, not Ctrl+K, which is a shortcut on its own there', () => {
+                vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' })
+                const focusEditor = vi.fn()
+                const { text } = renderInDiagram({ 'view.focusEditor': focusEditor })
+
+                press('k', { ctrlKey: true }, text)
+                press('1', { ctrlKey: true }, text)
+                press('k', { metaKey: true }, text)
+                press('1', { ctrlKey: true }, text)
+
+                expect(focusEditor).toHaveBeenCalledTimes(1)
+            })
+
+            it('runs app shortcuts pressed outside the editor, which never sees them', () => {
+                const save = vi.fn()
+                const { text } = renderInDiagram({ 'document.save': save })
+
+                press('k', { ctrlKey: true }, text)
+                press('s', { ctrlKey: true })
+
+                expect(save).toHaveBeenCalledTimes(1)
+            })
+
+            it('does not wait after a Ctrl+K the app took for Link', () => {
+                const link = vi.fn()
+                const focusEditor = vi.fn()
+                renderHook(() => useGlobalKeybinds(bindings, { 'format.link': link, 'view.focusEditor': focusEditor }, { hasWorkspace: true }))
+                const { text } = addEditor()
+
+                press('k', { ctrlKey: true }, text)
+                press('1', { ctrlKey: true }, text)
+
+                expect(link).toHaveBeenCalledTimes(1)
+                expect(focusEditor).toHaveBeenCalledTimes(1)
+            })
+
+            it('does not wait after Ctrl+Shift+K, which is a shortcut on its own', () => {
+                const focusEditor = vi.fn()
+                const { text } = renderInDiagram({ 'view.focusEditor': focusEditor })
+
+                press('K', { ctrlKey: true, shiftKey: true }, text)
+                press('1', { ctrlKey: true }, text)
+
+                expect(focusEditor).toHaveBeenCalledTimes(1)
+            })
         })
     })
 
