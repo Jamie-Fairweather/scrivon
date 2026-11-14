@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
+import { MoveToProvider } from '@/components/studio/dialogs/move-to-provider'
 import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
@@ -11,11 +12,15 @@ const { tabs, session } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
     session: {
         workspaceRoot: '/ws',
+        tree: [] as FileNode[],
         folderToggles: new Map<string, boolean>(),
         setFolderExpanded: vi.fn(),
         openFile: vi.fn(async () => undefined),
         renameEntry: vi.fn<(oldPath: string, newName: string, isDirectory: boolean) => Promise<void>>(async () => undefined),
         deleteEntry: vi.fn<(path: string, isDirectory: boolean) => Promise<void>>(async () => undefined),
+        moveEntry: vi.fn<(path: string, isDirectory: boolean, target: string) => Promise<string | null>>(async () => null),
+        copyIntoFolder: vi.fn(async () => undefined),
+        setFoldersExpanded: vi.fn(),
         duplicateFile: vi.fn(async () => undefined),
         createFile: vi.fn(async () => undefined),
         createFolder: vi.fn(async () => undefined),
@@ -42,8 +47,10 @@ function ui(nodes: FileNode[]) {
     return (
         <NamePromptProvider>
             <DeleteConfirmProvider>
-                <button type="button">Elsewhere</button>
-                <FileTree tree={nodes} />
+                <MoveToProvider>
+                    <button type="button">Elsewhere</button>
+                    <FileTree tree={nodes} />
+                </MoveToProvider>
             </DeleteConfirmProvider>
         </NamePromptProvider>
     )
@@ -177,6 +184,31 @@ describe('FileTree focus', () => {
         await renameTo('renamed.md')
 
         expect(item('renamed.md')).toHaveFocus()
+    })
+
+    it('moves focus to the moved row after Move to…', async () => {
+        const docs = (children: FileNode[]): FileNode => ({ kind: 'directory', name: 'docs', path: '/ws/docs', children })
+        let nodes: FileNode[] = [docs([]), ...tree]
+        session.tree = nodes
+        const view = render(ui(nodes))
+        session.moveEntry.mockImplementation(async (path, _isDirectory, target) => {
+            const moved = file('b.md')
+            nodes = [docs([{ ...moved, path: `${target}/b.md` }]), file('a.md'), file('c.md')]
+            view.rerender(ui(nodes))
+            return `${target}/b.md`
+        })
+        item('b.md').focus()
+
+        fireEvent.keyDown(item('b.md'), { key: 'F10', shiftKey: true })
+        fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Move to…' }))
+        await settle()
+        fireEvent.click(screen.getByRole('option', { name: 'docs' }))
+        await settle()
+
+        expect(session.moveEntry).toHaveBeenCalledWith('/ws/b.md', false, '/ws/docs')
+        expect(item('b.md')).toHaveAttribute('data-path', '/ws/docs/b.md')
+        expect(item('b.md')).toHaveFocus()
+        session.tree = []
     })
 
     // Another read of the folder (the watcher's) can take over the action's own, so the action is done before the

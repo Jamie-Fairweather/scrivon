@@ -33,6 +33,7 @@ import {
     confirmCloseAfterSaveFailure,
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
+    confirmNameClash,
     confirmOpenLargeFile,
     confirmUnsavedChanges,
     pickOpenFile,
@@ -367,5 +368,45 @@ describe('confirmKeptChangesWithoutFolder', () => {
 
         messageMock.mockResolvedValueOnce(null)
         await expect(confirmKeptChangesWithoutFolder('Notes', ['a.md'])).resolves.toBe('keep')
+    })
+})
+
+describe('confirmNameClash', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        isTauriMock.mockReturnValue(true)
+    })
+
+    it('asks before moving onto a name that is taken, and never offers to replace it', async () => {
+        messageMock.mockResolvedValueOnce('Keep Both')
+        await expect(confirmNameClash(['notes.md'], 'docs', 'move', false)).resolves.toBe('keep-both')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('docs already has something named notes.md.')
+        expect(body).toContain("Keep Both adds a number to the name of the one you're moving.")
+        expect(options).toMatchObject({ title: 'Name already used', buttons: { ok: 'Keep Both', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce('Cancel')
+        await expect(confirmNameClash(['notes.md'], 'docs', 'move', false)).resolves.toBe('cancel')
+    })
+
+    it('can skip the taken names when other files are copied in too', async () => {
+        messageMock.mockResolvedValueOnce('Skip')
+        await expect(confirmNameClash(['a.md', 'b.png'], 'docs', 'copy', true)).resolves.toBe('skip')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toContain('docs already has things named:\n\na.md\nb.png')
+        expect(body).toContain("Keep Both adds a number to the names of the ones you're copying in.")
+        expect(options).toMatchObject({ buttons: { yes: 'Keep Both', no: 'Skip', cancel: 'Cancel' } })
+
+        messageMock.mockResolvedValueOnce(null)
+        await expect(confirmNameClash(['a.md'], 'docs', 'copy', true)).resolves.toBe('cancel')
+    })
+
+    it('outside the desktop app keeps both only when the user agrees', async () => {
+        isTauriMock.mockReturnValue(false)
+        vi.stubGlobal('window', { confirm: vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false) })
+
+        await expect(confirmNameClash(['a.md'], 'docs', 'move', false)).resolves.toBe('keep-both')
+        await expect(confirmNameClash(['a.md'], 'docs', 'move', false)).resolves.toBe('cancel')
+        vi.unstubAllGlobals()
     })
 })

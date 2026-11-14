@@ -1,6 +1,6 @@
 'use client'
 
-import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Copy, FolderInput, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, type RefObject } from 'react'
 import { NewItemMenuItems } from '@/components/studio/explorer/new-item-menu-items'
 import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
@@ -14,7 +14,13 @@ import type { FileNode } from '@/lib/workspace/types'
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { openFile, duplicateFile } = useWorkspaceSession()
-    const { renameWithPrompt, deleteWithConfirm } = useRowEntryActions()
+    const { renameWithPrompt, deleteWithConfirm, moveWithPicker } = useRowEntryActions()
+    const moveTo = (
+        <MenuItem onClick={() => void moveWithPicker(node)}>
+            <FolderInput />
+            Move to…
+        </MenuItem>
+    )
 
     if (node.kind === 'file') {
         return (
@@ -30,6 +36,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                     <Copy />
                     Duplicate
                 </MenuItem>
+                {moveTo}
                 <MenuSeparator />
                 <PathMenuItems path={node.path} />
                 <MenuSeparator />
@@ -48,6 +55,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 <Pencil />
                 Rename
             </MenuItem>
+            {moveTo}
             <MenuSeparator />
             <PathMenuItems path={node.path} />
             <MenuSeparator />

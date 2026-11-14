@@ -38,6 +38,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceCoordinator: vi.fn(),
     useWorkspaceSession: vi.fn(),
 }))
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: vi.fn() }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))

@@ -16,6 +16,12 @@ const TRUNCATED_HINT = 'Not read: the open folder has too many files and folders
 
 // The row's fields one by one, not the row object, so a row that didn't change isn't drawn again.
 type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
+    /** The folder something dropped on this row goes into: the folder itself, or the folder a file is in. */
+    dropFolder: string
+    /** Something being dragged would go into this folder. */
+    isDropTarget: boolean
+    /** This row is being dragged. */
+    isDragged: boolean
     isActive: boolean
     /** The one row the Tab key lands on; the arrow keys move between rows. */
     isTabStop: boolean
@@ -33,6 +39,9 @@ export const FileTreeNode = memo(function FileTreeNode({
     expanded,
     position,
     siblingCount,
+    dropFolder,
+    isDropTarget,
+    isDragged,
     isActive,
     isTabStop,
     onActivate,
@@ -54,11 +63,16 @@ export const FileTreeNode = memo(function FileTreeNode({
         <FileTreeRowContextMenu node={node}>
             {/* The actions button sits beside the row, not inside it, so its menu clicks never reach the row. */}
             <div
+                data-drop-folder={dropFolder}
+                data-drop-target={isDropTarget ? '' : undefined}
                 className={cn(
                     'group me-1 flex min-w-0 items-center rounded-md hover:bg-sidebar-accent/60',
                     // The open file: full fill (also under the pointer, so it doesn't look hovered) and an accent bar.
                     isActive && 'bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_var(--ring)] hover:bg-sidebar-accent',
-                    isUnsupported && 'hover:bg-transparent'
+                    isUnsupported && 'hover:bg-transparent',
+                    // The folder something being dragged would go into.
+                    isDropTarget && 'bg-ring/15 ring-1 ring-ring ring-inset hover:bg-ring/15',
+                    isDragged && 'opacity-50'
                 )}
                 style={{ marginLeft: `${(level - 1) * 12 + 4}px` }}
             >

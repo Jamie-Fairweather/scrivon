@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from 'react'
 import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
+import { useMoveTo } from '@/components/studio/dialogs/move-to-provider'
 import { useNamePrompt, type NamePromptKind } from '@/components/studio/dialogs/name-prompt-provider'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
@@ -78,13 +79,16 @@ export type FileTreeEntryActions = {
     renameWithPrompt: (node: FileNode) => Promise<string | null>
     /** Resolves to whether the user confirmed the delete (true even when it then failed or was stopped). */
     deleteWithConfirm: (node: FileNode) => Promise<boolean>
+    /** Asks which folder to move the entry to, and moves it. Resolves to where it is now, or null when it didn't move. */
+    moveWithPicker: (node: FileNode) => Promise<string | null>
 }
 
-/** Rename and delete for a file or folder in the tree, shared by its menus and the F2 and Delete keys. */
+/** Rename, move and delete for a file or folder in the tree, shared by its menus and the F2 and Delete keys. */
 export function useFileTreeEntryActions(): FileTreeEntryActions {
     const { confirmDelete } = useDeleteConfirm()
     const { promptName } = useNamePrompt()
-    const { renameEntry, deleteEntry, getNameError } = useWorkspaceSession()
+    const { chooseFolder } = useMoveTo()
+    const { renameEntry, moveEntry, deleteEntry, getNameError } = useWorkspaceSession()
 
     const renameWithPrompt = useCallback(
         async (node: FileNode): Promise<string | null> => {
@@ -134,7 +138,15 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
         [confirmDelete, deleteEntry]
     )
 
-    return { renameWithPrompt, deleteWithConfirm }
+    const moveWithPicker = useCallback(
+        async (node: FileNode) => {
+            const folder = await chooseFolder(node)
+            return folder ? moveEntry(node.path, node.kind === 'directory', folder) : null
+        },
+        [chooseFolder, moveEntry]
+    )
+
+    return { renameWithPrompt, deleteWithConfirm, moveWithPicker }
 }
 
 const TreeEntryActionsContext = createContext<FileTreeEntryActions | null>(null)

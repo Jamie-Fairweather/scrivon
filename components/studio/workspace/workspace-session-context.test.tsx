@@ -22,6 +22,7 @@ import {
     confirmCloseAfterSaveFailure,
     confirmDeleteHiddenFolders,
     confirmKeptChangesWithoutFolder,
+    confirmNameClash,
     confirmOpenLargeFile,
     confirmUnsavedChanges,
     pickWorkspaceFolder,
@@ -103,6 +104,7 @@ vi.mock('@/lib/tauri/dialog', () => ({
     confirmDeleteHiddenFolders: vi.fn(async () => false),
     confirmKeptChangesWithoutFolder: vi.fn(async () => 'keep'),
     confirmOpenLargeFile: vi.fn(async () => false),
+    confirmNameClash: vi.fn(async () => 'cancel'),
 }))
 
 vi.mock('@/components/studio/dialogs/disk-change-dialog', async (importOriginal) => ({
@@ -187,12 +189,28 @@ function createWindowsDisk(files: Record<string, string>) {
             }
             folders.delete(k)
         },
+        /** A folder moves with everything in it. */
         rename: async (from: string | URL, to: string | URL) => {
             const file = contents.get(key(from))
-            if (!file) throw new Error(`not found: ${String(from)}`)
-            contents.delete(key(from))
-            contents.set(key(to), { path: String(to), text: file.text })
-            mtimes.set(key(to), mtimes.get(key(from)) ?? 1)
+            if (file) {
+                contents.delete(key(from))
+                contents.set(key(to), { path: String(to), text: file.text })
+                mtimes.set(key(to), mtimes.get(key(from)) ?? 1)
+                return
+            }
+            const k = key(from)
+            if (!isFolder(k)) throw new Error(`not found: ${String(from)}`)
+            const moved = (path: string) => `${String(to)}${path.replace(/\//g, '\\').slice(k.length)}`
+            for (const [c, entry] of [...contents]) {
+                if (!c.startsWith(`${k}\\`)) continue
+                contents.delete(c)
+                contents.set(key(moved(entry.path)), { path: moved(entry.path), text: entry.text })
+            }
+            for (const [c, path] of [...folders]) {
+                if (c !== k && !c.startsWith(`${k}\\`)) continue
+                folders.delete(c)
+                folders.set(key(moved(path)), moved(path))
+            }
         },
         list: async (dir: string): Promise<Entry[]> => {
             if (!isFolder(key(dir)))
@@ -705,6 +723,264 @@ describe('renaming', () => {
 
         expect(await disk.read('C:\\ws\\logo-dark.png')).toBe('PNG BYTES')
         expect(notifyError).not.toHaveBeenCalled()
+    })
+})
+
+describe('moving', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // A long delay keeps the autosave timer out of the way, so edits stay unsaved.
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'NOTES', 'C:\\ws\\docs\\a.md': 'A', 'C:\\ws\\archive\\old.md': 'OLD' })
+        mountDisk(disk)
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    const childNames = (result: { current: ReturnType<typeof useHarness> }, folder: string) => {
+        const node = result.current.session.tree.find((n) => n.name === folder)
+        return node?.kind === 'directory' ? node.children.map((c) => c.name) : []
+    }
+
+    it('moves a file into another folder, and its open tab follows with its unsaved edits', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'MY EDITS'))
+
+        let moved: string | null = null
+        await act(async () => {
+            moved = await result.current.session.moveEntry('C:\\ws\\notes.md', false, 'C:\\ws\\docs')
+        })
+
+        expect(moved).toBe('C:\\ws\\docs\\notes.md')
+        expect(await disk.read('C:\\ws\\docs\\notes.md')).toBe('NOTES')
+        expect(await disk.exists('C:\\ws\\notes.md')).toBe(false)
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\docs\\notes.md', content: 'MY EDITS', isDirty: true })])
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\docs\\notes.md')
+        expect(childNames(result, 'docs')).toEqual(['a.md', 'notes.md'])
+        expect(result.current.session.tree.map((n) => n.name)).toEqual(['archive', 'docs'])
+        expect(renameRecentFiles).toHaveBeenCalledWith('C:\\ws', 'C:\\ws\\notes.md', 'C:\\ws\\docs\\notes.md')
+    })
+
+    it('moves a folder with everything in it, and the tabs inside it and its open state follow', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\docs\\a.md')
+        })
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+
+        await act(async () => {
+            await result.current.session.moveEntry('C:\\ws\\docs', true, 'C:\\ws\\archive')
+        })
+
+        expect(await disk.read('C:\\ws\\archive\\docs\\a.md')).toBe('A')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\archive\\docs\\a.md'])
+        expect(result.current.session.folderToggles.get('C:\\ws\\archive\\docs')).toBe(false)
+        expect(childNames(result, 'archive')).toEqual(['docs', 'old.md'])
+    })
+
+    it('refuses to move a folder into itself or a folder inside it', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        let moved: string | null = 'not yet'
+        await act(async () => {
+            moved = await result.current.session.moveEntry('C:\\ws\\docs', true, 'C:\\ws\\docs')
+        })
+
+        expect(moved).toBeNull()
+        expect(rename).not.toHaveBeenCalled()
+        expect(notifyError).toHaveBeenCalledWith("Couldn't move docs", undefined, { description: "A folder can't go inside itself." })
+    })
+
+    it('leaves an entry dropped on the folder it is already in where it is', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        let moved: string | null = null
+        await act(async () => {
+            moved = await result.current.session.moveEntry('C:\\ws\\docs\\a.md', false, 'C:\\ws\\docs')
+        })
+
+        expect(moved).toBe('C:\\ws\\docs\\a.md')
+        expect(rename).not.toHaveBeenCalled()
+        expect(notifyError).not.toHaveBeenCalled()
+    })
+
+    it('asks first when the folder has that name already, and keeps both under a new name', async () => {
+        await disk.write('C:\\ws\\docs\\notes.md', 'OTHER NOTES')
+        vi.mocked(confirmNameClash).mockResolvedValueOnce('keep-both')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+
+        let moved: string | null = null
+        await act(async () => {
+            moved = await result.current.session.moveEntry('C:\\ws\\notes.md', false, 'C:\\ws\\docs')
+        })
+
+        expect(confirmNameClash).toHaveBeenCalledWith(['notes.md'], 'docs', 'move', false)
+        expect(moved).toBe('C:\\ws\\docs\\notes 2.md')
+        expect(await disk.read('C:\\ws\\docs\\notes.md')).toBe('OTHER NOTES')
+        expect(await disk.read('C:\\ws\\docs\\notes 2.md')).toBe('NOTES')
+        expect(result.current.tabs.tabs).toEqual([expect.objectContaining({ id: 'C:\\ws\\docs\\notes 2.md', name: 'notes 2.md' })])
+    })
+
+    it('moves nothing when the user cancels over a name that is taken', async () => {
+        await disk.write('C:\\ws\\docs\\NOTES.md', 'OTHER NOTES')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        let moved: string | null = 'not yet'
+        await act(async () => {
+            moved = await result.current.session.moveEntry('C:\\ws\\notes.md', false, 'C:\\ws\\docs')
+        })
+
+        expect(confirmNameClash).toHaveBeenCalled()
+        expect(moved).toBeNull()
+        expect(rename).not.toHaveBeenCalled()
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('NOTES')
+    })
+
+    it('keeps the tab where it was when the move fails', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        vi.mocked(rename).mockRejectedValueOnce('Access is denied. (os error 5)')
+
+        let moved: string | null = 'not yet'
+        await act(async () => {
+            moved = await result.current.session.moveEntry('C:\\ws\\notes.md', false, 'C:\\ws\\docs')
+        })
+
+        expect(moved).toBeNull()
+        expect(notifyError).toHaveBeenCalledWith("Couldn't move notes.md", 'Access is denied. (os error 5)')
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md'])
+        expect(renameRecentFiles).not.toHaveBeenCalled()
+    })
+})
+
+describe('copying in files dropped from File Explorer', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 400 }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({
+            'C:\\ws\\docs\\a.md': 'MINE',
+            'D:\\in\\a.md': 'THEIRS',
+            'D:\\in\\pic.png': 'PNG',
+            'D:\\in\\more\\b.md': 'B',
+            'D:\\in\\more\\deep\\c.md': 'C',
+        })
+        mountDisk(disk)
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+    }
+
+    const docsNames = (result: { current: ReturnType<typeof useHarness> }) => {
+        const docs = result.current.session.tree.find((n) => n.name === 'docs')
+        return docs?.kind === 'directory' ? docs.children.map((c) => c.name) : []
+    }
+
+    it('copies files and folders, with everything in them, into the folder they were dropped on', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        act(() => result.current.session.setFolderExpanded('C:\\ws\\docs', false))
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\pic.png', 'D:\\in\\more'], 'C:\\ws\\docs')
+        })
+
+        expect(await disk.read('C:\\ws\\docs\\pic.png')).toBe('PNG')
+        expect(await disk.read('C:\\ws\\docs\\more\\b.md')).toBe('B')
+        expect(await disk.read('C:\\ws\\docs\\more\\deep\\c.md')).toBe('C')
+        // A copy: the originals stay where they were.
+        expect(await disk.read('D:\\in\\pic.png')).toBe('PNG')
+        expect(docsNames(result)).toEqual(['more', 'a.md', 'pic.png'])
+        // The folder opens, so what came in shows.
+        expect(result.current.session.folderToggles.get('C:\\ws\\docs')).toBe(true)
+        expect(notifySuccess).toHaveBeenCalledWith('Copied 2 items into docs')
+    })
+
+    it('asks about names already used there, and Skip leaves those out', async () => {
+        vi.mocked(confirmNameClash).mockResolvedValueOnce('skip')
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\a.md', 'D:\\in\\pic.png'], 'C:\\ws\\docs')
+        })
+
+        expect(confirmNameClash).toHaveBeenCalledWith(['a.md'], 'docs', 'copy', true)
+        expect(await disk.read('C:\\ws\\docs\\a.md')).toBe('MINE')
+        expect(docsNames(result)).toEqual(['a.md', 'pic.png'])
+        expect(notifySuccess).toHaveBeenCalledWith('Copied pic.png into docs')
+    })
+
+    it('keeps both under a new name when asked, and copies nothing when cancelled', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\a.md'], 'C:\\ws\\docs')
+        })
+        expect(confirmNameClash).toHaveBeenLastCalledWith(['a.md'], 'docs', 'copy', false)
+        expect(docsNames(result)).toEqual(['a.md'])
+        expect(notifySuccess).not.toHaveBeenCalled()
+
+        vi.mocked(confirmNameClash).mockResolvedValueOnce('keep-both')
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\a.md'], 'C:\\ws\\docs')
+        })
+        expect(await disk.read('C:\\ws\\docs\\a.md')).toBe('MINE')
+        expect(await disk.read('C:\\ws\\docs\\a 2.md')).toBe('THEIRS')
+    })
+
+    it('refuses to copy a folder into itself', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['C:\\ws\\docs'], 'C:\\ws\\docs')
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't copy docs", undefined, { description: "A folder can't go inside itself." })
+        expect(mkdir).not.toHaveBeenCalled()
+    })
+
+    it('copies the rest when one can’t be copied, and says which', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        vi.mocked(readFile).mockRejectedValueOnce('The process cannot access the file. (os error 32)')
+
+        await act(async () => {
+            await result.current.session.copyIntoFolder(['D:\\in\\pic.png', 'D:\\in\\more'], 'C:\\ws')
+        })
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't copy pic.png", 'The process cannot access the file. (os error 32)')
+        expect(await disk.read('C:\\ws\\more\\b.md')).toBe('B')
+        expect(notifySuccess).toHaveBeenCalledWith('Copied more into ws')
     })
 })
 

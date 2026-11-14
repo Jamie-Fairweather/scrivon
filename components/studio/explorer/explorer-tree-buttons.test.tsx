@@ -16,6 +16,8 @@ const state = vi.hoisted(() => ({
     explorerOpen: true,
     setFoldersExpanded: vi.fn(),
     setExplorerOpen: vi.fn(),
+    chooseFolder: vi.fn<(node: unknown) => Promise<string | null>>(async () => null),
+    moveEntry: vi.fn(async () => null),
 }))
 
 const tree: FileNode[] = [
@@ -38,6 +40,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         tree,
         folderToggles: state.toggles,
         setFoldersExpanded: state.setFoldersExpanded,
+        moveEntry: state.moveEntry,
     }),
     useActiveTabId: () => state.activeTabId,
     useStudioLayout: () => ({ layout: { explorerOpen: state.explorerOpen }, setExplorerOpen: state.setExplorerOpen }),
@@ -47,6 +50,7 @@ vi.mock('@/lib/workspace/folder-toggles', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/workspace/folder-toggles')>()
     return { ...actual, closedFoldersAbove: vi.fn(actual.closedFoldersAbove) }
 })
+vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: state.chooseFolder }) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
 
 beforeEach(() => {
@@ -144,6 +148,29 @@ describe('explorer commands in the palette', () => {
         act(() => void command(result.current, 'collapse-all-folders').run())
 
         expect(state.setFoldersExpanded).toHaveBeenCalledWith(['/ws/docs/old', '/ws/empty', '/ws/docs'], false)
+    })
+
+    it('moves the open file to the folder picked', async () => {
+        state.chooseFolder.mockResolvedValueOnce('/ws/empty')
+        const { result } = renderHook(useCommands, { wrapper })
+
+        await act(async () => {
+            command(result.current, 'move-active-file').run()
+        })
+
+        expect(state.chooseFolder).toHaveBeenCalledWith({ kind: 'file', name: 'notes.md', path: '/ws/docs/notes.md' })
+        expect(state.moveEntry).toHaveBeenCalledWith('/ws/docs/notes.md', false, '/ws/empty')
+    })
+
+    it('moves nothing when no folder is picked', async () => {
+        const { result } = renderHook(useCommands, { wrapper })
+
+        await act(async () => {
+            command(result.current, 'move-active-file').run()
+        })
+
+        expect(state.chooseFolder).toHaveBeenCalled()
+        expect(state.moveEntry).not.toHaveBeenCalled()
     })
 
     it('turns Reveal off when no file from the folder is open, and both off with no folder', () => {

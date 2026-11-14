@@ -226,3 +226,31 @@ export async function confirmKeptChangesWithoutFolder(folderName: string, fileNa
     if (choice === 'no') return 'discard'
     return 'keep'
 }
+
+export type NameClashChoice = 'keep-both' | 'skip' | 'cancel'
+
+/**
+ * Asks what to do when entries being moved or copied into `folderName` have the names of entries already there
+ * (`names`). Nothing is ever replaced: Keep Both gives each a new name (`notes 2.md`), and Skip, offered when
+ * other entries go too (`canSkip`), leaves those out.
+ */
+export async function confirmNameClash(names: string[], folderName: string, action: 'move' | 'copy', canSkip: boolean): Promise<NameClashChoice> {
+    const one = names.length === 1
+    const doing = action === 'move' ? "you're moving" : "you're copying in"
+    const title = 'Name already used'
+    const body =
+        (one ? `${folderName} already has something named ${names[0]}.` : `${folderName} already has things named:\n\n${listFiles(names)}`) +
+        `\n\nKeep Both adds a number to the ${one ? 'name of the one' : 'names of the ones'} ${doing}.`
+
+    if (!isTauri()) {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return 'cancel'
+        return window.confirm(`${title}\n\n${body}\n\nOK: Keep Both.`) ? 'keep-both' : 'cancel'
+    }
+
+    if (canSkip) {
+        const choice = await askThreeWay(title, body, { yes: 'Keep Both', no: 'Skip', cancel: 'Cancel' })
+        return choice === 'yes' ? 'keep-both' : choice === 'no' ? 'skip' : 'cancel'
+    }
+    const result = await message(body, { title, kind: 'warning', buttons: { ok: 'Keep Both', cancel: 'Cancel' } })
+    return result === 'Keep Both' || result === 'Ok' ? 'keep-both' : 'cancel'
+}

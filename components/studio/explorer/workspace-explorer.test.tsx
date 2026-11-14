@@ -56,9 +56,10 @@ describe('WorkspaceExplorer', () => {
         render(<WorkspaceExplorer />)
         expect(screen.getByTestId('background-menu')).toContainElement(screen.getByText('File tree'))
 
+        // The tree itself says the folder is empty, and still takes files dropped on it.
         useWorkspaceSession.mockReturnValueOnce({ workspaceName: 'ws', tree: [] })
         render(<WorkspaceExplorer />)
-        expect(screen.getAllByTestId('background-menu')[1]).toContainElement(screen.getByText('No files in this folder.'))
+        expect(screen.getAllByTestId('background-menu')[1]).toContainElement(screen.getAllByText('File tree')[1]!)
     })
 
     it('keeps the scroll box out of the Tab order when the file list is long enough to scroll', async () => {

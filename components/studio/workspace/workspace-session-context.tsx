@@ -4,8 +4,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { DEFAULT_DIAGRAM } from '@/lib/default-diagram'
 import { defaultMarkdownFor } from '@/lib/default-markdown'
-import { confirmDeleteHiddenFolders, confirmKeptChangesWithoutFolder, confirmOpenLargeFile, pickWorkspaceFolder } from '@/lib/tauri/dialog'
 import {
+    confirmDeleteHiddenFolders,
+    confirmKeptChangesWithoutFolder,
+    confirmNameClash,
+    confirmOpenLargeFile,
+    pickWorkspaceFolder,
+} from '@/lib/tauri/dialog'
+import {
+    copyWorkspaceEntry,
     createWorkspaceDirectory,
     createWorkspaceFile,
     duplicateWorkspaceFile,
@@ -49,6 +56,7 @@ import { dismissNotification, notifyError, notifyInfo, notifySuccess, notifyWarn
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { planLaunchOpen } from '@/lib/workspace/launch-open'
+import { moveRefusal } from '@/lib/workspace/move-entry'
 import {
     canReplaceChildren,
     changeAltersTree,
@@ -100,6 +108,18 @@ type WorkspaceSessionContextValue = {
     createFile: (parentPath: string, name: string, content?: string) => Promise<void>
     createFolder: (parentPath: string, name: string) => Promise<void>
     renameEntry: (oldPath: string, newName: string, isDirectory: boolean) => Promise<void>
+    /**
+     * Moves a file or folder into `targetFolder`; its open tabs (unsaved edits too), recent files and open folders
+     * follow. A folder can't go into itself, and a name already used there is never replaced: the user is asked,
+     * and can keep both. Resolves to where it is now (where it was, when it is already in that folder), or null
+     * when it didn't move.
+     */
+    moveEntry: (path: string, isDirectory: boolean, targetFolder: string) => Promise<string | null>
+    /**
+     * Copies files and folders (dropped from File Explorer) into `targetFolder`, then opens it in the tree. Names
+     * already used there are never replaced: the user is asked, and can keep both or skip them.
+     */
+    copyIntoFolder: (sources: readonly string[], targetFolder: string) => Promise<void>
     deleteEntry: (path: string, isDirectory: boolean) => Promise<void>
     duplicateFile: (path: string) => Promise<void>
     openFile: (path: string) => Promise<void>
@@ -1054,6 +1074,41 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [getNameError, refreshFolder, explainIfHidden]
     )
 
+    /**
+     * Renames or moves `oldPath` to `newPath` on disk (never replacing anything there), and its open tabs, recent
+     * files and open folders follow. When it can't, says `failed` and why. Resolves true once it is there.
+     */
+    const relocateEntry = useCallback(
+        async (oldPath: string, newPath: string, isDirectory: boolean, failed: string): Promise<boolean> => {
+            // The folder it is in, even if another one is opened meanwhile.
+            const root = workspaceRootRef.current
+            // Saves of the files being renamed wait until their tabs have moved too, so none writes to the old
+            // path (bringing the old file back next to the new one) and none is dropped.
+            const release = await coordinator.holdSaves.current(oldPath, isDirectory)
+            let whereNow = (id: string): string | null => id
+            try {
+                await renameWorkspacePath(oldPath, newPath)
+                // The tabs follow straight away, unsaved edits and all; reading the file list again can take a while.
+                coordinator.remapTabsAfterRename.current(oldPath, newPath, getBaseName(newPath))
+                whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
+                // Recent files follow too (best-effort: a store failure never fails the rename).
+                if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
+                if (isDirectory) {
+                    // The folder and the ones inside it stay open or closed as they were.
+                    updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
+                    explainIfHidden(getParentPath(newPath), getBaseName(newPath))
+                }
+                return true
+            } catch (err) {
+                notifyError(failed, err)
+                return false
+            } finally {
+                release(whereNow)
+            }
+        },
+        [explainIfHidden, updateFolderToggles, coordinator]
+    )
+
     const renameEntry = useCallback(
         async (oldPath: string, newName: string, isDirectory: boolean) => {
             const failed = `Couldn't rename ${getBaseName(oldPath)}`
@@ -1065,34 +1120,89 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 notifyError(failed, undefined, { description: problem })
                 return
             }
-            const newPath = joinPath(parent, newName)
-            // The folder it is in, even if another one is opened while it is renamed.
-            const root = workspaceRootRef.current
-            // Saves of the files being renamed wait until their tabs have moved too, so none writes to the old
-            // path (bringing the old file back next to the new one) and none is dropped.
-            const release = await coordinator.holdSaves.current(oldPath, isDirectory)
-            let whereNow = (id: string): string | null => id
-            try {
-                await renameWorkspacePath(oldPath, newPath)
-                // The tabs follow straight away; reading the file list again can take a while.
-                coordinator.remapTabsAfterRename.current(oldPath, newPath, newName)
-                whereNow = (id) => remapPathAfterRename(id, oldPath, newPath)
-                // Recent files follow too (best-effort: a store failure never fails the rename).
-                if (root) void renameRecentFiles(root, oldPath, newPath).catch((err: unknown) => console.warn("Couldn't update recent files", err))
-                if (isDirectory) {
-                    // The folder and the ones inside it stay open or closed as they were.
-                    updateFolderToggles(workspaceRootRef.current, (prev) => remapPathKeysAfterRename(prev, oldPath, newPath))
-                    explainIfHidden(parent, newName)
-                }
-            } catch (err) {
-                notifyError(failed, err)
-            } finally {
-                release(whereNow)
-            }
+            await relocateEntry(oldPath, joinPath(parent, newName), isDirectory, failed)
             // A rename keeps the entry in its folder, so only that folder changed.
             await refreshFolder(parent)
         },
-        [getNameError, refreshFolder, explainIfHidden, updateFolderToggles, coordinator]
+        [getNameError, relocateEntry, refreshFolder]
+    )
+
+    const moveEntry = useCallback(
+        async (path: string, isDirectory: boolean, targetFolder: string): Promise<string | null> => {
+            const name = getBaseName(path)
+            const failed = `Couldn't move ${name}`
+            const refusal = moveRefusal(path, isDirectory, targetFolder)
+            if (refusal === 'same-folder') return normalizePath(path)
+            if (refusal === 'into-itself') {
+                notifyError(failed, undefined, { description: "A folder can't go inside itself." })
+                return null
+            }
+            let newName = name
+            try {
+                // Names in use come from the disk, not the tree, so one added elsewhere since the last read is seen.
+                const names = await listFolderNames(targetFolder)
+                if (names.some((taken) => taken.toLowerCase() === name.toLowerCase())) {
+                    // Nothing is ever replaced: the user keeps both, or nothing moves.
+                    if ((await confirmNameClash([name], getBaseName(targetFolder), 'move', false)) !== 'keep-both') return null
+                    newName = uniqueNewName(name, names)
+                }
+            } catch (err) {
+                notifyError(failed, err)
+                return null
+            }
+            const newPath = joinPath(targetFolder, newName)
+            const moved = await relocateEntry(path, newPath, isDirectory, failed)
+            await Promise.all([refreshFolder(getParentPath(path)), refreshFolder(targetFolder)])
+            return moved ? newPath : null
+        },
+        [relocateEntry, refreshFolder]
+    )
+
+    const copyIntoFolder = useCallback(
+        async (sources: readonly string[], targetFolder: string) => {
+            const root = workspaceRootRef.current
+            const folderName = getBaseName(targetFolder)
+            const intoItself = sources.filter((source) => samePath(source, targetFolder) || isPathInside(targetFolder, source))
+            for (const source of intoItself) {
+                notifyError(`Couldn't copy ${getBaseName(source)}`, undefined, { description: "A folder can't go inside itself." })
+            }
+            let todo = sources.filter((source) => !intoItself.includes(source))
+            if (todo.length === 0) return
+            let names: string[]
+            try {
+                // From the disk, not the tree, so a file added elsewhere since the last read is seen.
+                names = await listFolderNames(targetFolder)
+            } catch (err) {
+                notifyError(todo.length === 1 ? `Couldn't copy ${getBaseName(todo[0]!)}` : `Couldn't copy ${todo.length} items`, err)
+                return
+            }
+            const clashes = todo.filter((source) => names.some((taken) => taken.toLowerCase() === getBaseName(source).toLowerCase()))
+            if (clashes.length > 0) {
+                // Nothing is ever replaced: the user keeps both, leaves those out, or copies nothing.
+                const choice = await confirmNameClash(clashes.map(getBaseName), folderName, 'copy', clashes.length < todo.length)
+                if (choice === 'cancel') return
+                if (choice === 'skip') todo = todo.filter((source) => !clashes.includes(source))
+            }
+            const copied: string[] = []
+            // One at a time: a big folder is many files, and the rest still come in when one can't.
+            for (const source of todo) {
+                const name = uniqueNewName(getBaseName(source), names)
+                names.push(name)
+                try {
+                    await copyWorkspaceEntry(source, joinPath(targetFolder, name))
+                    copied.push(name)
+                } catch (err) {
+                    notifyError(`Couldn't copy ${getBaseName(source)}`, err)
+                }
+            }
+            if (copied.length > 0) {
+                notifySuccess(copied.length === 1 ? `Copied ${copied[0]} into ${folderName}` : `Copied ${copied.length} items into ${folderName}`)
+                // The folder opens, so what came in shows.
+                if (root && isOpenFolder(root) && !samePath(targetFolder, root)) setFolderExpanded(targetFolder, true)
+            }
+            await refreshFolder(targetFolder)
+        },
+        [isOpenFolder, setFolderExpanded, refreshFolder]
     )
 
     const deleteEntry = useCallback(
@@ -1177,6 +1287,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             createFile,
             createFolder,
             renameEntry,
+            moveEntry,
+            copyIntoFolder,
             deleteEntry,
             duplicateFile,
             openFile,
@@ -1202,6 +1314,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             createFile,
             createFolder,
             renameEntry,
+            moveEntry,
+            copyIntoFolder,
             deleteEntry,
             duplicateFile,
             openFile,

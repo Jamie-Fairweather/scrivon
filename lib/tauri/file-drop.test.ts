@@ -131,6 +131,33 @@ describe('file drops', () => {
         expect(onRest).toHaveBeenCalled()
     })
 
+    it('tell a target where files being dragged are over it, and when they leave it or are dropped', async () => {
+        const onHover = vi.fn()
+        stops.push(registerFileDropTarget(document.getElementById('editor')!, () => [], onHover))
+        stops.push(await listenForFileDrops(vi.fn()))
+        vi.stubGlobal('devicePixelRatio', 2)
+        const send = (payload: DragDropEvent) => webview.listener?.({ payload })
+
+        await send({ type: 'enter', paths: ['D:\\a.md'], position: { x: 20, y: 40 } as never })
+        expect(onHover).toHaveBeenLastCalledWith({ x: 10, y: 20 })
+        await send({ type: 'over', position: { x: 40, y: 40 } as never })
+        expect(onHover).toHaveBeenLastCalledWith({ x: 20, y: 20 })
+
+        hit = document.getElementById('layout')
+        await send({ type: 'over', position: { x: 0, y: 0 } as never })
+        expect(onHover).toHaveBeenLastCalledWith(null)
+
+        hit = document.getElementById('text')
+        await send({ type: 'over', position: { x: 0, y: 0 } as never })
+        await send({ type: 'leave' })
+        expect(onHover).toHaveBeenLastCalledWith(null)
+
+        await send({ type: 'over', position: { x: 0, y: 0 } as never })
+        await drop(['D:\\a.md'])
+        expect(onHover).toHaveBeenLastCalledWith(null)
+        vi.unstubAllGlobals()
+    })
+
     it('ignore files only dragged over the window', async () => {
         const onRest = vi.fn()
         stops.push(await listenForFileDrops(onRest))
