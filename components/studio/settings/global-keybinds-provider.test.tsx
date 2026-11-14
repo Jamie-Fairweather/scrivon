@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
     previewOnly: vi.fn(),
     fitDiagram: vi.fn(),
     otherExplorer: vi.fn(),
+    toggleEditor: vi.fn(),
+    bold: vi.fn(),
+    code: vi.fn(),
     openMode: vi.fn(),
 }))
 
@@ -29,6 +32,10 @@ const COMMANDS: AppCommand[] = [
     { id: 'fit-diagram', label: 'Fit Diagram', keybind: 'view.fitDiagram', disabled: true, run: mocks.fitDiagram },
     // A second command on the same keys: the first one registered runs.
     { id: 'other-explorer', label: 'Other', keybind: 'view.toggleExplorer', run: mocks.otherExplorer },
+    { id: 'toggle-editor', label: 'Editor', keybind: 'view.toggleEditor', run: mocks.toggleEditor },
+    { id: 'edit.bold', label: 'Bold', keybind: 'format.bold', run: mocks.bold },
+    // Off, as in a file that isn't Markdown.
+    { id: 'edit.inline-code', label: 'Inline Code', keybind: 'format.code', disabled: true, run: mocks.code },
 ]
 
 function Commands() {
@@ -48,9 +55,9 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 /** Presses the keys and says whether the app took them (the web view never sees them). */
-function press(key: string, init: KeyboardEventInit = {}): boolean {
+function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = document.body): boolean {
     const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
-    document.body.dispatchEvent(event)
+    target.dispatchEvent(event)
     return event.defaultPrevented
 }
 
@@ -73,7 +80,7 @@ describe('GlobalKeybindsProvider', () => {
     it('runs the command that has the pressed shortcut', () => {
         renderHook(() => useAppSettings(), { wrapper: Providers })
 
-        expect(press('b', { ctrlKey: true })).toBe(true)
+        expect(press('b', { ctrlKey: true, shiftKey: true })).toBe(true)
 
         expect(mocks.toggleExplorer).toHaveBeenCalledTimes(1)
         expect(mocks.otherExplorer).not.toHaveBeenCalled()
@@ -86,6 +93,24 @@ describe('GlobalKeybindsProvider', () => {
         expect(press('r', { ctrlKey: true })).toBe(true)
 
         expect(mocks.fitDiagram).not.toHaveBeenCalled()
+    })
+
+    it('gives a Markdown command the keys while typing in the editor, and passes them on while it is greyed out', () => {
+        renderHook(() => useAppSettings(), { wrapper: Providers })
+        const editor = document.createElement('div')
+        editor.className = 'monaco-editor'
+        const text = document.createElement('div')
+        text.className = 'native-edit-context'
+        editor.appendChild(text)
+        document.body.appendChild(editor)
+
+        expect(press('b', { ctrlKey: true }, text)).toBe(true)
+        expect(mocks.bold).toHaveBeenCalledTimes(1)
+
+        expect(press('e', { ctrlKey: true }, text)).toBe(true)
+        expect(mocks.code).not.toHaveBeenCalled()
+        expect(mocks.toggleEditor).toHaveBeenCalledTimes(1)
+        editor.remove()
     })
 
     it('leaves keys alone when no command has them', () => {

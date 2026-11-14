@@ -1,0 +1,256 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
+import { cyclePaneFocus, cyclePaneFocusSoon, focusPane, focusPaneSoon } from '@/components/studio/shell/pane-focus'
+
+/** A layout like the studio's: explorer, outline, a tab bar, editor and preview, in screen order. */
+function Panes({ outline = true, editorInert = false }: { outline?: boolean; editorInert?: boolean }) {
+    return (
+        <div>
+            <button type="button">Menu</button>
+            <aside data-pane="explorer">
+                <button type="button">Files</button>
+                <div data-pane-focus>
+                    <div role="treeitem" aria-selected={false} tabIndex={-1} aria-label="a.md" />
+                    <div role="treeitem" aria-selected={false} tabIndex={0} aria-label="b.md" />
+                </div>
+            </aside>
+            {outline && (
+                <aside data-pane="outline">
+                    <button type="button">Hide Outline</button>
+                </aside>
+            )}
+            <main>
+                <button type="button">Tab</button>
+                <div data-pane="editor" inert={editorInert || undefined}>
+                    <textarea aria-label="Editor" />
+                </div>
+                <div data-pane="preview" role="region" aria-label="Preview" tabIndex={-1}>
+                    <p>Nothing here can take focus.</p>
+                </div>
+            </main>
+            <footer>
+                <button type="button">Status</button>
+            </footer>
+        </div>
+    )
+}
+
+const focused = () => document.activeElement
+
+/** Stands in for the editor panel: focuses its text box while it is shown. */
+function registerFakeEditor() {
+    return registerEditorFocusNow(() => {
+        const input = document.querySelector<HTMLElement>('[data-pane="editor"]:not([inert]) textarea')
+        input?.focus()
+        return input !== null
+    })
+}
+
+let unregisterEditor = () => {}
+
+beforeEach(() => {
+    unregisterEditor = registerFakeEditor()
+})
+
+afterEach(() => {
+    vi.restoreAllMocks()
+    unregisterEditor()
+    ;(document.activeElement as HTMLElement | null)?.blur()
+})
+
+describe('cyclePaneFocus', () => {
+    it('moves to the next visible pane, and wraps round', () => {
+        render(<Panes />)
+        screen.getByRole('treeitem', { name: 'b.md' }).focus()
+
+        expect(cyclePaneFocus(1)).toBe(true)
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Hide Outline' }))
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+    })
+
+    it('moves to the previous pane with -1', () => {
+        render(<Panes />)
+        screen.getByRole('treeitem', { name: 'b.md' }).focus()
+
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+    })
+
+    it('skips panes that are closed or hidden', () => {
+        render(<Panes outline={false} editorInert />)
+        screen.getByRole('treeitem', { name: 'b.md' }).focus()
+
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+    })
+
+    it('starts from where focus is when it is outside every pane', () => {
+        render(<Panes />)
+
+        screen.getByRole('button', { name: 'Tab' }).focus()
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+
+        screen.getByRole('button', { name: 'Tab' }).focus()
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Hide Outline' }))
+
+        screen.getByRole('button', { name: 'Status' }).focus()
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+    })
+
+    it('goes to the first pane, or the last, when nothing has focus', () => {
+        render(<Panes />)
+
+        cyclePaneFocus(1)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+        ;(document.activeElement as HTMLElement).blur()
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it('moves on past a pane where nothing will take focus', () => {
+        render(<Panes />)
+        // Like a link in a closed <details>: it is a Tab stop, but the browser won't focus it.
+        vi.spyOn(screen.getByRole('button', { name: 'Hide Outline' }), 'focus').mockImplementation(() => {})
+        screen.getByRole('treeitem', { name: 'b.md' }).focus()
+
+        expect(cyclePaneFocus(1)).toBe(true)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+    })
+
+    it('does nothing when no pane is shown', () => {
+        render(<button type="button">Alone</button>)
+        screen.getByRole('button', { name: 'Alone' }).focus()
+
+        expect(cyclePaneFocus(1)).toBe(false)
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Alone' }))
+    })
+})
+
+describe('focusPane', () => {
+    it("goes to the pane's main part first: the file tree's tab stop, not the buttons above it", () => {
+        render(<Panes />)
+
+        expect(focusPane('explorer')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('treeitem', { name: 'b.md' }))
+    })
+
+    it('falls back to the first thing in the pane that can take focus, then to the pane itself', () => {
+        render(
+            <>
+                <aside data-pane="explorer">
+                    <button type="button" tabIndex={-1}>
+                        Out of the Tab order
+                    </button>
+                    <button type="button">Files</button>
+                    <div data-pane-focus>
+                        <p>No files in this folder.</p>
+                    </div>
+                </aside>
+                <div data-pane="preview" role="region" aria-label="Preview" tabIndex={-1} />
+            </>
+        )
+
+        focusPane('explorer')
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Files' }))
+        focusPane('preview')
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it('tries the next thing in the pane when the first will not take focus', () => {
+        render(<Panes />)
+        vi.spyOn(screen.getByRole('treeitem', { name: 'b.md' }), 'focus').mockImplementation(() => {})
+
+        expect(focusPane('explorer')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Files' }))
+    })
+
+    it('goes to the preview scroll box when it scrolls, else to the preview itself, never into the page', () => {
+        function Preview({ scrolls = false, expanded = false }: { scrolls?: boolean; expanded?: boolean }) {
+            return (
+                <div data-pane="preview" role="region" aria-label="Preview" tabIndex={-1}>
+                    <button type="button">Load images</button>
+                    <div inert={expanded || undefined}>
+                        <div data-slot="scroll-area-viewport" data-testid="scroll box" tabIndex={scrolls ? 0 : -1}>
+                            <a href="#intro">Intro</a>
+                        </div>
+                    </div>
+                </div>
+            )
+        }
+        const { rerender } = render(<Preview />)
+
+        expect(focusPane('preview')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+
+        rerender(<Preview scrolls />)
+        focusPane('preview')
+        expect(focused()).toBe(screen.getByTestId('scroll box'))
+
+        // An expanded diagram covers the page, which is then inert.
+        rerender(<Preview scrolls expanded />)
+        focusPane('preview')
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it('focuses the editor through the editor panel', () => {
+        render(<Panes />)
+
+        expect(focusPane('editor')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+    })
+
+    it('says no for a pane that is closed, hidden or has nothing to focus', () => {
+        render(
+            <>
+                <div data-pane="editor" inert>
+                    <textarea aria-label="Editor" />
+                </div>
+                <div data-pane="preview" />
+            </>
+        )
+
+        expect(focusPane('outline')).toBe(false)
+        expect(focusPane('editor')).toBe(false)
+        expect(focusPane('preview')).toBe(false)
+        expect(focused()).toBe(document.body)
+    })
+})
+
+describe('focusing from a command', () => {
+    it('waits a frame, so the menu or palette it came from has let go of focus', async () => {
+        render(<Panes />)
+        const tab = screen.getByRole('button', { name: 'Tab' })
+        tab.focus()
+
+        cyclePaneFocusSoon(1)
+        expect(focused()).toBe(tab)
+        await waitFor(() => expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' })))
+
+        focusPaneSoon('preview')
+        expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
+        await waitFor(() => expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' })))
+    })
+
+    it('keeps trying while a pane that was just shown appears', async () => {
+        const { rerender } = render(<Panes editorInert />)
+
+        focusPaneSoon('editor')
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+        rerender(<Panes />)
+
+        await waitFor(() => expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' })))
+    })
+})

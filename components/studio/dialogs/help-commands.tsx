@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useMemo, useState } from 'react'
+import { useAppUpdate } from '@/components/studio/app-update-provider'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { AboutDialog } from '@/components/studio/dialogs/about-dialog'
@@ -49,11 +50,14 @@ async function reportIssue(settings: AppSettings): Promise<void> {
     }
 }
 
-/** The Help menu's commands, which the palette can run too. Renders the About and Licences dialogs. */
+/** The Help menu's commands (reporting a problem, About, Licences, Check for Updates), which the palette can run too. Renders their dialogs. */
 export function HelpCommands() {
     const { settings } = useAppSettings()
     const [aboutOpen, setAboutOpen] = useState(false)
     const [licensesOpen, setLicensesOpen] = useState(false)
+    const { checkForUpdates } = useAppUpdate()
+    // Only the desktop app updates itself.
+    const desktop = isTauri()
 
     const commands = useMemo<AppCommand[]>(
         () => [
@@ -73,7 +77,7 @@ export function HelpCommands() {
                 id: 'open-logs-folder',
                 label: 'Open Logs Folder',
                 keywords: 'open logs log file folder crash diagnostics help',
-                disabled: !isTauri(),
+                disabled: !desktop,
                 disabledReason: 'Desktop only',
                 run: openLogsFolder,
             },
@@ -84,8 +88,19 @@ export function HelpCommands() {
                 keywords: 'licences licenses open source third party legal help',
                 run: () => setLicensesOpen(true),
             },
+            ...(desktop
+                ? [
+                      {
+                          id: 'check-for-updates',
+                          label: 'Check for Updates…',
+                          keywords: 'update upgrade new version release help',
+                          // Always on: a check run while another is going joins it and gets its answer.
+                          run: checkForUpdates,
+                      },
+                  ]
+                : []),
         ],
-        [settings]
+        [settings, desktop, checkForUpdates]
     )
     useRegisterCommands(commands)
 

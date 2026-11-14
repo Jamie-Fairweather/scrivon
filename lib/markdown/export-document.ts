@@ -9,7 +9,7 @@ import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-export type ExportFormat = 'pdf' | 'docx'
+export type ExportFormat = 'pdf' | 'docx' | 'html'
 
 export type BuildExportDocumentOptions = {
     profile?: PdfExportProfile

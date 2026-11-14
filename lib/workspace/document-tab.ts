@@ -15,6 +15,17 @@ export function tabFromPath(path: string, content: string): DocumentTab {
     }
 }
 
+/** True when a tab comes after the one with this id, for Close Tabs to the Right. */
+export function anyTabsToRight(tabs: readonly DocumentTab[], id: string | null): boolean {
+    const index = tabs.findIndex((t) => t.id === id)
+    return index !== -1 && index < tabs.length - 1
+}
+
+/** True when a tab has no unsaved changes, for Close Saved Tabs. */
+export function anySavedTabs(tabs: readonly DocumentTab[]): boolean {
+    return tabs.some((t) => !t.isDirty)
+}
+
 /**
  * Files bigger than this open read-only until the user chooses to edit them: every change is previewed
  * and saved in full, which makes typing in them slow.

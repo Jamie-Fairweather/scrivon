@@ -1,6 +1,7 @@
 import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 // --- A small stand-in for Monaco: one text buffer per URI, like the real thing. ---
@@ -164,6 +165,9 @@ class FakeEditor {
     focus() {
         this.focused = true
     }
+    hasTextFocus() {
+        return false
+    }
     revealPositionInCenter() {}
     revealRangeInCenter() {}
     private readonly cursorListeners = new Set<Listener>()
@@ -264,6 +268,9 @@ vi.mock('@/lib/monaco/setup-monaco', () => ({}))
 const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
 vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
 
+// The Markdown helpers have their own tests (lib/monaco/markdown-editing.test.ts), with an editor that can edit text.
+vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn(), bindMarkdownListEnter: vi.fn() }))
+
 /** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
 const tabFocus = {
     mode: false,
@@ -310,6 +317,18 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     }),
     useDocumentTabActions: () => ({ makeTabEditable }),
     useWorkspaceCoordinator: () => ({}),
+    useWorkspaceSession: () => ({ workspaceRoot: session.workspaceRoot }),
+}))
+const session: { workspaceRoot: string | null } = { workspaceRoot: '/w' }
+
+/** Pasting and dropping pictures, which editor-images.test.ts covers; here only what the panel hands it. */
+const editorImages = vi.hoisted(() => ({ attach: vi.fn(), dispose: vi.fn() }))
+vi.mock('@/components/studio/editor/editor-images', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/components/studio/editor/editor-images')>()),
+    attachEditorImages: (...args: unknown[]) => {
+        editorImages.attach(...args)
+        return { dispose: editorImages.dispose }
+    },
 }))
 
 type RevealInEditor = (path: string, line: number, column: number, length?: number) => void
@@ -341,7 +360,7 @@ const DEFAULT_EDITOR_SETTINGS = {
 }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({ settings: { editor: editorSettings } }),
+    useAppSettings: () => ({ settings: { editor: editorSettings, keybinds: createDefaultKeybinds(false) } }),
 }))
 const palette = { open: vi.fn(), provided: true }
 /** The spell check, hooked up to each editor made (use-editor-spellcheck.test.tsx tests it). */
@@ -359,7 +378,9 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
 const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
-const { focusEditorFor } = await import('@/components/studio/editor/editor-focus')
+const markdownEditing = await import('@/lib/monaco/markdown-editing')
+const { focusEditorFor, focusEditorNow } = await import('@/components/studio/editor/editor-focus')
+const { focusPane } = await import('@/components/studio/shell/pane-focus')
 const { useEditorCursor, useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
 const { default: monacoLoader } = await import('@monaco-editor/loader')
 
@@ -397,8 +418,37 @@ beforeEach(() => {
     fakeMonaco.editor.registerCommand.mockClear()
     palette.open = vi.fn()
     palette.provided = true
+    session.workspaceRoot = '/w'
+    editorImages.attach.mockClear()
+    editorImages.dispose.mockClear()
     spellcheck.attached.length = 0
     spellcheck.dispose.mockClear()
+    vi.mocked(markdownEditing.formatMarkdown).mockClear()
+    vi.mocked(markdownEditing.bindMarkdownListEnter).mockClear()
+})
+
+describe('CodeEditorPanel images', () => {
+    it('lets pictures be pasted or dropped into the Markdown file showing, while its folder is open', async () => {
+        const a = '/w/a.md'
+        const diagram = '/w/flow.mmd'
+        tabsState = { tabs: [tab(a, '# A'), tab(diagram, 'graph TD')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        expect(editorImages.attach).toHaveBeenCalledTimes(1)
+        const [attachedTo, documentNow] = editorImages.attach.mock.calls[0] as [unknown, () => unknown]
+        expect(attachedTo).toBe(editor)
+        expect(documentNow()).toEqual({ path: a, workspaceRoot: '/w' })
+
+        setTabs(view, { tabs: tabsState.tabs, activeTabId: diagram })
+        expect(documentNow()).toBeNull()
+
+        session.workspaceRoot = null
+        setTabs(view, { tabs: tabsState.tabs, activeTabId: a })
+        expect(documentNow()).toBeNull()
+
+        act(() => editor.dispose())
+        expect(editorImages.dispose).toHaveBeenCalled()
+    })
 })
 
 describe('CodeEditorPanel cursor line', () => {
@@ -821,6 +871,29 @@ describe('CodeEditorPanel unicode highlighting', () => {
         const { editor } = await mountEditor()
         expect(editor.options.doubleClickSelectsBlock).toBe(false)
     })
+
+    it('finds single words in Chinese, Japanese, Korean and Thai, for double-click and Ctrl+Left/Right', async () => {
+        tabsState = { tabs: [tab('/w/a.md', '今日は良い天気です')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+        expect(editor.options.wordSegmenterLocales).toEqual(['ja', 'zh-CN', 'zh-TW', 'ko', 'th'])
+    })
+})
+
+describe('CodeEditorPanel Markdown lists', () => {
+    it('continues lists on Enter in Markdown files only', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.mmd'
+        tabsState = { tabs: [tab(a, '- one'), tab(b, 'graph TD')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        expect(markdownEditing.bindMarkdownListEnter).toHaveBeenCalledTimes(1)
+        const [boundEditor, , isMarkdown] = vi.mocked(markdownEditing.bindMarkdownListEnter).mock.calls[0]!
+        expect(boundEditor).toBe(editor)
+        expect(isMarkdown()).toBe(true)
+
+        setTabs(view, { tabs: [tab(a, '- one'), tab(b, 'graph TD')], activeTabId: b })
+        expect(isMarkdown()).toBe(false)
+    })
 })
 
 describe('CodeEditorPanel suggestions', () => {
@@ -932,6 +1005,21 @@ describe('CodeEditorPanel width', () => {
         } finally {
             globalThis.ResizeObserver = original
         }
+    })
+})
+
+describe('CodeEditorPanel with the preview hidden', () => {
+    it('fills the row with no resize handle, and goes back to its width when the preview shows again', () => {
+        const view = render(<CodeEditorPanel fill width={400} onWidthChange={() => {}} />)
+        const panel = view.container.firstElementChild as HTMLElement
+        expect(panel).toHaveClass('flex-1')
+        expect(panel.style.width).toBe('')
+        expect(view.queryByRole('separator', { name: 'Resize editor' })).toBeNull()
+
+        view.rerender(<CodeEditorPanel width={400} onWidthChange={() => {}} />)
+        expect(panel).not.toHaveClass('flex-1')
+        expect(panel.style.width).toBe('400px')
+        expect(view.getByRole('separator', { name: 'Resize editor' })).toBeInTheDocument()
     })
 })
 
@@ -1235,6 +1323,30 @@ describe('CodeEditorPanel search hits', () => {
     })
 })
 
+describe('CodeEditorPanel as a pane', () => {
+    it('is the editor pane, which Focus Editor and F6 focus at once while it shows a file', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { editor } = await mountEditor()
+
+        expect(focusPane('editor')).toBe(true)
+        expect(editor.focused).toBe(true)
+    })
+
+    it('says no while hidden, or with no file open', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        view.rerender(<Panel open={false} />)
+
+        expect(focusEditorNow()).toBe(false)
+        expect(editor.focused).toBe(false)
+
+        view.unmount()
+        tabsState = { tabs: [], activeTabId: null }
+        render(<Panel />)
+        expect(focusEditorNow()).toBe(false)
+    })
+})
+
 describe('CodeEditorPanel focus after opening a file', () => {
     /** The focus waits a frame, for a closing dialog to let go first. */
     const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
@@ -1450,5 +1562,23 @@ describe('CodeEditorPanel Edit commands', () => {
 
         await waitFor(() => expect(command('copy')?.disabled).toBe(false))
         expect(command('paste')).toMatchObject({ disabled: true, disabledReason: 'This file is read-only' })
+        expect(command('bold')).toMatchObject({ disabled: true, disabledReason: 'This file is read-only' })
+    })
+
+    it('runs Bold and the other Markdown helpers in a Markdown file, and turns them off in a diagram', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.mmd'
+        tabsState = { tabs: [tab(a, 'make this bold'), tab(b, 'graph TD')], activeTabId: a }
+        const view = render(<PanelWithCommands />)
+        await waitFor(() => expect(command('bold')?.disabled).toBe(false))
+        const editor = editors[0]!
+
+        act(() => void command('bold')!.run())
+        expect(editor.focused).toBe(true)
+        expect(markdownEditing.formatMarkdown).toHaveBeenCalledWith(editor, 'bold')
+
+        tabsState = { tabs: tabsState.tabs, activeTabId: b }
+        view.rerender(<PanelWithCommands />)
+        await waitFor(() => expect(command('link')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
     })
 })

@@ -4,7 +4,7 @@ import { buildEditorCommands, type EditorCommandsContext } from '@/components/st
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
 function context(overrides: Partial<EditorCommandsContext> = {}): EditorCommandsContext {
-    return { editor: 'ready', readOnly: false, isMac: false, runAction: vi.fn(), ...overrides }
+    return { editor: 'ready', readOnly: false, markdown: true, isMac: false, runAction: vi.fn(), runFormat: vi.fn(), ...overrides }
 }
 
 const find = (ctx: EditorCommandsContext, id: string) => buildEditorCommands(ctx).find((command) => command.id === id)
@@ -23,6 +23,10 @@ describe('buildEditorCommands', () => {
             ['Find', 'Ctrl+F'],
             ['Replace', 'Ctrl+H'],
             ['Go to Line…', 'Ctrl+G'],
+            ['Bold', 'Ctrl+B'],
+            ['Italic', 'Ctrl+I'],
+            ['Inline Code', 'Ctrl+E'],
+            ['Link', 'Ctrl+K'],
         ])
         // Prefixed, so another feature's 'copy' or 'go-to-line' can't push these out of the shared list.
         expect(buildEditorCommands(ctx).every((c) => c.id.startsWith('edit.'))).toBe(true)
@@ -33,11 +37,13 @@ describe('buildEditorCommands', () => {
         expect(shortcut(mac, 'edit.undo')).toBe('⌘Z')
         expect(shortcut(mac, 'edit.redo')).toBe('⇧⌘Z')
         expect(shortcut(mac, 'edit.replace')).toBe('⌥⌘F')
+        expect(shortcut(mac, 'edit.bold')).toBe('⌘B')
     })
 
-    it("runs Monaco's own action for each", () => {
+    it("runs Monaco's own action for each, and the Markdown helpers for the formats", () => {
         const ctx = context()
         for (const command of buildEditorCommands(ctx)) void command.run()
+        expect(vi.mocked(ctx.runFormat).mock.calls.map(([format]) => format)).toEqual(['bold', 'italic', 'code', 'link'])
         expect(vi.mocked(ctx.runAction).mock.calls.map(([action]) => action)).toEqual([
             'undo',
             'redo',
@@ -63,7 +69,28 @@ describe('buildEditorCommands', () => {
 
     it('turns off only the commands that change the text in a read-only file', () => {
         const commands = buildEditorCommands(context({ readOnly: true }))
-        expect(commands.filter((c) => c.disabled).map((c) => c.id)).toEqual(['edit.undo', 'edit.redo', 'edit.cut', 'edit.paste', 'edit.replace'])
+        expect(commands.filter((c) => c.disabled).map((c) => c.id)).toEqual([
+            'edit.undo',
+            'edit.redo',
+            'edit.cut',
+            'edit.paste',
+            'edit.replace',
+            'edit.bold',
+            'edit.italic',
+            'edit.inline-code',
+            'edit.link',
+        ])
         expect(find(context({ readOnly: true }), 'edit.paste')?.disabledReason).toBe('This file is read-only')
+        expect(find(context({ readOnly: true }), 'edit.link')?.disabledReason).toBe('This file is read-only')
+    })
+
+    it('turns the Markdown helpers off in other files, so their keys do what they do there', () => {
+        const commands = buildEditorCommands(context({ markdown: false }))
+        expect(commands.filter((c) => c.disabled).map((c) => [c.id, c.disabledReason])).toEqual([
+            ['edit.bold', 'Only in Markdown files'],
+            ['edit.italic', 'Only in Markdown files'],
+            ['edit.inline-code', 'Only in Markdown files'],
+            ['edit.link', 'Only in Markdown files'],
+        ])
     })
 })

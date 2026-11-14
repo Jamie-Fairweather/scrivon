@@ -91,6 +91,12 @@ describe('previewMarkdownPdf', () => {
         )
     })
 
+    it('says when web images were left out, as the saved notice does', async () => {
+        invoke.mockResolvedValue({ pdf: '', pageNumberWarning: null })
+        const preview = await previewMarkdownPdf('![Badge](https://example.com/badge.png)', 'notes.md', { profile: createDefaultPdfExportProfile() })
+        expect(preview.note).toBe('1 web image was left out. Choose Load images in the preview to include it.')
+    })
+
     it('fails with the reason when the document or the print fails', async () => {
         await expect(previewMarkdownPdf('   ', 'empty.md', { profile: createDefaultPdfExportProfile() })).rejects.toThrow('Nothing to export.')
         expect(invoke).not.toHaveBeenCalled()

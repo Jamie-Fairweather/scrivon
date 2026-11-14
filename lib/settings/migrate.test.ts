@@ -132,6 +132,18 @@ describe('mergeStoredSettings', () => {
         expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
     })
 
+    it('shows the preview by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: 'no' } }, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: false } }, false).layout.previewOpen).toBe(false)
+        expect(migrateLegacySettings(() => null, false).layout.previewOpen).toBe(true)
+    })
+
+    it('shows the preview when the editor is hidden too, so the window is never empty', () => {
+        const layout = mergeStoredSettings({ layout: { editorOpen: false, previewOpen: false } }, false).layout
+        expect(layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
@@ -233,6 +245,46 @@ describe('mergeStoredSettings', () => {
         })
     })
 
+    it('moves Toggle explorer off Ctrl+B for users who never changed it, so Ctrl+B makes text bold', () => {
+        for (const isMac of [false, true]) {
+            const mod = isMac ? { meta: true } : { ctrl: true }
+            // Saved by a version that stored the whole keymap, with Ctrl+B (Cmd+B) as the default.
+            const stored = { ...createDefaultKeybinds(isMac), 'view.toggleExplorer': [{ key: 'b', ...mod }] }
+            for (const id of ['format.bold', 'format.italic', 'format.code', 'format.link'] as const) delete (stored as Partial<typeof stored>)[id]
+
+            const merged = mergeStoredSettings({ keybinds: stored }, isMac)
+
+            expect(merged.keybinds).toEqual(createDefaultKeybinds(isMac))
+            expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', shift: true, ...mod }])
+            expect(merged.keybinds['format.bold']).toEqual([{ key: 'b', ...mod }])
+        }
+    })
+
+    it('keeps a Toggle explorer shortcut the user chose, Ctrl+B included', () => {
+        const custom = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 'x', ctrl: true, alt: true }] } }, false)
+        expect(custom.keybinds['view.toggleExplorer']).toEqual([{ key: 'x', ctrl: true, alt: true }])
+
+        // Saved as a change by this version: only changed shortcuts are stored, so Ctrl+B was picked on purpose.
+        const chosen = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 'b', ctrl: true }] } }, false)
+        expect(chosen.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        // Bold keeps Ctrl+B too: it only has it while typing in the editor.
+        expect(chosen.keybinds['format.bold']).toEqual([{ key: 'b', ctrl: true }])
+
+        const whole = { ...createDefaultKeybinds(false), 'view.toggleExplorer': [{ key: 'x', ctrl: true, alt: true }] }
+        expect(mergeStoredSettings({ keybinds: whole }, false).keybinds['view.toggleExplorer']).toEqual([{ key: 'x', ctrl: true, alt: true }])
+    })
+
+    it("drops a default only when the user's shortcut runs in the same place", () => {
+        // Toggle editor (an app action) on Ctrl+I: Italic keeps Ctrl+I in the editor.
+        const app = mergeStoredSettings({ keybinds: { 'view.toggleEditor': [{ key: 'i', ctrl: true }] } }, false)
+        expect(app.keybinds['format.italic']).toEqual([{ key: 'i', ctrl: true }])
+
+        // Bold moved to Ctrl+I: Italic loses it.
+        const editor = mergeStoredSettings({ keybinds: { 'format.bold': [{ key: 'i', ctrl: true }] } }, false)
+        expect(editor.keybinds['format.italic']).toEqual([])
+        expect(keybindOverrides(editor.keybinds, createDefaultKeybinds(false))).toEqual({ 'format.bold': [{ key: 'i', ctrl: true }] })
+    })
+
     it('keeps the default when stored chords are unreadable or modifier-only', () => {
         const merged = mergeStoredSettings(
             {
@@ -259,7 +311,7 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
@@ -274,7 +326,7 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
@@ -300,6 +352,28 @@ describe('mergeStoredSettings', () => {
         expect(merged.editor.tabSize).toBe(8)
         expect(merged.layout.editorWidth).toBe(2000)
         expect(merged.workspace.maxRecentFolders).toBe(50)
+    })
+
+    it('starts settings saved before app zoom at 100%, with 14px preview text', () => {
+        const merged = mergeStoredSettings({ editor: { fontSize: 16 } }, false)
+
+        expect(merged.appearance).toEqual({ zoom: 1, previewFontSize: 14 })
+    })
+
+    it('reads a saved zoom and preview text size', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 1.5, previewFontSize: 18 } }, false).appearance).toEqual({ zoom: 1.5, previewFontSize: 18 })
+    })
+
+    it('moves a saved zoom to the nearest step, and keeps the preview text size between 10 and 32', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 7, previewFontSize: 100 } }, false).appearance).toEqual({ zoom: 2, previewFontSize: 32 })
+        expect(mergeStoredSettings({ appearance: { zoom: 1.12, previewFontSize: 2.4 } }, false).appearance).toEqual({
+            zoom: 1.1,
+            previewFontSize: 10,
+        })
+        expect(mergeStoredSettings({ appearance: { zoom: 'big', previewFontSize: null } }, false).appearance).toEqual({
+            zoom: 1,
+            previewFontSize: 14,
+        })
     })
 
     it('rounds whole-number settings saved with decimals', () => {
@@ -358,6 +432,7 @@ describe('dualWriteLegacy helpers', () => {
             dualWriteLegacyLayout({
                 explorerOpen: true,
                 editorOpen: false,
+                previewOpen: true,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
                 outlineOpen: false,

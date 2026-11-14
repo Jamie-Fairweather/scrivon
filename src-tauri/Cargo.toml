@@ -41,6 +41,10 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-prevent-default = { version = "6.0.1", features = ["platform-windows"] }
 font-kit = "0.14.3"
+# Downloads web images for PDF and Word exports (F03). The updater already builds reqwest and
+# rustls with these features, so nothing new is compiled.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Deleting moves files and folders to the Recycle Bin, so a mistake can be undone (F01).
 trash = "5.3.0"
 # A log file to attach to bug reports (F25).

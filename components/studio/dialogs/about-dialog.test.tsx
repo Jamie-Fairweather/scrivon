@@ -6,6 +6,12 @@ import { inlineLinkClassName } from '@/lib/ui/link-classes'
 import { AboutDialog } from './about-dialog'
 
 const onCopyDiagnosticInfo = vi.fn()
+const version = vi.hoisted(() => ({ value: '1.5.0' }))
+vi.mock('@/lib/legal/app-version', () => ({
+    get APP_VERSION() {
+        return version.value
+    },
+}))
 
 function renderAbout() {
     return render(<AboutDialog open onOpenChange={vi.fn()} onOpenLicenses={vi.fn()} onCopyDiagnosticInfo={onCopyDiagnosticInfo} />)
@@ -14,6 +20,7 @@ function renderAbout() {
 describe('AboutDialog', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        version.value = '1.5.0'
     })
 
     it('describes both Markdown and diagrams and links to the source code', () => {
@@ -22,6 +29,21 @@ describe('AboutDialog', () => {
         expect(screen.getByText(/Mermaid diagrams and Markdown documents/)).toBeInTheDocument()
         expect(screen.getByRole('link', { name: 'Source code on GitHub' })).toHaveAttribute('href', APP_REPO_URL)
         expect(screen.getByText(/MIT License/)).toBeInTheDocument()
+    })
+
+    it('marks a release candidate as a pre-release', () => {
+        version.value = '1.6.0-rc.1'
+        renderAbout()
+
+        expect(screen.getByText('Version 1.6.0-rc.1')).toBeInTheDocument()
+        expect(screen.getByText('Pre-release')).toBeInTheDocument()
+    })
+
+    it('has no pre-release mark on a stable version', () => {
+        renderAbout()
+
+        expect(screen.getByText('Version 1.5.0')).toBeInTheDocument()
+        expect(screen.queryByText('Pre-release')).not.toBeInTheDocument()
     })
 
     it('underlines its links all the time, not only on hover', () => {

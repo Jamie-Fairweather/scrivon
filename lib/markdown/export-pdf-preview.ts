@@ -5,6 +5,10 @@ import type { PdfExportMetadataOverrides, PdfExportProfile } from '@/lib/setting
 export type PdfPreviewOptions = {
     profile: PdfExportProfile
     overrides?: PdfExportMetadataOverrides
+    /** The document's file path, so its images are found from it. */
+    documentPath?: string
+    /** The open folder. Only images inside it are shown. */
+    workspaceRoot?: string | null
     /** The user chose to load this document's web images in the preview, so the PDF shows them too. */
     allowRemoteImages?: boolean
 }
@@ -28,9 +32,9 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
  * Throws when the document or the print fails.
  */
 export async function previewMarkdownPdf(source: string, tabName: string | undefined, options: PdfPreviewOptions): Promise<PdfPreview> {
-    const { html, print, missingImages, tocSkipped } = await buildExportPdfPage(source, tabName, { ...options, stamped: true })
+    const { html, print, missingImages, webImagesLeftOut, tocSkipped } = await buildExportPdfPage(source, tabName, { ...options, stamped: true })
     const reply = await invoke<PreviewReply>('preview_html_pdf', { html, options: print })
     const pdf = new Blob([base64ToBytes(reply.pdf)], { type: 'application/pdf' })
-    const note = describeLeftOut({ pageNumberWarning: reply.pageNumberWarning ?? undefined, missingImages, tocSkipped })
+    const note = describeLeftOut({ pageNumberWarning: reply.pageNumberWarning ?? undefined, missingImages, webImagesLeftOut, tocSkipped })
     return note ? { pdf, note } : { pdf }
 }

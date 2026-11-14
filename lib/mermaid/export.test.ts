@@ -6,14 +6,18 @@ const dialog = vi.hoisted(() => ({
     writeTextFileAtPath: vi.fn(async () => undefined),
 }))
 
+type Notice = { description?: string; action?: { label: string; onClick: () => void } }
 const notify = vi.hoisted(() => ({
     notifyError: vi.fn(),
-    notifyWarning: vi.fn(),
+    notifyWarning: vi.fn<(title: string, options?: Notice) => void>(),
+    notifySuccess: vi.fn<(title: string, options?: Notice) => void>(),
 }))
+const opener = vi.hoisted(() => ({ revealItemInDir: vi.fn<(path: string) => Promise<void>>(async () => undefined) }))
 
 const render = vi.hoisted(() => ({ fakeSvg: null as string | null }))
 
 vi.mock('@/lib/tauri/dialog', () => dialog)
+vi.mock('@tauri-apps/plugin-opener', () => opener)
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
 vi.mock('@/lib/notify', () => notify)
 vi.mock('@/lib/mermaid/render', async (importOriginal) => {
@@ -98,6 +102,47 @@ describe('exportSvg', () => {
 
         expect(dialog.pickSavePath).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: 'CI-CD Pipeline.svg' }))
     })
+
+    it('says where the file went, with a button that shows it in its folder', async () => {
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\flow.svg')
+
+        await exportSvg('graph TD\n  A --> B', 'scrivon-light', { tabName: 'flow.mmd' })
+
+        expect(notify.notifySuccess).toHaveBeenCalledWith(
+            'Saved flow.svg',
+            expect.objectContaining({ description: 'D:\\out\\flow.svg', action: expect.objectContaining({ label: 'Show in folder' }) })
+        )
+        notify.notifySuccess.mock.calls[0]![1]!.action!.onClick()
+        expect(opener.revealItemInDir).toHaveBeenCalledWith('D:\\out\\flow.svg')
+    })
+
+    it('says so when the folder cannot be shown', async () => {
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\flow.svg')
+        const gone = new Error('The file is gone.')
+        opener.revealItemInDir.mockRejectedValueOnce(gone)
+
+        await exportSvg('graph TD\n  A --> B', 'scrivon-light', { tabName: 'flow.mmd' })
+        notify.notifySuccess.mock.calls[0]![1]!.action!.onClick()
+
+        await vi.waitFor(() => expect(notify.notifyError).toHaveBeenCalledWith('Could not show the file', gone))
+    })
+
+    it('says nothing when the save dialog is cancelled', async () => {
+        await exportSvg('graph TD\n  A --> B', 'scrivon-light', { tabName: 'flow.mmd' })
+
+        expect(notify.notifySuccess).not.toHaveBeenCalled()
+        expect(notify.notifyError).not.toHaveBeenCalled()
+    })
+
+    it('says clearly why the file could not be saved', async () => {
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\locked\\flow.svg')
+        dialog.writeTextFileAtPath.mockRejectedValueOnce(new Error('Access is denied.') as never)
+
+        await exportSvg('graph TD\n  A --> B', 'scrivon-light', { tabName: 'flow.mmd' })
+
+        expect(notify.notifySuccess).not.toHaveBeenCalled()
+        expect(notify.notifyError).toHaveBeenCalledWith('Export failed', new Error('Access is denied.'))
+    })
 })
 
 describe('empty diagrams (U39)', () => {
@@ -179,9 +224,26 @@ describe('PNG size limits (B106)', () => {
         expect(canvas.width).toBe(32_767)
         expect(canvas.height).toBe(1311)
         expect(dialog.writeBinaryFile).toHaveBeenCalled()
+        // Still says where it went.
         expect(notify.notifyWarning).toHaveBeenCalledWith('Saved a smaller PNG', {
             description: 'This diagram is too big for 4×, so it was saved at 32767 × 1311 px.',
+            action: expect.objectContaining({ label: 'Show in folder' }),
         })
+        expect(notify.notifySuccess).not.toHaveBeenCalled()
+    })
+
+    it('says where a PNG at full size went', async () => {
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400"></svg>'
+        stubCanvas()
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\flow.png')
+
+        await exportPng(DIAGRAM, 'scrivon-light', { tabName: 'flow.mmd' }, 2)
+
+        expect(notify.notifySuccess).toHaveBeenCalledWith(
+            'Saved flow.png',
+            expect.objectContaining({ description: 'D:\\out\\flow.png', action: expect.objectContaining({ label: 'Show in folder' }) })
+        )
+        expect(notify.notifyWarning).not.toHaveBeenCalled()
     })
 
     it('still saves a long thin diagram at 1x, as it could before the size limits (B106 review)', async () => {
@@ -210,6 +272,7 @@ describe('PNG size limits (B106)', () => {
         expect(canvas.height).toBe(246)
         expect(notify.notifyWarning).toHaveBeenCalledWith('Saved a smaller PNG', {
             description: 'This diagram is too big for 1×, so it was saved at 32767 × 246 px.',
+            action: expect.objectContaining({ label: 'Show in folder' }),
         })
     })
 

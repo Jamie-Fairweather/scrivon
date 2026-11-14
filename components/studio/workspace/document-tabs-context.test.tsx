@@ -2,10 +2,10 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile, stat } from '@tauri-apps/plugin-fs'
-import { dismissNotification, notifyWarning, type NotifyOptions } from '@/lib/notify'
+import { dismissNotification, notifyError, notifyWarning, type NotifyOptions } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
-import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
+import { confirmCloseAfterSaveFailure, confirmOpenLargeFile, confirmRevert, confirmUnsavedChanges, showError } from '@/lib/tauri/dialog'
 import {
     DocumentTabsProvider,
     useActiveTabId,
@@ -25,12 +25,14 @@ vi.mock('@/lib/tauri/dialog', async (importOriginal) => {
         confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
         confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
         confirmOpenLargeFile: vi.fn(async () => false),
+        confirmRevert: vi.fn(async () => false),
     }
 })
 
 vi.mock('@/lib/notify', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/notify')>()),
     notifyWarning: vi.fn(() => 'toast'),
+    notifyError: vi.fn(() => 'toast'),
     dismissNotification: vi.fn(),
 }))
 
@@ -444,7 +446,7 @@ describe('DocumentTabsProvider', () => {
             await result.current.openFile('/ws/image.png')
         })
 
-        expect(showError).toHaveBeenCalledWith('Unsupported file', 'Scrivon supports .md, .mmd and .mermaid files only.')
+        expect(showError).toHaveBeenCalledWith('Unsupported file', 'Scrivon supports .md, .markdown, .mmd and .mermaid files only.')
         expect(result.current.tabs).toHaveLength(0)
     })
 
@@ -2009,5 +2011,248 @@ describe('reloading a file another app changed', () => {
         expect(coordinator.replaceEditorText.current).toHaveBeenCalledExactlyOnceWith('/ws/a.md', 'theirs')
         expect(inTabWhenReplaced).toEqual(['theirs'])
         expect(result.current.tabs[0]).toMatchObject({ content: 'theirs', isDirty: false, disk: { stamp: { mtimeMs: 2, size: 6 } } })
+    })
+})
+
+describe('more tab actions', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    function setup(tabs: DocumentTab[], activeTabId: string | null, coordinator = createWorkspaceCoordinatorRefs()) {
+        const stateOut: { current?: DocumentTabsState } = {}
+        const rendered = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial: { tabs, activeTabId }, coordinator, workspaceRoot: '/ws', stateOut }),
+        })
+        return { ...rendered, coordinator, stateOut }
+    }
+
+    const ids = (tabs: readonly DocumentTab[]) => tabs.map((t) => t.id)
+
+    it('moves to the next and previous tab, going round from the last to the first', async () => {
+        const { result } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md')], '/ws/b.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => result.current.switchTab(1))
+        expect(result.current.activeTabId).toBe('/ws/c.md')
+        await act(async () => result.current.switchTab(1))
+        expect(result.current.activeTabId).toBe('/ws/a.md')
+        await act(async () => result.current.switchTab(-1))
+        expect(result.current.activeTabId).toBe('/ws/c.md')
+        await act(async () => result.current.switchTab(-1))
+        expect(result.current.activeTabId).toBe('/ws/b.md')
+    })
+    it('closes the tabs to the right of a tab, and shows that tab if the one on screen went', async () => {
+        const { result } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md'), tab('/ws/d.md')], '/ws/d.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(4))
+
+        await act(async () => result.current.closeTabsToRight('/ws/b.md'))
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/b.md'])
+        expect(result.current.activeTabId).toBe('/ws/b.md')
+        expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/a.md', '/ws/b.md'], activeTabId: '/ws/b.md' })
+    })
+
+    it('keeps the tab on screen when it is not one of those closing to the right', async () => {
+        const { result } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md')], '/ws/a.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => result.current.closeTabsToRight('/ws/b.md'))
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/b.md'])
+        expect(result.current.activeTabId).toBe('/ws/a.md')
+    })
+
+    it('asks about unsaved changes before closing tabs to the right, and keeps them on Cancel', async () => {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        coordinator.getAutosaveEnabled.current = () => false
+        const { result } = setup([tab('/ws/a.md'), tab('/ws/b.md', 'b.md', { isDirty: true }), tab('/ws/c.md')], '/ws/a.md', coordinator)
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        vi.mocked(confirmUnsavedChanges).mockResolvedValueOnce('cancel')
+
+        await act(async () => result.current.closeTabsToRight('/ws/a.md'))
+
+        expect(confirmUnsavedChanges).toHaveBeenCalledWith(['b.md'])
+        expect(result.current.tabs).toHaveLength(3)
+    })
+    it('closes every tab without unsaved changes, examples too, without asking', async () => {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        coordinator.getAutosaveEnabled.current = () => false
+        const tabs = [
+            tab('/ws/a.md', 'a.md', { isDirty: true }),
+            tab('/ws/b.md'),
+            tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true }),
+            tab('/ws/c.md', 'c.md', { isDirty: true }),
+            tab('/ws/d.md'),
+        ]
+        const { result } = setup(tabs, '/ws/d.md', coordinator)
+        await waitFor(() => expect(result.current.tabs).toHaveLength(5))
+
+        await act(async () => result.current.closeSavedTabs())
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/c.md'])
+        // The nearest tab left takes the place of the one on screen.
+        expect(result.current.activeTabId).toBe('/ws/c.md')
+        expect(confirmUnsavedChanges).not.toHaveBeenCalled()
+    })
+    it('reopens closed tabs, the last closed first, and shows each', async () => {
+        const { result } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true })], '/ws/a.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+        expect(result.current.canReopenClosedTab).toBe(false)
+
+        await act(async () => result.current.closeTab('/ws/b.md'))
+        await act(async () => result.current.closeTab('example:sample-1'))
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md'])
+        expect(result.current.canReopenClosedTab).toBe(true)
+
+        await act(async () => result.current.reopenClosedTab())
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', 'example:sample-1'])
+        expect(result.current.activeTabId).toBe('example:sample-1')
+
+        await act(async () => result.current.reopenClosedTab())
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', 'example:sample-1', '/ws/b.md'])
+        expect(result.current.activeTabId).toBe('/ws/b.md')
+        expect(result.current.canReopenClosedTab).toBe(false)
+    })
+
+    it('remembers every tab closed together, and skips one that is open again', async () => {
+        const { result } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md')], '/ws/a.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => result.current.closeOtherTabs('/ws/a.md'))
+        await act(async () => result.current.openFile('/ws/c.md'))
+        await act(async () => result.current.reopenClosedTab())
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/c.md', '/ws/b.md'])
+        expect(result.current.canReopenClosedTab).toBe(false)
+    })
+
+    it('does not keep tabs closed for a delete, or those of another folder', async () => {
+        const { result, coordinator } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md')], '/ws/a.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => result.current.closeTab('/ws/b.md'))
+        act(() => coordinator.closeTabsForDelete.current('/ws/c.md', false))
+        await act(async () => result.current.reopenClosedTab())
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/b.md'])
+
+        await act(async () => result.current.closeTab('/ws/b.md'))
+        act(() => coordinator.clearTabs.current())
+        expect(result.current.canReopenClosedTab).toBe(false)
+    })
+
+    it('forgets a closed file once it is deleted, and follows one that is renamed', async () => {
+        const { result, coordinator } = setup([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/docs/c.md')], '/ws/a.md')
+        await waitFor(() => expect(result.current.tabs).toHaveLength(3))
+
+        await act(async () => result.current.closeTab('/ws/docs/c.md'))
+        await act(async () => result.current.closeTab('/ws/b.md'))
+        act(() => coordinator.remapTabsAfterRename.current('/ws/docs', '/ws/notes', 'notes'))
+        act(() => coordinator.closeTabsForDelete.current('/ws/b.md', false))
+        await act(async () => result.current.reopenClosedTab())
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/notes/c.md'])
+        expect(result.current.canReopenClosedTab).toBe(false)
+    })
+})
+
+describe('reverting a file to its saved version', () => {
+    const onDisk = (text: string) => {
+        vi.mocked(stat).mockResolvedValue({
+            isFile: true,
+            isDirectory: false,
+            isSymlink: false,
+            size: text.length,
+            mtime: new Date(5),
+            nlink: null,
+        } as never)
+        vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode(text))
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
+
+    afterEach(() => {
+        vi.mocked(readFile).mockReset()
+        vi.mocked(readFile).mockResolvedValue(new Uint8Array())
+        vi.mocked(stat).mockReset()
+        vi.mocked(stat).mockResolvedValue({ isFile: true, isDirectory: false, isSymlink: false, size: 0, mtime: null, nlink: null } as never)
+    })
+
+    function setup(tabs: DocumentTab[]) {
+        const coordinator = createWorkspaceCoordinatorRefs()
+        const release = vi.fn()
+        coordinator.holdSaves.current = vi.fn(async () => release)
+        coordinator.replaceEditorText.current = vi.fn()
+        const rendered = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial: { tabs, activeTabId: tabs[0]!.id }, coordinator, workspaceRoot: '/ws' }),
+        })
+        return { ...rendered, coordinator, release }
+    }
+
+    it('asks before dropping unsaved changes, and keeps them on Cancel', async () => {
+        const { result, release } = setup([tab('/ws/a.md', 'a.md', { content: 'mine', isDirty: true })])
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+        onDisk('saved')
+        vi.mocked(confirmRevert).mockResolvedValueOnce(false)
+
+        await act(async () => result.current.revertTab('/ws/a.md'))
+
+        expect(confirmRevert).toHaveBeenCalledWith('a.md')
+        expect(result.current.tabs[0]).toMatchObject({ content: 'mine', isDirty: true })
+        // Autosave waited while the user chose, and carries on now.
+        expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it('puts the saved version back once the user agrees', async () => {
+        const { result, coordinator, release } = setup([tab('/ws/a.md', 'a.md', { content: 'mine', isDirty: true })])
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+        onDisk('saved')
+        vi.mocked(confirmRevert).mockResolvedValueOnce(true)
+
+        await act(async () => result.current.revertTab('/ws/a.md'))
+
+        // Autosave can't write the edits while the user is asked.
+        expect(coordinator.holdSaves.current).toHaveBeenCalledWith('/ws/a.md', false)
+        expect(result.current.tabs[0]).toMatchObject({ content: 'saved', isDirty: false })
+        expect(coordinator.replaceEditorText.current).toHaveBeenCalledWith('/ws/a.md', 'saved')
+        expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads the file again without asking when there is nothing unsaved', async () => {
+        const { result } = setup([tab('/ws/a.md', 'a.md', { content: 'old' })])
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+        onDisk('changed elsewhere')
+
+        await act(async () => result.current.revertTab('/ws/a.md'))
+
+        expect(confirmRevert).not.toHaveBeenCalled()
+        expect(result.current.tabs[0]).toMatchObject({ content: 'changed elsewhere', isDirty: false })
+    })
+
+    it('says so, and keeps the edits, when the file cannot be read', async () => {
+        const { result, release } = setup([tab('/ws/a.md', 'a.md', { content: 'mine', isDirty: true })])
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+        vi.mocked(confirmRevert).mockResolvedValueOnce(true)
+        vi.mocked(readFile).mockRejectedValue(new Error('The file is gone'))
+
+        await act(async () => result.current.revertTab('/ws/a.md'))
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't revert a.md", expect.any(Error))
+        expect(result.current.tabs[0]).toMatchObject({ content: 'mine', isDirty: true })
+        expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves an example alone, as it has no file', async () => {
+        const { result, coordinator } = setup([tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true })])
+        await waitFor(() => expect(result.current.tabs).toHaveLength(1))
+
+        await act(async () => result.current.revertTab('example:sample-1'))
+
+        expect(coordinator.holdSaves.current).not.toHaveBeenCalled()
+        expect(readFile).not.toHaveBeenCalled()
     })
 })
