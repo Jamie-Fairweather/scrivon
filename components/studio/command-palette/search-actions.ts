@@ -16,7 +16,7 @@ function nameOf(action: ActionPaletteItem): string {
     return `${action.label} ${action.checked ? TURN_OFF_WORDS : TURN_ON_WORDS}`
 }
 
-/** A row that picks one theme ('Theme: Nord'). */
+/** A row that picks a theme ('Theme: Nord', 'Theme: Follow Windows'). */
 export function isThemePick(action: ActionPaletteItem): boolean {
     return action.value.startsWith('action:theme:')
 }

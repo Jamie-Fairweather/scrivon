@@ -54,7 +54,13 @@ const state = vi.hoisted(() => ({
     canvas: { requestCanvasFit: () => {} },
     canvasControls: { canFitToView: false },
     theme: { themeId: 'scrivon-light' as AppThemeId, isLight: true, setThemeId: vi.fn() as (id: AppThemeId) => void },
-    settings: { settings: null as unknown, openSettings: () => {}, flushPendingSettings: () => {} },
+    settings: {
+        settings: null as unknown,
+        openSettings: () => {},
+        flushPendingSettings: () => {},
+        setSystemThemeId: vi.fn() as (id: AppThemeId) => void,
+        setFollowSystem: vi.fn() as (on: boolean) => void,
+    },
     coordinator: { reloadChangedTabs: { current: vi.fn(async () => {}) }, revealInEditor: { current: vi.fn() } },
 }))
 
@@ -87,6 +93,7 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 
 vi.mock('@/lib/notify', () => ({
     notifyError: vi.fn(),
+    notifyInfo: vi.fn(),
 }))
 
 vi.mock('@/lib/tauri/fs', async (importOriginal) => ({
@@ -443,6 +450,7 @@ describe('usePaletteSearch commands in the default results', () => {
 
     it.each([
         ['dracula', 'action:theme:dracula'],
+        ['follow windows', 'action:theme:follow-windows'],
         ['about', 'action:about'],
         ['licences', 'action:licences'],
         ['refresh', 'action:refresh-explorer'],
@@ -656,6 +664,21 @@ describe('usePaletteSearch theme toggle', () => {
         rerender()
         runToggle(result)
         expect(state.theme.setThemeId).toHaveBeenLastCalledWith('tokyo-night-storm')
+    })
+
+    it('keeps following Windows when a theme is picked, as the default settings do', () => {
+        state.theme.themeId = 'scrivon-dark'
+        state.theme.isLight = false
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('>dracula'))
+        const dracula = result.current.groups[0]?.items.find((item) => item.value === 'action:theme:dracula')
+        if (dracula?.kind !== 'action') throw new Error('Dracula command missing')
+        act(() => void dracula.run())
+
+        expect(state.settings.setSystemThemeId).toHaveBeenCalledWith('dracula')
+        expect(state.theme.setThemeId).not.toHaveBeenCalled()
+        expect(state.settings.setFollowSystem).not.toHaveBeenCalled()
     })
 })
 
