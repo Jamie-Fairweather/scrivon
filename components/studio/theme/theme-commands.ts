@@ -5,6 +5,7 @@ import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { notifyInfo } from '@/lib/notify'
 import { FOLLOW_SYSTEM, type ThemeSetting } from '@/lib/settings/types'
 import {
     APP_DARK_THEME_IDS,
@@ -66,7 +67,8 @@ export function buildThemeCommands(ctx: ThemeCommandsContext): AppCommand[] {
     const following = ctx.theme.id === FOLLOW_SYSTEM
     // With Follow Windows on, a theme becomes the pick for its kind, as in Options > Theme.
     const pick = (id: AppThemeId): AppCommand => {
-        const kind = isLightTheme(id) ? 'light' : 'dark'
+        const light = isLightTheme(id)
+        const kind = light ? 'light' : 'dark'
         const current = following ? ctx.theme[kind] : ctx.themeId
         return {
             id: `theme:${id}`,
@@ -74,8 +76,17 @@ export function buildThemeCommands(ctx: ThemeCommandsContext): AppCommand[] {
             keywords: `theme colour color ${kind}`,
             detail: following ? `When Windows is ${kind}` : undefined,
             disabled: id === current,
-            disabledReason: 'Current theme',
-            run: () => (following ? ctx.setSystemThemeId(id) : ctx.setThemeId(id)),
+            // The pick for the other Windows mode isn't on screen, so it isn't the current theme.
+            disabledReason: id === ctx.themeId ? 'Current theme' : 'Current pick',
+            run: () => {
+                if (!following) {
+                    ctx.setThemeId(id)
+                    return
+                }
+                ctx.setSystemThemeId(id)
+                // Nothing changes on screen yet, so say when it will.
+                if (light !== ctx.isLight) notifyInfo(`${APP_THEME_LABELS[id]} will show when Windows is ${kind}`, { id: 'theme-pick' })
+            },
         }
     }
 

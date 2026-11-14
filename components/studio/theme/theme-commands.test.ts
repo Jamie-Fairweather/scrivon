@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { notifyInfo } from '@/lib/notify'
 import { FOLLOW_SYSTEM, type ThemeSetting } from '@/lib/settings/types'
 import { APP_THEME_IDS, isLightTheme, type AppThemeId } from '@/lib/theme/catalog'
 import { buildThemeCommands, THEME_TWINS, themeToggleTarget } from '@/components/studio/theme/theme-commands'
+
+vi.mock('@/lib/notify', () => ({ notifyInfo: vi.fn() }))
 
 describe('themeToggleTarget', () => {
     it("switches to the same family's light or dark version", () => {
@@ -35,6 +38,8 @@ describe('themeToggleTarget', () => {
 })
 
 describe('buildThemeCommands', () => {
+    beforeEach(() => vi.clearAllMocks())
+
     const build = (themeId: AppThemeId = 'scrivon-light', theme: ThemeSetting = { id: themeId, light: 'scrivon-light', dark: 'scrivon-dark' }) => {
         const ctx = {
             theme,
@@ -88,12 +93,28 @@ describe('buildThemeCommands', () => {
             expect(ctx.setThemeId).not.toHaveBeenCalled()
         })
 
+        it('says when a pick for the other Windows mode will show, since the screen stays the same', () => {
+            const { commands } = build('nord', following)
+            void find(commands, 'theme:dracula')!.run()
+            expect(notifyInfo).not.toHaveBeenCalled()
+            void find(commands, 'theme:solarized-light')!.run()
+            expect(notifyInfo).toHaveBeenCalledWith('Solarized Light will show when Windows is light', { id: 'theme-pick' })
+        })
+
+        it('says nothing extra when a fixed theme is picked', () => {
+            const { ctx, commands } = build('nord')
+            void find(commands, 'theme:solarized-light')!.run()
+            expect(ctx.setThemeId).toHaveBeenCalledWith('solarized-light')
+            expect(notifyInfo).not.toHaveBeenCalled()
+        })
+
         it('says which Windows mode each theme is for, and marks both picks', () => {
             const { commands } = build('nord', following)
             expect(find(commands, 'theme:dracula')).toMatchObject({ detail: 'When Windows is dark', disabled: false })
             expect(find(commands, 'theme:solarized-light')).toMatchObject({ detail: 'When Windows is light', disabled: false })
             expect(find(commands, 'theme:nord')).toMatchObject({ disabled: true, disabledReason: 'Current theme' })
-            expect(find(commands, 'theme:github-light')).toMatchObject({ disabled: true, disabledReason: 'Current theme' })
+            // GitHub Light isn't on screen while Windows is dark, so it is the pick, not the current theme.
+            expect(find(commands, 'theme:github-light')).toMatchObject({ disabled: true, disabledReason: 'Current pick' })
             expect(find(commands, 'theme:nord-light')?.disabled).toBe(false)
         })
 
