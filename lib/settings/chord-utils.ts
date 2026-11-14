@@ -167,17 +167,19 @@ export function baseKeyFromCode(code: string | undefined): string | null {
 // Plain ASCII and Latin letters (é, ö, ß…) are kept as typed.
 const LATIN_OR_ASCII = /^[\x20-\x7eÀ-ɏ]$/
 
+const DIGIT = /^[0-9]$/
+
 /**
  * The physical key to use when KeyboardEvent.key can't be: non-Latin layouts (Russian, Greek,
- * Hebrew…) report their own letter, so Ctrl+S arrives as "ы", and Shift turns digits into
- * layout-specific symbols, so Ctrl+Shift+1 arrives as "!". Latin layouts (AZERTY, Dvorak…)
- * keep event.key, so shortcuts follow the letter printed on the key.
+ * Hebrew…) report their own letter, so Ctrl+S arrives as "ы", and the digit keys type symbols,
+ * so Ctrl+Shift+1 arrives as "!" and, on AZERTY, Ctrl+1 as "&". Letters on Latin layouts
+ * (AZERTY, Dvorak…) keep event.key, so shortcuts follow the letter printed on the key.
  */
-export function physicalKeyFallback(event: { key: string; code?: string; shiftKey?: boolean }): string | null {
+export function physicalKeyFallback(event: { key: string; code?: string }): string | null {
     const base = baseKeyFromCode(event.code)
     if (!base || base === event.key.toLowerCase()) return null
     if ([...event.key].length === 1 && !LATIN_OR_ASCII.test(event.key)) return base
-    if (event.shiftKey && /^[0-9]$/.test(base)) return base
+    if (DIGIT.test(base) && !DIGIT.test(event.key)) return base
     return null
 }
 

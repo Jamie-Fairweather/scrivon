@@ -163,15 +163,23 @@ describe('physicalKeyFallback', () => {
     })
 
     it('uses the digit for Shift+digit symbols', () => {
-        expect(physicalKeyFallback({ key: '!', code: 'Digit1', shiftKey: true })).toBe('1')
-        expect(physicalKeyFallback({ key: '/', code: 'Digit7', shiftKey: true })).toBe('7')
+        expect(physicalKeyFallback({ key: '!', code: 'Digit1' })).toBe('1')
+        expect(physicalKeyFallback({ key: '/', code: 'Digit7' })).toBe('7')
+    })
+
+    it('uses the digit on AZERTY, where the digit keys type symbols without Shift', () => {
+        expect(physicalKeyFallback({ key: '&', code: 'Digit1' })).toBe('1')
+        expect(physicalKeyFallback({ key: 'é', code: 'Digit2' })).toBe('2')
+        expect(physicalKeyFallback({ key: 'à', code: 'Digit0' })).toBe('0')
+        // AZERTY types the digit itself with Shift.
+        expect(physicalKeyFallback({ key: '1', code: 'Digit1' })).toBeNull()
     })
 
     it('keeps the typed key on Latin layouts and for keys that already match', () => {
         expect(physicalKeyFallback({ key: 'o', code: 'KeyS' })).toBeNull()
         expect(physicalKeyFallback({ key: 'ö', code: 'Semicolon' })).toBeNull()
-        expect(physicalKeyFallback({ key: 'S', code: 'KeyS', shiftKey: true })).toBeNull()
-        expect(physicalKeyFallback({ key: '?', code: 'Slash', shiftKey: true })).toBeNull()
+        expect(physicalKeyFallback({ key: 'S', code: 'KeyS' })).toBeNull()
+        expect(physicalKeyFallback({ key: '?', code: 'Slash' })).toBeNull()
         expect(physicalKeyFallback({ key: 'F1', code: 'F1' })).toBeNull()
         expect(physicalKeyFallback({ key: 'Process', code: 'KeyS' })).toBeNull()
     })

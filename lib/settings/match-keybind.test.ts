@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { matchKeybind, matchKeybinds } from '@/lib/settings/match-keybind'
+import { matchKeybind, matchKeybinds, recordedChord } from '@/lib/settings/match-keybind'
 
 type KeyOptions = {
     ctrl?: boolean
@@ -60,11 +60,16 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('b', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
     })
 
-    it('matches Ctrl+N for a new document and Ctrl+Alt+N for a new diagram, also in the editor, only with a folder open', () => {
+    it('matches Ctrl+N for a new document and Alt+N for a new diagram, also in the editor, only with a folder open', () => {
         const inEditor = { tagName: 'DIV', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
         expect(matchKeybind(keyEvent('n', { ctrl: true }, inEditor), bindings, { hasWorkspace: true })).toBe('workspace.newDocument')
-        expect(matchKeybind(keyEvent('n', { ctrl: true, alt: true }), bindings, { hasWorkspace: true })).toBe('workspace.newDiagram')
+        expect(matchKeybind(keyEvent('n', { alt: true, code: 'KeyN' }, inEditor), bindings, { hasWorkspace: true })).toBe('workspace.newDiagram')
         expect(matchKeybind(keyEvent('n', { ctrl: true }), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('n', { alt: true }), bindings)).toBeNull()
+        // Cmd+Option+N on a Mac, where Option alone types.
+        expect(matchKeybind(keyEvent('n', { meta: true, alt: true }), createDefaultKeybinds(true), { hasWorkspace: true })).toBe(
+            'workspace.newDiagram'
+        )
         // New Folder has no keys until the user picks some.
         expect(bindings['workspace.newFolder']).toEqual([])
     })
@@ -147,6 +152,22 @@ describe('matchKeybind', () => {
             expect(matchKeybind(event, withSymbol, { hasWorkspace: true })).toBe('view.fitDiagram')
         })
 
+        it('matches Ctrl+1, Ctrl+2, Ctrl+0 and Alt+0 on AZERTY, where the digit keys type & é à without Shift', () => {
+            const workspace = { hasWorkspace: true }
+            expect(matchKeybind(keyEvent('&', { ctrl: true, code: 'Digit1' }), bindings, workspace)).toBe('view.focusEditor')
+            expect(matchKeybind(keyEvent('é', { ctrl: true, code: 'Digit2' }), bindings, workspace)).toBe('view.focusPreview')
+            expect(matchKeybind(keyEvent('à', { ctrl: true, code: 'Digit0' }), bindings, workspace)).toBe('view.appZoomReset')
+            expect(matchKeybind(keyEvent('à', { alt: true, code: 'Digit0' }), bindings, workspace)).toBe('view.resetDiagramZoom')
+        })
+
+        it('still matches a digit key by what it types first, when that is bound', () => {
+            const withDigits = { ...bindings, 'view.fitDiagram': [{ key: '6', ctrl: true }], 'view.toggleEditor': [{ key: '1', ctrl: true }] }
+            // AZERTY's 6 key types -, so Ctrl+- zooms out rather than running Ctrl+6.
+            expect(matchKeybind(keyEvent('-', { ctrl: true, code: 'Digit6' }), withDigits, { hasWorkspace: true })).toBe('view.appZoomOut')
+            // Czech's 1 key types +, so Ctrl+Plus zooms in.
+            expect(matchKeybind(keyEvent('+', { ctrl: true, code: 'Digit1' }), withDigits, { hasWorkspace: true })).toBe('view.appZoomIn')
+        })
+
         it('follows the printed letter on Latin layouts like Dvorak', () => {
             // Dvorak puts "o" where QWERTY has "s"; Ctrl+O must not save.
             expect(matchKeybind(keyEvent('o', { ctrl: true, code: 'KeyS' }), bindings)).toBeNull()
@@ -169,6 +190,13 @@ describe('matchKeybind', () => {
 
             expect(matchKeybind(polish, withAltGrChords, { hasWorkspace: true })).toBeNull()
             expect(matchKeybind(german, withAltGrChords, { hasWorkspace: true })).toBeNull()
+        })
+
+        it('leaves Polish AltGr+N to type ń, as New Diagram is on Alt+N there', () => {
+            const workspace = { hasWorkspace: true }
+            const polish = keyEvent('ń', { ctrl: true, alt: true, altGraph: true, code: 'KeyN' }, editorTarget)
+            expect(matchKeybind(polish, bindings, workspace)).toBeNull()
+            expect(matchKeybind(keyEvent('n', { alt: true, code: 'KeyN' }, editorTarget), bindings, workspace)).toBe('workspace.newDiagram')
         })
 
         it('still fires Ctrl+Alt shortcuts on keys that type nothing with AltGr', () => {
@@ -208,6 +236,15 @@ describe('matchKeybind', () => {
                 const altGr = keyEvent(key, { code, ctrl: true, alt: true, altGraph: true }, editorTarget)
                 expect(matchKeybind(altGr, bindings, { hasWorkspace: true })).toBeNull()
             }
+        })
+
+        it('zooms the diagram in with Alt+Plus: the plus key (German), the number pad, or Alt+Shift+= (US)', () => {
+            const workspace = { hasWorkspace: true }
+            expect(matchKeybind(keyEvent('+', { code: 'BracketRight', alt: true }, editorTarget), bindings, workspace)).toBe('view.zoomDiagramIn')
+            expect(matchKeybind(keyEvent('+', { code: 'NumpadAdd', alt: true }, editorTarget), bindings, workspace)).toBe('view.zoomDiagramIn')
+            expect(matchKeybind(keyEvent('+', { code: 'Equal', alt: true, shift: true }, editorTarget), bindings, workspace)).toBe(
+                'view.zoomDiagramIn'
+            )
         })
 
         it('leaves Alt with a number-pad digit for Alt codes (Alt+0233 types é)', () => {
@@ -395,5 +432,43 @@ describe('app zoom shortcuts', () => {
         expect(matchKeybind(keyEvent('0', { ctrl: true }, canvas), bindings)).toBeNull()
         // Other shortcuts still work there.
         expect(matchKeybind(keyEvent('s', { ctrl: true }, canvas), bindings)).toBe('document.save')
+    })
+})
+
+describe('recordedChord', () => {
+    const bindings = createDefaultKeybinds(false)
+
+    it('saves the digit for a digit key that types a symbol, so it works on any layout', () => {
+        // AZERTY: the 1 key types "&", and with Shift the digit itself.
+        expect(recordedChord(keyEvent('&', { ctrl: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', ctrl: true })
+        expect(recordedChord(keyEvent('&', { alt: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', alt: true })
+        expect(recordedChord(keyEvent('6', { ctrl: true, shift: true, code: 'Digit6' }), bindings)).toEqual({ key: '6', ctrl: true, shift: true })
+        // US: Shift+1 types "!".
+        expect(recordedChord(keyEvent('!', { ctrl: true, shift: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', ctrl: true, shift: true })
+    })
+
+    it('saves the key as typed when that is already a shortcut, as pressing the key runs that one', () => {
+        // AZERTY: the 6 key types "-", so Ctrl with it zooms out, and Alt with it zooms the diagram out.
+        const ctrlSix = keyEvent('-', { ctrl: true, code: 'Digit6' })
+        expect(recordedChord(ctrlSix, bindings)).toEqual({ key: '-', ctrl: true })
+        expect(matchKeybind(ctrlSix, bindings)).toBe('view.appZoomOut')
+        expect(recordedChord(keyEvent('-', { alt: true, code: 'Digit6' }), bindings)).toEqual({ key: '-', alt: true })
+        // Czech: the 1 key types "+".
+        expect(recordedChord(keyEvent('+', { ctrl: true, code: 'Digit1' }), bindings)).toEqual({ key: '+', ctrl: true })
+        // Swiss: Shift+1 types "+", which counts as Ctrl+Plus too.
+        expect(recordedChord(keyEvent('+', { ctrl: true, shift: true, code: 'Digit1' }), bindings)).toEqual({ key: '+', ctrl: true })
+    })
+
+    it('saves the digit once nothing has the key as typed', () => {
+        const noZoomOut = { ...bindings, 'view.appZoomOut': [] }
+        expect(recordedChord(keyEvent('-', { ctrl: true, code: 'Digit6' }), noZoomOut)).toEqual({ key: '6', ctrl: true })
+    })
+
+    it('saves the physical key on a non-Latin layout, and other keys as typed', () => {
+        expect(recordedChord(keyEvent('ы', { ctrl: true, code: 'KeyS' }), bindings)).toEqual({ key: 's', ctrl: true })
+        expect(recordedChord(keyEvent('F2', { code: 'F2' }), bindings)).toEqual({ key: 'F2' })
+        expect(recordedChord(keyEvent('o', { ctrl: true, code: 'KeyS' }), bindings)).toEqual({ key: 'o', ctrl: true })
+        // Left for the recorder to refuse.
+        expect(recordedChord(keyEvent('Dead', { ctrl: true, code: 'BracketLeft' }), bindings)).toEqual({ key: 'Dead', ctrl: true })
     })
 })

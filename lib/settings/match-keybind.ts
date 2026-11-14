@@ -1,4 +1,4 @@
-import { getKeybindActionMeta, isEditorAction, type KeybindActionMeta } from '@/lib/settings/keybind-registry'
+import { getKeybindActionMeta, isEditorAction, KEYBIND_ACTIONS, type KeybindActionMeta } from '@/lib/settings/keybind-registry'
 import {
     chordsEqual,
     hasCommandModifier,
@@ -34,23 +34,44 @@ export function isInCodeEditorText(target: EventTarget | null): boolean {
     return isInside(target, CODE_EDITOR_TEXT)
 }
 
-/**
- * The chords a key press can stand for, best match first: as typed, plus the physical key when the
- * layout gets in the way. A dead key or an unknown key only stands for its physical key, when it has one.
- */
-function eventToChords(event: KeyboardEvent): KeybindChord[] {
-    const pressed: KeybindChord = {
-        key: event.key,
+function pressedChord(event: KeyboardEvent, key = event.key): KeybindChord {
+    return {
+        key,
         ctrl: event.ctrlKey || undefined,
         meta: event.metaKey || undefined,
         shift: event.shiftKey || undefined,
         alt: event.altKey || undefined,
     }
-    const candidates = isUnnamedKey(pressed.key) ? [] : [pressed]
+}
+
+/** The chords a key press stands for as typed. A dead key or an unknown key stands for none. */
+function typedChords(event: KeyboardEvent): KeybindChord[] {
+    const pressed = pressedChord(event)
+    if (isUnnamedKey(pressed.key)) return []
     // Plus is Shift+= on US and UK keyboards, so Ctrl+Shift+= is Ctrl+Plus too, as in browsers.
-    if (pressed.key === '+' && pressed.shift) candidates.push({ ...pressed, shift: undefined })
+    return pressed.key === '+' && pressed.shift ? [pressed, { ...pressed, shift: undefined }] : [pressed]
+}
+
+/**
+ * The chords a key press can stand for, best match first: as typed, plus the physical key when the
+ * layout gets in the way. A dead key or an unknown key only stands for its physical key, when it has one.
+ */
+function eventToChords(event: KeyboardEvent): KeybindChord[] {
     const fallback = physicalKeyFallback(event)
-    return fallback ? [...candidates, { ...pressed, key: fallback }] : candidates
+    return fallback ? [...typedChords(event), pressedChord(event, fallback)] : typedChords(event)
+}
+
+/**
+ * The chord to save when a key is pressed while recording a shortcut. On non-Latin layouts and for
+ * the digit keys that's the physical key, so it works on any layout. But the key as typed is matched
+ * first, so when that is already a shortcut, it's saved instead and the clash shows: on AZERTY the 6
+ * key types "-", and Ctrl+- zooms out.
+ */
+export function recordedChord(event: KeyboardEvent, bindings: KeybindBindings): KeybindChord {
+    const fallback = physicalKeyFallback(event)
+    if (!fallback) return pressedChord(event)
+    const isBound = (chord: KeybindChord) => KEYBIND_ACTIONS.some(({ id }) => bindings[id]?.some((bound) => chordsEqual(bound, chord)))
+    return typedChords(event).find(isBound) ?? pressedChord(event, fallback)
 }
 
 function isInside(target: EventTarget | null, selector: string): boolean {

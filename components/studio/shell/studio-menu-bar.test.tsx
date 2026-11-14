@@ -382,7 +382,7 @@ describe('StudioMenuBar File menu', () => {
 
         const file = await openMenu('File')
         expect(menuLabels(file)).toEqual([
-            'New Diagram…Ctrl+Alt+N',
+            'New Diagram…Alt+N',
             'New Document…Ctrl+N',
             'New Folder…',
             'Open Folder…',
@@ -397,7 +397,7 @@ describe('StudioMenuBar File menu', () => {
             'ExitAlt+F4',
         ])
         for (const name of [
-            'New Diagram… Ctrl+Alt+N',
+            'New Diagram… Alt+N',
             'New Document… Ctrl+N',
             'New Folder…',
             'Save Ctrl+S',
@@ -780,7 +780,7 @@ describe('StudioMenuBar View menu', () => {
         render(<Studio />)
 
         const view = await openMenu('View')
-        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram In Alt+=' })).toBeInTheDocument()
+        expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram In Alt+= or Alt+Plus' })).toBeInTheDocument()
         expect(within(view).getByRole('menuitem', { name: 'Zoom Diagram Out Alt+-' })).toBeInTheDocument()
         await userEvent.setup().click(within(view).getByRole('menuitem', { name: 'Reset Diagram Zoom Alt+0' }))
 

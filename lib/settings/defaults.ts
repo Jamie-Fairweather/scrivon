@@ -19,10 +19,10 @@ function chord(key: string, modifiers: Partial<Omit<KeybindChord, 'key'>> = {}):
  */
 export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
     const mod = isMac ? { meta: true } : { ctrl: true }
-    // Ctrl+=, Ctrl+- and Ctrl+0 are left for zooming the whole app. Not Ctrl+Alt: on Windows that is
-    // AltGr on many keyboards (UK, German, Spanish…), where it types characters. Alt alone never
-    // types on Windows. On a Mac, Option alone does (Option+= is ≠), so Cmd+Option there.
-    const diagramZoom = isMac ? { meta: true, alt: true } : { alt: true }
+    // Alt alone never types on Windows. Ctrl+Alt is AltGr on many keyboards (UK, German, Polish…),
+    // where it types characters: AltGr+N is ń on Polish. On a Mac, Option alone types (Option+= is ≠),
+    // so Cmd+Option there.
+    const altMod = isMac ? { meta: true, alt: true } : { alt: true }
 
     const bindings: KeybindBindings = {
         'document.save': [chord('s', mod)],
@@ -42,16 +42,18 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.appZoomIn': [chord('=', mod), chord('+', mod)],
         'view.appZoomOut': [chord('-', mod)],
         'view.appZoomReset': [chord('0', mod)],
-        'view.zoomDiagramIn': [chord('=', diagramZoom)],
-        'view.zoomDiagramOut': [chord('-', diagramZoom)],
-        'view.resetDiagramZoom': [chord('0', diagramZoom)],
+        // Ctrl+=, Ctrl+- and Ctrl+0 are left for the app zoom. Alt+Plus too, as with Ctrl+Plus above.
+        'view.zoomDiagramIn': [chord('=', altMod), chord('+', altMod)],
+        'view.zoomDiagramOut': [chord('-', altMod)],
+        'view.resetDiagramZoom': [chord('0', altMod)],
         'view.focusExplorer': [chord('e', { ...mod, shift: true })],
         'view.focusEditor': [chord('1', mod)],
         'view.focusPreview': [chord('2', mod)],
         'view.focusNextPane': [chord('F6')],
         'view.focusPreviousPane': [chord('F6', { shift: true })],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
-        'workspace.newDiagram': [chord('n', { ...mod, alt: true })],
+        // N isn't the first letter of a menu (File, Edit, View, Options, Help), so it won't clash with menu keys.
+        'workspace.newDiagram': [chord('n', altMod)],
         'workspace.newDocument': [chord('n', mod)],
         'workspace.newFolder': [],
         'tabs.close': [chord('w', mod)],

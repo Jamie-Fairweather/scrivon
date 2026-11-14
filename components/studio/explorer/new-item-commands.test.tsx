@@ -35,7 +35,7 @@ describe('buildNewItemCommands', () => {
         const commands = buildNewItemCommands(context())
         const keybinds = createDefaultKeybinds(false)
         expect(commands.map((c) => [c.label, commandShortcut(c, keybinds, false)])).toEqual([
-            ['New Diagram…', 'Ctrl+Alt+N'],
+            ['New Diagram…', 'Alt+N'],
             ['New Document…', 'Ctrl+N'],
             ['New Folder…', undefined],
         ])
