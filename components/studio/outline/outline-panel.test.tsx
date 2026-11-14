@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { trackEditorCursor, type CursorSource } from '@/components/studio/editor/editor-cursor'
 import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
+import { focusPane } from '@/components/studio/shell/pane-focus'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { OutlinePanel } from './outline-panel'
 
@@ -236,5 +237,25 @@ describe('OutlinePanel', () => {
         render(<OutlinePanel />)
         await userEvent.setup().click(screen.getByRole('button', { name: 'Hide Outline' }))
         expect(mocks.setOutlineOpen).toHaveBeenCalledWith(false)
+    })
+
+    it("is a pane F6 reaches, landing on the heading you're in, else on its own button", () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        const view = render(<OutlinePanel />)
+        act(() => setEditorCursorLine(6))
+
+        act(() => {
+            expect(focusPane('outline')).toBe(true)
+        })
+        expect(screen.getByRole('button', { name: 'Windows' })).toHaveFocus()
+        // Named, so a screen reader can tell it from the explorer.
+        expect(screen.getByRole('complementary', { name: 'Outline' })).toContainElement(screen.getByRole('button', { name: 'Windows' }))
+
+        mocks.activeTab = null
+        view.rerender(<OutlinePanel />)
+        act(() => {
+            focusPane('outline')
+        })
+        expect(screen.getByRole('button', { name: 'Hide Outline' })).toHaveFocus()
     })
 })

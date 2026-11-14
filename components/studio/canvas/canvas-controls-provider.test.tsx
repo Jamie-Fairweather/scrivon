@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import { memo, useState } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CanvasControlsProvider, useCanvasControls } from './canvas-controls-provider'
 
 describe('CanvasControlsProvider', () => {
@@ -38,5 +38,28 @@ describe('CanvasControlsProvider', () => {
         act(() => controls!.setCanFitToView(true))
         expect(renders).toBe(2)
         expect(screen.getByText('can fit')).toBeInTheDocument()
+    })
+
+    it('zooms the diagram on screen, and does nothing once that canvas has gone (F06)', () => {
+        let controls: ReturnType<typeof useCanvasControls> | null = null
+        function Consumer() {
+            controls = useCanvasControls()
+            return null
+        }
+        render(
+            <CanvasControlsProvider>
+                <Consumer />
+            </CanvasControlsProvider>
+        )
+        const zoom = vi.fn()
+
+        const unregister = controls!.registerZoomDiagram(zoom)
+        controls!.zoomDiagram('in')
+        controls!.zoomDiagram('reset')
+        expect(zoom.mock.calls).toEqual([['in'], ['reset']])
+
+        unregister()
+        controls!.zoomDiagram('out')
+        expect(zoom).toHaveBeenCalledTimes(2)
     })
 })

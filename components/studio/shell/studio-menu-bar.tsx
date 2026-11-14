@@ -7,6 +7,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { useCommands, type ShownCommand } from '@/components/studio/commands/command-registry'
+import { PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { displayPath } from '@/lib/workspace/display-path'
 import { folderLabels } from '@/lib/workspace/paths'
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
@@ -82,9 +83,10 @@ function CheckboxLabelWithHint({ label, shortcut }: { label: string; shortcut: s
 
 /**
  * A menu item for a shared command, with the same label, tick, shortcut and enabled state as the
- * palette shows. Nothing shows while no feature has registered the command.
+ * palette shows. Nothing shows while no feature has registered the command. `label` replaces the
+ * command's own where its submenu already says it (`PDF…` under Export).
  */
-function CommandMenuItem({ command, variant }: { command: ShownCommand | undefined; variant?: 'switch' }) {
+function CommandMenuItem({ command, variant, label }: { command: ShownCommand | undefined; variant?: 'switch'; label?: string }) {
     if (!command) return null
     const run = () => void command.run()
     if (command.checked !== undefined) {
@@ -96,9 +98,53 @@ function CommandMenuItem({ command, variant }: { command: ShownCommand | undefin
     }
     return (
         <MenuItem disabled={command.disabled} onClick={run}>
-            {command.label}
+            {label ?? command.label}
             <MenuHint shortcut={command.shortcut} />
         </MenuItem>
+    )
+}
+
+/** True when none of these commands can run (or none is registered). */
+function allOff(commands: (ShownCommand | undefined)[]): boolean {
+    return commands.every((command) => !command || command.disabled)
+}
+
+/**
+ * File → Export: each kind of export, greyed out when the active tab can't do it. The export
+ * provider registers these commands only while a folder is open, so it's left out until then.
+ */
+function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
+    const png = PNG_SCALES.map((scale) => byId.get(`export-png-${scale}`))
+    const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg'].map((id) => byId.get(id))
+    if (!byId.has('export')) return null
+    return (
+        <>
+            <MenuSeparator />
+            <MenuSub>
+                <MenuSubTrigger disabled={allOff([...others, ...png])}>Export</MenuSubTrigger>
+                <MenuSubPopup className="min-w-48">
+                    <MenuGroup>
+                        <CommandMenuItem command={byId.get('export-pdf')} label="PDF…" />
+                        <CommandMenuItem command={byId.get('export-docx')} label="Word…" />
+                        <CommandMenuItem command={byId.get('export-html')} label="HTML…" />
+                    </MenuGroup>
+                    <MenuSeparator />
+                    <MenuGroup>
+                        <CommandMenuItem command={byId.get('export-svg')} label="Diagram as SVG…" />
+                        <MenuSub>
+                            <MenuSubTrigger disabled={allOff(png)}>Diagram as PNG</MenuSubTrigger>
+                            <MenuSubPopup className="min-w-36">
+                                <MenuGroup>
+                                    {png.map((command, index) => (
+                                        <CommandMenuItem key={PNG_SCALES[index]} command={command} label={`${PNG_SCALES[index]}×…`} />
+                                    ))}
+                                </MenuGroup>
+                            </MenuSubPopup>
+                        </MenuSub>
+                    </MenuGroup>
+                </MenuSubPopup>
+            </MenuSub>
+        </>
     )
 }
 
@@ -129,6 +175,12 @@ export function StudioMenuBar() {
             <nav aria-label="Application menu" className={cn('flex shrink-0 items-center px-1', TITLEBAR_MENUS_BLOCKED_CLASS)}>
                 <Menubar ref={menubarRef} modal={false} className="flex items-center gap-0.5">
                     <MenuBarEntry label="File" focusAfterCommand={focusAfterCommand}>
+                        <MenuGroup>
+                            {item('new-diagram')}
+                            {item('new-document')}
+                            {item('new-folder')}
+                        </MenuGroup>
+                        <MenuSeparator />
                         <MenuGroup>
                             {item('open-folder')}
                             {item('close-folder')}
@@ -186,9 +238,19 @@ export function StudioMenuBar() {
                         <MenuGroup>
                             {item('save')}
                             {item('save-all')}
+                            {item('revert-file')}
+                        </MenuGroup>
+                        <ExportSubmenu byId={byId} />
+                        <MenuSeparator />
+                        <MenuGroup>
+                            {item('close-tab')}
+                            {item('reopen-closed-tab')}
                         </MenuGroup>
                         <MenuSeparator />
-                        {item('close-tab')}
+                        <MenuGroup>
+                            {item('next-tab')}
+                            {item('previous-tab')}
+                        </MenuGroup>
                         <MenuSeparator />
                         {item('exit')}
                     </MenuBarEntry>
@@ -221,6 +283,7 @@ export function StudioMenuBar() {
                             <MenuGroup>
                                 {item('toggle-explorer')}
                                 {item('toggle-editor')}
+                                {item('toggle-preview')}
                                 {item('toggle-outline')}
                             </MenuGroup>
                             <MenuSeparator />
@@ -230,7 +293,12 @@ export function StudioMenuBar() {
                                 {item('preview-only')}
                             </MenuGroup>
                             <MenuSeparator />
-                            {item('fit-diagram')}
+                            <MenuGroup>
+                                {item('fit-diagram')}
+                                {item('zoom-diagram-in')}
+                                {item('zoom-diagram-out')}
+                                {item('reset-diagram-zoom')}
+                            </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
                                 {item('app-zoom-in')}
@@ -249,6 +317,13 @@ export function StudioMenuBar() {
                     </MenuBarEntry>
 
                     <MenuBarEntry label="Help" focusAfterCommand={focusAfterCommand}>
+                        {/* Only the desktop app registers it. */}
+                        {byId.has('check-for-updates') && (
+                            <>
+                                {item('check-for-updates')}
+                                <MenuSeparator />
+                            </>
+                        )}
                         <MenuGroup>
                             {item('about')}
                             {item('licences')}

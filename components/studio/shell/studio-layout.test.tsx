@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import type { DocumentTab } from '@/lib/workspace/types'
 
-type Layout = { explorerOpen: boolean; editorOpen: boolean; outlineOpen?: boolean }
+type Layout = { explorerOpen: boolean; editorOpen: boolean; previewOpen: boolean; outlineOpen?: boolean }
 
 let tabs: DocumentTab[] = []
 let activeTabId: string | null = null
-let layout: Layout = { explorerOpen: true, editorOpen: true }
+let layout: Layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
 /** The pan and zoom memory each canvas mount was given. */
 const canvasMemories: (PanZoomMemory | undefined)[] = []
 /** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
@@ -44,10 +44,18 @@ vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
 vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({
     MarkdownDocumentViewer: ({ source }: { source: string }) => {
         if (source === BROKEN) throw new Error('Maximum call stack size exceeded')
-        return <div>Markdown preview</div>
+        return (
+            <>
+                <div>Markdown preview</div>
+                <a href="#install">Install link</a>
+            </>
+        )
     },
 }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
+vi.mock('@/components/studio/editor/document-export-provider', () => ({
+    DocumentExportProvider: ({ children }: { children: ReactNode }) => children,
+}))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
 vi.mock('@/components/studio/editor/use-editor-panel-layout', () => ({
@@ -69,12 +77,12 @@ vi.mock('@/components/studio/outline/outline-panel', () => ({
 }))
 // Stands in for Monaco: hidden (not unmounted) when the editor is switched off, like the real panel.
 vi.mock('@/components/studio/editor/code-editor-panel', () => ({
-    CodeEditorPanel: ({ open = true }: { open?: boolean }) => {
+    CodeEditorPanel: ({ open = true, fill = false }: { open?: boolean; fill?: boolean }) => {
         useEffect(() => {
             mounts.editor++
         }, [])
         return (
-            <div data-slot="code-editor" className={open ? undefined : 'hidden'}>
+            <div data-slot="code-editor" data-fill={fill} className={open ? undefined : 'hidden'}>
                 {activeTabId && <textarea aria-label="Editor" />}
             </div>
         )
@@ -84,6 +92,7 @@ vi.mock('@/components/studio/editor/code-editor-panel', () => ({
 vi.mock('@/components/studio/shell/studio-status-bar', () => ({ StudioStatusBar: () => <footer aria-label="Status bar" /> }))
 
 const { StudioLayout } = await import('./studio-layout')
+const { focusPane } = await import('./pane-focus')
 
 function tab(path: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content: '', isDirty: false, isSaving: false }
@@ -94,7 +103,7 @@ const originalMatchMedia = window.matchMedia
 beforeEach(() => {
     tabs = [tab('/w/a.md')]
     activeTabId = '/w/a.md'
-    layout = { explorerOpen: true, editorOpen: true }
+    layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
     mounts.editor = 0
     mounts.canvas = 0
     canvasMemories.length = 0
@@ -122,7 +131,7 @@ describe('StudioLayout explorer', () => {
     })
 
     it('hides the explorer when it is switched off', () => {
-        layout = { explorerOpen: false, editorOpen: true }
+        layout = { explorerOpen: false, editorOpen: true, previewOpen: true }
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Explorer' })).not.toBeInTheDocument()
     })
@@ -130,7 +139,7 @@ describe('StudioLayout explorer', () => {
 
 describe('StudioLayout Outline panel', () => {
     it('shows the Outline panel between the explorer and the editor when it is switched on', () => {
-        layout = { explorerOpen: true, editorOpen: true, outlineOpen: true }
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: true }
         render(<StudioLayout />)
 
         const explorer = screen.getByRole('navigation', { name: 'Explorer' })
@@ -143,6 +152,61 @@ describe('StudioLayout Outline panel', () => {
     it('hides the Outline panel when it is switched off', () => {
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Outline' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout landmarks and panes', () => {
+    it('has exactly one main landmark, holding the tabs, the editor and the preview', () => {
+        render(<StudioLayout />)
+
+        const [main, ...more] = screen.getAllByRole('main')
+        expect(more).toHaveLength(0)
+        expect(main).toContainElement(screen.getByRole('tab', { name: 'a.md' }))
+        expect(main).toContainElement(screen.getByRole('textbox', { name: 'Editor' }))
+        expect(main).toContainElement(screen.getByRole('region', { name: 'Preview' }))
+        expect(main).not.toContainElement(screen.getByRole('navigation', { name: 'Explorer' }))
+    })
+
+    it('lets the keyboard reach the preview, even when nothing in it can take focus', () => {
+        render(<StudioLayout />)
+        const preview = screen.getByRole('region', { name: 'Preview' })
+
+        act(() => {
+            expect(focusPane('preview')).toBe(true)
+        })
+        expect(preview).toHaveFocus()
+        expect(preview).toContainElement(screen.getByText('Markdown preview'))
+    })
+})
+
+describe('StudioLayout preview', () => {
+    it('shows the preview beside an editor of its own width', () => {
+        render(<StudioLayout />)
+        expect(screen.getByText('Markdown preview')).toBeInTheDocument()
+        expect(document.querySelector('[data-slot="code-editor"]')).toHaveAttribute('data-fill', 'false')
+    })
+
+    it('hides the preview and lets the editor fill the space, keeping the editor mounted', () => {
+        const view = render(<StudioLayout />)
+
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: false }
+        view.rerender(<StudioLayout />)
+        expect(screen.queryByText('Markdown preview')).toBeNull()
+        expect(screen.queryByRole('region', { name: 'Preview' })).toBeNull()
+        expect(document.querySelector('[data-slot="code-editor"]')).toHaveAttribute('data-fill', 'true')
+
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
+        view.rerender(<StudioLayout />)
+        expect(screen.getByText('Markdown preview')).toBeInTheDocument()
+        expect(mounts.editor).toBe(1)
+    })
+
+    it('hides the diagram too', () => {
+        tabs = [tab('/w/x.mmd')]
+        activeTabId = '/w/x.mmd'
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: false }
+        render(<StudioLayout />)
+        expect(screen.queryByText('Diagram preview')).toBeNull()
     })
 })
 
@@ -281,7 +345,17 @@ describe('StudioLayout keeps keyboard focus', () => {
         const view = render(<StudioLayout />)
         focus(screen.getByRole('textbox', { name: 'Editor' }))
 
-        layout = { explorerOpen: true, editorOpen: false }
+        layout = { explorerOpen: true, editorOpen: false, previewOpen: true }
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())
+    })
+
+    it('moves focus to the active tab when the preview is hidden while it has focus', async () => {
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('link', { name: 'Install link' }))
+
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: false }
         view.rerender(<StudioLayout />)
 
         await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())
@@ -291,18 +365,18 @@ describe('StudioLayout keeps keyboard focus', () => {
         const view = render(<StudioLayout />)
         focus(screen.getByRole('button', { name: 'notes.md' }))
 
-        layout = { explorerOpen: false, editorOpen: true }
+        layout = { explorerOpen: false, editorOpen: true, previewOpen: true }
         view.rerender(<StudioLayout />)
 
         await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())
     })
 
     it('moves focus to the active tab when the Outline panel is hidden while it has focus', async () => {
-        layout = { explorerOpen: true, editorOpen: true, outlineOpen: true }
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: true }
         const view = render(<StudioLayout />)
         focus(screen.getByRole('button', { name: 'Install' }))
 
-        layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: false }
         view.rerender(<StudioLayout />)
 
         await waitFor(() => expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus())

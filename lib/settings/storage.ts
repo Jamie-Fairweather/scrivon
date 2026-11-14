@@ -8,6 +8,7 @@ import {
     mergeStoredSettings,
     migrateLegacySettings,
 } from '@/lib/settings/migrate'
+import { mirrorSettingsFile } from '@/lib/settings/settings-file'
 import type { AppSettings } from '@/lib/settings/types'
 import { SETTINGS_STORAGE_KEY } from '@/lib/settings/types'
 
@@ -58,7 +59,8 @@ type StoredSettings = {
 /** The settings last read or written, so a save keeps what this version doesn't know about. */
 let lastStored: StoredSettings | null = null
 
-function isRecord(value: unknown): value is StoredRecord {
+/** A JSON object: not null, and not an array. */
+export function isRecord(value: unknown): value is StoredRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -114,6 +116,8 @@ export function loadSettingsWithRecovery(): LoadedSettings {
         if (stored) {
             keepNewerVersionCopy(stored)
             if (readItem(SETTINGS_BACKUP_KEY) !== raw) writeItem(SETTINGS_BACKUP_KEY, raw)
+            // Settings saved before settings.json existed get their copy now, not at the first change.
+            mirrorSettingsFile(stored.raw)
             lastStored = stored
             return { settings: stored.settings, recovery: null }
         }
@@ -213,13 +217,21 @@ function withoutKeybinds(value: object): StoredRecord {
     return copy
 }
 
+/**
+ * Settings as they are saved: only the shortcuts the user changed, so later default changes still reach
+ * them, and the schema version. Settings files exported from Settings hold this too.
+ */
+export function settingsToStore(settings: AppSettings, isMac = isMacPlatform()): StoredRecord {
+    const overrides = keybindOverrides(settings.keybinds, createDefaultKeybinds(isMac))
+    return { ...withoutKeybinds(settings), keybinds: overrides, schemaVersion: SETTINGS_SCHEMA_VERSION }
+}
+
 /** What to write for these settings, keeping fields, values and shortcuts from a newer version. */
 function toStored(settings: AppSettings, isMac: boolean): StoredRecord {
     const defaults = createDefaultKeybinds(isMac)
-    // Only changed shortcuts are stored, so later default changes still reach this user.
     const overrides = keybindOverrides(settings.keybinds, defaults)
     const base = currentStored(isMac)
-    if (!base) return { ...withoutKeybinds(settings), keybinds: overrides, schemaVersion: SETTINGS_SCHEMA_VERSION }
+    if (!base) return settingsToStore(settings, isMac)
 
     const merged = mergeOntoStored(withoutKeybinds(base.raw), withoutKeybinds(base.settings), withoutKeybinds(settings)) as StoredRecord
     // Shortcuts for actions this version doesn't have are kept as they were.
@@ -238,6 +250,7 @@ export function saveSettings(settings: AppSettings): void {
         const text = JSON.stringify(raw)
         localStorage.setItem(SETTINGS_STORAGE_KEY, text)
         lastStored = { text, raw, settings }
+        mirrorSettingsFile(raw)
         writeItem(SETTINGS_PDF_EXPORT_KEY, JSON.stringify(raw.pdfExport))
         dualWriteLegacyTheme(settings.theme.id)
         dualWriteLegacyLayout(settings.layout)

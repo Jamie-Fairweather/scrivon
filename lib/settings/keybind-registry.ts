@@ -4,7 +4,7 @@ import { OWN_ZOOM_SELECTOR } from '@/lib/zoom/app-zoom'
 export type KeybindActionMeta = {
     id: KeybindActionId
     label: string
-    category: 'Document' | 'Navigation' | 'View' | 'Workspace'
+    category: 'Document' | 'Navigation' | 'Tabs' | 'View' | 'Workspace'
     when: KeybindWhen
     /** When true, shortcut fires even inside native text fields (e.g. F1). */
     allowInNativeTextField?: boolean
@@ -14,6 +14,8 @@ export type KeybindActionMeta = {
     allowInModal?: boolean
     /** A CSS selector: inside a focused element that matches it, the keys are left to that element. */
     leaveInside?: string
+    /** When true, holding the keys down fires the shortcut again and again (e.g. moving through tabs). */
+    allowRepeat?: boolean
 }
 
 /** App zoom works everywhere, dialogs too, but the diagram canvas, whose own zoom wins while it has focus. */
@@ -24,6 +26,8 @@ const APP_ZOOM_META = {
     allowInPalette: true,
     allowInModal: true,
     leaveInside: OWN_ZOOM_SELECTOR,
+    // Hold the keys to keep zooming, as in a browser.
+    allowRepeat: true,
 } as const
 
 /**
@@ -33,17 +37,35 @@ const APP_ZOOM_META = {
 const KEYBIND_ACTION_META = {
     'document.save': { label: 'Save active document', category: 'Document', when: 'global' },
     'workspace.saveAll': { label: 'Save all documents', category: 'Document', when: 'workspace' },
+    'document.export': { label: 'Export document', category: 'Document', when: 'workspace' },
+    'workspace.newDiagram': { label: 'New diagram', category: 'Workspace', when: 'workspace' },
+    'workspace.newDocument': { label: 'New document', category: 'Workspace', when: 'workspace' },
+    'workspace.newFolder': { label: 'New folder', category: 'Workspace', when: 'workspace' },
     'settings.open': { label: 'Open settings', category: 'Navigation', when: 'global' },
     'palette.open': { label: 'Open command palette', category: 'Navigation', when: 'global', allowInNativeTextField: true, allowInPalette: true },
     'palette.openText': { label: 'Find in workspace', category: 'Navigation', when: 'global', allowInPalette: true },
     'palette.openFiles': { label: 'Go to file', category: 'Navigation', when: 'global', allowInPalette: true },
+    'tabs.close': { label: 'Close tab', category: 'Tabs', when: 'workspace' },
+    'tabs.next': { label: 'Next tab', category: 'Tabs', when: 'workspace', allowRepeat: true },
+    'tabs.previous': { label: 'Previous tab', category: 'Tabs', when: 'workspace', allowRepeat: true },
+    'tabs.reopenClosed': { label: 'Reopen closed tab', category: 'Tabs', when: 'workspace' },
     'view.toggleExplorer': { label: 'Toggle explorer', category: 'View', when: 'workspace' },
     'view.toggleEditor': { label: 'Toggle editor', category: 'View', when: 'workspace' },
+    'view.togglePreview': { label: 'Toggle preview', category: 'View', when: 'workspace' },
     'view.previewOnly': { label: 'Preview only layout', category: 'View', when: 'workspace' },
     'view.fitDiagram': { label: 'Fit diagram to screen', category: 'View', when: 'workspace' },
     'view.appZoomIn': { label: 'Zoom in', ...APP_ZOOM_META },
     'view.appZoomOut': { label: 'Zoom out', ...APP_ZOOM_META },
     'view.appZoomReset': { label: 'Reset zoom', ...APP_ZOOM_META },
+    'view.zoomDiagramIn': { label: 'Zoom diagram in', category: 'View', when: 'workspace' },
+    'view.zoomDiagramOut': { label: 'Zoom diagram out', category: 'View', when: 'workspace' },
+    'view.resetDiagramZoom': { label: 'Reset diagram zoom to 100%', category: 'View', when: 'workspace' },
+    'view.focusExplorer': { label: 'Focus explorer', category: 'Navigation', when: 'workspace' },
+    'view.focusEditor': { label: 'Focus editor', category: 'Navigation', when: 'workspace' },
+    'view.focusPreview': { label: 'Focus preview', category: 'Navigation', when: 'workspace' },
+    // F6 never types anything, so it also gets out of a text box.
+    'view.focusNextPane': { label: 'Focus next pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
+    'view.focusPreviousPane': { label: 'Focus previous pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
 
 export const KEYBIND_ACTIONS: KeybindActionMeta[] = (Object.keys(KEYBIND_ACTION_META) as KeybindActionId[]).map((id) => ({

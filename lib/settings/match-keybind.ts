@@ -2,6 +2,7 @@ import { getKeybindActionMeta, type KeybindActionMeta } from '@/lib/settings/key
 import {
     chordsEqual,
     hasCommandModifier,
+    isAltCodeKey,
     isComposingKeyEvent,
     isFunctionKey,
     isModifierKey,
@@ -67,9 +68,9 @@ export type MatchKeybindOptions = {
 
 export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, options: MatchKeybindOptions = {}): KeybindActionId | null {
     // A modifier or lock key on its own (AltGr, CapsLock…) is never a shortcut.
-    if (event.repeat || isModifierKey(event.key)) return null
-    // Keys that are part of IME input, or characters typed with AltGr, are text, not shortcuts.
-    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event)) return null
+    if (isModifierKey(event.key)) return null
+    // Keys that are part of IME input, characters typed with AltGr, and Alt codes are text, not shortcuts.
+    if (isComposingKeyEvent(event) || typesAltGraphCharacter(event) || isAltCodeKey(event)) return null
 
     const pressed = eventToChords(event)
     if (pressed.length === 0) return null
@@ -86,7 +87,8 @@ export function matchKeybind(event: KeyboardEvent, bindings: KeybindBindings, op
     // The key as typed wins, so a shortcut bound to it isn't taken by one that only matches a looser reading.
     for (const candidate of pressed) {
         const match = actions.find(([, chords]) => chords.some((chord) => chordsEqual(candidate, chord)))
-        if (match) return match[0]
+        // Holding the keys down fires only the shortcuts that are meant to repeat.
+        if (match) return event.repeat && !getKeybindActionMeta(match[0])?.allowRepeat ? null : match[0]
     }
 
     return null

@@ -132,6 +132,18 @@ describe('mergeStoredSettings', () => {
         expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
     })
 
+    it('shows the preview by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: 'no' } }, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: false } }, false).layout.previewOpen).toBe(false)
+        expect(migrateLegacySettings(() => null, false).layout.previewOpen).toBe(true)
+    })
+
+    it('shows the preview when the editor is hidden too, so the window is never empty', () => {
+        const layout = mergeStoredSettings({ layout: { editorOpen: false, previewOpen: false } }, false).layout
+        expect(layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
@@ -380,6 +392,7 @@ describe('dualWriteLegacy helpers', () => {
             dualWriteLegacyLayout({
                 explorerOpen: true,
                 editorOpen: false,
+                previewOpen: true,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
                 outlineOpen: false,

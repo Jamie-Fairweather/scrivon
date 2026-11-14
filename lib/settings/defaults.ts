@@ -19,22 +19,45 @@ function chord(key: string, modifiers: Partial<Omit<KeybindChord, 'key'>> = {}):
  */
 export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
     const mod = isMac ? { meta: true } : { ctrl: true }
+    // Ctrl+=, Ctrl+- and Ctrl+0 are left for zooming the whole app. Not Ctrl+Alt: on Windows that is
+    // AltGr on many keyboards (UK, German, Spanish…), where it types characters. Alt alone never
+    // types on Windows. On a Mac, Option alone does (Option+= is ≠), so Cmd+Option there.
+    const diagramZoom = isMac ? { meta: true, alt: true } : { alt: true }
 
     const bindings: KeybindBindings = {
         'document.save': [chord('s', mod)],
+        // X for export. Ctrl+Shift+E is left for showing the explorer, as in VS Code.
+        'document.export': [chord('x', { ...mod, shift: true })],
         'settings.open': [chord(',', mod)],
         'palette.open': [chord('F1')],
         'palette.openText': [chord('f', { ...mod, shift: true })],
         'palette.openFiles': [chord('n', { ...mod, shift: true })],
         'view.toggleExplorer': [chord('b', mod)],
         'view.toggleEditor': [chord('e', mod)],
+        'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.fitDiagram': [chord('r', mod)],
         // Ctrl+Plus is the number pad's plus, a plus key (German), or Ctrl+Shift+= (US, UK): see matchKeybind.
         'view.appZoomIn': [chord('=', mod), chord('+', mod)],
         'view.appZoomOut': [chord('-', mod)],
         'view.appZoomReset': [chord('0', mod)],
+        'view.zoomDiagramIn': [chord('=', diagramZoom)],
+        'view.zoomDiagramOut': [chord('-', diagramZoom)],
+        'view.resetDiagramZoom': [chord('0', diagramZoom)],
+        'view.focusExplorer': [chord('e', { ...mod, shift: true })],
+        'view.focusEditor': [chord('1', mod)],
+        'view.focusPreview': [chord('2', mod)],
+        'view.focusNextPane': [chord('F6')],
+        'view.focusPreviousPane': [chord('F6', { shift: true })],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
+        'workspace.newDiagram': [chord('n', { ...mod, alt: true })],
+        'workspace.newDocument': [chord('n', mod)],
+        'workspace.newFolder': [],
+        'tabs.close': [chord('w', mod)],
+        // Ctrl+Tab on macOS too, as browsers there use it: Cmd+Tab switches apps.
+        'tabs.next': [chord('Tab', { ctrl: true }), chord('PageDown', mod)],
+        'tabs.previous': [chord('Tab', { ctrl: true, shift: true }), chord('PageUp', mod)],
+        'tabs.reopenClosed': [chord('t', { ...mod, shift: true })],
     }
 
     return bindings
@@ -59,6 +82,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
         layout: {
             explorerOpen: true,
             editorOpen: true,
+            previewOpen: true,
             editorWidth: DEFAULT_EDITOR_WIDTH,
             restorePanelsOnOpen: true,
             outlineOpen: false,

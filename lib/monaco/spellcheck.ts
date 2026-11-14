@@ -105,13 +105,15 @@ export function attachSpellcheck(
             if (token.isCancellationRequested) return noActions
             const diagnostics = [toMarker(mark)]
             const versionId = model.getVersionId()
-            const changes = suggestions.map((suggestion, index): languages.CodeAction => ({
-                title: `Change to “${suggestion}”`,
-                kind: 'quickfix',
-                diagnostics,
-                isPreferred: index === 0,
-                edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
-            }))
+            const changes = suggestions.map(
+                (suggestion, index): languages.CodeAction => ({
+                    title: `Change to “${suggestion}”`,
+                    kind: 'quickfix',
+                    diagnostics,
+                    isPreferred: index === 0,
+                    edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
+                })
+            )
             const addTitle = `Add “${dictionaryForm(mark.word)}” to Dictionary`
             const add: languages.CodeAction = {
                 title: addTitle,
