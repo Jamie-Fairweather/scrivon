@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { IDisposable, editor } from 'monaco-editor'
 import type { Monaco } from '@monaco-editor/react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -420,6 +420,13 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const { attach: attachEditorSpellcheck, misspeltWordAt } = useEditorSpellcheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
+    // Monaco sets up Ctrl+. (the quick fix list) for a file when the file is put in the editor, and only if the
+    // editor can be edited at that moment. @monaco-editor/react puts the new file in first and passes on the new
+    // options after, so after a read-only tab (an example, say) Ctrl+. did nothing in the next file. A layout
+    // effect runs before those, so the editor is already editable, or not, when the file goes in.
+    useLayoutEffect(() => {
+        editorRef.current?.updateOptions({ readOnly: isReadOnly, domReadOnly: isReadOnly })
+    }, [isReadOnly])
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
     useEditorCommands(editorPath ? mountedEditor : null, { shown: open, readOnly: isReadOnly, markdown: isMarkdownTab(activeTab) })
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
