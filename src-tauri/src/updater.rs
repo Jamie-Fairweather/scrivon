@@ -35,6 +35,21 @@ struct AttemptRecord {
     to: String,
 }
 
+impl AttemptRecord {
+    /// The record waiting in `dir`, if there is one and it can be read.
+    fn read(dir: &Path) -> Option<Self> {
+        let bytes = std::fs::read(dir.join(ATTEMPT_FILE)).ok()?;
+        serde_json::from_slice(&bytes).ok()
+    }
+
+    /// True when the version has changed since the update started. Updates
+    /// are always newer, so then it installed. The page's message and the
+    /// choice of which files to open both use this, so they always agree.
+    fn installed(&self, current_version: &str) -> bool {
+        self.from != current_version
+    }
+}
+
 /// How the last in-app update went, for the first launch after it.
 #[derive(Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,8 +173,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        attempt_waiting, check_error_message, count_other_instances, install_error_message,
-        install_pending, install_with_record, is_prerelease_build, manifest_endpoints,
+        check_error_message, count_other_instances, install_error_message, install_pending,
+        install_with_record, is_prerelease_build, manifest_endpoints, restarted_after_update,
         take_attempt, ProgressThrottle, UpdateAttempt, UpdateProgress, STABLE_MANIFEST_URL,
     };
 
@@ -266,13 +281,59 @@ mod tests {
     fn the_launch_after_an_update_knows_it_until_the_page_takes_the_record() {
         // So it doesn't reopen the files the installer passes back (see setup in lib.rs).
         let dir = temp_data_dir();
-        assert!(!attempt_waiting(&dir));
+        assert!(!restarted_after_update(&dir, "1.5.0"));
 
         install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
-        assert!(attempt_waiting(&dir));
+        assert!(restarted_after_update(&dir, "1.5.0"));
 
         take_attempt(&dir, "1.5.0");
-        assert!(!attempt_waiting(&dir));
+        assert!(!restarted_after_update(&dir, "1.5.0"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_launch_after_an_update_that_never_installed_is_the_users_own() {
+        // The installer was cancelled, so nothing restarted Scrivon. The user
+        // then double-clicked a file, and that file should open.
+        let dir = temp_data_dir();
+        install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+
+        assert!(!restarted_after_update(&dir, "1.4.2"));
+        // The page still hears that the update didn't install.
+        assert_eq!(
+            take_attempt(&dir, "1.4.2"),
+            Some(UpdateAttempt {
+                version: "1.5.0".into(),
+                installed: false,
+            })
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skipping_files_and_the_pages_message_always_agree() {
+        // Not installed, installed, and a newer one installed by hand.
+        for running in ["1.4.2", "1.5.0", "1.5.1"] {
+            let dir = temp_data_dir();
+            install_with_record(Some(&dir), "1.4.2", "1.5.0", || Ok(())).unwrap();
+
+            let skipped = restarted_after_update(&dir, running);
+            let attempt = take_attempt(&dir, running).unwrap();
+            assert_eq!(skipped, attempt.installed, "running {running}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn a_broken_record_opens_the_files_and_is_cleared() {
+        let dir = temp_data_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(super::ATTEMPT_FILE);
+        std::fs::write(&file, b"not json").unwrap();
+
+        assert!(!restarted_after_update(&dir, "1.5.0"));
+        assert_eq!(take_attempt(&dir, "1.5.0"), None);
+        assert!(!file.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -654,11 +715,11 @@ fn install_with_record(
 
 /// Reads and removes the record of the last update attempt, if there is one.
 fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
-    let file = dir.join(ATTEMPT_FILE);
-    let bytes = std::fs::read(&file).ok()?;
-    let _ = std::fs::remove_file(&file);
-    let record: AttemptRecord = serde_json::from_slice(&bytes).ok()?;
-    let installed = record.from != current_version;
+    let record = AttemptRecord::read(dir);
+    // Removed even when it can't be read, so a broken file isn't read again.
+    let _ = std::fs::remove_file(dir.join(ATTEMPT_FILE));
+    let record = record?;
+    let installed = record.installed(current_version);
     Some(UpdateAttempt {
         version: if installed {
             current_version.to_string()
@@ -669,11 +730,12 @@ fn take_attempt(dir: &Path, current_version: &str) -> Option<UpdateAttempt> {
     })
 }
 
-/// True while the record of an in-app update is waiting for the page to take it
-/// (`take_update_attempt`). Then this launch is most likely the installer
-/// restarting Scrivon after the update.
-pub fn attempt_waiting(dir: &Path) -> bool {
-    dir.join(ATTEMPT_FILE).is_file()
+/// True when this launch is the installer restarting Scrivon after an in-app
+/// update: a record is waiting for the page (`take_update_attempt`) and the
+/// update installed. The installer only restarts Scrivon when it worked, so
+/// otherwise the user started this launch.
+pub fn restarted_after_update(dir: &Path, current_version: &str) -> bool {
+    AttemptRecord::read(dir).is_some_and(|record| record.installed(current_version))
 }
 
 /// Downloads and installs the pending update, telling `on_progress` how the
