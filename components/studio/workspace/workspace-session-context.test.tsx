@@ -2952,6 +2952,59 @@ describe('opening folders one after another', () => {
                 activeTabId: 'C:\\ws\\other.md',
             })
         })
+
+        it("still puts them back when another folder can't be opened meanwhile, and saves its tab list after that", async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+            const { opening } = await startOpening(result)
+
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\missing')
+            })
+            expect(notifyError).toHaveBeenCalledWith("Couldn't open missing", expect.anything(), {})
+            await act(async () => {
+                finishNotes()
+                await opening
+            })
+
+            expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+            await waitFor(() => expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\notes.md']))
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\other.md')
+            })
+            expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('C:\\ws', {
+                tabIds: ['C:\\ws\\notes.md', 'C:\\ws\\other.md'],
+                activeTabId: 'C:\\ws\\other.md',
+            })
+        })
+
+        it('still puts them back when the user stays in the folder rather than leave unsaved changes, and saves its tab list', async () => {
+            settingsState.autosave = { enabled: false, delayMs: 60_000 }
+            const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+            const { opening } = await startOpening(result)
+            await act(async () => {
+                await result.current.tabs.openFile('C:\\ws\\other.md')
+            })
+            act(() => result.current.tabs.updateTabContent('C:\\ws\\other.md', 'edited'))
+
+            await act(async () => {
+                await result.current.session.openWorkspace('C:\\small')
+            })
+            expect(confirmUnsavedChanges).toHaveBeenCalledWith(['other.md'])
+            await act(async () => {
+                finishNotes()
+                await opening
+            })
+
+            expect(result.current.session.workspaceRoot).toBe('C:\\ws')
+            // other.md was opened while they were still being read, so the list is saved once they are back.
+            await waitFor(() =>
+                expect(setWorkspaceTabSession).toHaveBeenCalledWith('C:\\ws', {
+                    tabIds: ['C:\\ws\\notes.md', 'C:\\ws\\other.md'],
+                    activeTabId: 'C:\\ws\\other.md',
+                })
+            )
+            expect(result.current.tabs.tabs.find((t) => t.id === 'C:\\ws\\other.md')).toMatchObject({ content: 'edited', isDirty: true })
+        })
     })
 })
 
@@ -3523,6 +3576,38 @@ describe('opening files from File Explorer', () => {
         )
         expect(result.current.session.workspaceRoot).toBe('D:\\else')
         expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['D:\\else\\x.mmd'])
+        expect(confirmKeptChangesWithoutFolder).not.toHaveBeenCalled()
+    })
+
+    it('still mentions unsaved changes kept for the last folder when a file is dropped while it is being reopened', async () => {
+        vi.mocked(getLastWorkspace).mockResolvedValue('C:\\ws')
+        vi.mocked(listUnsavedBackups).mockResolvedValue([
+            { path: 'C:\\ws\\notes.md', root: 'C:\\ws', content: 'typed before the crash', stamp: { mtimeMs: 1, size: 4 }, savedAt: 1 },
+        ])
+        let finishWs!: () => void
+        const wsRead = new Promise<void>((resolve) => (finishWs = resolve))
+        vi.mocked(readDir).mockImplementation((async (dir: string) => {
+            if (String(dir).toLowerCase().startsWith('c:\\ws')) await wsRead
+            return disk.list(String(dir))
+        }) as unknown as typeof readDir)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.session.openingWorkspace).toBe('C:\\ws'))
+
+        // Dropped on the welcome screen, which shows while the last folder is read.
+        await act(async () => {
+            await result.current.session.openLaunchPaths([file('D:\\else\\x.mmd')])
+        })
+        await act(async () => finishWs())
+
+        await waitFor(() =>
+            expect(notifyWarning).toHaveBeenCalledWith('Unsaved changes from last time', {
+                id: 'recovered-changes',
+                description: 'Scrivon closed before your changes to notes.md in ws were saved. Open the folder to get them back.',
+                timeout: 0,
+                action: { label: 'Open Folder', onClick: expect.any(Function) },
+            })
+        )
+        expect(result.current.session.workspaceRoot).toBe('D:\\else')
         expect(confirmKeptChangesWithoutFolder).not.toHaveBeenCalled()
     })
 
