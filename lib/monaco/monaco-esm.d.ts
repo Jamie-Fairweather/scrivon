@@ -58,6 +58,23 @@ declare module 'monaco-editor/platform/commands/common/commands.js' {
     }
 }
 
+// What the editor notes about text it copies (copied from several cursors, a whole line), used by
+// lib/monaco/paste-command.ts to paste it back the way Ctrl+V does.
+declare module 'monaco-editor/editor/browser/controller/editContext/clipboardUtils.js' {
+    export type ClipboardStoredMetadata = {
+        isFromEmptySelection: boolean | undefined
+        multicursorText: string[] | null | undefined
+        mode: string | null
+    }
+    export const InMemoryClipboardMetadataManager: {
+        readonly INSTANCE: {
+            set(lastCopiedValue: string, data: ClipboardStoredMetadata): void
+            /** The notes on `pastedText` when it is what the editor copied last, or null. */
+            get(pastedText: string): ClipboardStoredMetadata | null
+        }
+    }
+}
+
 // Monaco's clipboard commands and editor extensions, used by lib/monaco/paste-command.test.ts to check that Paste
 // stays a plain command, which editor.trigger hands to the shared command registry (where Scrivon's Paste is).
 declare module 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js'

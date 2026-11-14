@@ -3,9 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IDisposable } from 'monaco-editor'
 // Monaco's real clipboard commands: registers its Paste, as loading the editor does.
 import 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js'
+import { InMemoryClipboardMetadataManager } from 'monaco-editor/editor/browser/controller/editContext/clipboardUtils.js'
 import { EditorExtensionsRegistry } from 'monaco-editor/editor/browser/editorExtensions.js'
 import { CommandsRegistry } from 'monaco-editor/platform/commands/common/commands.js'
 import { MONACO_PASTE_COMMAND_ID, takeOverEditorPaste } from './paste-command'
+
+const clipboard = vi.hoisted(() => ({ readText: vi.fn<() => Promise<string>>() }))
+const notify = vi.hoisted(() => ({ error: vi.fn() }))
+vi.mock('@/lib/tauri/clipboard', () => ({ readClipboardText: clipboard.readText }))
+vi.mock('@/lib/notify', () => ({ notifyError: notify.error }))
 
 /** Runs Monaco's Paste by id, as Edit > Paste, the palette and the right-click menu do. */
 const choosePaste = () => CommandsRegistry.getCommand(MONACO_PASTE_COMMAND_ID)?.handler({}, {})
@@ -20,84 +26,100 @@ describe("Monaco's Paste", () => {
 })
 
 describe('takeOverEditorPaste', () => {
+    /** Monaco's own Paste, which reads the clipboard through the browser and so makes WebView2 ask for access. */
     const monacoPaste = vi.fn()
+    const pastePicture = vi.fn(async () => {})
     let monacoOwn: IDisposable
-    const taken: IDisposable[] = []
-
-    /** An editor whose trigger runs the command a little later, as a future Monaco might. */
-    const lateEditor = {
-        trigger: vi.fn((_source: string, id: string, payload: unknown) => {
-            setTimeout(() => CommandsRegistry.getCommand(id)?.handler({}, payload))
-        }),
-    }
-
-    const takeOver = (pasteFirst: () => Promise<boolean> | null) => {
-        const disposable = takeOverEditorPaste(lateEditor, pasteFirst)
-        taken.push(disposable)
-        return disposable
-    }
+    let taken: IDisposable
+    const editor = { textFocused: true, hasTextFocus: () => editor.textFocused, trigger: vi.fn() }
 
     beforeEach(() => {
         vi.clearAllMocks()
+        editor.textFocused = true
         monacoOwn = CommandsRegistry.registerCommand(MONACO_PASTE_COMMAND_ID, monacoPaste)
+        taken = takeOverEditorPaste(editor, pastePicture)
     })
 
     afterEach(() => {
-        taken.splice(0).forEach((disposable) => disposable.dispose())
+        taken.dispose()
         monacoOwn.dispose()
     })
 
-    it('leaves Monaco out when Scrivon pasted', async () => {
-        const pasteFirst = vi.fn(async () => true)
-        takeOver(pasteFirst)
+    it('pastes the clipboard’s text the way Ctrl+V does, without Monaco’s own clipboard read', async () => {
+        clipboard.readText.mockResolvedValue('Hello')
 
         await choosePaste()
 
-        expect(pasteFirst).toHaveBeenCalledTimes(1)
-        expect(lateEditor.trigger).not.toHaveBeenCalled()
+        // Monaco's paste handler, as Ctrl+V uses: one step to undo, and the cursors move past the text.
+        expect(editor.trigger).toHaveBeenCalledWith('keyboard', 'paste', { text: 'Hello', pasteOnNewLine: false, multicursorText: null, mode: null })
+        expect(monacoPaste).not.toHaveBeenCalled()
+        expect(pastePicture).not.toHaveBeenCalled()
+    })
+
+    it('gives each cursor its own line when the text was copied from as many cursors, and a whole copied line a line of its own', async () => {
+        // What the editor notes when it copies, as Ctrl+V finds it.
+        InMemoryClipboardMetadataManager.INSTANCE.set('one\r\ntwo', {
+            isFromEmptySelection: false,
+            multicursorText: ['one', 'two'],
+            mode: 'markdown',
+        })
+        clipboard.readText.mockResolvedValue('one\r\ntwo')
+        await choosePaste()
+        expect(editor.trigger).toHaveBeenLastCalledWith('keyboard', 'paste', {
+            text: 'one\r\ntwo',
+            pasteOnNewLine: false,
+            multicursorText: ['one', 'two'],
+            mode: 'markdown',
+        })
+
+        InMemoryClipboardMetadataManager.INSTANCE.set('# Setup\r\n', { isFromEmptySelection: true, multicursorText: null, mode: null })
+        clipboard.readText.mockResolvedValue('# Setup\r\n')
+        await choosePaste()
+        expect(editor.trigger).toHaveBeenLastCalledWith('keyboard', 'paste', {
+            text: '# Setup\r\n',
+            pasteOnNewLine: true,
+            multicursorText: null,
+            mode: null,
+        })
+    })
+
+    it('pastes the picture when the clipboard has no text', async () => {
+        clipboard.readText.mockResolvedValue('')
+
+        await choosePaste()
+
+        expect(pastePicture).toHaveBeenCalledTimes(1)
+        expect(editor.trigger).not.toHaveBeenCalled()
         expect(monacoPaste).not.toHaveBeenCalled()
     })
 
-    it('lets Monaco paste at once when Scrivon has nothing to try', () => {
-        takeOver(() => null)
-
-        choosePaste()
-
-        expect(monacoPaste).toHaveBeenCalledTimes(1)
-    })
-
-    it('hands Paste to Monaco just once when Scrivon didn’t paste, however late the re-run arrives', async () => {
-        const pasteFirst = vi.fn(async () => false)
-        takeOver(pasteFirst)
+    it('leaves the clipboard alone when the editor’s text doesn’t have focus (its find box does)', async () => {
+        editor.textFocused = false
 
         await choosePaste()
-        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(1))
-        await new Promise((resolve) => setTimeout(resolve, 10))
 
-        expect(pasteFirst).toHaveBeenCalledTimes(1)
-        expect(monacoPaste).toHaveBeenCalledTimes(1)
+        expect(clipboard.readText).not.toHaveBeenCalled()
+        expect(monacoPaste).not.toHaveBeenCalled()
     })
 
-    it('passes the re-run through an older editor’s takeover without asking it again', async () => {
-        const older = vi.fn(async () => false)
-        const newer = vi.fn(async () => false)
-        takeOver(older)
-        takeOver(newer)
-
+    it('says why when the clipboard can’t be read', async () => {
+        clipboard.readText.mockRejectedValueOnce('The native clipboard is not accessible due to being held by another party.')
         await choosePaste()
-        await vi.waitFor(() => expect(monacoPaste).toHaveBeenCalledTimes(1))
+        expect(notify.error).toHaveBeenCalledWith("Couldn't paste", 'The native clipboard is not accessible due to being held by another party.')
 
-        expect(newer).toHaveBeenCalledTimes(1)
-        expect(older).not.toHaveBeenCalled()
+        clipboard.readText.mockResolvedValue('')
+        pastePicture.mockRejectedValueOnce('failed to read clipboard PNG data')
+        await choosePaste()
+        expect(notify.error).toHaveBeenLastCalledWith("Couldn't paste", 'failed to read clipboard PNG data')
+        expect(monacoPaste).not.toHaveBeenCalled()
     })
 
     it('gives Paste back to Monaco once disposed', () => {
-        const pasteFirst = vi.fn(async () => true)
-        takeOver(pasteFirst).dispose()
+        taken.dispose()
 
         choosePaste()
 
-        expect(pasteFirst).not.toHaveBeenCalled()
+        expect(clipboard.readText).not.toHaveBeenCalled()
         expect(monacoPaste).toHaveBeenCalledTimes(1)
     })
 })

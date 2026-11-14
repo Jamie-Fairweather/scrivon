@@ -1,5 +1,6 @@
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { notifyError, notifyInfo, notifySuccess } from '@/lib/notify'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import { pathInside } from '@/lib/tauri/fs'
 import { displayPath } from '@/lib/workspace/display-path'
 
@@ -27,9 +28,7 @@ export async function revealInFileExplorer(path: string, workspaceRoot: string |
 /** Puts a path on the clipboard and confirms with a toast that shows it. */
 export async function copyPath(path: string, kind: 'full' | 'relative' = 'full'): Promise<void> {
     try {
-        // Missing where the page isn't allowed to use the clipboard.
-        if (!navigator.clipboard?.writeText) throw new Error('No clipboard')
-        await navigator.clipboard.writeText(path)
+        await writeClipboardText(path)
         notifySuccess(kind === 'relative' ? 'Relative path copied' : 'Path copied', { description: displayPath(path) })
     } catch (err) {
         notifyError("Couldn't copy the path", err)

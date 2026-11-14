@@ -10,6 +10,27 @@ const eslintConfig = defineConfig([
             react: { version: '19' },
         },
     },
+    {
+        // Reading the browser's clipboard makes WebView2 ask the user for clipboard access (#208).
+        ignores: ['lib/tauri/clipboard.ts'],
+        rules: {
+            'no-restricted-properties': [
+                'error',
+                {
+                    object: 'navigator',
+                    property: 'clipboard',
+                    message: 'Use lib/tauri/clipboard.ts, which goes through Tauri, so WebView2 never asks for clipboard access.',
+                },
+            ],
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector: "MemberExpression[object.property.name='navigator'][property.name='clipboard']",
+                    message: 'Use lib/tauri/clipboard.ts, which goes through Tauri, so WebView2 never asks for clipboard access.',
+                },
+            ],
+        },
+    },
     globalIgnores([
         '.next/**',
         'out/**',

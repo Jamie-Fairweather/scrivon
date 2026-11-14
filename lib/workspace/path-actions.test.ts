@@ -1,25 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { notifyError, notifyInfo, notifySuccess } from '@/lib/notify'
 import { copyPath, relativeToWorkspace, revealInFileExplorer } from './path-actions'
 
-const { revealItemInDir } = vi.hoisted(() => ({ revealItemInDir: vi.fn<(path: string) => Promise<void>>(async () => undefined) }))
+const { revealItemInDir, writeClipboardText } = vi.hoisted(() => ({
+    revealItemInDir: vi.fn<(path: string) => Promise<void>>(async () => undefined),
+    writeClipboardText: vi.fn<(text: string) => Promise<void>>(async () => undefined),
+}))
 
 vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir }))
 vi.mock('@/lib/notify', () => ({ notifySuccess: vi.fn(), notifyError: vi.fn(), notifyInfo: vi.fn() }))
-
-const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-
-function setClipboard(clipboard: Partial<Clipboard> | undefined) {
-    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
-}
+vi.mock('@/lib/tauri/clipboard', () => ({ writeClipboardText }))
 
 beforeEach(() => {
     vi.clearAllMocks()
-})
-
-afterEach(() => {
-    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
-    else Reflect.deleteProperty(navigator, 'clipboard')
 })
 
 describe('relativeToWorkspace', () => {
@@ -65,33 +58,27 @@ describe('revealInFileExplorer', () => {
 })
 
 describe('copyPath', () => {
-    it('puts the path on the clipboard and confirms with a toast', async () => {
-        const writeText = vi.fn(async () => undefined)
-        setClipboard({ writeText })
-
+    it('puts the path on the clipboard through Tauri and confirms with a toast', async () => {
         await copyPath('C:\\Work\\notes\\plan.md')
 
-        expect(writeText).toHaveBeenCalledWith('C:\\Work\\notes\\plan.md')
+        expect(writeClipboardText).toHaveBeenCalledWith('C:\\Work\\notes\\plan.md')
         expect(notifySuccess).toHaveBeenCalledWith('Path copied', { description: 'C:\\Work\\notes\\plan.md' })
     })
 
     it('names a relative path in the toast', async () => {
-        setClipboard({ writeText: vi.fn(async () => undefined) })
-
         await copyPath('docs\\plan.md', 'relative')
 
+        expect(writeClipboardText).toHaveBeenCalledWith('docs\\plan.md')
         expect(notifySuccess).toHaveBeenCalledWith('Relative path copied', { description: 'docs\\plan.md' })
     })
 
-    it('says so when the clipboard refuses, or there is none', async () => {
-        const denied = new Error('Not allowed')
-        setClipboard({ writeText: vi.fn(async () => Promise.reject(denied)) })
-        await copyPath('C:\\Work\\notes\\plan.md')
-        expect(notifyError).toHaveBeenLastCalledWith("Couldn't copy the path", denied)
+    it('says so when the clipboard refuses', async () => {
+        const occupied = 'The native clipboard is not accessible due to being held by another party.'
+        writeClipboardText.mockRejectedValueOnce(occupied)
 
-        setClipboard(undefined)
         await copyPath('C:\\Work\\notes\\plan.md')
-        expect(notifyError).toHaveBeenLastCalledWith("Couldn't copy the path", expect.any(Error))
+
+        expect(notifyError).toHaveBeenCalledWith("Couldn't copy the path", occupied)
         expect(notifySuccess).not.toHaveBeenCalled()
     })
 })

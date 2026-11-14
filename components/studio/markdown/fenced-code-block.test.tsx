@@ -24,6 +24,10 @@ function shikiHtml(code: string, theme: string): string {
 const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/notify', () => ({ notifyError }))
 
+/** The clipboard, written through Tauri. */
+const writeText = vi.hoisted(() => vi.fn<(text: string) => Promise<void>>())
+vi.mock('@/lib/tauri/clipboard', () => ({ writeClipboardText: writeText }))
+
 vi.mock('@/lib/markdown/shiki-highlighter', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/markdown/shiki-highlighter')>()),
     highlightFencedCodeNow: (code: string, _language: string | undefined, theme: string) =>
@@ -285,27 +289,18 @@ describe('createHighlightCache (N71)', () => {
 })
 
 describe('FencedCodeBlock: Copy button', () => {
-    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-
-    function setClipboard(writeText: (text: string) => Promise<void>) {
-        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    }
-
     beforeEach(() => {
         shiki.readyThemes = new Set(['github-dark'])
         notifyError.mockClear()
+        writeText.mockReset().mockResolvedValue(undefined)
     })
 
     afterEach(() => {
         vi.useRealTimers()
-        if (original) Object.defineProperty(navigator, 'clipboard', original)
-        else Reflect.deleteProperty(navigator, 'clipboard')
     })
 
-    it('shows the language and copies the code, then says so for a moment', async () => {
+    it('shows the language and copies the code through Tauri, then says so for a moment', async () => {
         vi.useFakeTimers()
-        const writeText = vi.fn(async () => {})
-        setClipboard(writeText)
         render(<FencedCodeBlock code={'const a = 1\nconst b = 2'} language="ts" />)
         expect(screen.getByText('ts')).toBeInTheDocument()
 
@@ -319,9 +314,6 @@ describe('FencedCodeBlock: Copy button', () => {
 
     it('can be reached and used with the keyboard', async () => {
         const user = userEvent.setup()
-        // After setup, which puts in a clipboard of its own.
-        const writeText = vi.fn(async () => {})
-        setClipboard(writeText)
         render(<FencedCodeBlock code="echo hi" language="sh" />)
 
         await user.tab()
@@ -331,11 +323,14 @@ describe('FencedCodeBlock: Copy button', () => {
     })
 
     it("says when the code couldn't be copied", async () => {
-        setClipboard(async () => Promise.reject(new Error('Not allowed')))
+        writeText.mockRejectedValue('The native clipboard is not accessible due to being held by another party.')
         render(<FencedCodeBlock code="echo hi" />)
 
         await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Copy code' })))
-        expect(notifyError).toHaveBeenCalledWith("Couldn't copy the code", expect.any(Error))
+        expect(notifyError).toHaveBeenCalledWith(
+            "Couldn't copy the code",
+            'The native clipboard is not accessible due to being held by another party.'
+        )
         expect(screen.getByRole('button', { name: 'Copy code' })).toBeInTheDocument()
     })
 

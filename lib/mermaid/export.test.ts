@@ -15,7 +15,13 @@ const notify = vi.hoisted(() => ({
 const opener = vi.hoisted(() => ({ revealItemInDir: vi.fn<(path: string) => Promise<void>>(async () => undefined) }))
 
 const render = vi.hoisted(() => ({ fakeSvg: null as string | null }))
+/** The clipboard, written through Tauri. */
+const clipboard = vi.hoisted(() => ({
+    writeClipboardText: vi.fn<(text: string) => Promise<void>>(async () => undefined),
+    writeClipboardPng: vi.fn<(png: Uint8Array) => Promise<void>>(async () => undefined),
+}))
 
+vi.mock('@/lib/tauri/clipboard', () => clipboard)
 vi.mock('@/lib/tauri/dialog', () => dialog)
 vi.mock('@tauri-apps/plugin-opener', () => opener)
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
@@ -254,39 +260,15 @@ describe('copy to the clipboard (F45)', () => {
     const FLOW = 'graph TD\n  A --> B'
     const SEQUENCE = 'sequenceDiagram\n  Alice->>Bob: Hello'
 
-    /** What the app put on the clipboard: one entry per format. */
-    type Copied = Record<string, Blob>
-
-    /** A clipboard that keeps what it's given. `svg` says whether it takes the SVG picture format. */
-    function stubClipboard({ svg = true } = {}) {
-        const copied: Copied[] = []
-        class FakeClipboardItem {
-            constructor(readonly items: Record<string, Blob | Promise<Blob>>) {}
-            static supports(type: string) {
-                return type === 'image/png' || type === 'text/plain' || (svg && type === 'image/svg+xml')
-            }
-        }
-        const write = vi.fn(async (items: FakeClipboardItem[]) => {
-            for (const item of items) {
-                const entry: Copied = {}
-                for (const [type, blob] of Object.entries(item.items)) entry[type] = await blob
-                copied.push(entry)
-            }
-        })
-        vi.stubGlobal('ClipboardItem', FakeClipboardItem)
-        vi.stubGlobal('navigator', { clipboard: { write } })
-        return copied
-    }
-
-    it('copies a PNG of the diagram and says so', async () => {
+    it('copies a PNG of the diagram through Tauri and says so', async () => {
         const canvas = stubCanvas()
-        const copied = stubClipboard()
 
         await copyPng(FLOW, LIGHT)
 
         expect(notify.notifyError).not.toHaveBeenCalled()
-        expect(Object.keys(copied[0]!)).toEqual(['image/png'])
-        expect(copied[0]!['image/png']!.type).toBe('image/png')
+        // The bytes the canvas encoded.
+        expect(clipboard.writeClipboardPng).toHaveBeenCalledWith(new TextEncoder().encode('png'))
+        expect(clipboard.writeClipboardText).not.toHaveBeenCalled()
         expect(canvas.fills).toEqual(['#ffffff'])
         expect(notify.notifySuccess).toHaveBeenCalledWith('Diagram copied as PNG')
         // Nothing is saved to disk.
@@ -295,7 +277,6 @@ describe('copy to the clipboard (F45)', () => {
 
     it('copies a transparent PNG with no background painted', async () => {
         const canvas = stubCanvas()
-        stubClipboard()
 
         await copyPng(FLOW, { themeId: 'scrivon-light', transparent: true })
 
@@ -306,7 +287,6 @@ describe('copy to the clipboard (F45)', () => {
     it('copies a big diagram smaller, and says so', async () => {
         render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30000 400" width="30000" height="400"></svg>'
         const canvas = stubCanvas()
-        stubClipboard()
 
         await copyPng(FLOW, LIGHT)
 
@@ -320,70 +300,46 @@ describe('copy to the clipboard (F45)', () => {
     it('says to copy as SVG when the diagram is too big for any PNG', async () => {
         render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 70000 300" width="70000" height="300"></svg>'
         stubCanvas()
-        const copied = stubClipboard()
 
         await copyPng(FLOW, LIGHT)
 
-        expect(copied).toEqual([])
+        expect(clipboard.writeClipboardPng).not.toHaveBeenCalled()
         expect(notify.notifyError).toHaveBeenCalledWith(
             "Couldn't copy the diagram",
             new Error('This diagram is too big to copy as a PNG. Copy it as SVG instead.')
         )
     })
 
-    it('copies the SVG as a picture and as text, without the label halo, and says so', async () => {
-        const copied = stubClipboard()
-
+    it('copies the SVG markup as text through Tauri, without the label halo, and says so', async () => {
         await copySvg(SEQUENCE, { themeId: 'scrivon-dark', transparent: true })
 
         expect(notify.notifyError).not.toHaveBeenCalled()
-        expect(Object.keys(copied[0]!).sort()).toEqual(['image/svg+xml', 'text/plain'])
-        const text = await copied[0]!['text/plain']!.text()
+        const [[text]] = clipboard.writeClipboardText.mock.calls as [[string]]
         expect(text).toMatch(/^<svg /)
         expect(text).toContain('Hello')
         expect(text).not.toContain('paint-order')
         expect(text).not.toContain('background:')
-        expect(await copied[0]!['image/svg+xml']!.text()).toBe(text)
         expect(notify.notifySuccess).toHaveBeenCalledWith('Diagram copied as SVG')
     })
 
-    it('copies the SVG as text alone where the clipboard does not take SVG pictures', async () => {
-        const copied = stubClipboard({ svg: false })
-
-        await copySvg(FLOW, LIGHT)
-
-        expect(Object.keys(copied[0]!)).toEqual(['text/plain'])
-        expect(notify.notifySuccess).toHaveBeenCalledWith('Diagram copied as SVG')
-    })
-
-    it('says so when there is no clipboard to write to', async () => {
+    it('says why when the clipboard refuses', async () => {
         stubCanvas()
-        vi.stubGlobal('navigator', {})
+        const occupied = 'The native clipboard is not accessible due to being held by another party.'
+        clipboard.writeClipboardPng.mockRejectedValueOnce(occupied)
+        clipboard.writeClipboardText.mockRejectedValueOnce(occupied)
 
         await copyPng(FLOW, LIGHT)
         await copySvg(FLOW, LIGHT)
 
         expect(notify.notifySuccess).not.toHaveBeenCalled()
         expect(notify.notifyError).toHaveBeenCalledTimes(2)
-        expect(notify.notifyError).toHaveBeenCalledWith("Couldn't copy the diagram", new Error('The clipboard is not available.'))
-    })
-
-    it('says why when the clipboard refuses', async () => {
-        stubClipboard()
-        const denied = new Error('Write permission denied.')
-        vi.stubGlobal('navigator', { clipboard: { write: vi.fn(async () => Promise.reject(denied)) } })
-
-        await copySvg(FLOW, LIGHT)
-
-        expect(notify.notifyError).toHaveBeenCalledWith("Couldn't copy the diagram", denied)
+        expect(notify.notifyError).toHaveBeenCalledWith("Couldn't copy the diagram", occupied)
     })
 
     it('says so instead of copying an empty diagram', async () => {
-        const copied = stubClipboard()
-
         await copySvg('graph TD', LIGHT)
 
-        expect(copied).toEqual([])
+        expect(clipboard.writeClipboardText).not.toHaveBeenCalled()
         expect(notify.notifyError).toHaveBeenCalledWith(
             "Couldn't copy the diagram",
             new Error('The diagram is empty, so there is nothing to export.')

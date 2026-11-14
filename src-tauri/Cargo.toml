@@ -24,7 +24,10 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# image-png: the clipboard takes a diagram copied as PNG bytes (lib/tauri/clipboard.ts).
+tauri = { version = "2", features = ["image-png"] }
+# All clipboard reads and writes, so WebView2 never asks the user for clipboard access (#208).
+tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
 # watch: lets the app notice files changed by other programs (D10).
 tauri-plugin-fs = { version = "2", features = ["watch"] }

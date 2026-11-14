@@ -13,6 +13,9 @@ vi.mock('@/lib/diagnostics/app-log', () => ({ logError: vi.fn(), logWarning: vi.
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: vi.fn() }))
 // The real controls need the desktop window, which these tests don't have.
 vi.mock('@/components/studio/shell/window-titlebar-controls', () => ({ TITLEBAR_ABOVE_DIALOGS_CLASS: '', WindowTitlebarControls: () => null }))
+/** The clipboard, written through Tauri. */
+const writeText = vi.hoisted(() => vi.fn<(text: string) => Promise<void>>())
+vi.mock('@/lib/tauri/clipboard', () => ({ writeClipboardText: writeText }))
 
 const flushAllSaves = vi.fn<() => Promise<boolean>>()
 const reload = vi.fn()
@@ -150,22 +153,16 @@ describe('Reset recent folders and tabs', () => {
 })
 
 describe('CopyErrorDetailsButton', () => {
-    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-
-    function setClipboard(clipboard: Partial<Clipboard> | undefined) {
-        Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
-    }
+    beforeEach(() => {
+        writeText.mockResolvedValue(undefined)
+    })
 
     afterEach(() => {
         vi.useRealTimers()
-        if (original) Object.defineProperty(navigator, 'clipboard', original)
-        else Reflect.deleteProperty(navigator, 'clipboard')
     })
 
-    it('says it copied, then goes back to its label', async () => {
+    it('copies through Tauri and says it copied, then goes back to its label', async () => {
         vi.useFakeTimers()
-        const writeText = vi.fn(async () => undefined)
-        setClipboard({ writeText })
         render(<CopyErrorDetailsButton details="Scrivon 1.4.2" />)
 
         await act(async () => {
@@ -178,19 +175,8 @@ describe('CopyErrorDetailsButton', () => {
         expect(screen.getByRole('button', { name: 'Copy error details' })).toBeInTheDocument()
     })
 
-    it("says it couldn't copy when the write fails", async () => {
-        setClipboard({ writeText: vi.fn(async () => Promise.reject(new Error('Not allowed'))) })
-        render(<CopyErrorDetailsButton details="details" />)
-
-        await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Copy error details' }))
-        })
-
-        expect(screen.getByRole('button', { name: "Couldn't copy" })).toBeInTheDocument()
-    })
-
-    it("says it couldn't copy when there is no clipboard to write to", async () => {
-        setClipboard(undefined)
+    it("says it couldn't copy when the clipboard refuses", async () => {
+        writeText.mockRejectedValue('The native clipboard is not accessible due to being held by another party.')
         render(<CopyErrorDetailsButton details="details" />)
 
         await act(async () => {

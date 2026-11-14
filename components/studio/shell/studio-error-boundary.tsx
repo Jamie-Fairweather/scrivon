@@ -7,6 +7,7 @@ import { APP_NAME } from '@/lib/app-branding'
 import { logError } from '@/lib/diagnostics/app-log'
 import { APP_VERSION } from '@/lib/legal/app-version'
 import { errorMessage } from '@/lib/notify'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import { isTauri } from '@/lib/tauri/platform'
 import { clearWorkspaceStore } from '@/lib/tauri/store'
 import { cn } from '@/lib/utils'
@@ -86,9 +87,7 @@ export function CopyErrorDetailsButton({ details }: { details: string }) {
 
     const copy = async () => {
         try {
-            // Missing where the page isn't allowed to use the clipboard.
-            if (!navigator.clipboard?.writeText) throw new Error('No clipboard')
-            await navigator.clipboard.writeText(details)
+            await writeClipboardText(details)
             setStatus('copied')
         } catch {
             setStatus('failed')

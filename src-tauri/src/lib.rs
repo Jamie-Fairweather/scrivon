@@ -300,6 +300,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        // Paste and copy go through this, not the browser's clipboard, so
+        // WebView2 never asks the user for clipboard access (#208).
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // First, so what goes wrong from here on is in the log.
             diagnostics::start_logging(app.handle());
