@@ -3,10 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
+import { useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds'
 import { cyclePaneFocus, cyclePaneFocusSoon, focusPane, focusPaneSoon } from '@/components/studio/shell/pane-focus'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ToastProvider } from '@/components/ui/toast'
 import { dismissNotification, notifyError } from '@/lib/notify'
+import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
 /**
  * The command palette, after every pane like Base UI's portal. It takes focus when it opens. Once a command is picked
@@ -195,9 +197,9 @@ describe('cyclePaneFocus with notifications', () => {
     })
 
     /** Like "Couldn't save": it never times out, and its Try Again may be the only way to retry. */
-    async function showSaveFailed() {
+    async function showSaveFailed(tryAgain = vi.fn()) {
         act(() => {
-            notifyError("Couldn't save b.md", undefined, { id: NOTICE, timeout: 0, action: { label: 'Try Again', onClick: vi.fn() } })
+            notifyError("Couldn't save b.md", undefined, { id: NOTICE, timeout: 0, action: { label: 'Try Again', onClick: tryAgain } })
         })
         // Hidden from screen readers (aria-hidden) until the notifications have focus.
         await screen.findByRole('button', { name: 'Try Again', hidden: true })
@@ -227,6 +229,99 @@ describe('cyclePaneFocus with notifications', () => {
         expect(focused()).toBe(notifications)
         cyclePaneFocus(-1)
         expect(focused()).toBe(screen.getByRole('region', { name: 'Preview' }))
+    })
+
+    it("goes back to where focus was when a notification's button closes it", async () => {
+        const user = userEvent.setup()
+        // The save works this time, so the notice goes.
+        const tryAgain = vi.fn(() => dismissNotification(NOTICE))
+        render(
+            <ToastProvider>
+                <Panes />
+            </ToastProvider>
+        )
+        await showSaveFailed(tryAgain)
+        const preview = screen.getByRole('region', { name: 'Preview' })
+
+        preview.focus()
+        cyclePaneFocus(1)
+        await user.tab()
+        await user.tab()
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Try Again' }))
+        await user.keyboard('{Enter}')
+
+        expect(tryAgain).toHaveBeenCalled()
+        expect(focused()).toBe(preview)
+    })
+
+    it('goes back to where focus was on Shift+Tab from the notifications', async () => {
+        const user = userEvent.setup()
+        render(
+            <ToastProvider>
+                <Panes />
+            </ToastProvider>
+        )
+        await showSaveFailed()
+        const file = screen.getByRole('treeitem', { name: 'b.md' })
+
+        // Shift+F6 from the first pane goes back round to the notifications.
+        file.focus()
+        cyclePaneFocus(-1)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Notifications' }))
+        await user.tab({ shift: true })
+
+        expect(focused()).toBe(file)
+    })
+
+    it('goes back to where focus was on Tab past the last button', async () => {
+        const user = userEvent.setup()
+        render(
+            <ToastProvider>
+                <Panes />
+            </ToastProvider>
+        )
+        await showSaveFailed()
+        const preview = screen.getByRole('region', { name: 'Preview' })
+
+        preview.focus()
+        cyclePaneFocus(1)
+        await user.tab()
+        await user.tab()
+        await user.tab()
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Dismiss notification' }))
+        await user.tab()
+
+        expect(focused()).toBe(preview)
+    })
+
+    it('works with the real F6 key and the app shortcut handler', async () => {
+        const keybinds = createDefaultKeybinds(false)
+        const handlers = { 'view.focusNextPane': () => cyclePaneFocusSoon(1), 'view.focusPreviousPane': () => cyclePaneFocusSoon(-1) }
+        function Shortcuts() {
+            useGlobalKeybinds(keybinds, handlers, { hasWorkspace: true })
+            return null
+        }
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
+        const user = userEvent.setup()
+        render(
+            <ToastProvider>
+                <Panes />
+                <Shortcuts />
+            </ToastProvider>
+        )
+        await showSaveFailed()
+        const preview = screen.getByRole('region', { name: 'Preview' })
+        const notifications = screen.getByRole('region', { name: 'Notifications' })
+
+        preview.focus()
+        await user.keyboard('{F6}')
+        await waitFor(() => expect(focused()).toBe(notifications))
+        // And it stays there: the F6 sent for Base UI doesn't count as another press.
+        for (let frame = 0; frame < 3; frame++) await nextFrame()
+        expect(focused()).toBe(notifications)
+
+        await user.tab({ shift: true })
+        expect(focused()).toBe(preview)
     })
 
     it('skips the notifications while none shows', async () => {

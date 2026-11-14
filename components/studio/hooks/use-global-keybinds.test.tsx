@@ -1,7 +1,7 @@
 import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds'
+import { sendKeyPastShortcuts, useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds'
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
@@ -448,6 +448,22 @@ describe('useGlobalKeybinds', () => {
         document.body.dispatchEvent(event)
 
         expect(save).not.toHaveBeenCalled()
+    })
+
+    it("leaves alone a key the app sends past its shortcuts, so the library it's for still hears it", () => {
+        const focusNextPane = vi.fn()
+        const heard = vi.fn()
+        renderHook(() => useGlobalKeybinds(bindings, { 'view.focusNextPane': focusNextPane }, { hasWorkspace: true }))
+        window.addEventListener('keydown', heard)
+
+        sendKeyPastShortcuts(window, { key: 'F6' })
+        window.removeEventListener('keydown', heard)
+
+        expect(focusNextPane).not.toHaveBeenCalled()
+        expect(heard).toHaveBeenCalledWith(expect.objectContaining({ key: 'F6', defaultPrevented: false }))
+        // A real F6 is still the app's.
+        expect(press('F6').defaultPrevented).toBe(true)
+        expect(focusNextPane).toHaveBeenCalledTimes(1)
     })
 
     it('does nothing when disabled', () => {
