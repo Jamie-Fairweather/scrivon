@@ -1,7 +1,7 @@
 {
     "name": "scrivon",
     "private": true,
-    "version": "1.6.0-rc.1",
+    "version": "1.6.0",
     "license": "MIT",
     "packageManager": "bun@1.4.2",
     "type": "module",
